@@ -23,7 +23,9 @@ import {
   buildPayAndInvest,
   buildSpotLPDeposit,
   readEphemeralForT2000,
+  writeCachedProof,
   type SignAndSubmitResult,
+  type StoredZkProof,
 } from "./zkclient";
 import {
   buildUsdsuiTransferWithReceipt,
@@ -111,6 +113,9 @@ async function callT2000(payload: Record<string, unknown>): Promise<SignAndSubmi
   if (!eph) {
     throw new Error("No active sign-in. Please sign in again.");
   }
+  // `readEphemeralForT2000` already includes `cachedProof` when available.
+  // If the server returns `freshProof` on cache miss, persist it so the
+  // next call skips Shinami entirely.
   const res = await fetch("/api/t2000/execute", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -120,7 +125,11 @@ async function callT2000(payload: Record<string, unknown>): Promise<SignAndSubmi
     const err = await res.json().catch(() => ({ error: "t2000 failed" }));
     throw new Error(err.error || `t2000 failed (HTTP ${res.status})`);
   }
-  const { digest } = (await res.json()) as { digest: string };
+  const { digest, freshProof } = (await res.json()) as {
+    digest: string;
+    freshProof?: StoredZkProof;
+  };
+  if (freshProof) writeCachedProof(freshProof);
   return { digest, created: {} };
 }
 

@@ -41,7 +41,7 @@ export default async function EarnPage() {
         time. No lockup, no minimum, gas is on us.
       </p>
 
-      <div className="mt-8 max-w-4xl">
+      <div className="mt-8">
         <EarnDashboard
           senderAddress={user.sui_address}
           availableUsdsui={usdsui.usdsui}

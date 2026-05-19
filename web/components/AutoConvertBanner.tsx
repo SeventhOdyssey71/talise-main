@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ErrorBox } from "@/components/ErrorBox";
-import { readEphemeralForT2000 } from "@/lib/zkclient";
+import { readEphemeralForT2000, writeCachedProof } from "@/lib/zkclient";
 import type { OwnedCoinSummary } from "@/lib/coins";
 
 /**
@@ -98,15 +98,14 @@ export function AutoConvertBanner({
         const r = await fetch("/api/t2000/execute", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          // `eph` already includes `cachedProof` when available — server
+          // skips the 2-4s Shinami round trip whenever we have one.
           body: JSON.stringify({
             op: "swap",
             from: coin.symbol,
             to: "USDsui",
             amount: amountToSwap,
-            ephemeralPrivateKey: eph.ephemeralPrivateKey,
-            ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
-            maxEpoch: eph.maxEpoch,
-            randomness: eph.randomness,
+            ...eph,
           }),
         });
         if (!r.ok) {
@@ -115,6 +114,11 @@ export function AutoConvertBanner({
             j.error ?? `Convert ${coin.symbol} failed (HTTP ${r.status})`
           );
         }
+        // Persist the fresh proof on cache miss for the next conversion.
+        const j = (await r.json().catch(() => ({}))) as {
+          freshProof?: import("@/lib/zkclient").StoredZkProof;
+        };
+        if (j.freshProof) writeCachedProof(j.freshProof);
         setDoneCount((d) => d + 1);
       } catch (e) {
         setError(

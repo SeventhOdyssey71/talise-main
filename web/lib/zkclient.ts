@@ -26,12 +26,27 @@ const ZK_STORAGE_KEY = "talise:zk:eph";
 // Match Google's default JWT lifetime so the key never outlives its proof.
 const EPHEMERAL_TTL_MS = 55 * 60 * 1000;
 
+/**
+ * Cached zkLogin proof — generated server-side once per session via Shinami
+ * (2-4s), then reused for every subsequent signing without another prover
+ * round trip. Same shape the server's `mintZkProof` returns. Stays valid
+ * for the lifetime of the ephemeral key.
+ */
+export type StoredZkProof = {
+  proofPoints: { a: string[]; b: string[][]; c: string[] };
+  issBase64Details: { value: string; indexMod4: number };
+  headerBase64: string;
+  addressSeed: string;
+};
+
 type StoredAuth = {
   privKeyB64: string;
   pubKeyB64: string;
   randomness: string;
   maxEpoch: number;
   createdAt: number;
+  /** Cached proof from the first server signing. Reused on subsequent sends. */
+  proof?: StoredZkProof;
 };
 
 function readStored(): StoredAuth | null {
@@ -71,6 +86,26 @@ export function hasEphemeralKey(): boolean {
 }
 
 /**
+ * Read the cached zk proof if we have one for the current ephemeral key.
+ * Returns null if there's no key OR no cached proof yet (cold session).
+ */
+export function readCachedProof(): StoredZkProof | null {
+  const s = readStored();
+  return s?.proof ?? null;
+}
+
+/**
+ * Persist a freshly-minted zk proof so the NEXT sign call skips the
+ * 2-4s Shinami round trip. The proof is bound to the ephemeral key in
+ * storage — if the key is rotated (sign-in flow), the proof goes with it.
+ */
+export function writeCachedProof(proof: StoredZkProof): void {
+  const s = readStored();
+  if (!s) return;
+  writeStored({ ...s, proof });
+}
+
+/**
  * Snapshot of the browser-side ephemeral identity, shaped for our
  * `/api/t2000/execute` route. The route reconstructs the zkLogin signer
  * from these fields. Returns null if no ephemeral key is present.
@@ -84,6 +119,8 @@ export function readEphemeralForT2000(): {
   ephemeralPubKeyB64: string;
   maxEpoch: number;
   randomness: string;
+  /** Cached proof if any. Server skips Shinami when present. */
+  cachedProof?: StoredZkProof;
 } | null {
   const s = readStored();
   if (!s) return null;
@@ -92,6 +129,7 @@ export function readEphemeralForT2000(): {
     ephemeralPubKeyB64: s.pubKeyB64,
     maxEpoch: s.maxEpoch,
     randomness: s.randomness,
+    cachedProof: s.proof,
   };
 }
 
@@ -283,6 +321,11 @@ export async function signAndSubmit(
 
     // Trip 2: server wraps the ephemeral sig into a zkLoginSignature, adds
     // its own sponsor signature, and broadcasts.
+    //
+    // We pass `cachedProof` if we have one — the server skips the 2-4s
+    // Shinami round trip when provided. On cache miss the server returns
+    // `freshProof` in the response so we can persist it for next time.
+    const cachedProof = stored.proof;
     const er = await fetch("/api/zk/sponsor-execute", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -292,22 +335,28 @@ export async function signAndSubmit(
         maxEpoch: stored.maxEpoch,
         randomness: stored.randomness,
         userSignature,
+        cachedProof,
       }),
     });
     if (!er.ok) {
       const err = await er.json().catch(() => ({ error: "execute failed" }));
       throw new Error(err.error || `execute failed (HTTP ${er.status})`);
     }
-    const { digest, effects, objectChanges } = (await er.json()) as {
+    const { digest, effects, objectChanges, freshProof } = (await er.json()) as {
       digest: string;
       effects?: { status?: { status?: string; error?: string } };
       objectChanges?: unknown[];
+      freshProof?: StoredZkProof;
     };
 
     if (effects?.status?.status && effects.status.status !== "success") {
       const reason = effects.status.error ?? "unknown failure";
       throw new Error(`transaction failed: ${reason}`);
     }
+
+    // First successful tx in this session — persist the proof so every
+    // subsequent send skips Shinami entirely.
+    if (freshProof) writeCachedProof(freshProof);
 
     return { digest, created: groupCreated(objectChanges) };
   }
