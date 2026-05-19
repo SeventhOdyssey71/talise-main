@@ -1,37 +1,21 @@
 import "server-only";
 
-import { userByTaliseUsername } from "./db";
 import { formatHandle, isHexAddress, normalizeHandle } from "./handle";
 import { shortAddress } from "./format";
+import { suins } from "./suins-operator";
 
 /**
- * Recipient resolver.
+ * Recipient resolver. **On-chain SuiNS is the source of truth.**
  *
- * Today: DB lookup against `users.talise_username`. Anyone who has claimed a
- * username can be paid by their handle. This is the only resolution path.
+ * No DB lookup. A `name@talise` handle either has an on-chain SuiNS record
+ * (the user holds `name.talise.sui` as an NFT and a target address is set)
+ * or it doesn't resolve. Same surface every other Sui wallet sees.
  *
- * TODO(suins): When `talise.sui` is registered with the parent name owned by
- * the operator, swap the DB lookup for a SuiNS resolver call.
- *   import { SuinsClient } from "@mysten/suins";
- *   const suins = new SuinsClient({ client: suiClient, network: "mainnet" });
- *   const record = await suins.getNameRecord(`${username}.talise.sui`);
- *   if (record?.targetAddress) return { address, displayName };
- * That single function body change is the entire migration — every caller
- * stays the same.
+ * Hex addresses bypass SuiNS entirely.
  */
 
 export type Resolved = { address: string; displayName: string };
 
-/**
- * Resolve any of:
- *  - bare username `sele`
- *  - user-facing `sele@talise`
- *  - SuiNS canonical `sele.talise.sui`
- *  - raw hex `0x...64-hex`
- *
- * Returns null if the input doesn't match any of those, or if the username
- * exists in no row.
- */
 export async function resolveRecipient(input: string): Promise<Resolved | null> {
   if (!input) return null;
   const trimmed = input.trim();
@@ -44,11 +28,16 @@ export async function resolveRecipient(input: string): Promise<Resolved | null> 
   const username = normalizeHandle(trimmed);
   if (!username) return null;
 
-  const user = await userByTaliseUsername(username);
-  if (!user) return null;
-
-  return {
-    address: user.sui_address,
-    displayName: formatHandle(username),
-  };
+  try {
+    const record = await suins().getNameRecord(`${username}.talise.sui`);
+    if (record?.targetAddress) {
+      return {
+        address: record.targetAddress,
+        displayName: formatHandle(username),
+      };
+    }
+  } catch {
+    // RPC hiccup — let the caller surface "couldn't resolve" rather than guess.
+  }
+  return null;
 }

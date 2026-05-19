@@ -1,12 +1,11 @@
 import { redirect } from "next/navigation";
-import { userById, userTxs, hasBusiness } from "@/lib/db";
+import { userById, hasBusiness } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
 import {
   getSuiBalance,
   getUsdcBalance,
   getUsdsuiBalance,
   suiscanAccountUrl,
-  suiscanTxUrl,
 } from "@/lib/sui";
 import { getSuiUsdcPrice, getMarginPoolInfo } from "@/lib/deepbook";
 import { CopyAddress } from "@/components/CopyAddress";
@@ -20,6 +19,12 @@ import { UsernameCard } from "@/components/UsernameCard";
 import { getOwnedCoins } from "@/lib/coins";
 import { isUsdsui } from "@/lib/usdsui";
 import { shortAddress } from "@/lib/format";
+import {
+  findTaliseSubnameForOwner,
+  findAllTaliseSubnamesForOwner,
+} from "@/lib/suins-lookup";
+import { FixSubnameBanner } from "@/components/FixSubnameBanner";
+import { getRecentActivity, type ActivityEntry } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -32,21 +37,40 @@ export default async function HomePage() {
   if (!user.account_type) redirect("/onboarding");
   if (user.account_type === "business") redirect("/business");
 
-  const [balance, usdc, usdsui, suiPrice, marginUsdc, txs, ownedCoins] =
-    await Promise.all([
-      getSuiBalance(user.sui_address),
-      // USDC is still fetched solely so the auto-convert banner can detect
-      // legacy USDC and convert it to USDsui. It is NOT shown as a balance.
-      getUsdcBalance(user.sui_address),
-      getUsdsuiBalance(user.sui_address),
-      getSuiUsdcPrice(),
-      getMarginPoolInfo("USDC"),
-      userTxs(user.id, 10),
-      // Surface every coin type the user holds so the auto-convert banner
-      // can sweep anything that isn't already USDsui into our canonical
-      // stable. Failures here shouldn't block the page from rendering.
-      getOwnedCoins(user.sui_address).catch(() => []),
-    ]);
+  const [
+    balance,
+    usdc,
+    usdsui,
+    suiPrice,
+    marginUsdc,
+    ownedCoins,
+    subname,
+    allSubnames,
+    activity,
+  ] = await Promise.all([
+    getSuiBalance(user.sui_address),
+    // USDC is still fetched solely so the auto-convert banner can detect
+    // legacy USDC and convert it to USDsui. It is NOT shown as a balance.
+    getUsdcBalance(user.sui_address),
+    getUsdsuiBalance(user.sui_address),
+    getSuiUsdcPrice(),
+    getMarginPoolInfo("USDC"),
+    // Surface every coin type the user holds so the auto-convert banner
+    // can sweep anything that isn't already USDsui into our canonical
+    // stable. Failures here shouldn't block the page from rendering.
+    getOwnedCoins(user.sui_address).catch(() => []),
+    // Reverse-lookup the user's `*.talise.sui` subname directly from chain.
+    // Authoritative — no DB.
+    findTaliseSubnameForOwner(user.sui_address),
+    // All owned `*.talise.sui` NFTs (with their current SuiNS target).
+    // Used to surface stale ones (target == null) for one-tap repair.
+    findAllTaliseSubnamesForOwner(user.sui_address),
+    // On-chain activity feed — sent + received, with counterparty handles
+    // resolved when available. Authoritative; doesn't depend on our DB.
+    getRecentActivity(user.sui_address, 12).catch(() => [] as ActivityEntry[]),
+  ]);
+
+  const staleSubnames = allSubnames.filter((s) => !s.targetAddress);
 
   const nonUsdsui = ownedCoins.filter((c) => !isUsdsui(c.coinType));
   // Mark `usdc` as intentionally read for the auto-convert path. We do not
@@ -81,23 +105,36 @@ export default async function HomePage() {
         </div>
       }
     >
-      {!user.talise_username && (
-        <a
-          href="/claim"
-          className="mb-4 flex items-center justify-between rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4 transition hover:border-[var(--color-fg)]"
-        >
-          <div>
-            <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
-              New
+      <div className="mb-4">
+        {subname ? (
+          <UsernameCard
+            username={subname.username}
+            address={user.sui_address}
+            size="sm"
+          />
+        ) : (
+          <a
+            href="/claim"
+            className="flex items-center justify-between rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4 transition hover:border-[var(--color-fg)]"
+          >
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+                New
+              </div>
+              <div className="mt-1 text-[14px] text-[var(--color-fg)]">
+                Claim your <span className="font-mono">@username</span> — get paid at{" "}
+                <span className="font-mono">name@talise</span>.
+              </div>
             </div>
-            <div className="mt-1 text-[14px] text-[var(--color-fg)]">
-              Claim your <span className="font-mono">@username</span> — get paid at{" "}
-              <span className="font-mono">name@talise</span>.
-            </div>
-          </div>
-          <span className="text-[12px] text-[var(--color-fg-muted)]">claim →</span>
-        </a>
-      )}
+            <span className="text-[12px] text-[var(--color-fg-muted)]">claim →</span>
+          </a>
+        )}
+      </div>
+
+      <FixSubnameBanner
+        stale={staleSubnames.map((s) => ({ nftId: s.nftId, fullName: s.fullName }))}
+        userAddress={user.sui_address}
+      />
 
       <AutoConvertBanner
         coins={nonUsdsui}
@@ -106,21 +143,12 @@ export default async function HomePage() {
 
       <NetworkBanner />
 
-      <div className="grid gap-4 md:grid-cols-[1.5fr,1fr]">
-        <PersonalBalanceCard
-          totalUsd={totalUsd}
-          usdsui={usdsui.usdsui}
-          sui={balance.sui}
-          suiUsd={suiUsd}
-        />
-        {user.talise_username && (
-          <UsernameCard
-            username={user.talise_username}
-            address={user.sui_address}
-            size="sm"
-          />
-        )}
-      </div>
+      <PersonalBalanceCard
+        totalUsd={totalUsd}
+        usdsui={usdsui.usdsui}
+        sui={balance.sui}
+        suiUsd={suiUsd}
+      />
 
       <div className="mt-6">
         <PaymentActions />
@@ -156,7 +184,7 @@ export default async function HomePage() {
 
       <section className="mt-12">
         <SectionRow title="Activity" />
-        {txs.length === 0 ? (
+        {activity.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-[var(--color-line)] bg-[var(--color-surface-2)] p-12 text-center">
             <div className="mx-auto h-10 w-10 rounded-full border border-[var(--color-line)]" />
             <p className="mt-4 text-[14px] text-[var(--color-fg)]">
@@ -174,33 +202,8 @@ export default async function HomePage() {
           </div>
         ) : (
           <ul className="mt-4 space-y-2">
-            {txs.map((tx) => (
-              <li
-                key={tx.id}
-                className="flex items-center justify-between rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] px-4 py-3.5 text-[13px]"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-line)] text-[var(--color-fg-muted)]">
-                    ↗
-                  </span>
-                  <div>
-                    <div className="text-[var(--color-fg)]">
-                      Sent ${tx.amount}
-                    </div>
-                    <div className="font-mono text-[11px] text-[var(--color-fg-dim)]">
-                      to {tx.recipient?.slice(0, 6)}…{tx.recipient?.slice(-4)}
-                    </div>
-                  </div>
-                </div>
-                <a
-                  href={suiscanTxUrl(tx.digest)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[var(--color-fg-muted)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
-                >
-                  receipt ↗
-                </a>
-              </li>
+            {activity.map((e) => (
+              <ActivityRow key={e.digest} entry={e} />
             ))}
           </ul>
         )}
@@ -210,6 +213,74 @@ export default async function HomePage() {
         Your money. Always yours.
       </footer>
     </AppShell>
+  );
+}
+
+function ActivityRow({ entry }: { entry: ActivityEntry }) {
+  const sent = entry.direction === "sent";
+  const amount =
+    entry.amountUsdsui !== null
+      ? `$${entry.amountUsdsui.toFixed(2)}`
+      : entry.amountSui !== null
+        ? `${entry.amountSui.toFixed(4)} SUI`
+        : "—";
+  const counterparty =
+    entry.counterpartyName ??
+    (entry.counterparty
+      ? `${entry.counterparty.slice(0, 6)}…${entry.counterparty.slice(-4)}`
+      : "—");
+  const when = entry.timestampMs
+    ? new Date(entry.timestampMs).toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "";
+  return (
+    <li className="flex items-center justify-between rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] px-4 py-3.5 text-[13px]">
+      <div className="flex items-center gap-3">
+        <span
+          className={`flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-line)] text-[12px] ${
+            sent ? "text-[var(--color-fg-muted)]" : "text-[var(--color-fg)]"
+          }`}
+          aria-hidden
+        >
+          {sent ? "↗" : "↙"}
+        </span>
+        <div className="min-w-0">
+          <div className="text-[var(--color-fg)]">
+            {sent ? "Sent" : "Received"} {amount}{" "}
+            <span className="text-[var(--color-fg-muted)]">
+              {sent ? "to" : "from"}
+            </span>{" "}
+            <span
+              className={
+                entry.counterpartyName
+                  ? "font-mono text-[var(--color-fg)]"
+                  : "font-mono text-[var(--color-fg-muted)]"
+              }
+              title={entry.counterparty ?? undefined}
+            >
+              {counterparty}
+            </span>
+          </div>
+          {when && (
+            <div className="font-mono text-[11px] text-[var(--color-fg-dim)]">
+              {when}
+            </div>
+          )}
+        </div>
+      </div>
+      <a
+        href={`https://suiscan.xyz/mainnet/tx/${entry.digest}`}
+        target="_blank"
+        rel="noreferrer"
+        className="text-[var(--color-fg-muted)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
+      >
+        receipt ↗
+      </a>
+    </li>
   );
 }
 

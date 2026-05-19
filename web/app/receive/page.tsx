@@ -7,6 +7,7 @@ import { UsernameCard } from "@/components/UsernameCard";
 import { CopyAddress } from "@/components/CopyAddress";
 import { AppShell, navForAccount } from "@/components/AppShell";
 import { formatHandle } from "@/lib/handle";
+import { findTaliseSubnameForOwner } from "@/lib/suins-lookup";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,9 @@ export default async function ReceivePage() {
   const user = await userById(id);
   if (!user) redirect("/");
   if (!user.account_type) redirect("/onboarding");
+
+  const subname = await findTaliseSubnameForOwner(user.sui_address);
+  const handle = subname?.username ?? null;
 
   return (
     <AppShell
@@ -27,19 +31,19 @@ export default async function ReceivePage() {
       pageEyebrow={`Receive · ${network()}`}
       pageTitle="Get paid in seconds"
     >
-      {user.talise_username ? (
+      {handle ? (
         <>
           <p className="max-w-xl text-[14px] text-[var(--color-fg-muted)]">
             Share your handle. Senders just type{" "}
             <span className="font-mono text-[var(--color-fg)]">
-              {formatHandle(user.talise_username)}
+              {formatHandle(handle)}
             </span>
             . No long addresses, no copy-paste mistakes.
           </p>
 
           <div className="mt-10 grid gap-6 md:grid-cols-[1.4fr,1fr]">
             <UsernameCard
-              username={user.talise_username}
+              username={handle}
               address={user.sui_address}
               size="lg"
             />
@@ -49,10 +53,10 @@ export default async function ReceivePage() {
                   Your handle
                 </div>
                 <div className="mt-3 rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] p-3 font-mono text-[14px] text-[var(--color-fg)]">
-                  {formatHandle(user.talise_username)}
+                  {formatHandle(handle)}
                 </div>
                 <div className="mt-3">
-                  <CopyAddress address={formatHandle(user.talise_username)} />
+                  <CopyAddress address={formatHandle(handle)} />
                 </div>
               </div>
 
@@ -61,10 +65,10 @@ export default async function ReceivePage() {
                   Payment link
                 </div>
                 <div className="mt-3 rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] p-3 font-mono text-[13px] text-[var(--color-fg)] break-all">
-                  talise.io/p/{user.talise_username}
+                  talise.io/p/{handle}
                 </div>
                 <a
-                  href={`/p/${user.talise_username}`}
+                  href={`/p/${handle}`}
                   className="mt-3 inline-block rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[12px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-fg)] hover:text-[var(--color-fg)]"
                 >
                   Open link ↗

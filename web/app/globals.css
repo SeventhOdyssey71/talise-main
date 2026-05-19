@@ -16,6 +16,7 @@
   --font-sans: var(--font-sans), "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-display: var(--font-sans), "DM Sans", system-ui, sans-serif;
   --font-mono: var(--font-mono), "JetBrains Mono", "SF Mono", Menlo, monospace;
+  --font-serif: var(--font-serif), "Instrument Serif", Georgia, "Times New Roman", serif;
 }
 
 html,

@@ -61,3 +61,6 @@ move/**/build/
 coverage/
 .turbo/
 .cache/
+
+# Local-only secrets store
+.secrets/

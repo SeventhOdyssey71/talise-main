@@ -6,18 +6,34 @@ import { SignInButton } from "./SignInButton";
 export function Hero({ errorCode }: { errorCode?: string }) {
   return (
     <section className="relative w-full overflow-hidden bg-[#0a0a0a] text-white">
+      {/* Layered radial aura — soft white-blue glow at the bottom edge, plus
+          a subtle top vignette. Reflect-style depth without color noise. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
         style={{
           background: `
-            radial-gradient(900px circle at 50% 0%, rgba(255,255,255,0.06), transparent 55%),
-            radial-gradient(700px circle at 90% 80%, rgba(255,255,255,0.04), transparent 60%)
+            radial-gradient(1100px circle at 50% 110%, rgba(168, 188, 240, 0.22), transparent 55%),
+            radial-gradient(900px circle at 50% -10%, rgba(255,255,255,0.06), transparent 55%)
           `,
         }}
       />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"
+      />
 
-      <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center px-6 pt-36 pb-12 text-center md:pt-32 md:pb-16">
+      {/* Top stat strip — Reflect-style: thin row of metrics above the headline. */}
+      <div className="relative z-10 mx-auto max-w-6xl px-6 pt-28 md:pt-24">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-3 border-b border-white/10 pb-5 text-left md:grid-cols-4">
+          <Metric label="Avg send fee" value="<1%" subtle="vs WU ~6.4%" />
+          <Metric label="Settlement" value="~1 sec" subtle="one block" />
+          <Metric label="Gas paid by sender" value="$0.00" subtle="we cover it" />
+          <Metric label="Currencies" value="₦ KSh GH₵ R" subtle="more soon" />
+        </div>
+      </div>
+
+      <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center px-6 pt-12 pb-14 text-center md:pt-16 md:pb-20">
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -35,18 +51,21 @@ export function Hero({ errorCode }: { errorCode?: string }) {
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.1, ease: [0.2, 0.8, 0.2, 1] }}
-          className="mt-8 max-w-4xl text-[44px] font-semibold leading-[1.05] tracking-[-0.025em] md:text-[72px]"
+          className="mt-8 max-w-4xl text-[44px] font-semibold leading-[1.04] tracking-[-0.025em] md:text-[80px]"
         >
           Send money home.
           <br />
-          Instantly. Almost free.
+          Instantly.{" "}
+          <span className="font-serif italic font-normal tracking-normal">
+            Almost free.
+          </span>
         </motion.h1>
 
         <motion.p
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
-          className="mx-auto mt-6 max-w-2xl text-[16px] leading-[1.6] text-white/65 md:text-[18px]"
+          className="mx-auto mt-7 max-w-2xl text-[16px] leading-[1.6] text-white/65 md:text-[18px]"
         >
           Talise sends naira, shillings, cedis, and rand across borders in
           seconds — at a fraction of what Wise, Western Union, or Remitly charge.
@@ -192,6 +211,32 @@ function ProductPreview() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  subtle,
+}: {
+  label: string;
+  value: string;
+  subtle?: string;
+}) {
+  return (
+    <div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-white/40">
+        {label}
+      </div>
+      <div className="mt-1.5 font-display text-[18px] font-medium tracking-tight text-white md:text-[20px]">
+        {value}
+      </div>
+      {subtle && (
+        <div className="mt-0.5 font-mono text-[10px] text-white/35">
+          {subtle}
+        </div>
+      )}
     </div>
   );
 }

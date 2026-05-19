@@ -73,9 +73,27 @@ export function AutoConvertBanner({
       return;
     }
 
+    // T2000 reserves 0.05 SUI for gas on every swap (its safeguard, even
+    // though Onara sponsors gas). Subtract the reserve when SUI is the
+    // source — otherwise the SDK refuses the swap.
+    const SUI_GAS_RESERVE = 0.05;
+
     for (let i = 0; i < eligible.length; i++) {
       const coin = eligible[i];
       setProgress({ index: i + 1, total: eligible.length, symbol: coin.symbol });
+
+      let amountToSwap = coin.amount;
+      if (coin.symbol === "SUI") {
+        amountToSwap = Math.max(0, coin.amount - SUI_GAS_RESERVE);
+        if (amountToSwap <= 0) {
+          // Not enough SUI above the reserve to swap anything meaningful.
+          // Skip rather than fail the whole batch.
+          continue;
+        }
+        // Trim to 6 decimal places to avoid floating-point string noise.
+        amountToSwap = Math.floor(amountToSwap * 1e6) / 1e6;
+      }
+
       try {
         const r = await fetch("/api/t2000/execute", {
           method: "POST",
@@ -84,7 +102,7 @@ export function AutoConvertBanner({
             op: "swap",
             from: coin.symbol,
             to: "USDsui",
-            amount: coin.amount,
+            amount: amountToSwap,
             ephemeralPrivateKey: eph.ephemeralPrivateKey,
             ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
             maxEpoch: eph.maxEpoch,
