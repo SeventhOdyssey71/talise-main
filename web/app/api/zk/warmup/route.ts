@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
-import { OnaraClient } from "@/lib/onara";
+import { sui, network } from "@/lib/sui";
+import { onara } from "@/lib/onara";
 import { memoTtl } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
@@ -23,17 +23,14 @@ export async function POST() {
   if (!onaraUrl) {
     return NextResponse.json({ ok: false, error: "no onara" }, { status: 503 });
   }
-  const net = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet").toLowerCase();
-  const client = new SuiJsonRpcClient({
-    url: getJsonRpcFullnodeUrl(net === "mainnet" ? "mainnet" : "testnet"),
-    network: net === "mainnet" ? "mainnet" : "testnet",
-  });
-  const onara = new OnaraClient(onaraUrl);
+  const client = sui();
+  const onaraClient = onara();
+  const net = network();
 
   const t0 = Date.now();
   try {
     await Promise.all([
-      memoTtl(`onara:status:${onaraUrl}`, 60_000, () => onara.status()),
+      memoTtl(`onara:status:${onaraUrl}`, 60_000, () => onaraClient.status()),
       memoTtl(`sui:gasPrice:${net}`, 60_000, () =>
         client.getReferenceGasPrice()
       ),

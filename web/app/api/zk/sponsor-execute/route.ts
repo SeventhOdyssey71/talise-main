@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readSessionEntryId } from "@/lib/session";
 import { userById } from "@/lib/db";
 import { assembleZkLoginSignature, readSigningCookie } from "@/lib/zksigner";
-import { OnaraClient } from "@/lib/onara";
+import { onara } from "@/lib/onara";
 
 export const runtime = "nodejs";
 
@@ -81,8 +81,8 @@ export async function POST(req: Request) {
       });
     const tProof = Date.now();
 
-    const onara = new OnaraClient(onaraUrl);
-    const result = (await onara.sponsor({
+    const onaraClient = onara();
+    const result = (await onaraClient.sponsor({
       sender: user.sui_address,
       txBytes: body.bytesB64,
       txSignature: zkLoginSignature,
