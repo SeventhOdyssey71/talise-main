@@ -194,41 +194,28 @@ export function SendForm({
 
   if (success) {
     const net = process.env.NEXT_PUBLIC_SUI_NETWORK ?? "mainnet";
+    const recipientDisplay =
+      resolved?.displayName ??
+      `${recipient.slice(0, 8)}…${recipient.slice(-6)}`;
     return (
-      <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6">
-        <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
-          {lockedRecipient ? "Payment sent" : "Sent"} · settled in one block
-        </div>
-        <div className="mt-3 font-display text-[34px] tracking-[-0.02em]">
-          {formatLocal(success.amountUsdsui, ccy)} sent
-          {merchantLabel ? ` to ${merchantLabel}.` : "."}
-        </div>
-        <p className="mt-1 font-mono text-[12px] text-[var(--color-fg-muted)]">
-          ≈ ${success.amountUsdsui.toFixed(2)} USDsui
-        </p>
-        <p className="mt-3 text-[14px] text-[var(--color-fg-muted)] break-all">
-          to {resolved?.displayName ?? `${recipient.slice(0, 10)}…${recipient.slice(-6)}`}
-        </p>
-        <div className="mt-5 flex flex-wrap items-center gap-3 text-[12px]">
-          <a
-            href={`https://suiscan.xyz/${net}/tx/${success.digest}`}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1.5 text-[var(--color-fg)] transition hover:border-[var(--color-fg)]"
-          >
-            View on Suiscan ↗
-          </a>
-          <a
-            href="/home"
-            className="text-[var(--color-fg-muted)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
-          >
-            Done
-          </a>
-        </div>
-        <p className="mt-5 font-mono text-[11px] text-[var(--color-fg-dim)] break-all">
-          digest: {success.digest}
-        </p>
-      </div>
+      <SuccessReceipt
+        amount={formatLocal(success.amountUsdsui, ccy)}
+        amountUsdsui={success.amountUsdsui}
+        recipient={recipientDisplay}
+        memo={memo}
+        digest={success.digest}
+        explorerUrl={`https://suiscan.xyz/${net}/tx/${success.digest}`}
+        onSendAnother={
+          lockedRecipient
+            ? undefined
+            : () => {
+                setSuccess(null);
+                setAmount("");
+                setRecipient("");
+                setMemo("");
+              }
+        }
+      />
     );
   }
 
@@ -404,6 +391,177 @@ function Field({
       </div>
       {children}
     </label>
+  );
+}
+
+/**
+ * Reflect-style "Minted successfully" receipt. The slot at the top with the
+ * tear line evokes a thermal-printer ticker; the body is a single column of
+ * label · value pairs separated by dotted leaders. Pure black-and-white,
+ * editorial typography (serif italic emphasis).
+ */
+function SuccessReceipt({
+  amount,
+  amountUsdsui,
+  recipient,
+  memo,
+  digest,
+  explorerUrl,
+  onSendAnother,
+}: {
+  amount: string;
+  amountUsdsui: number;
+  recipient: string;
+  memo: string;
+  digest: string;
+  explorerUrl: string;
+  onSendAnother?: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center">
+      {/* check mark */}
+      <div className="mb-5 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)]">
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden
+          className="h-4 w-4 fill-none stroke-[var(--color-fg)] stroke-[2.5]"
+        >
+          <path d="M5 12.5l4.5 4.5L19 7.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <div className="mb-6 font-mono text-[11px] uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+        Sent successfully
+      </div>
+
+      {/* Receipt */}
+      <div className="relative w-full max-w-lg">
+        {/* Printer slot — a soft horizontal bar with a dark inside seam,
+            evoking the slot the receipt prints out of. */}
+        <div
+          aria-hidden
+          className="relative mx-auto h-3 w-[92%] rounded-t-md bg-[var(--color-surface-2)] shadow-[inset_0_-2px_3px_rgba(0,0,0,0.10)]"
+        />
+        <div
+          aria-hidden
+          className="mx-auto h-[2px] w-[92%] bg-[var(--color-fg)]/85"
+        />
+
+        {/* Receipt body */}
+        <div className="relative rounded-b-md border border-[var(--color-line)] border-t-0 bg-[var(--color-surface)] px-7 pt-7 pb-7 shadow-[0_18px_40px_-20px_rgba(0,0,0,0.18)]">
+          <div className="text-center">
+            <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
+              talise
+            </div>
+            <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+              Money home, in seconds
+            </div>
+          </div>
+
+          <div className="mx-auto mt-6 h-px w-12 bg-[var(--color-fg)]/80" />
+
+          <div className="mt-6 text-center">
+            <div className="font-display text-[40px] leading-none tracking-[-0.025em] text-[var(--color-fg)]">
+              {amount}
+            </div>
+            <div className="mt-1.5 font-serif text-[14px] italic text-[var(--color-fg-muted)]">
+              sent · settled in one block
+            </div>
+            <div className="mt-1 font-mono text-[11px] text-[var(--color-fg-dim)]">
+              ≈ ${amountUsdsui.toFixed(2)} USDsui
+            </div>
+          </div>
+
+          <div className="mt-7 space-y-2.5 font-mono text-[11px]">
+            <ReceiptRow label="To" value={recipient} />
+            <ReceiptRow label="Network" value="Sui mainnet" />
+            <ReceiptRow label="Settled" value="~1 sec · 1 block" />
+            <ReceiptRow label="Fee you paid" value="$0.00" />
+            {memo && <ReceiptRow label="Note" value={memo} />}
+          </div>
+
+          <div className="mt-6 border-t border-dashed border-[var(--color-line)] pt-4">
+            <div className="text-[9px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
+              receipt
+            </div>
+            <div className="mt-1 break-all font-mono text-[10px] text-[var(--color-fg-muted)]">
+              {digest}
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3 text-[12px]">
+            <a
+              href={explorerUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] px-3 py-1.5 text-[var(--color-fg)] transition hover:border-[var(--color-fg)]"
+            >
+              View on Suiscan ↗
+            </a>
+            {onSendAnother && (
+              <button
+                type="button"
+                onClick={onSendAnother}
+                className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] px-3 py-1.5 text-[var(--color-fg)] transition hover:border-[var(--color-fg)]"
+              >
+                Send another
+              </button>
+            )}
+            <a
+              href="/home"
+              className="text-[var(--color-fg-muted)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
+            >
+              Done
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 max-w-md text-center font-serif text-[14px] italic leading-relaxed text-[var(--color-fg-muted)]">
+        Permanent. On chain. Your recipient&apos;s wallet picked it up the
+        moment this block confirmed.
+      </div>
+    </div>
+  );
+}
+
+function ReceiptRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-[var(--color-fg-dim)]">{label}</span>
+      <span className="mx-2 flex-1 border-b border-dotted border-[var(--color-line)]" />
+      <span
+        className="max-w-[60%] truncate text-right text-[var(--color-fg)]"
+        title={value}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] p-3">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+        {label}
+      </div>
+      <div
+        className={`mt-1 truncate text-[13px] text-[var(--color-fg)] ${
+          mono ? "font-mono" : ""
+        }`}
+        title={value}
+      >
+        {value}
+      </div>
+    </div>
   );
 }
 

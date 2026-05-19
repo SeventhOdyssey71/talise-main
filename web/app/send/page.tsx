@@ -31,7 +31,7 @@ export default async function SendPage() {
         Pick the currency you think in. We settle in dollars, gas is on us.
       </p>
 
-      <div className="mt-8 max-w-xl">
+      <div className="mt-8 mx-auto max-w-3xl">
         <SendForm
           senderAddress={user.sui_address}
           availableUsdsui={usdsui.usdsui}

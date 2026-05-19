@@ -347,33 +347,6 @@ export async function userByBusinessHandle(
   return (r.rows[0] as unknown as User) ?? null;
 }
 
-export async function userByTaliseUsername(
-  username: string
-): Promise<User | null> {
-  await ensureSchema();
-  const r = await db().execute({
-    sql: "SELECT * FROM users WHERE talise_username = ? LIMIT 1",
-    args: [username.toLowerCase()],
-  });
-  return (r.rows[0] as unknown as User) ?? null;
-}
-
-/**
- * Claim a Talise username for a user. Throws on UNIQUE conflict so the route
- * can surface a 409. The route is also responsible for validating format and
- * reserved words before calling this.
- */
-export async function setTaliseUsername(
-  userId: number,
-  username: string
-): Promise<void> {
-  await ensureSchema();
-  await db().execute({
-    sql: "UPDATE users SET talise_username = ? WHERE id = ?",
-    args: [username.toLowerCase(), userId],
-  });
-}
-
 export async function updateUserProfile(
   userId: number,
   input: {
