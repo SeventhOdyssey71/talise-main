@@ -53,7 +53,7 @@ export default function ComingSoon() {
         </h1>
 
         <p className="mt-5 max-w-[420px] text-[15px] leading-[1.55] text-[#6b6457] md:text-[16px]">
-          A borderless money app, built for Africa.
+          A borderless money app, powered by the Sui Dollar.
         </p>
       </section>
 
