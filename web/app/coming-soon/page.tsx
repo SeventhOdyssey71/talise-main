@@ -17,16 +17,16 @@ export default function ComingSoon() {
   return (
     <main className="flex h-svh w-full flex-col items-center justify-between bg-[#fafaf7] px-6 py-10 text-[#111]">
       {/* Top: wordmark */}
-      <header className="flex items-center gap-2.5">
+      <header className="flex items-center gap-3">
         <Image
           src="/logo.png"
           alt="Talise"
-          width={32}
-          height={32}
+          width={48}
+          height={48}
           priority
-          className="h-7 w-7"
+          className="h-10 w-10"
         />
-        <span className="text-[20px] font-semibold tracking-[-0.02em]">
+        <span className="text-[26px] font-normal tracking-[-0.02em]">
           talise
         </span>
       </header>
