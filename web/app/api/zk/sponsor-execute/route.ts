@@ -48,6 +48,11 @@ export async function POST(req: Request) {
     maxEpoch?: number;
     randomness?: string;
     userSignature?: string;
+    /**
+     * Optional. If the client has a cached zk proof from a previous sign in
+     * this session, pass it here to skip the 2-4s Shinami round trip.
+     */
+    cachedProof?: import("@/lib/zksigner").CachedZkProof;
   };
   try {
     body = await req.json();
@@ -65,12 +70,14 @@ export async function POST(req: Request) {
   }
 
   try {
-    const zkLoginSignature = await assembleZkLoginSignature({
-      ephemeralPubKeyB64: body.ephemeralPubKeyB64,
-      maxEpoch: body.maxEpoch,
-      randomness: body.randomness,
-      userSignature: body.userSignature,
-    });
+    const { signature: zkLoginSignature, proof, isFresh } =
+      await assembleZkLoginSignature({
+        ephemeralPubKeyB64: body.ephemeralPubKeyB64,
+        maxEpoch: body.maxEpoch,
+        randomness: body.randomness,
+        userSignature: body.userSignature,
+        cachedProof: body.cachedProof,
+      });
 
     const onara = new OnaraClient(onaraUrl);
     const result = (await onara.sponsor({
@@ -86,6 +93,9 @@ export async function POST(req: Request) {
       objectChanges:
         ((result as { objectChanges?: unknown[] }).objectChanges as unknown[]) ??
         [],
+      // On cache miss we return the freshly-minted proof so the client can
+      // store it and skip Shinami on every subsequent send this session.
+      freshProof: isFresh ? proof : undefined,
     });
   } catch (err) {
     const msg = (err as Error).message ?? "execute failed";

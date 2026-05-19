@@ -106,31 +106,37 @@ export async function callProver(inputs: ProverInputs): Promise<ProverResponse> 
 }
 
 /**
- * Given the ephemeral signature of tx bytes plus the materials we kept in the
- * httpOnly cookie, fetch a ZK proof and assemble a full zkLoginSignature.
- *
- * @returns base64-encoded zkLoginSignature ready for executeTransactionBlock.
+ * Full zkLogin proof, including the locally-computed `addressSeed`. This is
+ * the cacheable artifact — it's valid for the entire ephemeral session
+ * (~55 min in the browser, up to `maxEpoch` on chain). Pass it back through
+ * later signing calls to skip the 2-4s Shinami round trip.
  */
-export async function assembleZkLoginSignature(opts: {
+export type CachedZkProof = {
+  proofPoints: { a: string[]; b: string[][]; c: string[] };
+  issBase64Details: { value: string; indexMod4: number };
+  headerBase64: string;
+  addressSeed: string;
+};
+
+/**
+ * Generate a fresh zkLogin proof via the configured prover. Reads the
+ * session JWT + salt from the encrypted cookie. The returned object is the
+ * cacheable shape — pass it to `assembleZkLoginSignature` on subsequent
+ * sends to skip the prover call entirely.
+ */
+export async function mintZkProof(opts: {
   ephemeralPubKeyB64: string;
   maxEpoch: number;
   randomness: string;
-  userSignature: string;
-}): Promise<string> {
+}): Promise<CachedZkProof> {
   const stored = await readSigningCookie();
-  if (!stored) {
-    throw new Error("No active sign-in. Please sign in again.");
-  }
+  if (!stored) throw new Error("No active sign-in. Please sign in again.");
   const { jwt, salt } = stored;
 
-  const pubBytes = fromBase64(opts.ephemeralPubKeyB64);
-  const pubKey = new Ed25519PublicKey(pubBytes);
+  const pubKey = new Ed25519PublicKey(fromBase64(opts.ephemeralPubKeyB64));
   const extendedEphemeralPublicKey = getExtendedEphemeralPublicKey(pubKey);
 
-  // On mainnet: Mysten's hosted prover whitelists audiences. Use Shinami's
-  // open prover instead. Falls back to the public prover (works on testnet,
-  // not mainnet) if no Shinami key is configured.
-  const proof = shinamiEnabled()
+  const raw = shinamiEnabled()
     ? await shinamiCreateProof({
         jwt,
         maxEpoch: opts.maxEpoch,
@@ -148,14 +154,49 @@ export async function assembleZkLoginSignature(opts: {
       });
 
   const claims = decodeJwt(jwt);
-  const addressSeed = genAddressSeed(BigInt(salt), "sub", claims.sub, claims.aud).toString();
+  const addressSeed = genAddressSeed(
+    BigInt(salt),
+    "sub",
+    claims.sub,
+    claims.aud
+  ).toString();
 
-  return getZkLoginSignature({
-    inputs: {
-      ...proof,
-      addressSeed,
-    },
+  return { ...raw, addressSeed };
+}
+
+/**
+ * Given the ephemeral signature of tx bytes, produce a full zkLoginSignature.
+ * Returns the signature AND the proof used (whether cached or freshly minted)
+ * so callers can persist it for the next send.
+ *
+ * The proof is `mintZkProof`'s biggest cost — Shinami's Groth16 generator
+ * runs 2-4s. Pass `cachedProof` to skip that hop entirely.
+ */
+export async function assembleZkLoginSignature(opts: {
+  ephemeralPubKeyB64: string;
+  maxEpoch: number;
+  randomness: string;
+  userSignature: string;
+  cachedProof?: CachedZkProof;
+}): Promise<{ signature: string; proof: CachedZkProof; isFresh: boolean }> {
+  let proof: CachedZkProof;
+  let isFresh = false;
+  if (opts.cachedProof) {
+    proof = opts.cachedProof;
+  } else {
+    proof = await mintZkProof({
+      ephemeralPubKeyB64: opts.ephemeralPubKeyB64,
+      maxEpoch: opts.maxEpoch,
+      randomness: opts.randomness,
+    });
+    isFresh = true;
+  }
+
+  const signature = getZkLoginSignature({
+    inputs: proof,
     maxEpoch: opts.maxEpoch,
     userSignature: opts.userSignature,
   });
+
+  return { signature, proof, isFresh };
 }

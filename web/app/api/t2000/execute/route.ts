@@ -64,6 +64,8 @@ export async function POST(req: Request) {
     ephemeralPubKeyB64?: string;
     maxEpoch?: number;
     randomness?: string;
+    /** Optional cached zk proof — skips the 2-4s Shinami round trip. */
+    cachedProof?: ZkLoginProof;
   };
   let body: Body;
   try {
@@ -86,37 +88,47 @@ export async function POST(req: Request) {
 
   try {
     const eph = Ed25519Keypair.fromSecretKey(body.ephemeralPrivateKey);
-    const pubKey = new Ed25519PublicKey(fromBase64(body.ephemeralPubKeyB64));
-    const extendedEphemeralPublicKey = getExtendedEphemeralPublicKey(pubKey);
 
-    // Use Shinami when configured (mainnet path); otherwise fall back to
-    // Mysten's public prover (testnet-friendly, mainnet-audience-gated).
-    const proof = shinamiEnabled()
-      ? await shinamiCreateProof({
-          jwt: signing.jwt,
-          maxEpoch: body.maxEpoch,
-          extendedEphemeralPublicKey,
-          jwtRandomness: body.randomness,
-          salt: signing.salt,
-        })
-      : await callProver({
-          jwt: signing.jwt,
-          extendedEphemeralPublicKey,
-          maxEpoch: body.maxEpoch,
-          jwtRandomness: body.randomness,
-          salt: signing.salt,
-          keyClaimName: "sub",
-        });
+    // If the client cached the proof from an earlier signing this session,
+    // skip Shinami entirely. Otherwise mint a fresh one and return it so
+    // the client can store it for next time. `freshProof` in the response
+    // signals "this was a cache miss, save me."
+    let zkProof: ZkLoginProof;
+    let isFresh = false;
+    if (body.cachedProof) {
+      zkProof = body.cachedProof;
+    } else {
+      const pubKey = new Ed25519PublicKey(fromBase64(body.ephemeralPubKeyB64));
+      const extendedEphemeralPublicKey = getExtendedEphemeralPublicKey(pubKey);
 
-    const claims = decodeJwt(signing.jwt);
-    const addressSeed = genAddressSeed(
-      BigInt(signing.salt),
-      "sub",
-      claims.sub,
-      claims.aud
-    ).toString();
+      const proof = shinamiEnabled()
+        ? await shinamiCreateProof({
+            jwt: signing.jwt,
+            maxEpoch: body.maxEpoch,
+            extendedEphemeralPublicKey,
+            jwtRandomness: body.randomness,
+            salt: signing.salt,
+          })
+        : await callProver({
+            jwt: signing.jwt,
+            extendedEphemeralPublicKey,
+            maxEpoch: body.maxEpoch,
+            jwtRandomness: body.randomness,
+            salt: signing.salt,
+            keyClaimName: "sub",
+          });
 
-    const zkProof: ZkLoginProof = { ...proof, addressSeed };
+      const claims = decodeJwt(signing.jwt);
+      const addressSeed = genAddressSeed(
+        BigInt(signing.salt),
+        "sub",
+        claims.sub,
+        claims.aud
+      ).toString();
+
+      zkProof = { ...proof, addressSeed };
+      isFresh = true;
+    }
 
     const t2000 = getT2000({
       ephemeralKeypair: eph,
@@ -183,6 +195,9 @@ export async function POST(req: Request) {
     return NextResponse.json({
       digest: result.digest ?? "",
       result,
+      // On cache miss we return the freshly-minted proof so the client can
+      // reuse it next time — saves the 2-4s Shinami round trip.
+      freshProof: isFresh ? zkProof : undefined,
     });
   } catch (err) {
     const msg = (err as Error).message ?? "execute failed";
