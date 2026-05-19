@@ -1,0 +1,15 @@
+{
+  "name": "talise",
+  "enabled": true,
+  "gasBudgetMax": 100000000,
+  "maxCommands": 50,
+  "targets": ["*"],
+  "allowedCommandKinds": [
+    "SplitCoins",
+    "MergeCoins",
+    "TransferObjects",
+    "MoveCall",
+    "MakeMoveVec",
+    "Publish"
+  ]
+}
