@@ -24,30 +24,38 @@ export function ProofWarmer() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!hasEphemeralKey()) return;
-    if (readCachedProof()) return; // already warm
 
     const eph = readEphemeralForT2000();
-    if (!eph) return;
+    const needsProof = !readCachedProof() && !!eph;
 
     // Defer slightly so we don't block the dashboard's initial paint.
-    const id = window.setTimeout(async () => {
-      try {
-        const r = await fetch("/api/zk/proof", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
-            maxEpoch: eph.maxEpoch,
-            randomness: eph.randomness,
-          }),
-        });
-        if (!r.ok) return;
-        const { proof } = (await r.json()) as {
-          proof?: import("@/lib/zkclient").StoredZkProof;
-        };
-        if (proof) writeCachedProof(proof);
-      } catch {
-        /* non-blocking */
+    const id = window.setTimeout(() => {
+      // Fire both warmups in parallel: zk proof for the client, and server
+      // caches (Onara address + Sui ref gas price) for /api/zk/sponsor.
+      // Together these kill the cold-start cost on the user's first send.
+      fetch("/api/zk/warmup", { method: "POST" }).catch(() => {});
+
+      if (needsProof && eph) {
+        (async () => {
+          try {
+            const r = await fetch("/api/zk/proof", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
+                maxEpoch: eph.maxEpoch,
+                randomness: eph.randomness,
+              }),
+            });
+            if (!r.ok) return;
+            const { proof } = (await r.json()) as {
+              proof?: import("@/lib/zkclient").StoredZkProof;
+            };
+            if (proof) writeCachedProof(proof);
+          } catch {
+            /* non-blocking */
+          }
+        })();
       }
     }, 400);
 
