@@ -4,6 +4,8 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 import { useEffect } from "react";
 import { NG, US, GB } from "country-flag-icons/react/3x2";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowDown01FreeIcons } from "@hugeicons/core-free-icons";
 import { SignInButton } from "./SignInButton";
 
 // Match the server-side rule in `lib/db.ts`. Keep in sync.
@@ -101,9 +103,15 @@ export function Hero({ errorCode }: { errorCode?: string }) {
           <SignInButton variant="full" />
           <a
             href="#how"
-            className="rounded-md border border-[#0a0a0a]/12 bg-white/70 px-5 py-3 text-[14px] text-[#1a1a1a] transition hover:bg-white"
+            className="inline-flex items-center gap-2 rounded-md border border-[#0a0a0a]/12 bg-white/70 px-5 py-3 text-[14px] text-[#1a1a1a] transition hover:bg-white"
           >
-            How it works ↓
+            How it works
+            <HugeiconsIcon
+              icon={ArrowDown01FreeIcons}
+              size={15}
+              strokeWidth={1.8}
+              color="currentColor"
+            />
           </a>
         </motion.div>
 
