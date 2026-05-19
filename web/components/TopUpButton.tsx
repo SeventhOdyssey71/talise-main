@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ErrorBox } from "@/components/ErrorBox";
+import { OnrampModal } from "@/components/OnrampModal";
 
 /**
- * Pill button that opens a Stripe Crypto Onramp session in a new tab.
+ * Pill button that opens the embedded Stripe Crypto Onramp modal.
  *
  * Two sizes via `compact`:
  *   - compact: toolbar-sized pill that sits next to the "live" indicator.
@@ -18,86 +18,61 @@ export function TopUpButton({
   amount = 20,
   compact = false,
 }: {
-  /** Fiat amount in USD. Defaults to $20. */
+  /** Initial fiat amount in USD (modal lets the user change it). */
   amount?: number;
   /** Compact toolbar variant. Defaults to full-size. */
   compact?: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [opening, setOpening] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function onClick() {
-    if (busy) return;
-    setError(null);
-    setBusy(true);
-    try {
-      const r = await fetch("/api/onramp/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount }),
-      });
-      const j = (await r.json().catch(() => ({}))) as {
-        redirectUrl?: string;
-        error?: string;
-      };
-      if (!r.ok || !j.redirectUrl) {
-        throw new Error(j.error ?? `Onramp failed (HTTP ${r.status})`);
-      }
-      // Short "opening Stripe…" affordance so the user understands the new
-      // tab that's about to open isn't unsolicited.
-      setOpening(true);
-      window.open(j.redirectUrl, "_blank", "noopener,noreferrer");
-      setTimeout(() => setOpening(false), 1000);
-    } catch (e) {
-      setError((e as Error).message ?? "Could not start onramp.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const [open, setOpen] = useState(false);
 
   if (compact) {
     return (
-      <div className="flex flex-col items-end gap-1">
-        <button
-          type="button"
-          onClick={onClick}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-line)] bg-[var(--color-fg)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-bg)] transition hover:bg-[var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-          aria-label="Top up with card"
-        >
-          <CardIcon />
-          {opening ? "Opening Stripe…" : busy ? "…" : "Top up with card"}
-        </button>
-        <span className="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
-          <LockIcon /> Stripe · secure card
-        </span>
-        {error && (
-          <div className="mt-1 w-64">
-            <ErrorBox message={error} onRetry={() => setError(null)} />
-          </div>
-        )}
-      </div>
+      <>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-line)] bg-[var(--color-fg)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-bg)] transition hover:bg-[var(--color-accent-soft)]"
+            aria-label="Top up with card"
+          >
+            <CardIcon />
+            Top up with card
+          </button>
+          <span className="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+            <LockIcon /> Stripe · secure card
+          </span>
+        </div>
+        <OnrampModal
+          open={open}
+          onClose={() => setOpen(false)}
+          initialAmount={amount}
+        />
+      </>
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={busy}
-        className="inline-flex w-fit items-center gap-2 rounded-full bg-[var(--color-fg)] px-5 py-2.5 text-[13px] font-medium text-[var(--color-bg)] transition hover:bg-[var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-        aria-label="Top up with card"
-      >
-        <CardIcon />
-        {opening ? "Opening Stripe…" : busy ? "Starting…" : "Top up with card"}
-      </button>
-      <span className="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
-        <LockIcon /> Stripe · secure card
-      </span>
-      {error && <ErrorBox message={error} onRetry={() => setError(null)} />}
-    </div>
+    <>
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex w-fit items-center gap-2 rounded-full bg-[var(--color-fg)] px-5 py-2.5 text-[13px] font-medium text-[var(--color-bg)] transition hover:bg-[var(--color-accent-soft)]"
+          aria-label="Top up with card"
+        >
+          <CardIcon />
+          Top up with card
+        </button>
+        <span className="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+          <LockIcon /> Stripe · secure card
+        </span>
+      </div>
+      <OnrampModal
+        open={open}
+        onClose={() => setOpen(false)}
+        initialAmount={amount}
+      />
+    </>
   );
 }
 

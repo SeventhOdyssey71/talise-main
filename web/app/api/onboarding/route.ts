@@ -1,10 +1,48 @@
 import { NextResponse } from "next/server";
-import { readSessionEntryId } from "@/lib/session";
-import { isHandleTaken, setAccountType, userById } from "@/lib/db";
+import {
+  clearReferralCookie,
+  readReferralCookie,
+  readSessionEntryId,
+} from "@/lib/session";
+import {
+  attributeReferral,
+  isHandleTaken,
+  REFERRAL_CODE_RE,
+  setAccountType,
+  userById,
+} from "@/lib/db";
+import { POINTS } from "@/lib/rewards";
 
 export const runtime = "nodejs";
 
 const HANDLE_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
+
+/**
+ * Attribute a referral if a code was provided either explicitly in the body
+ * or implicitly via the `talise_ref` cookie. Always clears the cookie when
+ * we attempted attribution so we don't try again next time. Failures are
+ * silent — onboarding completes regardless.
+ */
+async function tryAttributeReferral(
+  newUserId: number,
+  explicitCode: string | null
+): Promise<void> {
+  const cookieCode = await readReferralCookie();
+  const code = (explicitCode ?? cookieCode ?? "").trim().toUpperCase();
+  if (!REFERRAL_CODE_RE.test(code)) {
+    if (cookieCode) await clearReferralCookie();
+    return;
+  }
+  try {
+    await attributeReferral(newUserId, code, {
+      referrer: POINTS.REFERRAL_SIGNUP_REFERRER,
+      referee: POINTS.REFERRAL_SIGNUP_REFEREE,
+    });
+  } catch {
+    /* non-blocking */
+  }
+  await clearReferralCookie();
+}
 
 export async function POST(req: Request) {
   const id = await readSessionEntryId();
@@ -28,6 +66,7 @@ export async function POST(req: Request) {
     interests?: string[];
     country?: string | null;
     notify?: boolean;
+    referralCode?: string | null;
   };
   try {
     body = await req.json();
@@ -42,6 +81,7 @@ export async function POST(req: Request) {
       country: body.country ?? null,
       notifyOnReceive: !!body.notify,
     });
+    await tryAttributeReferral(id, body.referralCode ?? null);
     return NextResponse.json({ ok: true, redirect: "/home" });
   }
 
@@ -68,6 +108,7 @@ export async function POST(req: Request) {
       country: body.country ?? null,
       notifyOnReceive: true,
     });
+    await tryAttributeReferral(id, body.referralCode ?? null);
     return NextResponse.json({ ok: true, redirect: "/business" });
   }
 

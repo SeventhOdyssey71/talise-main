@@ -3,11 +3,17 @@
 import { useEffect, useState } from "react";
 
 /**
- * One-time toast that confirms the user came back from Stripe Crypto Onramp.
- * Reads `?onramp=success` from the URL and auto-dismisses after 8 seconds.
+ * Legacy fallback toast for the redirect-based Stripe Crypto Onramp.
  *
- * Uses the same soft-amber palette as AutoConvertBanner so the two banners
- * feel like the same family — onramp lands, banner sweeps to USDsui.
+ * The primary success surface is now the inline message inside
+ * `<OnrampModal>` — which fires off the embedded `@stripe/crypto`
+ * `fulfillment_complete` event without any redirect.
+ *
+ * This toast is kept ONLY as a safety net: if the embedded SDK ever
+ * fails to load and we fall back to opening Stripe's hosted redirect,
+ * the user will still see a confirmation when they land back on
+ * `/home?onramp=success`. Lower priority than before — soft, dismissible,
+ * no actions.
  */
 export function OnrampSuccessToast({ show }: { show: boolean }) {
   const [visible, setVisible] = useState(show);
@@ -29,7 +35,7 @@ export function OnrampSuccessToast({ show }: { show: boolean }) {
   return (
     <div
       role="status"
-      className="mb-6 flex items-start justify-between gap-4 rounded-2xl border border-[#F6C66D]/40 bg-[#F6C66D]/[0.08] p-4"
+      className="mb-6 flex items-start justify-between gap-4 rounded-2xl border border-[#d97706]/30 bg-[#d97706]/[0.06] p-4"
     >
       <div className="min-w-0">
         <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#7A5A12]">

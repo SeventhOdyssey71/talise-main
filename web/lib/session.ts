@@ -53,6 +53,36 @@ export async function clearSession() {
   jar.delete(SESSION_COOKIE);
 }
 
+const REFERRAL_COOKIE = "talise_ref";
+
+/**
+ * Persist a referral code captured from `?ref=` on the landing page. We sign
+ * the value so a hostile client can't forge attribution. 30-day TTL — plenty
+ * of time for a slow-to-decide visitor to come back and sign up.
+ */
+export async function setReferralCookie(code: string) {
+  const jar = await cookies();
+  jar.set(REFERRAL_COOKIE, sign(code), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  });
+}
+
+export async function readReferralCookie(): Promise<string | null> {
+  const jar = await cookies();
+  const raw = jar.get(REFERRAL_COOKIE)?.value;
+  if (!raw) return null;
+  return verify(raw);
+}
+
+export async function clearReferralCookie() {
+  const jar = await cookies();
+  jar.delete(REFERRAL_COOKIE);
+}
+
 const RETURN_TO_COOKIE = "talise_return_to";
 
 export async function setReturnTo(path: string) {
