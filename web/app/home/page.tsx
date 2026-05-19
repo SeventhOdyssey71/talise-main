@@ -7,7 +7,8 @@ import {
   getUsdsuiBalance,
   suiscanAccountUrl,
 } from "@/lib/sui";
-import { getSuiUsdcPrice, getMarginPoolInfo } from "@/lib/deepbook";
+import { getSuiUsdcPrice } from "@/lib/deepbook";
+import { getEarnSnapshot } from "@/lib/yield";
 import { CopyAddress } from "@/components/CopyAddress";
 import { AppShell, NavIcons } from "@/components/AppShell";
 import { PersonalBalanceCard } from "@/components/PersonalBalanceCard";
@@ -50,7 +51,7 @@ export default async function HomePage({
     usdc,
     usdsui,
     suiPrice,
-    marginUsdc,
+    earnSnapshot,
     ownedCoins,
     subname,
     allSubnames,
@@ -62,7 +63,15 @@ export default async function HomePage({
     getUsdcBalance(user.sui_address),
     getUsdsuiBalance(user.sui_address),
     getSuiUsdcPrice(),
-    getMarginPoolInfo("USDC"),
+    // Real NAVI supply APY + the user's current supplied position.
+    // Same source as the /earn page so the strip is consistent.
+    getEarnSnapshot(user.sui_address).catch(() => ({
+      supplied: 0,
+      apy: 0,
+      dailyYield: 0,
+      pending: [],
+      totalPendingUsd: 0,
+    })),
     // Surface every coin type the user holds so the auto-convert banner
     // can sweep anything that isn't already USDsui into our canonical
     // stable. Failures here shouldn't block the page from rendering.
@@ -192,7 +201,7 @@ export default async function HomePage({
         </div>
       </section>
 
-      <EarnStrip marginUsdc={marginUsdc} />
+      <EarnStrip apy={earnSnapshot.apy} supplied={earnSnapshot.supplied} />
 
       <section className="mt-12">
         <SectionRow title="Activity" />
