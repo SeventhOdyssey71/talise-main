@@ -48,7 +48,7 @@ export default function ComingSoon() {
           Send money home.
           <br />
           <span className="font-serif italic font-normal text-[#5a554a]">
-            Free.
+            For free.
           </span>
         </h1>
 
