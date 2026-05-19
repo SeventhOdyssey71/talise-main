@@ -17,7 +17,7 @@ export default function ComingSoon() {
   return (
     <main className="flex h-svh w-full flex-col items-center justify-between bg-[#fafaf7] px-6 py-10 text-[#111]">
       {/* Top: wordmark */}
-      <header className="flex items-center gap-3">
+      <header className="flex items-center gap-1.5">
         <Image
           src="/logo.png"
           alt="Talise"
