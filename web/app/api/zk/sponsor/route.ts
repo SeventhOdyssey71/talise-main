@@ -52,10 +52,11 @@ export async function POST(req: Request) {
   }
 
   try {
+    const t0 = Date.now();
     const onara = new OnaraClient(onaraUrl);
     const { address: sponsor } = await onara.status();
+    const tStatus = Date.now();
 
-    // Reconstruct the kind on the server, attach sponsor as gasOwner, build.
     const net = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet").toLowerCase();
     const client = new SuiJsonRpcClient({
       url: getJsonRpcFullnodeUrl(net === "mainnet" ? "mainnet" : "testnet"),
@@ -67,6 +68,11 @@ export async function POST(req: Request) {
     tx.setGasOwner(sponsor);
 
     const bytes = await tx.build({ client: client as never });
+    const tBuild = Date.now();
+
+    console.log(
+      `[zk/sponsor] onara-status=${tStatus - t0}ms · tx.build(+gas-fetch)=${tBuild - tStatus}ms · total=${tBuild - t0}ms`
+    );
     return NextResponse.json({ bytes: toBase64(bytes) });
   } catch (err) {
     const msg = (err as Error).message ?? "sponsor failed";

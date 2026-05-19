@@ -70,6 +70,7 @@ export async function POST(req: Request) {
   }
 
   try {
+    const t0 = Date.now();
     const { signature: zkLoginSignature, proof, isFresh } =
       await assembleZkLoginSignature({
         ephemeralPubKeyB64: body.ephemeralPubKeyB64,
@@ -78,6 +79,7 @@ export async function POST(req: Request) {
         userSignature: body.userSignature,
         cachedProof: body.cachedProof,
       });
+    const tProof = Date.now();
 
     const onara = new OnaraClient(onaraUrl);
     const result = (await onara.sponsor({
@@ -86,6 +88,12 @@ export async function POST(req: Request) {
       txSignature: zkLoginSignature,
       waitForExecution: true,
     })) as Record<string, unknown>;
+    const tDone = Date.now();
+
+    // Per-leg timing so we can see exactly where the latency goes.
+    console.log(
+      `[zk/sponsor-execute] proof=${tProof - t0}ms (${isFresh ? "FRESH" : "CACHED"}) · onara+broadcast=${tDone - tProof}ms · total=${tDone - t0}ms`
+    );
 
     return NextResponse.json({
       digest: (result as { digest?: string }).digest ?? "",
@@ -93,8 +101,6 @@ export async function POST(req: Request) {
       objectChanges:
         ((result as { objectChanges?: unknown[] }).objectChanges as unknown[]) ??
         [],
-      // On cache miss we return the freshly-minted proof so the client can
-      // store it and skip Shinami on every subsequent send this session.
       freshProof: isFresh ? proof : undefined,
     });
   } catch (err) {
