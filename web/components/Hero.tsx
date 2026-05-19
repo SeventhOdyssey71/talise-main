@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import Image from "next/image";
 import { useEffect } from "react";
+import { NG, US, GB } from "country-flag-icons/react/3x2";
 import { SignInButton } from "./SignInButton";
 
 // Match the server-side rule in `lib/db.ts`. Keep in sync.
@@ -125,13 +126,39 @@ export function Hero({ errorCode }: { errorCode?: string }) {
       {/* Thin stat strip — moved BELOW the hero for breathing room. */}
       <div className="relative z-10 mx-auto max-w-5xl px-6 pb-16 md:pb-20">
         <div className="grid grid-cols-2 gap-x-8 gap-y-5 border-t border-[#e8e1cf] pt-8 md:grid-cols-4">
-          <Metric label="Avg send fee" value="<1%" subtle="vs WU ~6.4%" />
+          <Metric label="Avg send fee" value="0%" subtle="vs WU ~6.4%" />
           <Metric label="Settlement" value="~1 sec" subtle="one block" />
           <Metric label="Gas paid by sender" value="$0.00" subtle="we cover it" />
-          <Metric label="Currencies" value="₦ KSh GH₵ R" subtle="more soon" />
+          <FlagsMetric />
         </div>
       </div>
     </section>
+  );
+}
+
+function FlagsMetric() {
+  return (
+    <div className="text-left">
+      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#8a8472]">
+        Corridors
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <FlagTile flag={<NG title="Nigeria" />} />
+        <FlagTile flag={<US title="United States" />} />
+        <FlagTile flag={<GB title="United Kingdom" />} />
+      </div>
+      <div className="mt-1 font-mono text-[10px] text-[#a09a8a]">more soon</div>
+    </div>
+  );
+}
+
+function FlagTile({ flag }: { flag: React.ReactNode }) {
+  return (
+    <span className="relative inline-flex h-7 w-9 items-center justify-center overflow-hidden rounded-md border border-[#e8e1cf] bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)]">
+      <span className="absolute inset-0 [&>svg]:h-full [&>svg]:w-full">
+        {flag}
+      </span>
+    </span>
   );
 }
 
