@@ -33,7 +33,22 @@ export function ProofWarmer() {
       // Fire both warmups in parallel: zk proof for the client, and server
       // caches (Onara address + Sui ref gas price) for /api/zk/sponsor.
       // Together these kill the cold-start cost on the user's first send.
-      fetch("/api/zk/warmup", { method: "POST" }).catch(() => {});
+      //
+      // Warmup also returns pkReady — when true we flip the localStorage
+      // flag so subsequent sends start attaching Payment Kit receipts.
+      // Without this gate, sends raced the registry mint and failed with
+      // "Object 0xdad…908 does not exist".
+      fetch("/api/zk/warmup", { method: "POST" })
+        .then(async (r) => {
+          if (!r.ok) return;
+          const j = (await r.json()) as { pkReady?: boolean };
+          if (j.pkReady) {
+            try {
+              window.localStorage.setItem("talise:pk:ready", "1");
+            } catch {}
+          }
+        })
+        .catch(() => {});
 
       if (needsProof && eph) {
         (async () => {

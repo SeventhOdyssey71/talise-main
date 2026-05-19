@@ -83,15 +83,40 @@ export function globalRegistryId(): string {
 
 /**
  * Feature flag: are Payment Kit receipts wired into the platform-wide
- * send flows (transfer, payroll, bills, remittance)? Defaults ON now
- * that `/api/zk/warmup` self-bootstraps the registry — see
- * `lib/pk-bootstrap.ts`. Set NEXT_PUBLIC_PK_RECEIPTS_ENABLED=false to
- * force the plain-transfer fallback (kill switch only).
+ * send flows (transfer, payroll, bills, remittance)?
+ *
+ * Dynamic, browser-side: we only enable receipts when localStorage has
+ * `talise:pk:ready=1`, which the warmup endpoint sets ONLY after it has
+ * confirmed (or successfully minted) the registry on chain. This avoids
+ * the race where the user clicks Send before the lazy mint finishes —
+ * which produced "Object 0xdad…908 does not exist" failures.
+ *
+ * Env override: NEXT_PUBLIC_PK_RECEIPTS_ENABLED=false force-disables
+ * receipts even if the registry is ready (kill switch).
  *
  * Without receipts, suivision.xyz shows "none" as the transaction kind.
  */
 export function paymentKitReceiptsEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_PK_RECEIPTS_ENABLED !== "false";
+  if (process.env.NEXT_PUBLIC_PK_RECEIPTS_ENABLED === "false") return false;
+  if (typeof window === "undefined") return false; // SSR: never on
+  try {
+    return window.localStorage.getItem("talise:pk:ready") === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Called by the warmup client component once `/api/zk/warmup` confirms
+ * the registry exists. Subsequent sends in this browser will attach
+ * Payment Kit receipts. Persists across sessions — so the user only
+ * pays the cold mint once.
+ */
+export function markPaymentKitReady() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem("talise:pk:ready", "1");
+  } catch {}
 }
 
 /**

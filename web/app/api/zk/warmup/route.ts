@@ -42,15 +42,23 @@ export async function POST() {
         client.getReferenceGasPrice()
       ),
     ]);
-    // Best-effort registry bootstrap. Errors are logged but non-fatal.
-    ensurePaymentRegistry().catch((err) => {
+    // Wait for the registry bootstrap so we can tell the client whether
+    // Payment Kit receipts are safe to attach to the next send. A failure
+    // here is non-fatal — sends will fall back to plain transfers.
+    let pkReady = false;
+    try {
+      const r = await ensurePaymentRegistry();
+      pkReady = r.ok;
+    } catch (err) {
       console.warn(
         `[zk/warmup] ensurePaymentRegistry failed: ${(err as Error).message}`
       );
-    });
-    console.log(`[zk/warmup] caches warmed in ${Date.now() - t0}ms`);
-    return NextResponse.json({ ok: true });
+    }
+    console.log(
+      `[zk/warmup] caches warmed in ${Date.now() - t0}ms · pkReady=${pkReady}`
+    );
+    return NextResponse.json({ ok: true, pkReady });
   } catch {
-    return NextResponse.json({ ok: false });
+    return NextResponse.json({ ok: false, pkReady: false });
   }
 }
