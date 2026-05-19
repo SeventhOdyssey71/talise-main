@@ -44,8 +44,8 @@ export default function ComingSoon() {
           />
         </div>
 
-        <h1 className="mt-9 max-w-[560px] text-[34px] font-medium leading-[1.08] tracking-[-0.03em] md:text-[44px]">
-          Send money home.
+        <h1 className="mt-9 max-w-[640px] text-[34px] font-medium leading-[1.08] tracking-[-0.03em] md:text-[44px]">
+          Send money across the globe.
           <br />
           <span className="font-serif italic font-normal text-[#5a554a]">
             For free.
