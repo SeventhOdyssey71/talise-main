@@ -3,8 +3,8 @@ import { readSessionEntryId } from "@/lib/session";
 import { userById } from "@/lib/db";
 import { fromBase64, toBase64 } from "@mysten/sui/utils";
 import { Transaction } from "@mysten/sui/transactions";
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
-import { OnaraClient } from "@/lib/onara";
+import { sui, network } from "@/lib/sui";
+import { onara } from "@/lib/onara";
 import { memoTtl } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
@@ -54,18 +54,15 @@ export async function POST(req: Request) {
 
   try {
     const t0 = Date.now();
-    const onara = new OnaraClient(onaraUrl);
-    const net = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet").toLowerCase();
-    const client = new SuiJsonRpcClient({
-      url: getJsonRpcFullnodeUrl(net === "mainnet" ? "mainnet" : "testnet"),
-      network: net === "mainnet" ? "mainnet" : "testnet",
-    });
+    const onaraClient = onara();
+    const client = sui();
+    const net = network();
 
     // Parallelize the two cold round-trips. Both are cached for 60s — the
     // sponsor address rarely changes and reference gas price is
     // epoch-scoped (~24h). On cache hits each resolves in <1ms.
     const [{ address: sponsor }, gasPrice] = await Promise.all([
-      memoTtl(`onara:status:${onaraUrl}`, 60_000, () => onara.status()),
+      memoTtl(`onara:status:${onaraUrl}`, 60_000, () => onaraClient.status()),
       memoTtl(`sui:gasPrice:${net}`, 60_000, () =>
         client.getReferenceGasPrice()
       ),

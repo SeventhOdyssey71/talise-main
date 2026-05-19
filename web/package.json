@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:reset": "rm -f .data/waitlist.db && echo 'db cleared'"
+    "db:reset": "rm -f .data/waitlist.db && echo 'db cleared'",
+    "pk:bootstrap": "node --env-file=.env.local scripts/bootstrap-payment-registry.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",

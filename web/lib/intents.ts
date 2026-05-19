@@ -28,11 +28,16 @@ import {
   type SignAndSubmitResult,
   type StoredZkProof,
 } from "./zkclient";
-// Platform-wide Payment-Kit receipt minting is gated to the invoice flow
-// only (where buildPayWithReceipt's inline-bootstrap path handles the
-// 'registry not on chain yet' case). Plain sends + payroll + bills use the
-// regular USDsui transfer builders. We re-enable platform-wide receipts
-// once the registry bootstrap is fixed upstream.
+// Platform-wide Payment Kit receipts attach a defined transaction kind
+// (visible to suivision/suiscan) to every Talise send. Gated behind
+// NEXT_PUBLIC_PK_RECEIPTS_ENABLED — flip the flag on after running
+// `pnpm pk:bootstrap` to mint the registry on chain.
+import {
+  buildUsdsuiTransferWithReceipt,
+  buildUsdsuiBatchWithReceipts,
+  paymentKitReceiptsEnabled,
+  nonceFor,
+} from "./payment-kit";
 import { formatLocal, type Currency } from "./fx";
 import { shortAddress } from "./format";
 
@@ -160,11 +165,18 @@ export function transferIntent(opts: {
       },
     ],
     build: isUsdsui
-      ? buildUsdsuiTransfer({
-          senderAddress: opts.senderAddress,
-          amountMicro: BigInt(Math.round(opts.amount * 1e6)),
-          recipient: opts.recipient,
-        })
+      ? paymentKitReceiptsEnabled()
+        ? buildUsdsuiTransferWithReceipt({
+            sender: opts.senderAddress,
+            receiver: opts.recipient,
+            amountUsdsui: opts.amount,
+            nonce: nonceFor("transfer", opts.senderAddress, opts.recipient),
+          }).build
+        : buildUsdsuiTransfer({
+            senderAddress: opts.senderAddress,
+            amountMicro: BigInt(Math.round(opts.amount * 1e6)),
+            recipient: opts.recipient,
+          })
       : buildSuiTransfer({
           amountMist: BigInt(Math.round(opts.amount * 1e9)),
           recipient: opts.recipient,
@@ -303,25 +315,46 @@ export function remittanceIntent(opts: {
         detail: `${localOut} · ~2 sec`,
       },
     ],
-    build: buildBatchUsdsuiPayroll({
-      senderAddress: opts.senderAddress,
-      recipients: [
-        ...(feeUsdsui > 0
-          ? [
-              {
-                address: opts.feeCollector,
-                amountMicro: BigInt(Math.round(feeUsdsui * 1e6)),
-                ref: "fee",
-              },
-            ]
-          : []),
-        {
-          address: opts.settlementAddress,
-          amountMicro: BigInt(Math.round(settleUsdsui * 1e6)),
-          ref: "settle",
-        },
-      ],
-    }),
+    build: paymentKitReceiptsEnabled()
+      ? buildUsdsuiBatchWithReceipts({
+          sender: opts.senderAddress,
+          kind: "remittance",
+          recipients: [
+            ...(feeUsdsui > 0
+              ? [
+                  {
+                    address: opts.feeCollector,
+                    amountUsdsui: feeUsdsui,
+                    label: "fee",
+                  },
+                ]
+              : []),
+            {
+              address: opts.settlementAddress,
+              amountUsdsui: settleUsdsui,
+              label: "settle",
+            },
+          ],
+        }).build
+      : buildBatchUsdsuiPayroll({
+          senderAddress: opts.senderAddress,
+          recipients: [
+            ...(feeUsdsui > 0
+              ? [
+                  {
+                    address: opts.feeCollector,
+                    amountMicro: BigInt(Math.round(feeUsdsui * 1e6)),
+                    ref: "fee",
+                  },
+                ]
+              : []),
+            {
+              address: opts.settlementAddress,
+              amountMicro: BigInt(Math.round(settleUsdsui * 1e6)),
+              ref: "settle",
+            },
+          ],
+        }),
   };
 }
 
@@ -346,7 +379,17 @@ export function payrollIntent(opts: {
       title: r.label ?? `Pay ${shortRecipient(r.address)}`,
       detail: `$${(Number(r.amountMicro) / 1e6).toFixed(2)}`,
     })),
-    build: buildBatchUsdsuiPayroll(opts),
+    build: paymentKitReceiptsEnabled()
+      ? buildUsdsuiBatchWithReceipts({
+          sender: opts.senderAddress,
+          kind: "payroll",
+          recipients: opts.recipients.map((r) => ({
+            address: r.address,
+            amountUsdsui: Number(r.amountMicro) / 1e6,
+            label: r.label,
+          })),
+        }).build
+      : buildBatchUsdsuiPayroll(opts),
   };
 }
 
@@ -526,14 +569,24 @@ export function billBatchIntent(opts: {
       title: b.name,
       detail: `$${b.amountUsdsui.toFixed(2)}`,
     })),
-    build: buildBatchUsdsuiPayroll({
-      senderAddress: opts.senderAddress,
-      recipients: opts.bills.map((b) => ({
-        address: b.address,
-        amountMicro: BigInt(Math.round(b.amountUsdsui * 1e6)),
-        ref: b.name,
-      })),
-    }),
+    build: paymentKitReceiptsEnabled()
+      ? buildUsdsuiBatchWithReceipts({
+          sender: opts.senderAddress,
+          kind: "bills",
+          recipients: opts.bills.map((b) => ({
+            address: b.address,
+            amountUsdsui: b.amountUsdsui,
+            label: b.name,
+          })),
+        }).build
+      : buildBatchUsdsuiPayroll({
+          senderAddress: opts.senderAddress,
+          recipients: opts.bills.map((b) => ({
+            address: b.address,
+            amountMicro: BigInt(Math.round(b.amountUsdsui * 1e6)),
+            ref: b.name,
+          })),
+        }),
   };
 }
 
@@ -653,10 +706,17 @@ export function conditionalSendIntent(opts: {
         title: `Sweep $${opts.amountUsdsui.toFixed(2)} to ${label}`,
       },
     ],
-    build: buildUsdsuiTransfer({
-      senderAddress: opts.senderAddress,
-      amountMicro: BigInt(Math.round(opts.amountUsdsui * 1e6)),
-      recipient: opts.recipient,
-    }),
+    build: paymentKitReceiptsEnabled()
+      ? buildUsdsuiTransferWithReceipt({
+          sender: opts.senderAddress,
+          receiver: opts.recipient,
+          amountUsdsui: opts.amountUsdsui,
+          nonce: nonceFor("sweep", opts.senderAddress, opts.recipient),
+        }).build
+      : buildUsdsuiTransfer({
+          senderAddress: opts.senderAddress,
+          amountMicro: BigInt(Math.round(opts.amountUsdsui * 1e6)),
+          recipient: opts.recipient,
+        }),
   };
 }

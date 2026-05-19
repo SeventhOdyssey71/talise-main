@@ -82,6 +82,19 @@ export function globalRegistryId(): string {
 }
 
 /**
+ * Feature flag: are Payment Kit receipts wired into the platform-wide
+ * send flows (transfer, payroll, bills, remittance)? Defaults to off
+ * until the operator runs `pnpm pk:bootstrap` to mint the registry on
+ * chain. Once minted, set NEXT_PUBLIC_PK_RECEIPTS_ENABLED=true to opt in.
+ *
+ * Without this, suivision.xyz shows "none" as the transaction kind
+ * because there's no Payment Kit moveCall to identify it.
+ */
+export function paymentKitReceiptsEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_PK_RECEIPTS_ENABLED === "true";
+}
+
+/**
  * Build a PTB that:
  *   1. Optionally creates a PaymentRegistry (when `registry` is null).
  *   2. Transfers USDsui from sender to merchant.
