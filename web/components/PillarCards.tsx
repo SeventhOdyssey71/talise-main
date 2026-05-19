@@ -1,47 +1,51 @@
 "use client";
 
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { Reveal } from "./Reveal";
 
 const PILLARS = [
   {
-    tag: "01 / Currency",
-    title: "Naira, cedis, shillings, rand.",
-    sub: "Pay in the currency you earn in. Your family receives in the currency they spend in. We handle the middle.",
+    image: "/pillar-send.png",
+    tag: "01 / Send",
+    title: "Across borders, in seconds.",
+    sub: "Send to a phone, a username, or a wallet. Naira, cedis, shillings, rand — we settle in USDsui and land in the receiver's local currency, faster than any traditional rail.",
     accent: "₦  GH₵  KSh  R",
   },
   {
-    tag: "02 / Last mile",
-    title: "Direct to mobile money & bank.",
-    sub: "Local partners deliver the final hop — M-Pesa in Kenya, Flutterwave and Paystack in Nigeria, Yellow Card across the continent, Kotani Pay for the rest.",
-    accent: "Flutterwave · Yellow Card · M-Pesa · Kotani Pay",
+    image: "/pillar-earn.png",
+    tag: "02 / Earn",
+    title: "Idle money should compound.",
+    sub: "Move USDsui into NAVI lending in one tap. Watch real-time yield. Withdraw anytime. No lockups, no jargon — just a balance that quietly grows.",
+    accent: "Real APY · No lockup · One tap",
   },
   {
-    tag: "03 / Reach",
-    title: "Send from any country, to any phone.",
-    sub: "No IBAN. No SWIFT code. No agent visits. If your recipient has a phone number, they can receive.",
-    accent: "UK · US · EU → NG · KE · GH · ZA",
+    image: "/pillar-stable.png",
+    tag: "03 / Stable",
+    title: "Built on the Sui Dollar.",
+    sub: "USDsui is the canonical Sui-native dollar. No bridge risk, no wrapped tokens, no off-chain custody. The same dollar your savings, payments, and yield all share.",
+    accent: "USDsui · 1:1 · On-chain",
   },
 ];
 
 export function PillarCards() {
   return (
-    <section id="how" className="py-32">
+    <section id="how" className="bg-[#fafaf7] py-28 md:py-36">
       <div className="mx-auto max-w-7xl px-6 md:px-8">
         <Reveal>
-          <div className="text-[12px] uppercase tracking-[0.22em] text-[var(--color-accent)]">
+          <div className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#8a8472]">
             How it works
           </div>
         </Reveal>
         <Reveal delay={0.1}>
-          <h2 className="mt-4 font-display text-[40px] leading-[1.05] tracking-[-0.02em] md:text-[56px]">
+          <h2 className="mt-5 max-w-3xl text-[40px] leading-[1.04] tracking-[-0.03em] md:text-[58px]">
             One app.
             <br />
             Every corridor.
             <br />
-            <em className="not-italic text-[var(--color-accent)]">
+            <span className="font-serif italic font-normal text-[#5a554a]">
               Arrives in seconds.
-            </em>
+            </span>
           </h2>
         </Reveal>
 
@@ -51,24 +55,31 @@ export function PillarCards() {
               <motion.div
                 whileHover={{ y: -4 }}
                 transition={{ duration: 0.2 }}
-                className="relative h-full overflow-hidden rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] p-7"
+                className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-[#e8e1cf] bg-white"
               >
-                <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
-                  {p.tag}
+                <div className="relative aspect-[3/2] w-full overflow-hidden">
+                  <Image
+                    src={p.image}
+                    alt=""
+                    fill
+                    sizes="(max-width: 768px) 100vw, 33vw"
+                    className="object-cover transition duration-700 group-hover:scale-[1.03]"
+                  />
                 </div>
-                <div className="mt-6 font-display text-[36px] leading-[1.05] tracking-[-0.02em] text-[var(--color-fg)]">
-                  {p.title}
+                <div className="flex flex-1 flex-col p-7">
+                  <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#8a8472]">
+                    {p.tag}
+                  </div>
+                  <div className="mt-5 text-[26px] font-medium leading-[1.1] tracking-[-0.02em] text-[#111] md:text-[28px]">
+                    {p.title}
+                  </div>
+                  <p className="mt-3 text-[15px] leading-[1.55] text-[#5a554a]">
+                    {p.sub}
+                  </p>
+                  <div className="mt-7 font-mono text-[11px] uppercase tracking-[0.18em] text-[#c08a3e]">
+                    {p.accent}
+                  </div>
                 </div>
-                <p className="mt-3 text-[15px] leading-relaxed text-[var(--color-fg-muted)]">
-                  {p.sub}
-                </p>
-                <div className="mt-8 font-mono text-[11px] uppercase tracking-wider text-[var(--color-accent)]">
-                  {p.accent}
-                </div>
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full bg-[var(--color-accent)] opacity-[0.06] blur-3xl"
-                />
               </motion.div>
             </Reveal>
           ))}
