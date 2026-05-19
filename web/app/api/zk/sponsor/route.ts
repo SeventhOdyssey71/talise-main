@@ -5,6 +5,7 @@ import { fromBase64, toBase64 } from "@mysten/sui/utils";
 import { Transaction } from "@mysten/sui/transactions";
 import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { OnaraClient } from "@/lib/onara";
+import { memoTtl } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
 
@@ -54,24 +55,36 @@ export async function POST(req: Request) {
   try {
     const t0 = Date.now();
     const onara = new OnaraClient(onaraUrl);
-    const { address: sponsor } = await onara.status();
-    const tStatus = Date.now();
-
     const net = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet").toLowerCase();
     const client = new SuiJsonRpcClient({
       url: getJsonRpcFullnodeUrl(net === "mainnet" ? "mainnet" : "testnet"),
       network: net === "mainnet" ? "mainnet" : "testnet",
     });
 
+    // Parallelize the two cold round-trips. Both are cached for 60s — the
+    // sponsor address rarely changes and reference gas price is
+    // epoch-scoped (~24h). On cache hits each resolves in <1ms.
+    const [{ address: sponsor }, gasPrice] = await Promise.all([
+      memoTtl(`onara:status:${onaraUrl}`, 60_000, () => onara.status()),
+      memoTtl(`sui:gasPrice:${net}`, 60_000, () =>
+        client.getReferenceGasPrice()
+      ),
+    ]);
+    const tStatus = Date.now();
+
     const tx = Transaction.fromKind(fromBase64(body.transactionKindB64));
     tx.setSender(user.sui_address);
     tx.setGasOwner(sponsor);
+    // Pre-set gas price so `tx.build()` skips the `getReferenceGasPrice`
+    // RPC. Sponsor's gas coin lookup still happens — Onara doesn't expose
+    // its coin objectRefs, so we can't skip that part.
+    tx.setGasPrice(BigInt(gasPrice));
 
     const bytes = await tx.build({ client: client as never });
     const tBuild = Date.now();
 
     console.log(
-      `[zk/sponsor] onara-status=${tStatus - t0}ms · tx.build(+gas-fetch)=${tBuild - tStatus}ms · total=${tBuild - t0}ms`
+      `[zk/sponsor] status+price(par)=${tStatus - t0}ms · tx.build=${tBuild - tStatus}ms · total=${tBuild - t0}ms`
     );
     return NextResponse.json({ bytes: toBase64(bytes) });
   } catch (err) {
