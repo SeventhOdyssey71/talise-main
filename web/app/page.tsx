@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { Hero } from "@/components/Hero";
 import { FeatureRow } from "@/components/FeatureRow";
-import { PartnerStrip } from "@/components/PartnerStrip";
 import { StatStrip } from "@/components/StatStrip";
 import { ProblemSection } from "@/components/ProblemSection";
 import { PillarCards } from "@/components/PillarCards";
@@ -46,7 +45,6 @@ export default async function Landing({
       <main>
         <Hero errorCode={params.err} />
         <FeatureRow />
-        <PartnerStrip />
         <PillarCards />
         <StatStrip />
         <PersonaCards />
