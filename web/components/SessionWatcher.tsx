@@ -48,14 +48,16 @@ export function SessionWatcher() {
   useEffect(() => {
     let cancelled = false;
 
-    async function expire(reason: "no_key" | "ttl") {
+    async function expire(reason: "no_key" | "ttl" | "api_401") {
       if (expiredRef.current) return;
       expiredRef.current = true;
       clearStored();
       // Server logout drops the session cookie + the signing JWT cookie.
       await fetch("/api/auth/logout", {
         method: "POST",
-        redirect: "manual", // we'll redirect ourselves with the right query
+        redirect: "manual",
+        // Skip the fetch interceptor for our own logout call.
+        headers: { "x-talise-skip-401": "1" },
       }).catch(() => {});
       if (cancelled) return;
       window.location.href = `/?err=session_expired&reason=${reason}`;
@@ -77,6 +79,44 @@ export function SessionWatcher() {
       }
     }
 
+    // Global 401 interceptor: the moment ANY /api/* call returns 401, sign
+    // the user out cleanly instead of letting the page render error states.
+    // This catches the gap between polls — components no longer surface
+    // "not authenticated" boxes for an expired session.
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const res = await originalFetch(...args);
+      try {
+        if (res.status === 401) {
+          const req = args[0];
+          const url =
+            typeof req === "string"
+              ? req
+              : req instanceof URL
+                ? req.toString()
+                : (req as Request).url;
+          const init = args[1] as RequestInit | undefined;
+          const skip =
+            (init?.headers as Record<string, string> | undefined)?.[
+              "x-talise-skip-401"
+            ] ?? "";
+          const isOurApi =
+            url.startsWith("/api/") ||
+            url.includes(window.location.origin + "/api/");
+          // Don't bounce on the /api/me probe used by the landing page —
+          // that one legitimately returns 401 for anonymous visitors.
+          const isProbe =
+            url.includes("/api/me") || url.includes("/api/auth/me");
+          if (isOurApi && !skip && !isProbe) {
+            expire("api_401");
+          }
+        }
+      } catch {
+        /* never break the caller */
+      }
+      return res;
+    };
+
     tick();
     const id = setInterval(tick, POLL_MS);
     // Also re-check when the tab regains focus — common case: laptop wake.
@@ -89,6 +129,7 @@ export function SessionWatcher() {
       cancelled = true;
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
+      window.fetch = originalFetch;
     };
   }, []);
 
