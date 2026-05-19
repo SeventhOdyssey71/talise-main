@@ -1,0 +1,22 @@
+{
+  "name": "@unconfirmed/onara-api",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "bun scripts/deploy.ts",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@mysten/sui": "^2.5.0",
+    "envalid": "^8.1.1",
+    "hono": "^4.12.3",
+    "p-retry": "^7.1.1",
+    "p-timeout": "^7.0.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.9",
+    "wrangler": "^4.69.0"
+  }
+}

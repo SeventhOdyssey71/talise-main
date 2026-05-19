@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@theme {
+  /* Light mode default — pure black on warm white, editorial monochrome. */
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f5f5;
+  --color-fg: #0a0a0a;
+  --color-fg-muted: #525252;
+  --color-fg-dim: #a3a3a3;
+  --color-line: #e5e5e5;
+  --color-accent: #0a0a0a;
+  --color-accent-soft: #2a2a2a;
+  --color-live: #404040;
+
+  --font-sans: var(--font-sans), "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-sans), "DM Sans", system-ui, sans-serif;
+  --font-mono: var(--font-mono), "JetBrains Mono", "SF Mono", Menlo, monospace;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-fg);
+  color: var(--color-bg);
+}
+
+/* Strip the ugly spinner arrows from <input type="number"> across browsers. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Legacy moodboard tile class (still used by hero collage if re-enabled). */
+.tile {
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 240ms ease;
+}
+
+.tile:hover {
+  z-index: 5;
+}
+
+/* No-op alias kept for backwards compatibility — the whole site is light mode
+   by default now. Any subtree wrapped with .light-app simply gets the same
+   tokens redeclared (idempotent). */
+.light-app {
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f5f5;
+  --color-fg: #0a0a0a;
+  --color-fg-muted: #525252;
+  --color-fg-dim: #a3a3a3;
+  --color-line: #e5e5e5;
+  --color-accent: #0a0a0a;
+  --color-accent-soft: #2a2a2a;
+  --color-live: #404040;
+}
+
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.025;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
