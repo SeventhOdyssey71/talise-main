@@ -33,10 +33,28 @@ export function Hero({ errorCode }: { errorCode?: string }) {
     <section className="relative w-full overflow-hidden bg-[#fafaf7] text-[#111]">
       {/* The cosmic galaxy hero, anchored behind the headline. Light bleed
           on top + bottom of the page ensures the section blends into the
-          surrounding cream without a hard seam. */}
-      <div
+          surrounding cream without a hard seam.
+
+          Subtle motion: a slow Ken-Burns drift + breathing scale, plus a
+          soft rotation, so the galaxy feels alive without ever calling
+          attention to itself. 32s loop — slow enough that no two visits
+          show the same frame in any meaningful way, fast enough that
+          watching closely you see it move. */}
+      <motion.div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 -top-20 mx-auto h-[720px] w-[110%] max-w-[1600px] opacity-90"
+        initial={{ scale: 1.02 }}
+        animate={{
+          scale: [1.02, 1.08, 1.02],
+          x: [0, 14, -8, 0],
+          y: [0, -6, 4, 0],
+          rotate: [0, 0.4, -0.3, 0],
+        }}
+        transition={{
+          duration: 32,
+          repeat: Infinity,
+          ease: "easeInOut",
+        }}
       >
         <Image
           src="/landing-hero.png"
@@ -52,7 +70,34 @@ export function Hero({ errorCode }: { errorCode?: string }) {
           aria-hidden
           className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-b from-transparent to-[#fafaf7]"
         />
-      </div>
+      </motion.div>
+
+      {/* A second, very slow layer of stardust drifting in the opposite
+          direction — gives the scene parallax depth. Lower opacity so it
+          reads as atmosphere, not a copy of the galaxy. */}
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 -top-32 mx-auto h-[820px] w-[120%] max-w-[1700px] opacity-25 mix-blend-multiply"
+        animate={{
+          x: [0, -18, 10, 0],
+          y: [0, 8, -6, 0],
+          scale: [1, 1.04, 1],
+        }}
+        transition={{
+          duration: 54,
+          repeat: Infinity,
+          ease: "easeInOut",
+        }}
+      >
+        <Image
+          src="/landing-hero.png"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover object-center"
+        />
+      </motion.div>
 
       <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center px-6 pt-36 pb-20 text-center md:pt-44 md:pb-28">
         {/* Status pill */}

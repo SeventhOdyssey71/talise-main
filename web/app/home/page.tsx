@@ -134,91 +134,111 @@ export default async function HomePage({
       }
     >
       <OnrampSuccessToast show={onrampSuccess} />
-      <div className="mb-4">
-        {subname ? (
-          <UsernameCard
-            username={subname.username}
-            address={user.sui_address}
-            size="sm"
-          />
-        ) : (
-          <a
-            href="/claim"
-            className="group flex items-center justify-between rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4 transition hover:border-[var(--color-fg)]"
-          >
-            <div>
-              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
-                New
+
+      {/* 1. Alerts — banners that demand attention, all in one stack so
+             they don't visually fragment the top of the page. */}
+      <div className="space-y-2">
+        <FixSubnameBanner
+          stale={staleSubnames.map((s) => ({
+            nftId: s.nftId,
+            fullName: s.fullName,
+          }))}
+          userAddress={user.sui_address}
+        />
+        <AutoConvertBanner coins={nonUsdsui} suiUsdPrice={suiPrice ?? 0} />
+        <NetworkBanner />
+      </div>
+
+      {/* 2. Balance — the hero of the dashboard. */}
+      <section className="mt-2">
+        <PersonalBalanceCard
+          totalUsd={totalUsd}
+          usdsui={usdsui.usdsui}
+          sui={balance.sui}
+          suiUsd={suiUsd}
+        />
+      </section>
+
+      {/* 3. Quick actions — the four primary verbs. */}
+      <section className="mt-6">
+        <PaymentActions />
+      </section>
+
+      {/* 4. Identity — username + address, lightweight reference. */}
+      <section className="mt-10">
+        <SectionRow title="Your identity" />
+        <div className="mt-4 space-y-2">
+          {subname ? (
+            <UsernameCard
+              username={subname.username}
+              address={user.sui_address}
+              size="sm"
+            />
+          ) : (
+            <a
+              href="/claim"
+              className="group flex items-center justify-between rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4 transition hover:border-[var(--color-fg)]"
+            >
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
+                  New
+                </div>
+                <div className="mt-1 text-[14px] text-[var(--color-fg)]">
+                  Claim your <span className="font-mono">@username</span> —
+                  get paid at <span className="font-mono">name@talise</span>.
+                </div>
               </div>
-              <div className="mt-1 text-[14px] text-[var(--color-fg)]">
-                Claim your <span className="font-mono">@username</span> — get
-                paid at <span className="font-mono">name@talise</span>.
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-line)] bg-white text-[var(--color-fg)] transition group-hover:border-[var(--color-fg)]">
+                <HugeiconsIcon
+                  icon={ArrowRight01FreeIcons}
+                  size={14}
+                  strokeWidth={1.8}
+                  color="currentColor"
+                />
+              </span>
+            </a>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-3.5">
+            <div className="min-w-0 flex-1">
+              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
+                Wallet
+              </div>
+              <div className="mt-1 truncate text-[13px] text-[var(--color-fg)]">
+                {user.email}
               </div>
             </div>
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-line)] bg-white text-[var(--color-fg)] transition group-hover:border-[var(--color-fg)]">
-              <HugeiconsIcon
-                icon={ArrowRight01FreeIcons}
-                size={14}
-                strokeWidth={1.8}
-                color="currentColor"
-              />
-            </span>
-          </a>
-        )}
-      </div>
-
-      <FixSubnameBanner
-        stale={staleSubnames.map((s) => ({ nftId: s.nftId, fullName: s.fullName }))}
-        userAddress={user.sui_address}
-      />
-
-      <AutoConvertBanner
-        coins={nonUsdsui}
-        suiUsdPrice={suiPrice ?? 0}
-      />
-
-      <NetworkBanner />
-
-      <PersonalBalanceCard
-        totalUsd={totalUsd}
-        usdsui={usdsui.usdsui}
-        sui={balance.sui}
-        suiUsd={suiUsd}
-      />
-
-      <div className="mt-6">
-        <PaymentActions />
-      </div>
-
-      <section className="mt-12">
-        <SectionRow title="Your account" />
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4">
-          <div className="flex items-center gap-3">
-            <span className="text-[13px] text-[var(--color-fg)]">
-              {user.email}
-            </span>
-            <span className="hidden text-[11px] text-[var(--color-fg-dim)] md:inline">
-              your account ID is ready to share
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <CopyAddress address={user.sui_address} />
-            <a
-              href={suiscanAccountUrl(user.sui_address)}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[11px] text-[var(--color-fg-dim)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
-              title={user.sui_address}
-            >
-              {shortAddress(user.sui_address, 4, 4)}
-            </a>
+            <div className="flex items-center gap-3">
+              <CopyAddress address={user.sui_address} />
+              <a
+                href={suiscanAccountUrl(user.sui_address)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 font-mono text-[11px] text-[var(--color-fg-dim)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
+                title={user.sui_address}
+              >
+                {shortAddress(user.sui_address, 4, 4)}
+                <HugeiconsIcon
+                  icon={LinkSquare02FreeIcons}
+                  size={11}
+                  strokeWidth={1.8}
+                  color="currentColor"
+                />
+              </a>
+            </div>
           </div>
         </div>
       </section>
 
-      <EarnStrip apy={earnSnapshot.apy} supplied={earnSnapshot.supplied} />
+      {/* 5. Earn — quick at-a-glance yield. */}
+      <section className="mt-10">
+        <SectionRow title="Earn" />
+        <div className="mt-4">
+          <EarnStrip apy={earnSnapshot.apy} supplied={earnSnapshot.supplied} />
+        </div>
+      </section>
 
-      <section className="mt-12">
+      {/* 6. Activity — historical record. */}
+      <section className="mt-10">
         <SectionRow title="Activity" />
         {activity.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-[var(--color-line)] bg-[var(--color-surface-2)] p-12 text-center">
