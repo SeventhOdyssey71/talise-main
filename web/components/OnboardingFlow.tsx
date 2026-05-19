@@ -5,10 +5,34 @@ import { useEffect, useMemo, useState } from "react";
 
 type Step = "choose" | "personal-details" | "business-details" | "ready";
 
+// 8 chars · uppercase letters + digits · no ambiguous (O 0 I 1 L). Mirrors
+// `REFERRAL_CODE_RE` in `lib/db.ts`.
+const REFERRAL_CODE_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/;
+
 export function OnboardingFlow() {
   const [step, setStep] = useState<Step>("choose");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [referralCode, setReferralCode] = useState("");
+
+  // Pre-fill the referral field from the httpOnly cookie set by the landing
+  // page's `<Hero>` if the visitor arrived via `?ref=`.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/referral/cookie")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { code?: string | null } | null) => {
+        if (cancelled) return;
+        const c = (j?.code ?? "").trim().toUpperCase();
+        if (REFERRAL_CODE_RE.test(c)) setReferralCode(c);
+      })
+      .catch(() => {
+        /* ignore */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div>
@@ -67,6 +91,8 @@ export function OnboardingFlow() {
               setErr={setErr}
               submitting={submitting}
               setSubmitting={setSubmitting}
+              referralCode={referralCode}
+              setReferralCode={setReferralCode}
             />
           </motion.div>
         )}
@@ -86,6 +112,8 @@ export function OnboardingFlow() {
               setErr={setErr}
               submitting={submitting}
               setSubmitting={setSubmitting}
+              referralCode={referralCode}
+              setReferralCode={setReferralCode}
             />
           </motion.div>
         )}
@@ -239,16 +267,22 @@ function PersonalDetails({
   setErr,
   submitting,
   setSubmitting,
+  referralCode,
+  setReferralCode,
 }: {
   onBack: () => void;
   onDone: () => void;
   setErr: (s: string | null) => void;
   submitting: boolean;
   setSubmitting: (b: boolean) => void;
+  referralCode: string;
+  setReferralCode: (s: string) => void;
 }) {
   const [interests, setInterests] = useState<string[]>([]);
   const [country, setCountry] = useState("");
   const [notify, setNotify] = useState(true);
+  const referralValid =
+    referralCode.length === 0 || REFERRAL_CODE_RE.test(referralCode);
 
   function toggle(k: string) {
     setInterests((cur) =>
@@ -269,6 +303,7 @@ function PersonalDetails({
           interests,
           country: country.trim() || null,
           notify,
+          referralCode: referralCode.trim() || null,
         }),
       });
       const j = await r.json();
@@ -347,12 +382,18 @@ function PersonalDetails({
             </div>
           </div>
         </label>
+
+        <ReferralField
+          value={referralCode}
+          onChange={setReferralCode}
+          valid={referralValid}
+        />
       </div>
 
       <div className="mt-10 flex items-center gap-4">
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || !referralValid}
           className="rounded-md bg-[var(--color-fg)] px-5 py-3 text-[14px] font-medium text-[var(--color-bg)] transition hover:bg-[var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {submitting ? "…" : "Create personal account →"}
@@ -397,17 +438,23 @@ function BusinessDetails({
   setErr,
   submitting,
   setSubmitting,
+  referralCode,
+  setReferralCode,
 }: {
   onBack: () => void;
   onDone: () => void;
   setErr: (s: string | null) => void;
   submitting: boolean;
   setSubmitting: (b: boolean) => void;
+  referralCode: string;
+  setReferralCode: (s: string) => void;
 }) {
   const [name, setName] = useState("");
   const [handle, setHandle] = useState("");
   const [industry, setIndustry] = useState("");
   const [country, setCountry] = useState("");
+  const referralValid =
+    referralCode.length === 0 || REFERRAL_CODE_RE.test(referralCode);
 
   // Auto-derive handle from business name unless user has typed their own.
   const autoHandle = useMemo(() => slugify(name), [name]);
@@ -435,6 +482,7 @@ function BusinessDetails({
           businessHandle: effectiveHandle,
           businessIndustry: industry.trim() || null,
           country: country.trim() || null,
+          referralCode: referralCode.trim() || null,
         }),
       });
       const j = await r.json();
@@ -525,12 +573,18 @@ function BusinessDetails({
             Helps us prioritize local on/off-ramp partners.
           </p>
         </Field>
+
+        <ReferralField
+          value={referralCode}
+          onChange={setReferralCode}
+          valid={referralValid}
+        />
       </div>
 
       <div className="mt-10 flex items-center gap-4">
         <button
           type="submit"
-          disabled={!ready || submitting}
+          disabled={!ready || submitting || !referralValid}
           className="rounded-md bg-[var(--color-fg)] px-5 py-3 text-[14px] font-medium text-[var(--color-bg)] transition hover:bg-[var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {submitting ? "…" : "Create business account →"}
@@ -544,6 +598,48 @@ function BusinessDetails({
         </button>
       </div>
     </form>
+  );
+}
+
+function ReferralField({
+  value,
+  onChange,
+  valid,
+}: {
+  value: string;
+  onChange: (s: string) => void;
+  valid: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-4">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--color-fg-dim)]">
+        Referral code (optional)
+      </div>
+      <input
+        value={value}
+        onChange={(e) => {
+          // Accept any case, strip whitespace, uppercase. Limit to 8.
+          const next = e.target.value
+            .replace(/\s+/g, "")
+            .toUpperCase()
+            .slice(0, 8);
+          onChange(next);
+        }}
+        placeholder="e.g. EMMA4F2K"
+        spellCheck={false}
+        autoComplete="off"
+        className="mt-2 w-full rounded-md border border-[var(--color-line)] bg-[var(--color-bg)] px-3 py-2.5 font-mono text-[14px] tracking-[0.18em] text-[var(--color-fg)] placeholder:text-[var(--color-fg-dim)] focus:border-[var(--color-fg)] focus:outline-none"
+      />
+      {value.length > 0 && !valid ? (
+        <p className="mt-2 text-[11px] text-[var(--color-fg)]">
+          Codes are 8 characters · A–Z and digits (no O, 0, I, 1, L).
+        </p>
+      ) : (
+        <p className="mt-2 text-[11px] text-[var(--color-fg-dim)]">
+          Got invited? Drop the code — you both earn points.
+        </p>
+      )}
+    </div>
   );
 }
 

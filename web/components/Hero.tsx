@@ -1,9 +1,35 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { useEffect } from "react";
 import { SignInButton } from "./SignInButton";
 
+// Match the server-side rule in `lib/db.ts`. Keep in sync.
+const REFERRAL_CODE_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/;
+
 export function Hero({ errorCode }: { errorCode?: string }) {
+  // Capture `?ref=CODE` from the URL into an httpOnly cookie on mount so the
+  // attribution survives the OAuth round-trip. We do this client-side so
+  // landing stays fully static + cacheable.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const raw = params.get("ref");
+      if (!raw) return;
+      const code = raw.trim().toUpperCase();
+      if (!REFERRAL_CODE_RE.test(code)) return;
+      fetch("/api/referral/capture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      }).catch(() => {
+        /* non-blocking — attribution is best-effort */
+      });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   return (
     <section className="relative w-full overflow-hidden bg-[#0a0a0a] text-white">
       {/* Layered radial aura — soft white-blue glow at the bottom edge, plus
