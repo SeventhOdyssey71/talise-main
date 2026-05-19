@@ -1,6 +1,7 @@
 import { Logo } from "./Logo";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { SessionWatcher } from "./SessionWatcher";
+import { ProofWarmer } from "./ProofWarmer";
 import type { ReactNode } from "react";
 
 export type NavItem = {
@@ -36,6 +37,7 @@ export function AppShell({
   return (
     <div className="min-h-screen bg-[var(--color-bg)]">
       <SessionWatcher />
+      <ProofWarmer />
       {/* Full-viewport layout: sidebar flush left, content fills the rest */}
       <div className="flex min-h-screen">
         {/* SIDEBAR */}
