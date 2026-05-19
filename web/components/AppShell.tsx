@@ -185,61 +185,48 @@ function SidebarItem({ item }: { item: NavItem }) {
   );
 }
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  Home09FreeIcons,
+  ArrowUpRight01FreeIcons,
+  ArrowDownLeft01FreeIcons,
+  QrCodeFreeIcons,
+  CoinsDollarFreeIcons,
+  Invoice03FreeIcons,
+  UserMultiple02FreeIcons,
+  ChartLineData02FreeIcons,
+  Settings03FreeIcons,
+  GiftFreeIcons,
+} from "@hugeicons/core-free-icons";
+import type { IconSvgElement } from "@hugeicons/react";
+
+/**
+ * Helper: wrap a HugeIcons icon in our consistent sidebar size + stroke.
+ * Sidebar icons are rendered at 16px with a 1.6 stroke for an even
+ * "weight" against the 13px label.
+ */
+function NavGlyph({ icon }: { icon: IconSvgElement }) {
+  return (
+    <HugeiconsIcon
+      icon={icon}
+      size={16}
+      strokeWidth={1.6}
+      color="currentColor"
+    />
+  );
+}
+
 export const NavIcons = {
-  home: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 11l9-8 9 8M5 10v10h14V10" />
-    </svg>
-  ),
-  send: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M7 17L17 7M9 7h8v8" />
-    </svg>
-  ),
-  receive: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 7L7 17M15 17H7V9" />
-    </svg>
-  ),
-  pay: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10" />
-    </svg>
-  ),
-  earn: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
-    </svg>
-  ),
-  invoice: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h4" />
-    </svg>
-  ),
-  payroll: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="9" cy="9" r="3" />
-      <circle cx="17" cy="11" r="2.2" />
-      <path d="M3 19c0-3 2.5-5 6-5s6 2 6 5M14 19c.2-1.7 1.5-3 3-3s2.8 1.2 3 3" />
-    </svg>
-  ),
-  activity: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 12h4l2-6 4 12 2-6h6" />
-    </svg>
-  ),
-  settings: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  ),
-  rewards: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="8" width="18" height="5" rx="1" />
-      <path d="M12 8v13M5 13v8h14v-8M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5" />
-    </svg>
-  ),
+  home: <NavGlyph icon={Home09FreeIcons} />,
+  send: <NavGlyph icon={ArrowUpRight01FreeIcons} />,
+  receive: <NavGlyph icon={ArrowDownLeft01FreeIcons} />,
+  pay: <NavGlyph icon={QrCodeFreeIcons} />,
+  earn: <NavGlyph icon={CoinsDollarFreeIcons} />,
+  invoice: <NavGlyph icon={Invoice03FreeIcons} />,
+  payroll: <NavGlyph icon={UserMultiple02FreeIcons} />,
+  activity: <NavGlyph icon={ChartLineData02FreeIcons} />,
+  settings: <NavGlyph icon={Settings03FreeIcons} />,
+  rewards: <NavGlyph icon={GiftFreeIcons} />,
 };
 
 /**

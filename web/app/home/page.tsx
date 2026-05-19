@@ -9,6 +9,14 @@ import {
 } from "@/lib/sui";
 import { getSuiUsdcPrice } from "@/lib/deepbook";
 import { getEarnSnapshot } from "@/lib/yield";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  ArrowUpRight01FreeIcons,
+  ArrowDownLeft01FreeIcons,
+  ArrowRight01FreeIcons,
+  LinkSquare02FreeIcons,
+  WavingHand02FreeIcons,
+} from "@hugeicons/core-free-icons";
 import { CopyAddress } from "@/components/CopyAddress";
 import { AppShell, NavIcons } from "@/components/AppShell";
 import { PersonalBalanceCard } from "@/components/PersonalBalanceCard";
@@ -136,18 +144,25 @@ export default async function HomePage({
         ) : (
           <a
             href="/claim"
-            className="flex items-center justify-between rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4 transition hover:border-[var(--color-fg)]"
+            className="group flex items-center justify-between rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4 transition hover:border-[var(--color-fg)]"
           >
             <div>
-              <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
                 New
               </div>
               <div className="mt-1 text-[14px] text-[var(--color-fg)]">
-                Claim your <span className="font-mono">@username</span> — get paid at{" "}
-                <span className="font-mono">name@talise</span>.
+                Claim your <span className="font-mono">@username</span> — get
+                paid at <span className="font-mono">name@talise</span>.
               </div>
             </div>
-            <span className="text-[12px] text-[var(--color-fg-muted)]">claim →</span>
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-line)] bg-white text-[var(--color-fg)] transition group-hover:border-[var(--color-fg)]">
+              <HugeiconsIcon
+                icon={ArrowRight01FreeIcons}
+                size={14}
+                strokeWidth={1.8}
+                color="currentColor"
+              />
+            </span>
           </a>
         )}
       </div>
@@ -207,8 +222,15 @@ export default async function HomePage({
         <SectionRow title="Activity" />
         {activity.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-[var(--color-line)] bg-[var(--color-surface-2)] p-12 text-center">
-            <div className="mx-auto h-10 w-10 rounded-full border border-[var(--color-line)]" />
-            <p className="mt-4 text-[14px] text-[var(--color-fg)]">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-[var(--color-line)] bg-white text-[var(--color-fg-muted)]">
+              <HugeiconsIcon
+                icon={WavingHand02FreeIcons}
+                size={20}
+                strokeWidth={1.6}
+                color="currentColor"
+              />
+            </div>
+            <p className="mt-5 text-[15px] font-medium text-[var(--color-fg)]">
               You have no payments yet.
             </p>
             <p className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
@@ -216,9 +238,15 @@ export default async function HomePage({
             </p>
             <a
               href="/send"
-              className="mt-5 inline-block rounded-md bg-[var(--color-fg)] px-4 py-2 text-[13px] font-medium text-[var(--color-bg)] hover:bg-[var(--color-accent-soft)]"
+              className="mt-5 inline-flex items-center gap-1.5 rounded-md bg-[var(--color-fg)] px-4 py-2 text-[13px] font-medium text-[var(--color-bg)] transition hover:bg-[var(--color-accent-soft)]"
             >
-              Send your first payment →
+              Send your first payment
+              <HugeiconsIcon
+                icon={ArrowRight01FreeIcons}
+                size={14}
+                strokeWidth={2}
+                color="currentColor"
+              />
             </a>
           </div>
         ) : (
@@ -262,12 +290,19 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
     <li className="flex items-center justify-between rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] px-4 py-3.5 text-[13px]">
       <div className="flex items-center gap-3">
         <span
-          className={`flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-line)] text-[12px] ${
-            sent ? "text-[var(--color-fg-muted)]" : "text-[var(--color-fg)]"
+          className={`flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-line)] ${
+            sent
+              ? "bg-white text-[var(--color-fg-muted)]"
+              : "bg-white text-[#0f6f4d]"
           }`}
           aria-hidden
         >
-          {sent ? "↗" : "↙"}
+          <HugeiconsIcon
+            icon={sent ? ArrowUpRight01FreeIcons : ArrowDownLeft01FreeIcons}
+            size={14}
+            strokeWidth={1.8}
+            color="currentColor"
+          />
         </span>
         <div className="min-w-0">
           <div className="text-[var(--color-fg)]">
@@ -297,9 +332,15 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
         href={`https://suiscan.xyz/mainnet/tx/${entry.digest}`}
         target="_blank"
         rel="noreferrer"
-        className="text-[var(--color-fg-muted)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
+        className="inline-flex items-center gap-1.5 text-[12px] text-[var(--color-fg-muted)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
       >
-        receipt ↗
+        receipt
+        <HugeiconsIcon
+          icon={LinkSquare02FreeIcons}
+          size={12}
+          strokeWidth={1.8}
+          color="currentColor"
+        />
       </a>
     </li>
   );
