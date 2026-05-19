@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { readSessionEntryId } from "@/lib/session";
-import { markInvoicePaid, recordTx, userById } from "@/lib/db";
+import {
+  markInvoicePaid,
+  recordTx,
+  setInvoiceReceiptObjectId,
+  userById,
+} from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -22,6 +27,7 @@ export async function POST(req: Request) {
     recipient?: string;
     memo?: string;
     invoiceSlug?: string | null;
+    receiptObjectId?: string | null;
   };
   try {
     body = await req.json();
@@ -41,12 +47,18 @@ export async function POST(req: Request) {
     asset: body.asset ?? null,
     recipient: body.recipient ?? null,
     memo: body.memo ?? null,
+    receiptObjectId: body.receiptObjectId ?? null,
   });
 
-  // If this payment satisfied an invoice, close it out.
+  // If this payment satisfied an invoice, close it out and attach the
+  // on-chain Sui Payment Kit receipt object so the merchant's invoice list
+  // can deep-link to it.
   if (body.invoiceSlug) {
     try {
       await markInvoicePaid(body.invoiceSlug, body.digest, user.sui_address);
+      if (body.receiptObjectId) {
+        await setInvoiceReceiptObjectId(body.invoiceSlug, body.receiptObjectId);
+      }
     } catch (e) {
       console.warn(`[tx/record] invoice close failed: ${(e as Error).message}`);
     }

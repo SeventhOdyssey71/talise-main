@@ -47,47 +47,57 @@ export function UsernameCard({
     );
   }
 
+  // Credit-card proportions — 1.586:1 (ISO/IEC 7810 ID-1), much friendlier
+  // at full container width than the previous 16:10 poster.
   return (
     <div
       className={
-        "group relative w-full overflow-hidden rounded-2xl border border-white/10 " +
+        "group relative w-full max-w-md overflow-hidden rounded-2xl border border-white/10 " +
         "bg-gradient-to-br from-[#0a0a0a] via-[#0f0f0f] to-[#1a1a1a] " +
         "shadow-[0_8px_30px_rgba(0,0,0,0.35)] " +
         "transition-transform duration-300 ease-out will-change-transform hover:-translate-y-0.5 " +
-        "aspect-[16/10] p-7 md:p-8"
+        "aspect-[1.586/1] p-5 md:p-6"
       }
     >
-      {/* Inner ring — subtle inner border at the gradient edge. */}
+      {/* Inner ring */}
       <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/5" />
 
-      {/* Top-left: wordmark + mainnet dot */}
+      {/* Soft aura behind the handle — adds the "premium card" depth without color */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(420px circle at 80% 110%, rgba(255,255,255,0.05), transparent 60%)",
+        }}
+      />
+
+      {/* Top row: wordmark + mainnet pill */}
       <div className="relative flex items-start justify-between">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-white/70">
-            talise
+        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-white/70">
+          talise
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
+          <span className="inline-flex h-1 w-1 rounded-full bg-white/80" />
+          <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-white/55">
+            mainnet
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-flex h-1 w-1 rounded-full bg-white/80" />
-            <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-white/40">
-              mainnet
-            </span>
-          </span>
-        </div>
+        </span>
       </div>
 
-      {/* Center: huge handle */}
-      <div className="relative mt-8 flex items-center md:mt-10">
-        <span className="font-display text-[44px] font-semibold leading-[1.02] tracking-[-0.035em] text-white md:text-[64px]">
+      {/* Center: the handle */}
+      <div className="relative mt-5 flex items-center md:mt-6">
+        <span className="font-display text-[28px] font-semibold leading-[1.04] tracking-[-0.03em] text-white md:text-[34px]">
           {formatHandle(username)}
         </span>
       </div>
 
       {/* Bottom row */}
-      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-7 md:p-8">
-        <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-white/45">
+      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-5 md:p-6">
+        <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-white/45">
           Your money lands here
         </div>
-        <div className="font-mono text-[11px] text-white/55" title={address}>
+        <div className="font-mono text-[10px] text-white/55" title={address}>
           {shortAddress(address, 4, 4)}
         </div>
       </div>

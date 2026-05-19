@@ -12,6 +12,7 @@ export async function PayMerchantForm({
   presetAmount,
   presetMemo,
   invoiceSlug,
+  paymentRegistryId,
 }: {
   senderAddress: string;
   recipientAddress: string;
@@ -19,6 +20,11 @@ export async function PayMerchantForm({
   presetAmount: string;
   presetMemo: string;
   invoiceSlug?: string | null;
+  /**
+   * Merchant's PaymentRegistry object id (null in v1 — `lib/payment-kit.ts`
+   * derives the global Talise registry deterministically).
+   */
+  paymentRegistryId?: string | null;
 }) {
   const usdsui = await getUsdsuiBalance(senderAddress);
 
@@ -31,6 +37,7 @@ export async function PayMerchantForm({
       presetAmount={presetAmount}
       presetMemo={presetMemo}
       invoiceSlug={invoiceSlug ?? undefined}
+      paymentRegistryId={paymentRegistryId ?? null}
     />
   );
 }

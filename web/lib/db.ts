@@ -95,6 +95,8 @@ export async function ensureSchema() {
     "ALTER TABLE users ADD COLUMN notify_on_receive INTEGER",
     "ALTER TABLE users ADD COLUMN spot_bm_id TEXT",
     "ALTER TABLE users ADD COLUMN talise_username TEXT",
+    "ALTER TABLE users ADD COLUMN payment_registry_id TEXT",
+    "ALTER TABLE invoices ADD COLUMN receipt_object_id TEXT",
   ]) {
     try {
       await c.execute(sql);
@@ -139,6 +141,7 @@ export type User = {
   spot_bm_id?: string | null;
   interests?: string | null;
   notify_on_receive?: number | null;
+  payment_registry_id?: string | null;
 };
 
 /** Has the user finished business onboarding? Handle is the gate. */
@@ -381,6 +384,34 @@ export async function updateUserProfile(
   });
 }
 
+/**
+ * Persist the Sui Payment Kit `PaymentRegistry` object id for a merchant.
+ * Called once per merchant at handle-creation time (or lazily on the first
+ * paid invoice). The registry object is shared on-chain — only the id
+ * needs to live in our DB so subsequent invoice payments can target it.
+ */
+export async function setPaymentRegistry(
+  userId: number,
+  objectId: string
+): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: "UPDATE users SET payment_registry_id = ? WHERE id = ?",
+    args: [objectId, userId],
+  });
+}
+
+export async function setInvoiceReceiptObjectId(
+  slug: string,
+  receiptObjectId: string
+): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: "UPDATE invoices SET receipt_object_id = ? WHERE slug = ?",
+    args: [receiptObjectId, slug],
+  });
+}
+
 export async function setSpotBalanceManagerId(userId: number, bmId: string) {
   await ensureSchema();
   await db().execute({
@@ -459,6 +490,7 @@ export type Invoice = {
   paid_at: number | null;
   paid_digest: string | null;
   paid_by_address: string | null;
+  receipt_object_id?: string | null;
 };
 
 export async function createInvoice(input: {

@@ -7,6 +7,7 @@ import {
   triggerOauthSignIn,
 } from "@/lib/zkclient";
 import { transferIntent, type PaymentIntent } from "@/lib/intents";
+import { buildPayWithReceipt } from "@/lib/payment-kit";
 import { FX, SYMBOL, localToUsdsui, formatLocal } from "@/lib/fx";
 import { ErrorBox } from "@/components/ErrorBox";
 import { IntentPreview } from "@/components/IntentPreview";
@@ -38,6 +39,7 @@ export function SendForm({
   presetMemo,
   merchantLabel,
   invoiceSlug,
+  paymentRegistryId,
 }: {
   senderAddress: string;
   /** USDsui balance in dollars (parity with USD). */
@@ -48,6 +50,11 @@ export function SendForm({
   presetMemo?: string;
   merchantLabel?: string;
   invoiceSlug?: string;
+  /**
+   * Merchant's PaymentRegistry object id (null in v1 — we use the global
+   * Talise registry derived in `lib/payment-kit.ts`).
+   */
+  paymentRegistryId?: string | null;
 }) {
   const [ccy, setCcy] = useState<DisplayCcy>("NGN");
   const [recipient, setRecipient] = useState(lockedRecipient ?? "");
@@ -61,6 +68,7 @@ export function SendForm({
   const [success, setSuccess] = useState<{
     digest: string;
     amountUsdsui: number;
+    receiptObjectId?: string;
   } | null>(null);
 
   // When the user toggles currency, reformat the typed amount so the displayed
@@ -164,7 +172,28 @@ export function SendForm({
         return;
       }
       if (!intent || !resolved) throw new Error("Fill in recipient and amount.");
-      const { digest } = await signAndSubmit(intent.build!, { senderAddress });
+
+      // Invoice payments mint an on-chain PaymentReceipt via the Sui
+      // Payment Kit. Direct sends still use the plain transfer PTB.
+      const build = invoiceSlug
+        ? buildPayWithReceipt({
+            sender: senderAddress,
+            registry: paymentRegistryId ?? null,
+            merchant: resolved.address,
+            amountUsdsui: amtUsdsui,
+            invoiceSlug,
+          }).build
+        : intent.build!;
+
+      const result = await signAndSubmit(build, { senderAddress });
+      const digest = result.digest;
+      // The payment kit creates a PaymentRecord dynamic field — its object id
+      // is the receipt. It surfaces in `objectChanges` under the type name
+      // `Field` (dynamic field wrapper) or `PaymentRecord`. We accept either.
+      const receiptObjectId =
+        result.created["PaymentRecord"]?.[0] ??
+        result.created["Field"]?.[0] ??
+        undefined;
 
       await fetch("/api/tx/record", {
         method: "POST",
@@ -181,10 +210,11 @@ export function SendForm({
           recipient: resolved.address,
           memo: memo || merchantLabel || null,
           invoiceSlug: invoiceSlug || null,
+          receiptObjectId: receiptObjectId ?? null,
         }),
       }).catch(() => {});
 
-      setSuccess({ digest, amountUsdsui: amtUsdsui });
+      setSuccess({ digest, amountUsdsui: amtUsdsui, receiptObjectId });
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -197,6 +227,9 @@ export function SendForm({
     const recipientDisplay =
       resolved?.displayName ??
       `${recipient.slice(0, 8)}…${recipient.slice(-6)}`;
+    const receiptObjectUrl = success.receiptObjectId
+      ? `https://suiscan.xyz/${net}/object/${success.receiptObjectId}`
+      : undefined;
     return (
       <SuccessReceipt
         amount={formatLocal(success.amountUsdsui, ccy)}
@@ -205,6 +238,8 @@ export function SendForm({
         memo={memo}
         digest={success.digest}
         explorerUrl={`https://suiscan.xyz/${net}/tx/${success.digest}`}
+        receiptObjectId={success.receiptObjectId}
+        receiptObjectUrl={receiptObjectUrl}
         onSendAnother={
           lockedRecipient
             ? undefined
@@ -407,6 +442,8 @@ function SuccessReceipt({
   memo,
   digest,
   explorerUrl,
+  receiptObjectId,
+  receiptObjectUrl,
   onSendAnother,
 }: {
   amount: string;
@@ -415,6 +452,8 @@ function SuccessReceipt({
   memo: string;
   digest: string;
   explorerUrl: string;
+  receiptObjectId?: string;
+  receiptObjectUrl?: string;
   onSendAnother?: () => void;
 }) {
   return (
@@ -486,6 +525,21 @@ function SuccessReceipt({
             <div className="mt-1 break-all font-mono text-[10px] text-[var(--color-fg-muted)]">
               {digest}
             </div>
+            {receiptObjectId && (
+              <div className="mt-3">
+                <a
+                  href={receiptObjectUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-fg)] bg-[var(--color-fg)] px-2.5 py-0.5 text-[9px] uppercase tracking-[0.18em] text-[var(--color-bg)] transition hover:opacity-90"
+                >
+                  Receipt on chain ↗
+                </a>
+                <div className="mt-1.5 break-all font-mono text-[10px] text-[var(--color-fg-muted)]">
+                  receipt: {receiptObjectId}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3 text-[12px]">

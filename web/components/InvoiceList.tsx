@@ -65,6 +65,17 @@ export function InvoiceList({
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusPill status={inv.status} />
+                  {isPaid && inv.receipt_object_id && (
+                    <a
+                      href={`https://suiscan.xyz/mainnet/object/${inv.receipt_object_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`Receipt: ${inv.receipt_object_id}`}
+                      className="inline-flex items-center gap-1 rounded-md border border-[var(--color-fg)] bg-[var(--color-fg)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--color-bg)] transition hover:opacity-90"
+                    >
+                      Receipt ↗
+                    </a>
+                  )}
                   <a
                     href={link}
                     target="_blank"

@@ -74,6 +74,7 @@ export default async function PayPage({
                 presetAmount={presetAmount}
                 presetMemo={memo ?? ""}
                 invoiceSlug={invoice ?? null}
+                paymentRegistryId={merchant.payment_registry_id ?? null}
               />
             ) : (
               <SignInToPay handle={handle} amount={presetAmount} />

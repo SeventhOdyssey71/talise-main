@@ -24,12 +24,20 @@ import {
   findAllTaliseSubnamesForOwner,
 } from "@/lib/suins-lookup";
 import { FixSubnameBanner } from "@/components/FixSubnameBanner";
+import { TopUpButton } from "@/components/TopUpButton";
+import { OnrampSuccessToast } from "@/components/OnrampSuccessToast";
 import { getRecentActivity, type ActivityEntry } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ onramp?: string }>;
+}) {
+  const params = await searchParams;
+  const onrampSuccess = params.onramp === "success";
   const id = await readSessionEntryId();
   if (!id) redirect("/");
   const user = await userById(id);
@@ -99,12 +107,16 @@ export default async function HomePage() {
       pageEyebrow="Personal account"
       pageTitle={`Welcome, ${firstName}.`}
       pageHeaderRight={
-        <div className="flex items-center gap-2 text-[12px] text-[var(--color-fg-muted)]">
-          <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#21A179]" />
-          live
+        <div className="flex items-center gap-4">
+          <TopUpButton compact />
+          <div className="flex items-center gap-2 text-[12px] text-[var(--color-fg-muted)]">
+            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#21A179]" />
+            live
+          </div>
         </div>
       }
     >
+      <OnrampSuccessToast show={onrampSuccess} />
       <div className="mb-4">
         {subname ? (
           <UsernameCard
