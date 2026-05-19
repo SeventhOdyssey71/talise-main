@@ -21,17 +21,18 @@ import {
   buildUsdsuiTransfer,
   buildCrossAssetSend,
   buildPayAndInvest,
+  buildBatchUsdsuiPayroll,
   buildSpotLPDeposit,
   readEphemeralForT2000,
   writeCachedProof,
   type SignAndSubmitResult,
   type StoredZkProof,
 } from "./zkclient";
-import {
-  buildUsdsuiTransferWithReceipt,
-  buildUsdsuiBatchWithReceipts,
-  nonceFor,
-} from "./payment-kit";
+// Platform-wide Payment-Kit receipt minting is gated to the invoice flow
+// only (where buildPayWithReceipt's inline-bootstrap path handles the
+// 'registry not on chain yet' case). Plain sends + payroll + bills use the
+// regular USDsui transfer builders. We re-enable platform-wide receipts
+// once the registry bootstrap is fixed upstream.
 import { formatLocal, type Currency } from "./fx";
 import { shortAddress } from "./format";
 
@@ -158,17 +159,12 @@ export function transferIntent(opts: {
         detail: `${isUsdsui ? "$" : ""}${opts.amount}${isUsdsui ? "" : " SUI"}`,
       },
     ],
-    // USDsui sends register under the Talise namespace on chain (Payment
-    // Kit). Every Sui explorer + wallet that reads the receipt sees this tx
-    // as part of Talise. SUI sends keep the legacy native-transfer path —
-    // SUI isn't a payment-kit-tracked coin.
     build: isUsdsui
-      ? buildUsdsuiTransferWithReceipt({
-          sender: opts.senderAddress,
-          receiver: opts.recipient,
-          amountUsdsui: opts.amount,
-          nonce: nonceFor("send", opts.senderAddress, opts.recipient),
-        }).build
+      ? buildUsdsuiTransfer({
+          senderAddress: opts.senderAddress,
+          amountMicro: BigInt(Math.round(opts.amount * 1e6)),
+          recipient: opts.recipient,
+        })
       : buildSuiTransfer({
           amountMist: BigInt(Math.round(opts.amount * 1e9)),
           recipient: opts.recipient,
@@ -307,29 +303,25 @@ export function remittanceIntent(opts: {
         detail: `${localOut} · ~2 sec`,
       },
     ],
-    // Settlement + (optional) platform fee leg both register under the
-    // Talise namespace. The settlement receipt is the artifact the
-    // recipient's off-ramp partner can verify on chain.
-    build: buildUsdsuiBatchWithReceipts({
-      sender: opts.senderAddress,
-      kind: "remit",
+    build: buildBatchUsdsuiPayroll({
+      senderAddress: opts.senderAddress,
       recipients: [
         ...(feeUsdsui > 0
           ? [
               {
                 address: opts.feeCollector,
-                amountUsdsui: feeUsdsui,
-                label: "fee",
+                amountMicro: BigInt(Math.round(feeUsdsui * 1e6)),
+                ref: "fee",
               },
             ]
           : []),
         {
           address: opts.settlementAddress,
-          amountUsdsui: settleUsdsui,
-          label: "settle",
+          amountMicro: BigInt(Math.round(settleUsdsui * 1e6)),
+          ref: "settle",
         },
       ],
-    }).build,
+    }),
   };
 }
 
@@ -354,16 +346,7 @@ export function payrollIntent(opts: {
       title: r.label ?? `Pay ${shortRecipient(r.address)}`,
       detail: `$${(Number(r.amountMicro) / 1e6).toFixed(2)}`,
     })),
-    // Each recipient gets a PaymentReceipt under the Talise registry.
-    build: buildUsdsuiBatchWithReceipts({
-      sender: opts.senderAddress,
-      kind: "payroll",
-      recipients: opts.recipients.map((r) => ({
-        address: r.address,
-        amountUsdsui: Number(r.amountMicro) / 1e6,
-        label: r.label,
-      })),
-    }).build,
+    build: buildBatchUsdsuiPayroll(opts),
   };
 }
 
@@ -543,17 +526,14 @@ export function billBatchIntent(opts: {
       title: b.name,
       detail: `$${b.amountUsdsui.toFixed(2)}`,
     })),
-    // Each bill leg registers under the Talise registry, so DSTV / NEPA /
-    // airtime each get their own on-chain receipt.
-    build: buildUsdsuiBatchWithReceipts({
-      sender: opts.senderAddress,
-      kind: "bills",
+    build: buildBatchUsdsuiPayroll({
+      senderAddress: opts.senderAddress,
       recipients: opts.bills.map((b) => ({
         address: b.address,
-        amountUsdsui: b.amountUsdsui,
-        label: b.name,
+        amountMicro: BigInt(Math.round(b.amountUsdsui * 1e6)),
+        ref: b.name,
       })),
-    }).build,
+    }),
   };
 }
 
