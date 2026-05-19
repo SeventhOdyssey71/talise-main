@@ -6,6 +6,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { sui, network } from "@/lib/sui";
 import { onara } from "@/lib/onara";
 import { memoTtl } from "@/lib/perf-cache";
+import { ensurePaymentRegistry } from "@/lib/pk-bootstrap";
 
 export const runtime = "nodejs";
 
@@ -58,6 +59,17 @@ export async function POST(req: Request) {
     const client = sui();
     const net = network();
 
+    // Make sure the Payment Kit registry exists on chain — otherwise the
+    // user's tx would abort the moment it calls processRegistryPayment.
+    // Idempotent + memoized: after the first successful call this is a
+    // <1ms cache hit. Fired alongside the warmup checks so we don't pay
+    // its cost serially on every send.
+    const ensureRegistry = ensurePaymentRegistry().catch((err) => {
+      console.warn(
+        `[zk/sponsor] ensurePaymentRegistry failed: ${(err as Error).message}`
+      );
+    });
+
     // Parallelize the two cold round-trips. Both are cached for 60s — the
     // sponsor address rarely changes and reference gas price is
     // epoch-scoped (~24h). On cache hits each resolves in <1ms.
@@ -66,6 +78,7 @@ export async function POST(req: Request) {
       memoTtl(`sui:gasPrice:${net}`, 60_000, () =>
         client.getReferenceGasPrice()
       ),
+      ensureRegistry,
     ]);
     const tStatus = Date.now();
 

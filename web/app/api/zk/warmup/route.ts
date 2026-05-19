@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sui, network } from "@/lib/sui";
 import { onara } from "@/lib/onara";
 import { memoTtl } from "@/lib/perf-cache";
+import { ensurePaymentRegistry } from "@/lib/pk-bootstrap";
 
 export const runtime = "nodejs";
 
@@ -29,12 +30,24 @@ export async function POST() {
 
   const t0 = Date.now();
   try {
+    // Onara status + Sui gas price warm in parallel with the Payment Kit
+    // registry check. The PK ensure is the slow leg on a cold boot (it
+    // mints if missing), but after the first call it's a memo cache hit
+    // and adds <1ms. We don't `await` PK alongside the two fast checks —
+    // we let it run separately so a missing operator key doesn't fail
+    // the whole warmup (sends still work without receipts).
     await Promise.all([
       memoTtl(`onara:status:${onaraUrl}`, 60_000, () => onaraClient.status()),
       memoTtl(`sui:gasPrice:${net}`, 60_000, () =>
         client.getReferenceGasPrice()
       ),
     ]);
+    // Best-effort registry bootstrap. Errors are logged but non-fatal.
+    ensurePaymentRegistry().catch((err) => {
+      console.warn(
+        `[zk/warmup] ensurePaymentRegistry failed: ${(err as Error).message}`
+      );
+    });
     console.log(`[zk/warmup] caches warmed in ${Date.now() - t0}ms`);
     return NextResponse.json({ ok: true });
   } catch {

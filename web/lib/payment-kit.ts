@@ -83,15 +83,15 @@ export function globalRegistryId(): string {
 
 /**
  * Feature flag: are Payment Kit receipts wired into the platform-wide
- * send flows (transfer, payroll, bills, remittance)? Defaults to off
- * until the operator runs `pnpm pk:bootstrap` to mint the registry on
- * chain. Once minted, set NEXT_PUBLIC_PK_RECEIPTS_ENABLED=true to opt in.
+ * send flows (transfer, payroll, bills, remittance)? Defaults ON now
+ * that `/api/zk/warmup` self-bootstraps the registry — see
+ * `lib/pk-bootstrap.ts`. Set NEXT_PUBLIC_PK_RECEIPTS_ENABLED=false to
+ * force the plain-transfer fallback (kill switch only).
  *
- * Without this, suivision.xyz shows "none" as the transaction kind
- * because there's no Payment Kit moveCall to identify it.
+ * Without receipts, suivision.xyz shows "none" as the transaction kind.
  */
 export function paymentKitReceiptsEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_PK_RECEIPTS_ENABLED === "true";
+  return process.env.NEXT_PUBLIC_PK_RECEIPTS_ENABLED !== "false";
 }
 
 /**
