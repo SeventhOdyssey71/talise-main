@@ -48,7 +48,14 @@ export async function POST(req: Request) {
   }
 
   type Body = {
-    op?: "save" | "swap" | "withdraw" | "borrow" | "repay" | "stakeVSui";
+    op?:
+      | "save"
+      | "swap"
+      | "withdraw"
+      | "borrow"
+      | "repay"
+      | "stakeVSui"
+      | "claimRewards";
     amount?: number;
     asset?: string;
     from?: string;
@@ -64,9 +71,11 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
+  // claimRewards is the only op that doesn't take an amount.
+  const amountRequired = body.op !== "claimRewards";
   if (
     !body.op ||
-    typeof body.amount !== "number" ||
+    (amountRequired && typeof body.amount !== "number") ||
     !body.ephemeralPrivateKey ||
     !body.ephemeralPubKeyB64 ||
     !body.randomness ||
@@ -116,7 +125,7 @@ export async function POST(req: Request) {
       maxEpoch: body.maxEpoch,
     });
 
-    const amount = body.amount;
+    const amount = body.amount ?? 0;
     type ExecResult = { digest?: string } & Record<string, unknown>;
     let result: ExecResult;
 
@@ -126,6 +135,9 @@ export async function POST(req: Request) {
           amount,
           asset: (body.asset as never) ?? undefined,
         })) as unknown as ExecResult;
+        break;
+      case "claimRewards":
+        result = (await t2000.claimRewards()) as unknown as ExecResult;
         break;
       case "swap":
         if (!body.from || !body.to) {

@@ -1,49 +1,20 @@
 import "server-only";
 
-import {
-  recordRewardsEvent,
-  userById,
-  type RewardsEventKind,
-} from "./db";
+import { recordRewardsEvent, userById } from "./db";
+import { POINTS } from "./rewards-constants";
+
+// Re-export the constants so existing server-side imports keep working.
+export {
+  POINTS,
+  EVENT_LABELS,
+  formatPointsDelta,
+} from "./rewards-constants";
 
 /**
- * Talise rewards policy.
- *
- * Numbers are intentionally exported as named constants so they're easy to
- * tune from one place without grepping the codebase. Every event kind that
- * we can fire has an entry here, and each helper enforces idempotency
- * where it matters (no double-counting first-send / first-claim bonuses).
+ * Server-side rewards helpers. The pure constants + labels live in
+ * `lib/rewards-constants.ts` so client components can import them without
+ * pulling the `server-only` DB layer into the browser bundle.
  */
-
-export const POINTS = {
-  /** Inviter earns this when a new user signs in with their code. */
-  REFERRAL_SIGNUP_REFERRER: 500,
-  /** Referee earns this on signup attribution (so the welcome screen has a win). */
-  REFERRAL_SIGNUP_REFEREE: 0,
-  /** Both sides earn this once when the referee makes their first send. */
-  REFERRAL_FIRST_SEND_REFERRER: 1000,
-  REFERRAL_FIRST_SEND_REFEREE: 1000,
-  /** Personal first send (any user, no referrer required). */
-  FIRST_SEND: 500,
-  /** Personal first `name@talise` claim. */
-  FIRST_CLAIM: 250,
-  /** Per $100 USDsui sent — fired by the volume hook below. */
-  VOLUME_PER_100_USDSUI: 100,
-  /** Daily activity streak — placeholder, not yet wired. */
-  STREAK_DAILY: 50,
-} as const;
-
-/**
- * Human-readable labels for the activity strip on `/rewards`.
- */
-export const EVENT_LABELS: Record<RewardsEventKind, string> = {
-  referral_signup: "Friend signed up with your code",
-  referral_first_send: "Friend sent their first payment",
-  volume_milestone: "Volume milestone reached",
-  first_send: "Your first send",
-  first_claim: "Claimed your @talise name",
-  streak: "Daily streak",
-};
 
 /**
  * Fire-and-forget volume hook. Call this from `/api/tx/record` once we know
@@ -111,8 +82,3 @@ export async function awardFirstClaimBonus(
   });
 }
 
-/** Format a points delta with a leading `+`. */
-export function formatPointsDelta(n: number): string {
-  if (n <= 0) return `${n}`;
-  return `+${n.toLocaleString()}`;
-}
