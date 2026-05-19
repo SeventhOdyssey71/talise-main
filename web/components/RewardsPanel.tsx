@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { EVENT_LABELS, formatPointsDelta, POINTS } from "@/lib/rewards";
+import { EVENT_LABELS, formatPointsDelta, POINTS } from "@/lib/rewards-constants";
 import type { RewardsEvent, RewardsEventKind } from "@/lib/db";
 
 /**

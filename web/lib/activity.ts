@@ -7,6 +7,7 @@ import {
 import { USDSUI_TYPE } from "./usdsui";
 import { findTaliseSubnameForOwner } from "./suins-lookup";
 import { formatHandle } from "./handle";
+import { globalRegistryId, namespaceObjectId } from "./payment-kit";
 
 /**
  * On-chain activity feed.
@@ -52,6 +53,23 @@ function client(): SuiJsonRpcClient {
   return _client;
 }
 
+type RawObjectChange = {
+  type?: string;
+  objectType?: string;
+  objectId?: string;
+  owner?:
+    | { AddressOwner?: string; ObjectOwner?: string; Shared?: unknown }
+    | string;
+};
+
+type RawTransactionInput = {
+  MoveCall?: { package?: string; module?: string; function?: string };
+  kind?: string;
+  package?: string;
+  module?: string;
+  function?: string;
+};
+
 type RawTx = {
   digest?: string;
   timestampMs?: string;
@@ -61,6 +79,14 @@ type RawTx = {
     coinType?: string;
     amount?: string;
   }>;
+  objectChanges?: RawObjectChange[];
+  transaction?: {
+    data?: {
+      transaction?: {
+        transactions?: RawTransactionInput[];
+      };
+    };
+  };
 };
 
 type RawBalanceChange = NonNullable<RawTx["balanceChanges"]>[number];
@@ -121,6 +147,41 @@ function summarize(
   return { myUsdsui, mySui, counterparty };
 }
 
+/**
+ * True iff this transaction wrote a PaymentRecord dynamic field under the
+ * Talise payment-kit registry. We detect this by inspecting `objectChanges`:
+ * any object whose owner is `ObjectOwner == registryId` is a child dynamic
+ * field of the registry — i.e. a PaymentRecord we minted. We also accept a
+ * MoveCall against the payment-kit namespace package as a secondary signal,
+ * which covers edge cases where the RPC elides the child object change
+ * (e.g. when the registry is created inline in the same tx).
+ */
+function isTaliseTransaction(
+  tx: RawTx,
+  registryId: string,
+  namespaceId: string
+): boolean {
+  const reg = registryId.toLowerCase();
+  const ns = namespaceId.toLowerCase();
+  for (const oc of tx.objectChanges ?? []) {
+    const owner = oc.owner;
+    if (owner && typeof owner !== "string") {
+      const objOwner = owner.ObjectOwner;
+      if (objOwner && objOwner.toLowerCase() === reg) return true;
+    }
+    // Also catch the registry itself being created/mutated in this tx, which
+    // can happen on the first-ever payment that bootstraps the registry.
+    if (oc.objectId && oc.objectId.toLowerCase() === reg) return true;
+  }
+  const moveTxs = tx.transaction?.data?.transaction?.transactions ?? [];
+  for (const t of moveTxs) {
+    const call = t.MoveCall ?? t;
+    const pkg = (call?.package ?? "").toLowerCase();
+    if (pkg && pkg === ns) return true;
+  }
+  return false;
+}
+
 export async function getRecentActivity(
   address: string,
   limit = 12
@@ -129,8 +190,14 @@ export async function getRecentActivity(
   const options = {
     showEffects: true,
     showBalanceChanges: true,
+    showObjectChanges: true,
+    showInput: true,
   };
   type Resp = { data?: RawTx[]; nextCursor?: string | null; hasNextPage?: boolean };
+  // We filter out non-Talise transactions client-side, so over-fetch by a
+  // healthy margin to avoid an empty feed when a user has lots of unrelated
+  // chain activity (NFT mints, random transfers, etc).
+  const fetchLimit = Math.max(limit * 4, 50);
   let raw: RawTx[];
   try {
     const [from, to] = await Promise.all([
@@ -141,7 +208,7 @@ export async function getRecentActivity(
       ).queryTransactionBlocks({
         filter: { FromAddress: address },
         options,
-        limit,
+        limit: fetchLimit,
         order: "descending",
       }),
       (
@@ -151,11 +218,23 @@ export async function getRecentActivity(
       ).queryTransactionBlocks({
         filter: { ToAddress: address },
         options,
-        limit,
+        limit: fetchLimit,
         order: "descending",
       }),
     ]);
     raw = [...(from.data ?? []), ...(to.data ?? [])];
+  } catch {
+    return [];
+  }
+
+  // Resolve the talise registry id once. If this throws (e.g. payment-kit
+  // not initialized in this environment) we degrade to an empty feed rather
+  // than leak non-Talise transactions into the UI.
+  let registryId: string;
+  let namespaceId: string;
+  try {
+    registryId = globalRegistryId();
+    namespaceId = namespaceObjectId();
   } catch {
     return [];
   }
@@ -169,6 +248,10 @@ export async function getRecentActivity(
   const entries: ActivityEntry[] = [];
   for (const tx of byDigest.values()) {
     if (tx.effects?.status?.status !== "success") continue;
+    // Only surface transactions that flowed through Talise's payment-kit
+    // registry. Everything else (random transfers, NFT mints, gas-only
+    // operations from before payment-kit was wired in) is hidden.
+    if (!isTaliseTransaction(tx, registryId, namespaceId)) continue;
     const { myUsdsui, mySui, counterparty } = summarize(tx, address);
     // Ignore txs where the user's net movement is essentially zero (e.g.
     // sponsorship-only events, dust). Don't clutter the feed with noise.

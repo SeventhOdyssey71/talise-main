@@ -1,31 +1,29 @@
 import { redirect } from "next/navigation";
 import { userById, hasBusiness } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
-import { getSuiBalance, getUsdsuiBalance, network } from "@/lib/sui";
-import { getMarginPoolInfo } from "@/lib/deepbook";
-import { EarnStrategyPicker } from "@/components/EarnStrategyPicker";
+import { getUsdsuiBalance, network } from "@/lib/sui";
+import { getEarnSnapshot } from "@/lib/yield";
+import { EarnDashboard } from "@/components/EarnDashboard";
 import { AppShell, navForAccount } from "@/components/AppShell";
 
 export const dynamic = "force-dynamic";
 
-export default async function EarnPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ strategy?: string }>;
-}) {
+export default async function EarnPage() {
   const id = await readSessionEntryId();
   if (!id) redirect("/");
   const user = await userById(id);
   if (!user) redirect("/");
   if (!user.account_type) redirect("/onboarding");
 
-  const params = await searchParams;
-  const initial = params.strategy === "margin" ? "margin" : "spot";
-
-  const [sui, usdsui, marginUsdc] = await Promise.all([
-    getSuiBalance(user.sui_address),
+  const [usdsui, snapshot] = await Promise.all([
     getUsdsuiBalance(user.sui_address),
-    getMarginPoolInfo("USDC"),
+    getEarnSnapshot(user.sui_address).catch(() => ({
+      supplied: 0,
+      apy: 0,
+      dailyYield: 0,
+      pending: [],
+      totalPendingUsd: 0,
+    })),
   ]);
 
   return (
@@ -36,23 +34,22 @@ export default async function EarnPage({
       hasBusinessContext={hasBusiness(user)}
       navItems={navForAccount(user.account_type, "/earn")}
       pageEyebrow={`Earn · ${network()}`}
-      pageTitle="Idle USDsui, working"
+      pageTitle="Your savings"
     >
       <p className="max-w-2xl text-[14px] text-[var(--color-fg-muted)]">
-        Two DeepBook strategies. Pick the one that fits your risk appetite.
-        Both run as a single signed PTB and stay non-custodial; the position
-        object lives in your wallet.
+        Idle USDsui earns yield in NAVI&apos;s lending market. Withdraw any
+        time. No lockup, no minimum, gas is on us.
       </p>
 
-      <div className="mt-10">
-        <EarnStrategyPicker
-          initial={initial}
+      <div className="mt-8 max-w-4xl">
+        <EarnDashboard
           senderAddress={user.sui_address}
           availableUsdsui={usdsui.usdsui}
-          availableSui={sui.sui}
-          marginSupplyApr={marginUsdc?.supplyApr ?? 0}
-          marginUtilization={marginUsdc?.utilization ?? 0}
-          existingBmId={user.spot_bm_id ?? null}
+          supplied={snapshot.supplied}
+          apy={snapshot.apy}
+          dailyYield={snapshot.dailyYield}
+          pending={snapshot.pending}
+          totalPendingUsd={snapshot.totalPendingUsd}
         />
       </div>
     </AppShell>
