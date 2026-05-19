@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowRight01FreeIcons } from "@hugeicons/core-free-icons";
 import { triggerOauthSignIn } from "@/lib/zkclient";
+import { SigninPreloader } from "./SigninPreloader";
 
 type Variant = "primary" | "ghost" | "full";
 
@@ -50,19 +53,33 @@ export function SignInButton({
     return label;
   })();
 
+  const overlayActive = stage === "preparing" || stage === "redirecting";
+
   return (
     <>
+      <SigninPreloader
+        active={overlayActive}
+        stage={stage === "redirecting" ? "redirecting" : "preparing"}
+      />
       <button
         type="button"
         onClick={go}
-        disabled={stage === "preparing" || stage === "redirecting"}
+        disabled={overlayActive}
         className={`${base} ${styles[variant]} ${className ?? ""}`}
       >
         {variant !== "ghost" && stage === "idle" && <GoogleMark />}
         {display}
         {variant !== "ghost" && stage === "idle" && (
-          <span aria-hidden className="transition group-hover:translate-x-0.5">
-            →
+          <span
+            aria-hidden
+            className="inline-flex transition group-hover:translate-x-0.5"
+          >
+            <HugeiconsIcon
+              icon={ArrowRight01FreeIcons}
+              size={16}
+              strokeWidth={2}
+              color="currentColor"
+            />
           </span>
         )}
       </button>

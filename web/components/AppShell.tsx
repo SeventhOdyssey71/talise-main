@@ -188,8 +188,8 @@ function SidebarItem({ item }: { item: NavItem }) {
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Home09FreeIcons,
-  ArrowUpRight01FreeIcons,
-  ArrowDownLeft01FreeIcons,
+  MoneySendFreeIcons,
+  MoneyReceiveFreeIcons,
   QrCodeFreeIcons,
   CoinsDollarFreeIcons,
   Invoice03FreeIcons,
@@ -218,8 +218,8 @@ function NavGlyph({ icon }: { icon: IconSvgElement }) {
 
 export const NavIcons = {
   home: <NavGlyph icon={Home09FreeIcons} />,
-  send: <NavGlyph icon={ArrowUpRight01FreeIcons} />,
-  receive: <NavGlyph icon={ArrowDownLeft01FreeIcons} />,
+  send: <NavGlyph icon={MoneySendFreeIcons} />,
+  receive: <NavGlyph icon={MoneyReceiveFreeIcons} />,
   pay: <NavGlyph icon={QrCodeFreeIcons} />,
   earn: <NavGlyph icon={CoinsDollarFreeIcons} />,
   invoice: <NavGlyph icon={Invoice03FreeIcons} />,
