@@ -18,20 +18,21 @@ export function ProblemSection() {
           </h2>
         </Reveal>
 
-        <div className="mt-12 grid gap-12 md:grid-cols-2">
+        <div className="mt-10 grid gap-10 md:grid-cols-2">
           <Reveal delay={0.2}>
-            <p className="text-[18px] leading-[1.6] text-[var(--color-fg-muted)] md:text-[20px]">
-              Western Union takes <span className="text-[var(--color-fg)]">6.4%</span>{" "}
-              of every transfer, takes up to{" "}
+            <p className="text-[14px] leading-[1.6] text-[var(--color-fg-muted)] md:text-[15px]">
+              Western Union takes{" "}
+              <span className="text-[var(--color-fg)]">6.4%</span> of every
+              transfer, takes up to{" "}
               <span className="text-[var(--color-fg)]">3 days</span> to arrive,
-              and still asks the recipient to walk into an agent. Bank wires take{" "}
-              <span className="text-[var(--color-fg)]">5 days</span>, cost around{" "}
-              <span className="text-[var(--color-fg)]">$50</span>, and get stuck
-              in compliance more often than they should.
+              and still asks the recipient to walk into an agent. Bank wires
+              take <span className="text-[var(--color-fg)]">5 days</span>, cost
+              around <span className="text-[var(--color-fg)]">$50</span>, and
+              get stuck in compliance more often than they should.
             </p>
           </Reveal>
           <Reveal delay={0.3}>
-            <p className="text-[18px] leading-[1.6] text-[var(--color-fg-muted)] md:text-[20px]">
+            <p className="text-[14px] leading-[1.6] text-[var(--color-fg-muted)] md:text-[15px]">
               Talise replaces all of it with a Google sign-in and a{" "}
               <span className="text-[var(--color-fg)]">2-second</span>{" "}
               settlement. No agent, no SWIFT, no waiting. You send pounds, your

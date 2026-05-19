@@ -1,7 +1,6 @@
 "use client";
 
 import { motion } from "framer-motion";
-import Image from "next/image";
 import { useEffect } from "react";
 import { NG, US, GB } from "country-flag-icons/react/3x2";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -40,29 +39,19 @@ export function Hero({ errorCode }: { errorCode?: string }) {
           attention to itself. 32s loop — slow enough that no two visits
           show the same frame in any meaningful way, fast enough that
           watching closely you see it move. */}
-      <motion.div
+      <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 -top-20 mx-auto h-[720px] w-[110%] max-w-[1600px] opacity-90"
-        initial={{ scale: 1.02 }}
-        animate={{
-          scale: [1.02, 1.08, 1.02],
-          x: [0, 14, -8, 0],
-          y: [0, -6, 4, 0],
-          rotate: [0, 0.4, -0.3, 0],
-        }}
-        transition={{
-          duration: 32,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
+        className="pointer-events-none absolute inset-x-0 -top-20 h-[820px] w-full opacity-90 md:h-[920px]"
       >
-        <Image
-          src="/landing-hero.png"
-          alt=""
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover object-center"
+        <video
+          src="/landing-hero.mp4"
+          poster="/landing-hero.png"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          className="absolute inset-0 h-full w-full object-cover object-center"
         />
         {/* Soft cream fade so the bottom of the galaxy melts into the
             section background without a visible edge. */}
@@ -70,34 +59,11 @@ export function Hero({ errorCode }: { errorCode?: string }) {
           aria-hidden
           className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-b from-transparent to-[#fafaf7]"
         />
-      </motion.div>
+      </div>
 
-      {/* A second, very slow layer of stardust drifting in the opposite
-          direction — gives the scene parallax depth. Lower opacity so it
-          reads as atmosphere, not a copy of the galaxy. */}
-      <motion.div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 -top-32 mx-auto h-[820px] w-[120%] max-w-[1700px] opacity-25 mix-blend-multiply"
-        animate={{
-          x: [0, -18, 10, 0],
-          y: [0, 8, -6, 0],
-          scale: [1, 1.04, 1],
-        }}
-        transition={{
-          duration: 54,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      >
-        <Image
-          src="/landing-hero.png"
-          alt=""
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover object-center"
-        />
-      </motion.div>
+      {/* Removed the second parallax layer — the video itself supplies
+          the motion, so a second drifting copy would just look like a
+          desync ghost. */}
 
       <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center px-6 pt-36 pb-20 text-center md:pt-44 md:pb-28">
         {/* Status pill */}
