@@ -94,8 +94,8 @@ function ActionTile(a: Action) {
       href={a.href}
       className={`${base} ${
         a.primary
-          ? "border-[var(--color-fg)] bg-[var(--color-fg)] text-[var(--color-bg)] hover:bg-[var(--color-accent-soft)]"
-          : "border-[var(--color-line)] bg-[var(--color-surface)] hover:border-[var(--color-fg)]"
+          ? "border-[#1a1a1a] bg-gradient-to-br from-[#1a1a1a] to-[#2a2620] text-white hover:from-[#2a2620] hover:to-[#1a1a1a]"
+          : "border-[var(--color-line)] bg-[var(--color-surface)] hover:border-[var(--color-fg)] hover:shadow-[0_4px_24px_-12px_rgba(0,0,0,0.12)]"
       }`}
     >
       <IconBubble tone={a.primary ? "primary" : "default"} icon={a.icon} />
@@ -103,7 +103,7 @@ function ActionTile(a: Action) {
         <div className="text-[14px] font-medium">{a.label}</div>
         <div
           className={`mt-0.5 text-[11px] leading-[1.45] line-clamp-2 ${
-            a.primary ? "text-[var(--color-bg)]/70" : "text-[var(--color-fg-muted)]"
+            a.primary ? "text-white/70" : "text-[var(--color-fg-muted)]"
           }`}
         >
           {a.sub}
@@ -122,10 +122,10 @@ function IconBubble({
 }) {
   const cls =
     tone === "primary"
-      ? "border-[var(--color-bg)]/30 text-[var(--color-bg)]"
+      ? "border-white/15 bg-white/5 text-white"
       : tone === "disabled"
         ? "border-[var(--color-line)] text-[var(--color-fg-dim)]"
-        : "border-[var(--color-line)] text-[var(--color-fg)]";
+        : "border-[var(--color-line)] bg-[#fafaf7] text-[var(--color-fg)]";
   return (
     <span
       className={`flex h-9 w-9 items-center justify-center rounded-full border ${cls}`}

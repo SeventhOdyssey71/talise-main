@@ -11,6 +11,7 @@
     "pk:bootstrap": "node --env-file=.env.local scripts/bootstrap-payment-registry.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/google-sans": "^5.2.1",
     "@hugeicons/core-free-icons": "^4.1.4",
     "@hugeicons/react": "^1.1.6",
     "@libsql/client": "^0.14.0",
