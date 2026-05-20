@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { userById, hasBusiness } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
 import { suiscanAccountUrl } from "@/lib/sui";
-import { ReceiveCard } from "@/components/ReceiveCard";
+import { ReceiveQR, ReceiveShare } from "@/components/ReceiveCard";
 import { UsernameCard } from "@/components/UsernameCard";
 import { AppShell, navForAccount } from "@/components/AppShell";
 import { PageIntro } from "@/components/PageIntro";
@@ -41,25 +41,27 @@ export default async function ReceivePage() {
             . No long addresses, no copy-paste mistakes.
           </PageIntro>
 
-          {/* The UsernameCard is the hero — big, decorative, made for
-              screenshots. ReceiveCard below handles QR + payment-link +
-              raw-address share, so we don't repeat the handle in two
-              parallel panels. */}
-          <div className="mt-8 max-w-md">
+          {/* Hero row: UsernameCard (for screenshots/sharing the handle)
+              + QR (for in-person scans) side-by-side. Stacks on mobile. */}
+          <div className="mt-8 grid items-stretch gap-5 md:grid-cols-2">
             <UsernameCard
               username={handle}
               address={user.sui_address}
               size="lg"
             />
-          </div>
-
-          <div className="mt-8">
-            <ReceiveCard
+            <ReceiveQR
               address={user.sui_address}
-              suiscanUrl={suiscanAccountUrl(user.sui_address)}
               displayName={
                 user.business_name ?? user.name ?? "Talise wallet"
               }
+              handle={handle}
+            />
+          </div>
+
+          <div className="mt-5">
+            <ReceiveShare
+              address={user.sui_address}
+              suiscanUrl={suiscanAccountUrl(user.sui_address)}
               handle={handle}
             />
           </div>
@@ -88,13 +90,17 @@ export default async function ReceivePage() {
             </span>
           </a>
 
-          <div className="mt-8">
-            <ReceiveCard
+          <div className="mt-8 grid items-stretch gap-5 md:grid-cols-2">
+            <ReceiveQR
               address={user.sui_address}
-              suiscanUrl={suiscanAccountUrl(user.sui_address)}
               displayName={
                 user.business_name ?? user.name ?? "Talise wallet"
               }
+              handle={user.business_handle ?? null}
+            />
+            <ReceiveShare
+              address={user.sui_address}
+              suiscanUrl={suiscanAccountUrl(user.sui_address)}
               handle={user.business_handle ?? null}
             />
           </div>
