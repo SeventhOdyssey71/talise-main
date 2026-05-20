@@ -4,7 +4,6 @@ import { readSessionEntryId } from "@/lib/session";
 import { suiscanAccountUrl } from "@/lib/sui";
 import { ReceiveCard } from "@/components/ReceiveCard";
 import { UsernameCard } from "@/components/UsernameCard";
-import { CopyAddress } from "@/components/CopyAddress";
 import { AppShell, navForAccount } from "@/components/AppShell";
 import { PageIntro } from "@/components/PageIntro";
 import { formatHandle } from "@/lib/handle";
@@ -42,40 +41,16 @@ export default async function ReceivePage() {
             . No long addresses, no copy-paste mistakes.
           </PageIntro>
 
-          <div className="mt-8 grid gap-5 md:grid-cols-[1.4fr,1fr]">
+          {/* The UsernameCard is the hero — big, decorative, made for
+              screenshots. ReceiveCard below handles QR + payment-link +
+              raw-address share, so we don't repeat the handle in two
+              parallel panels. */}
+          <div className="mt-8 max-w-md">
             <UsernameCard
               username={handle}
               address={user.sui_address}
               size="lg"
             />
-            <div className="space-y-4">
-              <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
-                <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-                  Your handle
-                </div>
-                <div className="mt-3 rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] p-3 font-mono text-[14px] text-[var(--color-fg)]">
-                  {formatHandle(handle)}
-                </div>
-                <div className="mt-3">
-                  <CopyAddress address={formatHandle(handle)} />
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] p-5">
-                <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-                  Payment link
-                </div>
-                <div className="mt-3 rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] p-3 font-mono text-[13px] text-[var(--color-fg)] break-all">
-                  talise.io/p/{handle}
-                </div>
-                <a
-                  href={`/p/${handle}`}
-                  className="mt-3 inline-block rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-[12px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-fg)] hover:text-[var(--color-fg)]"
-                >
-                  Open link ↗
-                </a>
-              </div>
-            </div>
           </div>
 
           <div className="mt-8">
@@ -85,7 +60,7 @@ export default async function ReceivePage() {
               displayName={
                 user.business_name ?? user.name ?? "Talise wallet"
               }
-              handle={user.business_handle ?? null}
+              handle={handle}
             />
           </div>
         </>
