@@ -3,7 +3,13 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 let _client: Client | null = null;
-let _schemaReady = false;
+/**
+ * Promise singleton so concurrent callers share the same migration run.
+ * Without this, two simultaneous DB hits on a cold process would each
+ * try to apply ALTER TABLE statements — harmless (they're idempotent)
+ * but wasteful and noisy.
+ */
+let _schemaReadyP: Promise<void> | null = null;
 
 function ensureLocalDir(url: string) {
   if (url.startsWith("file:")) {
@@ -25,8 +31,18 @@ export function db(): Client {
   return _client;
 }
 
-export async function ensureSchema() {
-  if (_schemaReady) return;
+export function ensureSchema(): Promise<void> {
+  if (_schemaReadyP) return _schemaReadyP;
+  _schemaReadyP = doEnsureSchema().catch((err) => {
+    // Reset so a subsequent caller can retry — a transient connectivity
+    // hiccup shouldn't poison the singleton forever.
+    _schemaReadyP = null;
+    throw err;
+  });
+  return _schemaReadyP;
+}
+
+async function doEnsureSchema(): Promise<void> {
   const c = db();
   await c.batch(
     [
@@ -140,8 +156,26 @@ export async function ensureSchema() {
   } catch {
     /* ignore */
   }
+}
 
-  _schemaReady = true;
+/**
+ * Lightweight liveness check for the /api/health endpoint and Railway
+ * health probes. Runs a trivial query against the DB to confirm both
+ * the connection and the schema are usable. Returns { ok, latencyMs }.
+ */
+export async function dbHealth(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  const t0 = Date.now();
+  try {
+    await ensureSchema();
+    await db().execute("SELECT 1");
+    return { ok: true, latencyMs: Date.now() - t0 };
+  } catch (err) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - t0,
+      error: (err as Error).message,
+    };
+  }
 }
 
 export type AccountType = "personal" | "business";
