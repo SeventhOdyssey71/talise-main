@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { userById, hasBusiness } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
-import { getUsdsuiBalance, network } from "@/lib/sui";
+import { getUsdsuiBalance } from "@/lib/sui";
 import { getEarnSnapshot } from "@/lib/yield";
 import { EarnDashboard } from "@/components/EarnDashboard";
 import { AppShell, navForAccount } from "@/components/AppShell";
+import { PageIntro } from "@/components/PageIntro";
 
 export const dynamic = "force-dynamic";
 
@@ -33,13 +34,13 @@ export default async function EarnPage() {
       currentContext={user.account_type === "business" ? "business" : "personal"}
       hasBusinessContext={hasBusiness(user)}
       navItems={navForAccount(user.account_type, "/earn")}
-      pageEyebrow={`Earn · ${network()}`}
+      pageEyebrow="Earn"
       pageTitle="Your savings"
     >
-      <p className="max-w-2xl text-[14px] text-[var(--color-fg-muted)]">
-        Idle USDsui earns yield in NAVI&apos;s lending market. Withdraw any
-        time. No lockup, no minimum, gas is on us.
-      </p>
+      <PageIntro>
+        Idle USDsui earns yield. Withdraw any time. No lockup, no minimum,
+        gas is on us.
+      </PageIntro>
 
       <div className="mt-8">
         <EarnDashboard

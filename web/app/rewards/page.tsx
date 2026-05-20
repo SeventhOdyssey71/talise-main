@@ -48,8 +48,8 @@ export default async function RewardsPage() {
       currentContext={ctx}
       hasBusinessContext={hasBusiness(user)}
       navItems={nav}
-      pageEyebrow="Referrals · Activity"
-      pageTitle="Rewards"
+      pageEyebrow="Rewards"
+      pageTitle="Refer & earn"
     >
       <RewardsPanel
         code={summary.code}

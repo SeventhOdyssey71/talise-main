@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { userById, hasBusiness } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
-import { getUsdsuiBalance, network } from "@/lib/sui";
+import { getUsdsuiBalance } from "@/lib/sui";
 import { SendForm } from "@/components/SendForm";
 import { AppShell, navForAccount } from "@/components/AppShell";
+import { PageIntro } from "@/components/PageIntro";
 
 export const dynamic = "force-dynamic";
 
@@ -24,14 +25,14 @@ export default async function SendPage() {
       currentContext={user.account_type === "business" ? "business" : "personal"}
       hasBusinessContext={hasBusiness(user)}
       navItems={navForAccount(user.account_type, "/send")}
-      pageEyebrow={`Send · ${network()}`}
+      pageEyebrow="Send"
       pageTitle="Send money"
     >
-      <p className="max-w-2xl text-[14px] text-[var(--color-fg-muted)]">
+      <PageIntro>
         Pick the currency you think in. We settle in dollars, gas is on us.
-      </p>
+      </PageIntro>
 
-      <div className="mt-8 mx-auto max-w-3xl">
+      <div className="mx-auto mt-8 max-w-3xl">
         <SendForm
           senderAddress={user.sui_address}
           availableUsdsui={usdsui.usdsui}

@@ -114,18 +114,21 @@ export function AppShell({
             </div>
           </div>
 
-          {/* Page header */}
+          {/* Page header — uniform across every page so the user has a
+              consistent anchor when switching between Dashboard / Send /
+              Earn / Talise. Title is 22-26px (was 32-40 — felt shouty),
+              eyebrow is a tiny mono caption above. */}
           {(pageTitle || pageEyebrow || pageHeaderRight) && (
-            <div className="border-b border-[var(--color-line)] px-6 py-8 md:px-10 md:py-10">
-              <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="border-b border-[var(--color-line)] px-6 py-6 md:px-10 md:py-7">
+              <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   {pageEyebrow && (
-                    <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
+                    <div className="font-mono text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
                       {pageEyebrow}
                     </div>
                   )}
                   {pageTitle && (
-                    <h1 className="mt-2 text-[32px] font-semibold leading-[1.05] tracking-[-0.02em] text-[var(--color-fg)] md:text-[40px]">
+                    <h1 className="mt-1.5 text-[22px] font-medium leading-[1.1] tracking-[-0.025em] text-[var(--color-fg)] md:text-[26px]">
                       {pageTitle}
                     </h1>
                   )}
@@ -136,7 +139,7 @@ export function AppShell({
           )}
 
           {/* Content */}
-          <div className="flex-1 px-6 py-10 pb-32 md:px-10 md:pb-16">
+          <div className="flex-1 px-6 py-8 pb-32 md:px-10 md:pb-16">
             {children}
           </div>
         </main>
