@@ -1,60 +1,100 @@
-import { NextResponse } from "next/server";
+import { streamText, type UIMessage } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { withMemWal } from "@mysten-incubation/memwal/ai";
 import { readSessionEntryId } from "@/lib/session";
 import { userById } from "@/lib/db";
 import { getSuiBalance, getUsdsuiBalance } from "@/lib/sui";
 import { getYieldComparison } from "@/lib/yield";
 import { findTaliseSubnameForOwner } from "@/lib/suins-lookup";
-import {
-  buildMessages,
-  callDeepSeek,
-  type ChatContext,
-} from "@/lib/chat/ai";
-import { parseAssistantMessage } from "@/lib/chat/intent";
+import { AI_MODEL, buildMessages, type ChatContext } from "@/lib/chat/ai";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 /**
  * POST /api/chat
  *
- * Body: { history: [{ role: "user" | "assistant", content: string }] }
+ * Streaming chat endpoint. Same wire format as the Vercel AI SDK's
+ * `useChat` hook — the client posts `{ messages: UIMessage[] }` and we
+ * stream back UI message parts as they arrive.
  *
- * Stateless — the client owns conversation history and posts it whole on
- * every turn. The server tacks on the live user context (balances, yield,
- * username, recent tx digests) before calling DeepSeek so the model
- * always sees fresh on-chain state.
+ * Per request:
+ *   1. Hydrate live user context (balance, yield venues, username).
+ *   2. Build the system prompt + recent turns via `buildMessages`.
+ *   3. Wrap the DeepSeek-via-OpenAI provider with `withMemWal` — per-wallet
+ *      namespace, so the agent recalls the user's prior facts on every
+ *      message and auto-saves new ones after the reply.
+ *   4. Stream the result back.
  *
- * Returns: { text: string, intent: ChatIntent | null }
- *   - `text` — what the UI renders as the assistant's message
- *   - `intent` — parsed from the ---INTENT--- block if present; the UI
- *     decides whether to render a confirm card (write steps) or run
- *     read-only steps inline.
+ * Memwal degrades cleanly: if MEMWAL_DELEGATE_KEY or MEMWAL_ACCOUNT_ID
+ * are missing, we fall through to the raw provider — chat still works,
+ * just without persistent memory.
  */
-export async function POST(req: Request) {
-  // Soft auth — if the user is signed in, we hydrate context. If not,
-  // the agent still responds (with generic answers, no balances).
-  const userId = await readSessionEntryId();
-  const user = userId ? await userById(userId) : null;
 
-  let body: {
-    history?: Array<{ role: "user" | "assistant"; content: string }>;
-  };
+const PROVIDER_URL = process.env.ZG_DEEPSEEK_V4_PROVIDER_URL || "";
+const API_KEY = process.env.ZG_DEEPSEEK_V4_API_KEY || "";
+const MEMWAL_KEY = process.env.MEMWAL_DELEGATE_KEY || "";
+const MEMWAL_ACCOUNT_ID = process.env.MEMWAL_ACCOUNT_ID || "";
+const MEMWAL_SERVER_URL =
+  process.env.MEMWAL_SERVER_URL || "https://relayer.memwal.ai";
+
+const memwalConfigured = Boolean(MEMWAL_KEY && MEMWAL_ACCOUNT_ID);
+
+/** Strip a trailing `/chat/completions` if env mistakenly includes it —
+ *  createOpenAI appends that path itself. */
+function baseURL(): string {
+  return PROVIDER_URL.replace(/\/chat\/completions\/?$/, "").replace(
+    /\/+$/,
+    ""
+  );
+}
+
+export async function POST(req: Request) {
+  if (!PROVIDER_URL || !API_KEY) {
+    return Response.json(
+      {
+        error:
+          "AI provider not configured. Set ZG_DEEPSEEK_V4_PROVIDER_URL + ZG_DEEPSEEK_V4_API_KEY.",
+      },
+      { status: 500 }
+    );
+  }
+
+  let body: { messages?: UIMessage[] };
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "bad json" }, { status: 400 });
+    return Response.json({ error: "bad json" }, { status: 400 });
   }
-  const history = Array.isArray(body.history) ? body.history : [];
-  if (history.length === 0) {
-    return NextResponse.json({ error: "empty history" }, { status: 400 });
+  const uiMessages = Array.isArray(body.messages) ? body.messages : [];
+  if (uiMessages.length === 0) {
+    return Response.json({ error: "empty messages" }, { status: 400 });
   }
-  // Defensive: cap history length so a malicious client can't blow our
-  // token budget. The model already truncates further inside buildMessages.
-  if (history.length > 40) {
-    return NextResponse.json({ error: "history too long" }, { status: 413 });
+  if (uiMessages.length > 60) {
+    return Response.json({ error: "history too long" }, { status: 413 });
   }
 
-  // Build context. Best-effort — if any lookup fails we still answer.
+  // Flatten UI messages to a plain {role, content} array for our system
+  // prompt builder. Vercel UIMessages have `parts: [{type, text, ...}]`
+  // — we just want the text. We skip Vercel's convertToModelMessages
+  // helper (async/heavier than we need for our simple flow).
+  const conversation = uiMessages
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m) => {
+      const text = (m.parts ?? [])
+        .filter((p): p is { type: "text"; text: string } => p.type === "text")
+        .map((p) => p.text)
+        .join("\n")
+        .trim();
+      return {
+        role: m.role as "user" | "assistant",
+        content: text,
+      };
+    })
+    .filter((m) => m.content.length > 0);
+
+  // Hydrate the user's live context.
+  const userId = await readSessionEntryId();
+  const user = userId ? await userById(userId) : null;
   let context: ChatContext = {
     address: user?.sui_address ?? "0x0",
     usdsui: 0,
@@ -82,30 +122,60 @@ export async function POST(req: Request) {
         bestVenue: yields?.best?.id,
       };
     } catch {
-      /* keep zero-state context */
+      /* zero-state context */
     }
   }
 
-  // Call the model.
-  let reply: string;
+  const built = buildMessages(conversation, context);
+  const systemPrompt =
+    built[0]?.role === "system" ? built[0].content : "";
+  const convoOnly = built.filter((m) => m.role !== "system") as Array<{
+    role: "user" | "assistant";
+    content: string;
+  }>;
+
+  // DeepSeek-via-OpenAI-compatible proxy.
+  const provider = createOpenAI({ apiKey: API_KEY, baseURL: baseURL() });
+  // The proxy only implements /v1/chat/completions, not the newer
+  // /v1/responses API. Pin to chat() so the SDK doesn't probe.
+  const baseModel = provider.chat(AI_MODEL);
+
+  // Wrap with Memwal when configured. Namespace per wallet so memories
+  // never bleed between users.
+  const model =
+    memwalConfigured && context.address !== "0x0"
+      ? withMemWal(baseModel, {
+          key: MEMWAL_KEY,
+          accountId: MEMWAL_ACCOUNT_ID,
+          serverUrl: MEMWAL_SERVER_URL,
+          namespace: `talise:${context.address.toLowerCase()}`,
+          maxMemories: 5,
+          autoSave: true,
+          minRelevance: 0.3,
+        })
+      : baseModel;
+
   try {
-    const messages = buildMessages(history, context);
-    reply = await callDeepSeek(messages);
-  } catch (err) {
-    const msg = (err as Error).message;
-    console.warn(`[chat] DeepSeek call failed: ${msg}`);
-    return NextResponse.json(
-      {
-        text:
-          msg.includes("not configured")
-            ? "The chat is offline. The DeepSeek provider isn't configured yet."
-            : "Something went sideways calling the model. Try again in a sec.",
-        intent: null,
+    const result = streamText({
+      model,
+      system: systemPrompt,
+      messages: convoOnly,
+      temperature: 0.4,
+      // DeepSeek V4 Pro is a reasoning model — reasoning tokens count
+      // against this budget. Headroom for multi-step intent blocks.
+      maxOutputTokens: 4096,
+      abortSignal: req.signal,
+      onError: ({ error }) => {
+        console.error("[chat] streamText error:", error);
       },
-      { status: 200 }
+    });
+    return result.toUIMessageStreamResponse();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[chat] streamText failed:", msg);
+    return Response.json(
+      { error: `AI provider error: ${msg}` },
+      { status: 502 }
     );
   }
-
-  const parsed = parseAssistantMessage(reply);
-  return NextResponse.json(parsed);
 }
