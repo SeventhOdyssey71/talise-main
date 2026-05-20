@@ -10,6 +10,10 @@ import {
   type FinancialSummary,
   type PendingReward,
 } from "@t2000/sdk";
+import {
+  fetchUsdsuiMarginApy,
+  fetchUserUsdsuiSupply,
+} from "./deepbook-margin";
 
 /**
  * Server-side yield queries — all stateless (no zkLogin signer needed).
@@ -60,4 +64,63 @@ export async function getEarnSnapshot(address: string): Promise<EarnSnapshot> {
   );
 
   return { supplied, apy, dailyYield, pending, totalPendingUsd };
+}
+
+/**
+ * Cross-venue yield comparison: returns NAVI + DeepBook margin USDsui
+ * APYs side-by-side plus a `best` pointer at whichever is higher right
+ * now. The `/earn` page surfaces both as picker tiles; the chat agent
+ * uses `best` to answer "what's the best place to put my dollars?".
+ *
+ * Each venue's APY is fetched independently and failures are
+ * non-fatal — if one venue is offline we still return the other.
+ */
+export type YieldVenue = {
+  id: "navi" | "deepbook";
+  name: string;
+  apy: number;
+  /** User's currently supplied USDsui, if any. */
+  supplied?: number;
+  /** Extra venue-specific context for the UI. */
+  meta?: Record<string, unknown>;
+};
+
+export type YieldComparison = {
+  venues: YieldVenue[];
+  best: YieldVenue | null;
+};
+
+export async function getYieldComparison(
+  address: string
+): Promise<YieldComparison> {
+  const [naviSnap, dbApy, dbSupply] = await Promise.all([
+    getEarnSnapshot(address).catch(() => null),
+    fetchUsdsuiMarginApy().catch(() => null),
+    fetchUserUsdsuiSupply(address).catch(() => null),
+  ]);
+
+  const venues: YieldVenue[] = [];
+  if (naviSnap) {
+    venues.push({
+      id: "navi",
+      name: "NAVI lending",
+      apy: naviSnap.apy,
+      supplied: naviSnap.supplied,
+      meta: { pendingUsd: naviSnap.totalPendingUsd },
+    });
+  }
+  if (dbApy) {
+    venues.push({
+      id: "deepbook",
+      name: "DeepBook margin",
+      apy: dbApy.apy,
+      supplied: dbSupply?.amount ?? 0,
+      meta: {
+        utilization: dbApy.utilization,
+        supplierCapId: dbSupply?.supplierCapId,
+      },
+    });
+  }
+  venues.sort((a, b) => b.apy - a.apy);
+  return { venues, best: venues[0] ?? null };
 }

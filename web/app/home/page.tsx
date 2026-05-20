@@ -35,6 +35,7 @@ import {
 import { FixSubnameBanner } from "@/components/FixSubnameBanner";
 import { TopUpButton } from "@/components/TopUpButton";
 import { OnrampSuccessToast } from "@/components/OnrampSuccessToast";
+import { ChatPanel } from "@/components/ChatPanel";
 import { getRecentActivity, type ActivityEntry } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
@@ -281,6 +282,8 @@ export default async function HomePage({
       <footer className="mt-16 border-t border-[var(--color-line)] pt-6 text-[11px] text-[var(--color-fg-dim)]">
         Your money. Always yours.
       </footer>
+
+      <ChatPanel />
     </AppShell>
   );
 }
