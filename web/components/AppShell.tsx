@@ -197,6 +197,7 @@ import {
   ChartLineData02FreeIcons,
   Settings03FreeIcons,
   GiftFreeIcons,
+  AiChat02FreeIcons,
 } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 
@@ -227,6 +228,7 @@ export const NavIcons = {
   activity: <NavGlyph icon={ChartLineData02FreeIcons} />,
   settings: <NavGlyph icon={Settings03FreeIcons} />,
   rewards: <NavGlyph icon={GiftFreeIcons} />,
+  assistant: <NavGlyph icon={AiChat02FreeIcons} />,
 };
 
 /**
@@ -244,6 +246,7 @@ export function navForAccount(
       { href: "/business/payroll", label: "Payroll", icon: NavIcons.payroll, active: currentPath.startsWith("/business/payroll") },
       { href: "/receive", label: "Receive", icon: NavIcons.receive, active: currentPath === "/receive" },
       { href: "/earn", label: "Earn", icon: NavIcons.earn, active: currentPath === "/earn" },
+      { href: "/chat", label: "Talise", icon: NavIcons.assistant, active: currentPath === "/chat" },
       { href: "/rewards", label: "Rewards", icon: NavIcons.rewards, active: currentPath === "/rewards" },
     ];
   }
@@ -253,6 +256,7 @@ export function navForAccount(
     { href: "/receive", label: "Receive", icon: NavIcons.receive, active: currentPath === "/receive" },
     { href: "/pay", label: "Pay", icon: NavIcons.pay, active: currentPath.startsWith("/pay") },
     { href: "/earn", label: "Earn", icon: NavIcons.earn, active: currentPath === "/earn" },
+    { href: "/chat", label: "Talise", icon: NavIcons.assistant, active: currentPath === "/chat" },
     { href: "/rewards", label: "Rewards", icon: NavIcons.rewards, active: currentPath === "/rewards" },
   ];
 }
