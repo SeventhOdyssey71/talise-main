@@ -3,6 +3,7 @@ import { userById, hasBusiness } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
 import { PayLookup } from "@/components/PayLookup";
 import { AppShell, navForAccount } from "@/components/AppShell";
+import { PageIntro } from "@/components/PageIntro";
 
 export const dynamic = "force-dynamic";
 
@@ -20,15 +21,15 @@ export default async function PayLanding() {
       currentContext={user.account_type === "business" ? "business" : "personal"}
       hasBusinessContext={hasBusiness(user)}
       navItems={navForAccount(user.account_type, "/pay")}
-      pageEyebrow="Pay a merchant"
-      pageTitle="Find a business"
+      pageEyebrow="Pay"
+      pageTitle="Pay a merchant"
     >
-      <p className="max-w-md text-[14px] text-[var(--color-fg-muted)]">
+      <PageIntro>
         Type the handle or paste a payment link. We resolve it on-chain and
         take you to the payment page.
-      </p>
+      </PageIntro>
 
-      <div className="mt-10 max-w-md">
+      <div className="mt-8 max-w-md">
         <PayLookup />
       </div>
     </AppShell>

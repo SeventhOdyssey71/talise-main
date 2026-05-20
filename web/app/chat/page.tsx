@@ -29,11 +29,12 @@ export default async function ChatPage() {
       currentContext={user.account_type === "business" ? "business" : "personal"}
       hasBusinessContext={hasBusiness(user)}
       navItems={navForAccount(user.account_type, "/chat")}
-      pageEyebrow="Agent"
+      pageEyebrow="Assistant"
       pageTitle="Talise"
       pageHeaderRight={
-        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
-          DeepSeek V4 Pro · Memwal memory
+        <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)] md:flex">
+          <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#21A179]" />
+          DeepSeek · Memwal
         </div>
       }
     >

@@ -122,12 +122,12 @@ export default async function HomePage({
       currentContext="personal"
       hasBusinessContext={hasBusiness(user)}
       navItems={nav}
-      pageEyebrow="Personal account"
+      pageEyebrow="Dashboard"
       pageTitle={`Welcome, ${firstName}.`}
       pageHeaderRight={
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <TopUpButton compact />
-          <div className="flex items-center gap-2 text-[12px] text-[var(--color-fg-muted)]">
+          <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-muted)] md:flex">
             <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#21A179]" />
             live
           </div>

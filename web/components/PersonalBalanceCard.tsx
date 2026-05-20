@@ -23,17 +23,17 @@ export function PersonalBalanceCard({
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
-      className="relative overflow-hidden rounded-3xl border border-[#e8e1cf] bg-[#fafaf7] p-8 md:p-10"
+      transition={{ duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
+      className="relative overflow-hidden rounded-2xl border border-[#e8e1cf] bg-[#fafaf7] p-6 md:p-8"
     >
       {/* Subtle warm halo in the top-right — gives the card a feeling of
           depth without competing with the numbers. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#c08a3e]/10 blur-3xl"
+        className="pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full bg-[#c08a3e]/10 blur-3xl"
       />
 
-      <div className="relative grid gap-10 md:grid-cols-[1.4fr,1fr] md:gap-12">
+      <div className="relative grid gap-8 md:grid-cols-[1.4fr,1fr] md:gap-10">
         <div>
           <div className="flex items-center gap-2">
             <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#8a8472]">
@@ -43,18 +43,18 @@ export function PersonalBalanceCard({
               {currency}
             </span>
           </div>
-          <div className="mt-3 text-[60px] font-medium leading-[0.95] tracking-[-0.04em] text-[#111] md:text-[80px]">
+          <div className="mt-2.5 text-[40px] font-medium leading-[1] tracking-[-0.035em] text-[#111] md:text-[52px]">
             {primary}
           </div>
-          <div className="mt-3 font-mono text-[12px] text-[#8a8472]">
+          <div className="mt-2 font-mono text-[11px] text-[#8a8472]">
             ≈ {secondary}
           </div>
           {empty ? (
-            <div className="mt-3 text-[13px] text-[#5a554a]">
+            <div className="mt-2.5 text-[13px] text-[#5a554a]">
               Add money to get started.
             </div>
           ) : (
-            <div className="mt-3 inline-flex items-center gap-2 text-[12px] text-[#5a554a]">
+            <div className="mt-2.5 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[#5a554a]">
               <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#21A179]" />
               Available to spend
             </div>
