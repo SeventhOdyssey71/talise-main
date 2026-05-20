@@ -148,7 +148,7 @@ export function AppShell({
           <a
             key={it.href}
             href={it.href}
-            className={`flex flex-col items-center justify-center gap-1 py-2.5 font-mono text-[10px] uppercase tracking-wider ${
+            className={`flex flex-col items-center justify-center gap-1 py-2.5 text-[10px] font-medium tracking-[-0.005em] ${
               it.active
                 ? "text-[var(--color-fg)]"
                 : "text-[var(--color-fg-dim)]"
@@ -167,7 +167,7 @@ function SidebarItem({ item }: { item: NavItem }) {
   return (
     <a
       href={item.href}
-      className={`group flex items-center gap-3 rounded-md px-3 py-2 font-mono text-[12px] uppercase tracking-[0.06em] transition ${
+      className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium tracking-[-0.005em] transition ${
         item.active
           ? "bg-[var(--color-surface-2)] text-[var(--color-fg)]"
           : "text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-fg)]"

@@ -1,14 +1,10 @@
 import type { Metadata } from "next";
-import { DM_Sans, JetBrains_Mono, Instrument_Serif } from "next/font/google";
+import { JetBrains_Mono, Instrument_Serif } from "next/font/google";
+// Google Sans Variable, self-hosted via @fontsource. Google's marketing
+// font isn't on the public Google Fonts API, but Fontsource ships an
+// OFL-1.1 build — same weights, same shapes, distributable.
+import "@fontsource-variable/google-sans/index.css";
 import "./globals.css";
-
-// DM Sans drives the entire site — body, headings, and CTAs.
-const dmSans = DM_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-sans",
-  display: "swap",
-});
 
 // Mono for addresses, code, and stat values.
 const mono = JetBrains_Mono({
@@ -53,7 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${dmSans.variable} ${mono.variable} ${serif.variable}`}
+      className={`${mono.variable} ${serif.variable}`}
     >
       <body>{children}</body>
     </html>

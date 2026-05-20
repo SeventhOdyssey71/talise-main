@@ -13,8 +13,8 @@
   --color-accent-soft: #2a2a2a;
   --color-live: #404040;
 
-  --font-sans: var(--font-sans), "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: var(--font-sans), "DM Sans", system-ui, sans-serif;
+  --font-sans: "Google Sans Variable", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-display: "Google Sans Variable", "Google Sans", system-ui, sans-serif;
   --font-mono: var(--font-mono), "JetBrains Mono", "SF Mono", Menlo, monospace;
   --font-serif: var(--font-serif), "Instrument Serif", Georgia, "Times New Roman", serif;
 }
