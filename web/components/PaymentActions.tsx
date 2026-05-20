@@ -3,8 +3,8 @@
 import { motion } from "framer-motion";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowUpRight01FreeIcons,
-  ArrowDownLeft01FreeIcons,
+  MoneySendFreeIcons,
+  MoneyReceiveFreeIcons,
   QrCodeFreeIcons,
   CoinsDollarFreeIcons,
 } from "@hugeicons/core-free-icons";
@@ -12,7 +12,6 @@ import type { IconSvgElement } from "@hugeicons/react";
 
 type Action = {
   label: string;
-  sub: string;
   icon: IconSvgElement;
   href?: string;
   primary?: boolean;
@@ -20,42 +19,27 @@ type Action = {
 };
 
 const ACTIONS: Action[] = [
-  {
-    label: "Send",
-    sub: "Send money home — naira, cedis, shillings, rand.",
-    icon: ArrowUpRight01FreeIcons,
-    href: "/send",
-    primary: true,
-  },
-  {
-    label: "Receive",
-    sub: "Get paid with a link or QR",
-    icon: ArrowDownLeft01FreeIcons,
-    href: "/receive",
-  },
-  {
-    label: "Pay",
-    sub: "Pay a business or invoice",
-    icon: QrCodeFreeIcons,
-    href: "/pay",
-  },
-  {
-    label: "Earn",
-    sub: "Grow your balance with yield",
-    icon: CoinsDollarFreeIcons,
-    href: "/earn",
-  },
+  { label: "Send", icon: MoneySendFreeIcons, href: "/send", primary: true },
+  { label: "Receive", icon: MoneyReceiveFreeIcons, href: "/receive" },
+  { label: "Pay", icon: QrCodeFreeIcons, href: "/pay" },
+  { label: "Earn", icon: CoinsDollarFreeIcons, href: "/earn" },
 ];
 
+/**
+ * Compact action row. Four tiles with just an icon + label — the verbs
+ * are self-explanatory, so the previous one-line descriptions were
+ * doing more harm than good (they crowded the layout and forced
+ * smaller balance numbers above).
+ */
 export function PaymentActions() {
   return (
-    <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="grid grid-cols-4 gap-2.5 md:gap-3">
       {ACTIONS.map((a, i) => (
         <motion.div
           key={a.label}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.1 + i * 0.05 }}
+          transition={{ duration: 0.35, delay: 0.08 + i * 0.04 }}
         >
           <ActionTile {...a} />
         </motion.div>
@@ -66,25 +50,20 @@ export function PaymentActions() {
 
 function ActionTile(a: Action) {
   const base =
-    "group relative flex h-full flex-col justify-between gap-5 rounded-xl border p-4 transition min-h-[124px]";
+    "group flex h-full items-center justify-center gap-2.5 rounded-2xl border px-3 py-3.5 text-[13px] font-medium transition";
 
   if (a.disabled) {
     return (
       <div
-        className={`${base} cursor-not-allowed border-[var(--color-line)] bg-[var(--color-surface-2)]`}
+        className={`${base} cursor-not-allowed border-[var(--color-line)] bg-[var(--color-surface-2)] text-[var(--color-fg-dim)]`}
       >
-        <IconBubble tone="disabled" icon={a.icon} />
-        <div>
-          <div className="text-[14px] font-medium text-[var(--color-fg-muted)]">
-            {a.label}
-          </div>
-          <div className="mt-0.5 text-[11px] text-[var(--color-fg-dim)] line-clamp-2">
-            {a.sub}
-          </div>
-          <div className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
-            soon
-          </div>
-        </div>
+        <HugeiconsIcon
+          icon={a.icon}
+          size={16}
+          strokeWidth={1.6}
+          color="currentColor"
+        />
+        {a.label}
       </div>
     );
   }
@@ -95,47 +74,16 @@ function ActionTile(a: Action) {
       className={`${base} ${
         a.primary
           ? "border-[#1a1a1a] bg-gradient-to-br from-[#1a1a1a] to-[#2a2620] text-white hover:from-[#2a2620] hover:to-[#1a1a1a]"
-          : "border-[var(--color-line)] bg-[var(--color-surface)] hover:border-[var(--color-fg)] hover:shadow-[0_4px_24px_-12px_rgba(0,0,0,0.12)]"
+          : "border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-fg)] hover:border-[var(--color-fg)] hover:shadow-[0_4px_24px_-16px_rgba(0,0,0,0.12)]"
       }`}
     >
-      <IconBubble tone={a.primary ? "primary" : "default"} icon={a.icon} />
-      <div>
-        <div className="text-[14px] font-medium">{a.label}</div>
-        <div
-          className={`mt-0.5 text-[11px] leading-[1.45] line-clamp-2 ${
-            a.primary ? "text-white/70" : "text-[var(--color-fg-muted)]"
-          }`}
-        >
-          {a.sub}
-        </div>
-      </div>
-    </a>
-  );
-}
-
-function IconBubble({
-  tone,
-  icon,
-}: {
-  tone: "default" | "primary" | "disabled";
-  icon: IconSvgElement;
-}) {
-  const cls =
-    tone === "primary"
-      ? "border-white/15 bg-white/5 text-white"
-      : tone === "disabled"
-        ? "border-[var(--color-line)] text-[var(--color-fg-dim)]"
-        : "border-[var(--color-line)] bg-[#fafaf7] text-[var(--color-fg)]";
-  return (
-    <span
-      className={`flex h-9 w-9 items-center justify-center rounded-full border ${cls}`}
-    >
       <HugeiconsIcon
-        icon={icon}
+        icon={a.icon}
         size={16}
         strokeWidth={1.6}
         color="currentColor"
       />
-    </span>
+      {a.label}
+    </a>
   );
 }

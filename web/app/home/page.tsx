@@ -17,17 +17,14 @@ import {
   LinkSquare02FreeIcons,
   WavingHand02FreeIcons,
 } from "@hugeicons/core-free-icons";
-import { CopyAddress } from "@/components/CopyAddress";
 import { AppShell, NavIcons } from "@/components/AppShell";
 import { PersonalBalanceCard } from "@/components/PersonalBalanceCard";
+import { EarnCard } from "@/components/EarnCard";
 import { PaymentActions } from "@/components/PaymentActions";
-import { EarnStrip } from "@/components/EarnStrip";
 import { NetworkBanner } from "@/components/NetworkBanner";
 import { AutoConvertBanner } from "@/components/AutoConvertBanner";
-import { UsernameCard } from "@/components/UsernameCard";
 import { getOwnedCoins } from "@/lib/coins";
 import { isUsdsui } from "@/lib/usdsui";
-import { shortAddress } from "@/lib/format";
 import {
   findTaliseSubnameForOwner,
   findAllTaliseSubnamesForOwner,
@@ -36,6 +33,7 @@ import { FixSubnameBanner } from "@/components/FixSubnameBanner";
 import { TopUpButton } from "@/components/TopUpButton";
 import { OnrampSuccessToast } from "@/components/OnrampSuccessToast";
 import { getRecentActivity, type ActivityEntry } from "@/lib/activity";
+import { SectionHeader } from "@/components/PageIntro";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -136,9 +134,9 @@ export default async function HomePage({
     >
       <OnrampSuccessToast show={onrampSuccess} />
 
-      {/* 1. Alerts — banners that demand attention, all in one stack so
-             they don't visually fragment the top of the page. */}
-      <div className="space-y-2">
+      {/* Alerts — only render when something is actually wrong, so they
+          don't bloat the top of a healthy dashboard. */}
+      <div className="space-y-2 empty:hidden">
         <FixSubnameBanner
           stale={staleSubnames.map((s) => ({
             nftId: s.nftId,
@@ -150,97 +148,51 @@ export default async function HomePage({
         <NetworkBanner />
       </div>
 
-      {/* 2. Balance — the hero of the dashboard. */}
-      <section className="mt-2">
+      {/* Hero row — balance + earn side-by-side. The two cards read as a
+          pair: how much I have right now, and how it could grow. Stacks
+          on mobile. */}
+      <section className="mt-2 grid gap-4 md:grid-cols-[1.55fr,1fr]">
         <PersonalBalanceCard
           totalUsd={totalUsd}
           usdsui={usdsui.usdsui}
           sui={balance.sui}
           suiUsd={suiUsd}
         />
+        <EarnCard apy={earnSnapshot.apy} supplied={earnSnapshot.supplied} />
       </section>
 
-      {/* 3. Quick actions — the four primary verbs. */}
-      <section className="mt-6">
+      {/* Quick actions — Send / Receive / Pay / Earn. */}
+      <section className="mt-5">
         <PaymentActions />
       </section>
 
-      {/* 4. Identity — username + address, lightweight reference. */}
-      <section className="mt-10">
-        <SectionRow title="Your identity" />
-        <div className="mt-4 space-y-2">
-          {subname ? (
-            <UsernameCard
-              username={subname.username}
-              address={user.sui_address}
-              size="sm"
-            />
-          ) : (
-            <a
-              href="/claim"
-              className="group flex items-center justify-between rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4 transition hover:border-[var(--color-fg)]"
-            >
-              <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
-                  New
-                </div>
-                <div className="mt-1 text-[14px] text-[var(--color-fg)]">
-                  Claim your <span className="font-mono">@username</span> —
-                  get paid at <span className="font-mono">name@talise</span>.
-                </div>
-              </div>
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-line)] bg-white text-[var(--color-fg)] transition group-hover:border-[var(--color-fg)]">
-                <HugeiconsIcon
-                  icon={ArrowRight01FreeIcons}
-                  size={14}
-                  strokeWidth={1.8}
-                  color="currentColor"
-                />
-              </span>
-            </a>
-          )}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-3.5">
-            <div className="min-w-0 flex-1">
-              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
-                Wallet
-              </div>
-              <div className="mt-1 truncate text-[13px] text-[var(--color-fg)]">
-                {user.email}
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <CopyAddress address={user.sui_address} />
-              <a
-                href={suiscanAccountUrl(user.sui_address)}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 font-mono text-[11px] text-[var(--color-fg-dim)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
-                title={user.sui_address}
-              >
-                {shortAddress(user.sui_address, 4, 4)}
-                <HugeiconsIcon
-                  icon={LinkSquare02FreeIcons}
-                  size={11}
-                  strokeWidth={1.8}
-                  color="currentColor"
-                />
-              </a>
-            </div>
+      {/* Subtle subname suggestion if the user hasn't claimed one yet —
+          one quiet line, not a section. Identity/wallet panel itself lives
+          on /receive + /settings where it actually belongs. */}
+      {!subname && (
+        <a
+          href="/claim"
+          className="group mt-8 flex items-center justify-between rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-4 py-3 transition hover:border-[var(--color-fg)]"
+        >
+          <div className="text-[13px] text-[var(--color-fg)]">
+            Claim your <span className="font-mono">@username</span> — get
+            paid at <span className="font-mono">name@talise</span>.
           </div>
-        </div>
-      </section>
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-line)] bg-white text-[var(--color-fg)] transition group-hover:border-[var(--color-fg)]">
+            <HugeiconsIcon
+              icon={ArrowRight01FreeIcons}
+              size={13}
+              strokeWidth={1.8}
+              color="currentColor"
+            />
+          </span>
+        </a>
+      )}
 
-      {/* 5. Earn — quick at-a-glance yield. */}
+      {/* Activity — the main feed. Most of the time you open the
+          dashboard, this is what you came to see. */}
       <section className="mt-10">
-        <SectionRow title="Earn" />
-        <div className="mt-4">
-          <EarnStrip apy={earnSnapshot.apy} supplied={earnSnapshot.supplied} />
-        </div>
-      </section>
-
-      {/* 6. Activity — historical record. */}
-      <section className="mt-10">
-        <SectionRow title="Activity" />
+        <SectionHeader title="Activity" />
         {activity.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-[var(--color-line)] bg-[var(--color-surface-2)] p-12 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-[var(--color-line)] bg-white text-[var(--color-fg-muted)]">
@@ -279,9 +231,6 @@ export default async function HomePage({
         )}
       </section>
 
-      <footer className="mt-16 border-t border-[var(--color-line)] pt-6 text-[11px] text-[var(--color-fg-dim)]">
-        Your money. Always yours.
-      </footer>
     </AppShell>
   );
 }
@@ -367,22 +316,6 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
   );
 }
 
-function SectionRow({
-  title,
-  right,
-}: {
-  title: string;
-  right?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <h2 className="text-[11px] uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
-        {title}
-      </h2>
-      {right}
-    </div>
-  );
-}
 
 function displayName(raw: string | null | undefined): string {
   const n = (raw ?? "").trim().split(/\s+/)[0];
