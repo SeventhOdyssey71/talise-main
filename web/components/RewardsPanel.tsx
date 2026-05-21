@@ -11,20 +11,9 @@ import type { RewardsEvent, RewardsEventKind } from "@/lib/db";
  */
 export function RewardsPanel({
   code,
-  referralCount,
-  pointsTotal,
-  sentCount,
-  sentVolumeUsd,
-  subnameLabel,
   recentEvents,
 }: {
   code: string;
-  referralCount: number;
-  pointsTotal: number;
-  sentCount: number;
-  sentVolumeUsd: number;
-  /** `name@talise` if claimed, else null. */
-  subnameLabel: string | null;
   recentEvents: RewardsEvent[];
 }) {
   const link =
@@ -36,29 +25,8 @@ export function RewardsPanel({
     <div>
       <ReferralHeroCard code={code} link={link} />
 
-      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Tile
-          label="Referrals"
-          value={referralCount.toLocaleString()}
-          sub={referralCount === 1 ? "friend invited" : "friends invited"}
-        />
-        <Tile
-          label="Points"
-          value={pointsTotal.toLocaleString()}
-          sub="lifetime"
-        />
-        <Tile
-          label="Sent"
-          value={sentCount.toLocaleString()}
-          sub={`$${formatUsd(sentVolumeUsd)} volume`}
-        />
-        <Tile
-          label="Subname"
-          value={subnameLabel ?? "Not claimed"}
-          sub={subnameLabel ? "active" : "claim to earn 250"}
-          mono={!!subnameLabel}
-        />
-      </div>
+      {/* The 4-tile stat row is rendered by <RewardsHero/> above this
+          panel — leaving it duplicated here would be visual noise. */}
 
       <div className="mt-10">
         <SectionRow title="Activity" />
@@ -225,39 +193,6 @@ function HeroMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Tile({
-  label,
-  value,
-  sub,
-  mono,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] p-4">
-      <div className="text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-        {label}
-      </div>
-      <div
-        className={`mt-2 truncate font-display text-[24px] font-semibold leading-[1.05] tracking-[-0.02em] text-[var(--color-fg)] md:text-[28px] ${
-          mono ? "font-mono text-[18px] md:text-[20px]" : ""
-        }`}
-        title={value}
-      >
-        {value}
-      </div>
-      {sub && (
-        <div className="mt-1 text-[11px] text-[var(--color-fg-muted)]">
-          {sub}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function EventRow({ event }: { event: RewardsEvent }) {
   const label = EVENT_LABELS[event.kind as RewardsEventKind] ?? event.kind;
   const when = relativeTime(event.created_at);
@@ -313,11 +248,6 @@ function SectionRow({ title }: { title: string }) {
   );
 }
 
-function formatUsd(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return "0";
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}K`;
-  return n.toFixed(2).replace(/\.00$/, "");
-}
 
 function relativeTime(ms: number): string {
   const diff = Date.now() - ms;
