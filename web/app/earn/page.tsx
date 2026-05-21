@@ -4,8 +4,8 @@ import { readSessionEntryId } from "@/lib/session";
 import { getUsdsuiBalance } from "@/lib/sui";
 import { getEarnSnapshot } from "@/lib/yield";
 import { EarnDashboard } from "@/components/EarnDashboard";
+import { EarnHero } from "@/components/EarnHero";
 import { AppShell, navForAccount } from "@/components/AppShell";
-import { PageIntro } from "@/components/PageIntro";
 
 export const dynamic = "force-dynamic";
 
@@ -37,12 +37,17 @@ export default async function EarnPage() {
       pageEyebrow="Earn"
       pageTitle="Your savings"
     >
-      <PageIntro>
-        Idle USDsui earns yield. Withdraw any time. No lockup, no minimum,
-        gas is on us.
-      </PageIntro>
+      <EarnHero
+        supplied={snapshot.supplied}
+        apy={snapshot.apy}
+        dailyYield={snapshot.dailyYield}
+        pending={snapshot.pending}
+        totalPendingUsd={snapshot.totalPendingUsd}
+      />
 
-      <div className="mt-8">
+      {/* Deposit / claim / withdraw form lives below the hero — same
+          component as before, no behavior change. */}
+      <div className="mt-12">
         <EarnDashboard
           senderAddress={user.sui_address}
           availableUsdsui={usdsui.usdsui}

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AppShell, navForAccount } from "@/components/AppShell";
 import { RewardsPanel } from "@/components/RewardsPanel";
+import { RewardsHero } from "@/components/RewardsHero";
 import {
   getRewardsSummary,
   hasBusiness,
@@ -51,15 +52,20 @@ export default async function RewardsPage() {
       pageEyebrow="Rewards"
       pageTitle="Refer & earn"
     >
-      <RewardsPanel
-        code={summary.code}
-        referralCount={summary.referralCount}
+      <RewardsHero
         pointsTotal={summary.pointsTotal}
+        referralCount={summary.referralCount}
         sentCount={sentCount}
         sentVolumeUsd={sentVolumeUsd}
         subnameLabel={subname ? `${subname.username}@talise` : null}
-        recentEvents={summary.recentEvents}
       />
+
+      <div className="mt-12">
+        <RewardsPanel
+          code={summary.code}
+          recentEvents={summary.recentEvents}
+        />
+      </div>
     </AppShell>
   );
 }
