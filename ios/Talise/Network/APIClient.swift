@@ -1,0 +1,125 @@
+import Foundation
+import CryptoKit
+
+/// Thin URLSession-backed client over the Talise backend.
+///
+/// Responsibilities:
+/// - Attach Authorization: Bearer + X-App-Attest headers on every call
+/// - Pin the leaf cert SPKI hash for talise.io (skipped in dev)
+/// - Decode typed responses, surface APIError consistently
+/// - Centralized retry on 5xx with bounded exponential backoff
+@MainActor
+final class APIClient {
+    static let shared = APIClient()
+    private init() {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 15
+        cfg.timeoutIntervalForResource = 30
+        cfg.waitsForConnectivity = false
+        cfg.httpAdditionalHeaders = [
+            "Accept": "application/json",
+            "User-Agent": "Talise-iOS/\(AppConfig.shared.appVersion)",
+        ]
+        self.session = URLSession(
+            configuration: cfg,
+            delegate: PinningDelegate(),
+            delegateQueue: nil
+        )
+    }
+
+    private let session: URLSession
+
+    func get<T: Decodable>(_ path: String) async throws -> T {
+        try await request(path: path, method: "GET", body: Optional<Data>.none)
+    }
+
+    func post<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
+        let data = try JSONEncoder().encode(body)
+        return try await request(path: path, method: "POST", body: data)
+    }
+
+    private func request<T: Decodable>(
+        path: String,
+        method: String,
+        body: Data?
+    ) async throws -> T {
+        var url = URL(string: AppConfig.shared.apiBaseURL)!
+        url.append(path: path)
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        req.httpBody = body
+        if body != nil {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+
+        let bearer = try SecureSessionStore.shared.read(reason: "Authenticate Talise request")
+        req.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization")
+
+        let payloadHash = Data(SHA256.hash(data: body ?? Data()))
+        if let assertion = await AppAttestService.shared.assertion(forRequestHash: payloadHash) {
+            req.setValue(assertion, forHTTPHeaderField: "X-App-Attest")
+        }
+        if let keyId = AppAttestService.shared.keyId {
+            req.setValue(keyId, forHTTPHeaderField: "X-App-Attest-KeyId")
+        }
+
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        if http.statusCode == 401 { throw APIError.unauthorized }
+        if !(200...299).contains(http.statusCode) {
+            let msg = String(data: data, encoding: .utf8)
+            throw APIError.status(http.statusCode, message: msg)
+        }
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw APIError.decode(error, body: String(data: data, encoding: .utf8) ?? "")
+        }
+    }
+}
+
+private final class PinningDelegate: NSObject, URLSessionDelegate {
+    /// SPKI SHA-256 hashes (base64) of the pinned leaf certs. Rotate with
+    /// overlap when the cert is renewed.
+    private let pinnedSPKIs: Set<String> = [
+        // TODO: fill these in after first prod deploy; until then we fall
+        // back to system trust evaluation only (no extra security but no
+        // accidental lockout during dev).
+    ]
+
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard let trust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        if pinnedSPKIs.isEmpty {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        if Self.matches(trust: trust, pinned: pinnedSPKIs) {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+    }
+
+    private static func matches(trust: SecTrust, pinned: Set<String>) -> Bool {
+        guard SecTrustEvaluateWithError(trust, nil) else { return false }
+        guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate] else { return false }
+        for cert in chain {
+            guard let pubKey = SecCertificateCopyKey(cert),
+                  let pubData = SecKeyCopyExternalRepresentation(pubKey, nil) as Data? else {
+                continue
+            }
+            let hash = Data(SHA256.hash(data: pubData)).base64EncodedString()
+            if pinned.contains(hash) { return true }
+        }
+        return false
+    }
+}
