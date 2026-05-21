@@ -61,7 +61,11 @@ final class ZkLoginCoordinator {
         let key = try EphemeralKeyStore.shared.loadOrCreate()
         let pubKeyB64 = key.publicKey.rawRepresentation.base64EncodedString()
 
-        let maxEpoch = await fetchMaxEpoch() ?? 1_000_000
+        guard let maxEpoch = await fetchMaxEpoch() else {
+            throw CoordinatorError.exchangeFailed(
+                "Could not read current Sui epoch — is the backend reachable?"
+            )
+        }
 
         let body: [String: Any] = [
             "idToken": oauth.idToken,
@@ -85,7 +89,12 @@ final class ZkLoginCoordinator {
         // sponsor-execute endpoint will look this up via the bearer.
         ProofCache.shared.maxEpoch = maxEpoch
         ProofCache.shared.jwtRandomness = oauth.jwtRandomness
-        if let proof = response["proof"] {
+        // The proof field may be missing OR JSON-null (backend couldn't
+        // mint pre-warm) OR a dict (success). Only serialize if it's a
+        // dict/array — otherwise JSONSerialization raises NSException
+        // and try? does NOT catch Objective-C exceptions.
+        if let proof = response["proof"],
+           JSONSerialization.isValidJSONObject(proof) {
             ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: proof)
         }
 
@@ -161,8 +170,10 @@ final class ZkLoginCoordinator {
         }
 
         // If the backend minted a fresh proof, cache it so the next send
-        // skips the 2-4s Shinami round trip.
-        if let fresh = exec["freshProof"] {
+        // skips the 2-4s Shinami round trip. Defensive type check —
+        // Objective-C NSException for non-dict top-level is not catchable.
+        if let fresh = exec["freshProof"],
+           JSONSerialization.isValidJSONObject(fresh) {
             ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: fresh)
         }
         return SignedSubmission(digest: digest)
@@ -170,11 +181,16 @@ final class ZkLoginCoordinator {
 
     // MARK: - Helpers
 
+    /// Fetches the current Sui epoch and returns `epoch + 2` — the standard
+    /// zkLogin window (~48 hours). Shinami's prover rejects maxEpoch values
+    /// that are out of range, so a hard-coded fallback like 1_000_000 is
+    /// what was causing the (-32602) "Invalid params" error.
     private func fetchMaxEpoch() async -> Int? {
-        struct Response: Decodable { let maxEpoch: Int }
+        struct Response: Decodable { let epoch: String }
         do {
             let r: Response = try await APIClient.shared.get("/api/sui/epoch")
-            return r.maxEpoch
+            guard let current = Int(r.epoch) else { return nil }
+            return current + 2
         } catch {
             return nil
         }
