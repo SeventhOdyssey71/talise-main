@@ -16,6 +16,7 @@ import {
 } from "@/lib/session";
 import { sendWelcomeWithAddress } from "@/lib/email";
 import { setSigningCookie } from "@/lib/zksigner";
+import { issueMobileBearer } from "@/lib/mobile-sessions";
 
 export const runtime = "nodejs";
 
@@ -105,6 +106,16 @@ export async function GET(req: Request) {
           console.error(`[welcome-email] ${user.email}: ${result.reason}`);
         }
       });
+    }
+
+    // Mobile flow: state was prefixed with "m1." by /api/auth/mobile/start.
+    // Mint a bearer token and bounce back to the app via custom scheme.
+    if (state.startsWith("m1.")) {
+      const bearer = await issueMobileBearer(user.id);
+      const callback = new URL("talise://auth/callback");
+      callback.searchParams.set("token", bearer);
+      callback.searchParams.set("userId", String(user.id));
+      return NextResponse.redirect(callback.toString());
     }
 
     // If the user landed via a payment link (or any return-to flow), prefer

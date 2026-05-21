@@ -1,0 +1,75 @@
+name: Talise
+options:
+  bundleIdPrefix: io.talise
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+    OTHER_SWIFT_FLAGS: "-warnings-as-errors"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  SuiKit:
+    url: https://github.com/opendive/suikit
+    from: "1.2.0"
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: "7.1.0"
+
+targets:
+  Talise:
+    type: application
+    platform: iOS
+    sources:
+      - path: Talise
+        excludes:
+          - "**/.DS_Store"
+    resources:
+      - Talise/Resources/Assets.xcassets
+      - Talise/Resources/GoogleSans
+    info:
+      path: Talise/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Talise
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        CFBundleURLTypes:
+          - CFBundleURLName: io.talise.app
+            CFBundleURLSchemes: [talise]
+        LSApplicationQueriesSchemes: [googlechromes, googlechrome]
+        NSCameraUsageDescription: "Talise uses the camera to scan payment QR codes."
+        NSFaceIDUsageDescription: "Confirm sends and signatures with Face ID."
+        ITSAppUsesNonExemptEncryption: false
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
+    entitlements:
+      path: Talise/Resources/Talise.entitlements
+      properties:
+        com.apple.developer.devicecheck.appattest-environment: production
+        com.apple.developer.associated-domains:
+          - applinks:talise.io
+          - applinks:www.talise.io
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)io.talise.app
+        aps-environment: production
+    dependencies:
+      - package: SuiKit
+      - package: GoogleSignIn
+        product: GoogleSignIn
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.talise.app
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIRequiresFullScreen: NO
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
