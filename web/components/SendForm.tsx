@@ -421,7 +421,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <div className="mb-1.5 text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+      <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
         {label}
       </div>
       {children}
@@ -491,7 +491,7 @@ function SuccessReceipt({
             <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
               talise
             </div>
-            <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+            <div className="mt-1 font-mono font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
               Money home, in seconds
             </div>
           </div>
@@ -604,7 +604,7 @@ function Stat({
 }) {
   return (
     <div className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] p-3">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
         {label}
       </div>
       <div

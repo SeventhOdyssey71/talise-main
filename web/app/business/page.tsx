@@ -164,7 +164,7 @@ function SectionRow({
 }) {
   return (
     <div className="flex items-center justify-between">
-      <h2 className="text-[11px] uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
+      <h2 className="font-mono text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
         {title}
       </h2>
       {right}

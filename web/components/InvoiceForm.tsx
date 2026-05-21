@@ -57,7 +57,7 @@ export function InvoiceForm({ handle }: { handle: string }) {
   return (
     <div>
       <form onSubmit={submit} className="space-y-4 rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6">
-        <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+        <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
           New invoice
         </div>
 
@@ -109,8 +109,8 @@ export function InvoiceForm({ handle }: { handle: string }) {
       </form>
 
       {created && (
-        <div className="mt-6 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] p-5">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+        <div className="mt-6 rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface-2)] p-5">
+          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
             Invoice link
           </div>
           <div className="mt-3 break-all rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] p-3 font-mono text-[12px] text-[var(--color-fg)]">

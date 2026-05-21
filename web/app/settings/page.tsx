@@ -33,10 +33,10 @@ export default async function SettingsPage() {
       currentContext={isBusiness ? "business" : "personal"}
       hasBusinessContext={businessReady}
       navItems={navForAccount(user.account_type, "/settings")}
-      pageEyebrow={`Settings · ${isBusiness ? "business" : "personal"}`}
+      pageEyebrow="Settings"
       pageTitle={isBusiness ? user.business_name ?? "Your business" : "Account"}
     >
-      <p className="max-w-2xl text-[14px] text-[var(--color-fg-muted)]">
+      <p className="max-w-2xl text-[13px] leading-[1.6] text-[var(--color-fg-muted)] md:text-[14px]">
         Manage your profile, payment preferences, and the on-chain artifacts
         tied to this Google account. Everything settles on Sui {net}.
       </p>

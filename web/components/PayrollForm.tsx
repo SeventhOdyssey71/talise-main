@@ -135,8 +135,8 @@ export function PayrollForm({
   if (success) {
     const net = process.env.NEXT_PUBLIC_SUI_NETWORK ?? "mainnet";
     return (
-      <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6">
-        <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+      <div className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6">
+        <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
           Payroll executed · atomic
         </div>
         <div className="mt-3 font-display text-[36px] tracking-[-0.02em]">
@@ -172,8 +172,8 @@ export function PayrollForm({
 
   return (
     <form onSubmit={onSubmit} className="space-y-5">
-      <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)]">
-        <div className="border-b border-[var(--color-line)] px-5 py-3 text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+      <div className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)]">
+        <div className="border-b border-[var(--color-line)] px-5 py-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
           Recipients ({validRows.length} valid / {rows.length} total)
         </div>
 
