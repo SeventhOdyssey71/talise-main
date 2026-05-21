@@ -104,10 +104,9 @@ struct HomeView: View {
     }
 
     private func load() async {
-        loading = true
-        defer { loading = false }
         // TODO: hit /api/balances once we add it as a single mobile endpoint
         // (avoid the 3-request fan-out the web /home does server-side).
+        loading = false
     }
 
     private func format(_ v: Double) -> String {
