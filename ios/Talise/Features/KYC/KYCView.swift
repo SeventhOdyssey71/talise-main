@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct KYCView: View {
-    let userId: String
+    let user: UserDTO
     @Environment(AppSession.self) private var session
     @State private var country: String = "NG"
     @State private var accountType: AccountType = .personal

@@ -128,10 +128,21 @@ export async function mintZkProof(opts: {
   ephemeralPubKeyB64: string;
   maxEpoch: number;
   randomness: string;
+  /** Mobile callers (no cookie) pass these directly. */
+  jwt?: string;
+  salt?: string;
 }): Promise<CachedZkProof> {
-  const stored = await readSigningCookie();
-  if (!stored) throw new Error("No active sign-in. Please sign in again.");
-  const { jwt, salt } = stored;
+  let jwt: string;
+  let salt: string;
+  if (opts.jwt && opts.salt) {
+    jwt = opts.jwt;
+    salt = opts.salt;
+  } else {
+    const stored = await readSigningCookie();
+    if (!stored) throw new Error("No active sign-in. Please sign in again.");
+    jwt = stored.jwt;
+    salt = stored.salt;
+  }
 
   const pubKey = new Ed25519PublicKey(fromBase64(opts.ephemeralPubKeyB64));
   const extendedEphemeralPublicKey = getExtendedEphemeralPublicKey(pubKey);

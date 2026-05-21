@@ -10,7 +10,7 @@ final class AppSession {
     enum Phase: Equatable {
         case launching
         case signedOut
-        case onboarding(userId: String)
+        case onboarding(user: UserDTO)
         case ready(user: UserDTO)
         case locked
     }
@@ -19,26 +19,24 @@ final class AppSession {
     var lastError: String?
 
     func bootstrap() async {
-        if !SecureSessionStore.shared.hasToken() {
+        guard SecureSessionStore.shared.hasToken() else {
             phase = .signedOut
             return
         }
         do {
             let me: UserDTO = try await APIClient.shared.get("/api/me")
             if me.accountType == nil {
-                phase = .onboarding(userId: me.id)
+                phase = .onboarding(user: me)
             } else {
                 phase = .ready(user: me)
-                Task { try? await AppAttestService.shared.bootstrap(
-                    bearer: SecureSessionStore.shared.read(),
-                    apiBaseURL: AppConfig.shared.apiBaseURL
-                ) }
             }
         } catch APIError.unauthorized {
             SecureSessionStore.shared.clear()
             phase = .signedOut
         } catch {
-            lastError = error.localizedDescription
+            // No /me yet (404) or transient network issue — fall back to
+            // signed-out rather than wedging launch. User can re-auth.
+            SecureSessionStore.shared.clear()
             phase = .signedOut
         }
     }
@@ -46,16 +44,16 @@ final class AppSession {
     func signOut() {
         SecureSessionStore.shared.clear()
         EphemeralKeyStore.shared.wipe()
+        ProofCache.shared.clear()
         phase = .signedOut
     }
 
-    func handleSignInSuccess(bearer: String, userId: String) async {
-        do {
-            try SecureSessionStore.shared.save(token: bearer)
-            await bootstrap()
-        } catch {
-            lastError = error.localizedDescription
-            phase = .signedOut
+    /// Called by SignInView after ZkLoginCoordinator.signIn() returns.
+    func handleSignedIn(user: UserDTO) {
+        if user.accountType == nil {
+            phase = .onboarding(user: user)
+        } else {
+            phase = .ready(user: user)
         }
     }
 }

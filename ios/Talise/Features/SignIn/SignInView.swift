@@ -5,8 +5,6 @@ struct SignInView: View {
     @State private var signingIn = false
     @State private var error: String?
 
-    private let googleSignIn = GoogleSignInService()
-
     var body: some View {
         ZStack {
             TaliseColor.bg.ignoresSafeArea()
@@ -50,20 +48,13 @@ struct SignInView: View {
 
     private func beginSignIn() async {
         signingIn = true
+        error = nil
         defer { signingIn = false }
         do {
-            let pubKey = try EphemeralKeyStore.shared.publicKeyRawBytes()
-            let nonce = UUID().uuidString
-            let result = try await googleSignIn.signIn(
-                nonce: nonce,
-                ephemeralPubKeyB64: pubKey.base64EncodedString()
-            )
-            await session.handleSignInSuccess(
-                bearer: result.bearer,
-                userId: result.userId
-            )
+            let result = try await ZkLoginCoordinator.shared.signIn()
+            session.handleSignedIn(user: result.user)
         } catch GoogleSignInService.SignInError.cancelled {
-            // user backed out — no error
+            // user backed out — no error toast
         } catch {
             self.error = error.localizedDescription
         }

@@ -12,8 +12,8 @@ struct AppRoot: View {
                 LaunchView()
             case .signedOut:
                 SignInView()
-            case .onboarding(let userId):
-                KYCView(userId: userId)
+            case .onboarding(let user):
+                KYCView(user: user)
             case .ready:
                 MainTabView()
             case .locked:
@@ -27,7 +27,7 @@ struct AppRoot: View {
         switch session.phase {
         case .launching: return "launching"
         case .signedOut: return "signedOut"
-        case .onboarding(let id): return "onboarding-\(id)"
+        case .onboarding(let user): return "onboarding-\(user.id)"
         case .ready: return "ready"
         case .locked: return "locked"
         }
