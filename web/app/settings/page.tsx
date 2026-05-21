@@ -236,7 +236,7 @@ function Section({
 }) {
   return (
     <section id={id} className="scroll-mt-20">
-      <div className="text-[11px] font-mono uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
+      <div className="font-mono text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
         {title}
       </div>
       {sub && (
