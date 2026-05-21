@@ -90,7 +90,7 @@ export default async function BusinessDashboard() {
 
           <section className="mt-12">
             <SectionRow title="Where customers pay" />
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4">
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4">
               <div className="flex items-center gap-3">
                 <span className="text-[13px] text-[var(--color-fg)]">
                   talise.io/p/{handle}
@@ -116,7 +116,7 @@ export default async function BusinessDashboard() {
 
           <section className="mt-12">
             <SectionRow title="Recent payments" />
-            <div className="mt-4 rounded-xl border border-dashed border-[var(--color-line)] bg-[var(--color-surface-2)] p-12 text-center">
+            <div className="mt-4 rounded-2xl border border-dashed border-[var(--color-line)] bg-[var(--color-surface-2)] p-12 text-center">
               <div className="mx-auto h-9 w-9 rounded-full border border-[var(--color-line)]" />
               <p className="mt-4 text-[13px] text-[var(--color-fg-muted)]">
                 No customer payments yet.
@@ -185,7 +185,7 @@ function FeatureTile({
 }) {
   const inner = (
     <>
-      <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+      <div className="font-mono text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
         {tag}
       </div>
       <div className="mt-3 font-display text-[20px] leading-[1.15] tracking-[-0.02em] text-[var(--color-fg)]">
@@ -206,14 +206,14 @@ function FeatureTile({
     return (
       <a
         href={href}
-        className="block h-full rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6 transition hover:border-[var(--color-fg)]"
+        className="block h-full rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6 transition hover:border-[var(--color-fg)]"
       >
         {inner}
       </a>
     );
   }
   return (
-    <div className="h-full rounded-xl border border-dashed border-[var(--color-line)] bg-[var(--color-surface-2)] p-6">
+    <div className="h-full rounded-2xl border border-dashed border-[var(--color-line)] bg-[var(--color-surface-2)] p-6">
       {inner}
     </div>
   );
