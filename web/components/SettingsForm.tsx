@@ -62,7 +62,7 @@ export function SettingsForm({
   }
 
   return (
-    <form onSubmit={save} className="space-y-5 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6">
+    <form onSubmit={save} className="space-y-5 rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6">
       <Field label="Display name">
         <input
           value={name}

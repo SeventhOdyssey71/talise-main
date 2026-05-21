@@ -195,7 +195,7 @@ export function OnrampModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--color-line)] px-5 py-4">
           <div className="min-w-0">
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+            <div className="font-mono font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
               Stripe · secure card
             </div>
             <div className="mt-0.5 text-[15px] font-medium text-[var(--color-fg)]">
@@ -216,7 +216,7 @@ export function OnrampModal({
         <div className="flex-1 overflow-y-auto">
           {phase === "select" && (
             <div className="p-5">
-              <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+              <div className="mb-2 font-mono font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
                 Amount
               </div>
               <div className="grid grid-cols-4 gap-2">
@@ -243,7 +243,7 @@ export function OnrampModal({
               </div>
 
               <div className="mt-4">
-                <label className="mb-1 block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+                <label className="mb-1 block font-mono font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
                   Custom (USD)
                 </label>
                 <div className="flex items-center rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3">

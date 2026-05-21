@@ -174,7 +174,7 @@ export function EarnDashboard({
       <section className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+            <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
               Pending rewards
             </div>
             <div className="mt-2 font-display text-[28px] tracking-[-0.025em] text-[var(--color-fg)]">
@@ -208,7 +208,7 @@ export function EarnDashboard({
 
       {/* Deposit */}
       <section className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6">
-        <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+        <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
           Add to savings
         </div>
         <p className="mt-2 max-w-2xl text-[13px] text-[var(--color-fg-muted)]">
@@ -289,7 +289,7 @@ function Tile({
     <div
       className={`bg-[var(--color-surface)] p-6 ${wide ? "md:col-span-1" : ""}`}
     >
-      <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
         {label}
       </div>
       <div className="mt-2 font-display text-[28px] leading-[1.05] tracking-[-0.025em] text-[var(--color-fg)] md:text-[32px]">

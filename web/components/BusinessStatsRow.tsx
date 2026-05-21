@@ -35,7 +35,7 @@ export function BusinessStatsRow({
   ];
 
   return (
-    <div className="mt-5 grid gap-px overflow-hidden rounded-xl border border-[var(--color-line)] bg-[var(--color-line)] sm:grid-cols-2 md:grid-cols-4">
+    <div className="mt-5 grid gap-px overflow-hidden rounded-2xl border border-[var(--color-line)] bg-[var(--color-line)] sm:grid-cols-2 md:grid-cols-4">
       {items.map((it, i) => (
         <motion.div
           key={it.label}

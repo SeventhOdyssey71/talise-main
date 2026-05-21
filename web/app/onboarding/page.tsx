@@ -31,13 +31,13 @@ export default async function OnboardingPage() {
       </header>
 
       <section className="mx-auto max-w-4xl px-6 pt-16 pb-24 md:px-10">
-        <div className="text-[12px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
+        <div className="font-mono text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
           Welcome, {displayName(user.name)}
         </div>
-        <h1 className="mt-3 font-display text-[44px] leading-[1.05] tracking-[-0.02em] md:text-[64px]">
+        <h1 className="mt-2 text-[32px] font-medium leading-[1.05] tracking-[-0.03em] md:text-[44px]">
           How will you use Talise?
         </h1>
-        <p className="mt-4 max-w-2xl text-[16px] text-[var(--color-fg-muted)]">
+        <p className="mt-4 max-w-2xl text-[13px] leading-[1.6] text-[var(--color-fg-muted)] md:text-[14px]">
           One pick. You can&apos;t change it without contacting us, so think
           for a second. The interface is built differently for each.
         </p>

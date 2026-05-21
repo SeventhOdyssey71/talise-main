@@ -50,9 +50,9 @@ export function AddBusinessForm() {
     <form
       onSubmit={submit}
       id="add-business"
-      className="rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6"
+      className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6"
     >
-      <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
         Add a business account
       </div>
       <h3 className="mt-2 text-[18px] font-semibold tracking-tight text-[var(--color-fg)]">
