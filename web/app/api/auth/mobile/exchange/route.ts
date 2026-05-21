@@ -135,7 +135,10 @@ export async function POST(req: Request) {
     console.warn(`[mobile/exchange] proof pre-mint skipped: ${(err as Error).message}`);
   }
 
-  const bearer = await issueMobileBearer(user.id);
+  const bearer = await issueMobileBearer(user.id, {
+    jwt: body.idToken,
+    salt,
+  });
 
   return NextResponse.json({
     user: {

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { readSessionEntryId } from "@/lib/session";
+import {
+  readEntryIdFromRequest,
+  mobileSigningContext,
+  isMobileRequest,
+} from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { mintZkProof } from "@/lib/zksigner";
 
@@ -19,7 +23,7 @@ export const runtime = "nodejs";
  * skips Shinami entirely.
  */
 export async function POST(req: Request) {
-  const userId = await readSessionEntryId();
+  const userId = await readEntryIdFromRequest(req);
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
@@ -46,12 +50,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
 
+  // Mobile callers: pull JWT + salt from the bearer's signing context.
+  const mobileCtx = isMobileRequest(req) ? await mobileSigningContext(userId) : null;
+
   try {
     const t0 = Date.now();
     const proof = await mintZkProof({
       ephemeralPubKeyB64: body.ephemeralPubKeyB64,
       maxEpoch: body.maxEpoch,
       randomness: body.randomness,
+      jwt: mobileCtx?.jwt,
+      salt: mobileCtx?.salt,
     });
     console.log(`[zk/proof] warmed in ${Date.now() - t0}ms`);
     return NextResponse.json({ proof });

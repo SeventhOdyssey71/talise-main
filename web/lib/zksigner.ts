@@ -189,6 +189,9 @@ export async function assembleZkLoginSignature(opts: {
   randomness: string;
   userSignature: string;
   cachedProof?: CachedZkProof;
+  /** Mobile callers (no cookie) pass these directly. */
+  jwt?: string;
+  salt?: string;
 }): Promise<{ signature: string; proof: CachedZkProof; isFresh: boolean }> {
   let proof: CachedZkProof;
   let isFresh = false;
@@ -199,6 +202,8 @@ export async function assembleZkLoginSignature(opts: {
       ephemeralPubKeyB64: opts.ephemeralPubKeyB64,
       maxEpoch: opts.maxEpoch,
       randomness: opts.randomness,
+      jwt: opts.jwt,
+      salt: opts.salt,
     });
     isFresh = true;
   }

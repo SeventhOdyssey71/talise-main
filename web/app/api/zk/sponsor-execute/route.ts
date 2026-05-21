@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { readSessionEntryId } from "@/lib/session";
+import {
+  readEntryIdFromRequest,
+  mobileSigningContext,
+  isMobileRequest,
+} from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { assembleZkLoginSignature, readSigningCookie } from "@/lib/zksigner";
 import { onara } from "@/lib/onara";
@@ -28,7 +32,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const userId = await readSessionEntryId();
+  const userId = await readEntryIdFromRequest(req);
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
@@ -37,7 +41,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
 
-  const signing = await readSigningCookie();
+  // Mobile callers don't have a signing cookie — pull jwt+salt from the
+  // mobile_sessions row instead. Web callers stay on the cookie path.
+  const signing = isMobileRequest(req)
+    ? await mobileSigningContext(userId)
+    : await readSigningCookie();
   if (!signing) {
     return NextResponse.json({ error: "No active sign-in" }, { status: 401 });
   }
@@ -78,6 +86,8 @@ export async function POST(req: Request) {
         randomness: body.randomness,
         userSignature: body.userSignature,
         cachedProof: body.cachedProof,
+        jwt: signing.jwt,
+        salt: signing.salt,
       });
     const tProof = Date.now();
 

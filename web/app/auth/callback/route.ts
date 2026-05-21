@@ -111,7 +111,10 @@ export async function GET(req: Request) {
     // Mobile flow: state was prefixed with "m1." by /api/auth/mobile/start.
     // Mint a bearer token and bounce back to the app via custom scheme.
     if (state.startsWith("m1.")) {
-      const bearer = await issueMobileBearer(user.id);
+      const bearer = await issueMobileBearer(user.id, {
+        jwt: id_token,
+        salt: user.salt,
+      });
       const callback = new URL("talise://auth/callback");
       callback.searchParams.set("token", bearer);
       callback.searchParams.set("userId", String(user.id));

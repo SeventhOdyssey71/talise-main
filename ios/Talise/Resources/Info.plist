@@ -26,6 +26,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>talise</string>
+				<string>com.googleusercontent.apps.786432206940-rnvri4af4ek2btleebt43i8ovc4h2lod</string>
 			</array>
 		</dict>
 	</array>
@@ -42,11 +43,25 @@
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<false/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>localhost</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+		</dict>
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Talise uses the camera to scan payment QR codes.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Confirm sends and signatures with Face ID.</string>
+	<key>TaliseAPIBaseURL</key>
+	<string>http://localhost:3000</string>
+	<key>TaliseGoogleClientID</key>
+	<string>786432206940-rnvri4af4ek2btleebt43i8ovc4h2lod.apps.googleusercontent.com</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
