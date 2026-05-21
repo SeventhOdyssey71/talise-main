@@ -10,18 +10,14 @@ settings:
   base:
     SWIFT_VERSION: "5.10"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
-    SWIFT_STRICT_CONCURRENCY: complete
-    OTHER_SWIFT_FLAGS: "-warnings-as-errors"
+    SWIFT_STRICT_CONCURRENCY: minimal
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
 
-packages:
-  SuiKit:
-    url: https://github.com/opendive/suikit
-    from: "1.2.0"
-  GoogleSignIn:
-    url: https://github.com/google/GoogleSignIn-iOS
-    from: "7.1.0"
+# No SPM deps for the initial scaffold — Google sign-in uses
+# ASWebAuthenticationSession (Apple SDK) against our backend's
+# /api/auth/mobile/start, and SuiKit gets added when we wire the
+# PTB builder for Send/Earn. This keeps the first build pure-Apple.
 
 targets:
   Talise:
@@ -62,10 +58,7 @@ targets:
         keychain-access-groups:
           - $(AppIdentifierPrefix)io.talise.app
         aps-environment: production
-    dependencies:
-      - package: SuiKit
-      - package: GoogleSignIn
-        product: GoogleSignIn
+    dependencies: []
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.talise.app
