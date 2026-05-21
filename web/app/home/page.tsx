@@ -18,8 +18,7 @@ import {
   WavingHand02FreeIcons,
 } from "@hugeicons/core-free-icons";
 import { AppShell, NavIcons } from "@/components/AppShell";
-import { PersonalBalanceCard } from "@/components/PersonalBalanceCard";
-import { EarnCard } from "@/components/EarnCard";
+import { DashboardHero } from "@/components/DashboardHero";
 import { PaymentActions } from "@/components/PaymentActions";
 import { NetworkBanner } from "@/components/NetworkBanner";
 import { AutoConvertBanner } from "@/components/AutoConvertBanner";
@@ -148,21 +147,23 @@ export default async function HomePage({
         <NetworkBanner />
       </div>
 
-      {/* Hero row — balance + earn side-by-side. The two cards read as a
-          pair: how much I have right now, and how it could grow. Stacks
-          on mobile. */}
-      <section className="mt-2 grid gap-4 md:grid-cols-[1.55fr,1fr]">
-        <PersonalBalanceCard
+      {/* Ledgerix-style hero: big centered total, asset tabs, 14-day
+          sparkline, weekly stat cards, and the Ask-Talise command bar. */}
+      <section className="mt-2">
+        <DashboardHero
           totalUsd={totalUsd}
           usdsui={usdsui.usdsui}
           sui={balance.sui}
           suiUsd={suiUsd}
+          activity={activity}
+          earnApy={earnSnapshot.apy}
+          earnSupplied={earnSnapshot.supplied}
         />
-        <EarnCard apy={earnSnapshot.apy} supplied={earnSnapshot.supplied} />
       </section>
 
-      {/* Quick actions — Send / Receive / Pay / Earn. */}
-      <section className="mt-5">
+      {/* Quick actions stay below the hero — small icon row, doesn't fight
+          for attention with the big number. */}
+      <section className="mt-8">
         <PaymentActions />
       </section>
 
