@@ -95,52 +95,75 @@ final class ZkLoginCoordinator {
 
     // MARK: - Sign + submit
 
-    /// Sign a sponsored transaction. `intent` is currently informational
-    /// (could surface in a confirmation sheet); the actual Face ID prompt
-    /// would happen in the calling view before invoking this method.
+    /// Sign + sponsor + submit a transaction-kind PTB through the Onara
+    /// sponsored gas pipeline. `transactionKindB64` is the base64 of the
+    /// PTB built locally (or via SuiKit once integrated) — the iOS app
+    /// hands the kind bytes, the backend wraps them in a sponsored
+    /// TransactionData with Onara as gas owner, and we sign the result.
+    ///
+    /// Endpoints used:
+    ///   POST /api/zk/sponsor          { transactionKindB64 } → { bytes }
+    ///   POST /api/zk/sponsor-execute  { bytesB64, ephemeralPubKeyB64,
+    ///                                   maxEpoch, randomness, userSignature,
+    ///                                   cachedProof? }       → { digest, ... }
     func signAndSubmit(
-        ptbBytesB64: String,
-        sender: String,
-        kind: String,
+        transactionKindB64: String,
         intent: String
     ) async throws -> SignedSubmission {
-        let sponsorBody: [String: Any] = [
-            "ptbBytesB64": ptbBytesB64,
-            "sender": sender,
-        ]
+        guard let maxEpoch = ProofCache.shared.maxEpoch,
+              let jwtRandomness = ProofCache.shared.jwtRandomness else {
+            throw CoordinatorError.exchangeFailed("no proof cache — sign in again")
+        }
+
+        // 1. Get sponsored tx bytes.
         let sponsor = try await postAuthenticated(
             path: "/api/zk/sponsor",
-            body: sponsorBody
+            body: ["transactionKindB64": transactionKindB64]
         )
-        guard let txBytes = sponsor["txBytes"] as? String,
-              let sponsorSig = sponsor["sponsorSignature"] as? String,
-              let txBytesData = Data(base64Encoded: txBytes) else {
+        guard let bytesB64 = sponsor["bytes"] as? String,
+              let txBytesData = Data(base64Encoded: bytesB64) else {
             throw CoordinatorError.sponsorFailed("malformed sponsor response")
         }
 
-        // Sui intent prefix: TransactionData(0) + V0(0) + Sui(0).
+        // 2. Sign Sui intent message with ephemeral Ed25519.
         let intentMessage = Data([0, 0, 0]) + txBytesData
         let key = try EphemeralKeyStore.shared.loadOrCreate()
         let rawSig = try key.signature(for: intentMessage)
         let pubKey = key.publicKey.rawRepresentation
+        let pubKeyB64 = pubKey.base64EncodedString()
         // Sui SerializedSignature: 0x00 flag (Ed25519) + sig + pubkey
         let userSig = (Data([0x00]) + rawSig + pubKey).base64EncodedString()
 
-        let executeBody: [String: Any] = [
-            "txBytes": txBytes,
+        // 3. Hand to /sponsor-execute. Backend assembles zkLoginSignature
+        //    (proof + ephemeral sig + jwt metadata), POSTs to Onara,
+        //    returns the digest.
+        var executeBody: [String: Any] = [
+            "bytesB64": bytesB64,
+            "ephemeralPubKeyB64": pubKeyB64,
+            "maxEpoch": maxEpoch,
+            "randomness": jwtRandomness,
             "userSignature": userSig,
-            "sponsorSignature": sponsorSig,
-            "kind": kind,
         ]
+        if let proofData = ProofCache.shared.proofRaw,
+           let proofJSON = try? JSONSerialization.jsonObject(with: proofData) {
+            executeBody["cachedProof"] = proofJSON
+        }
+
         let exec = try await postAuthenticated(
             path: "/api/zk/sponsor-execute",
             body: executeBody
         )
-        if let success = exec["success"] as? Bool, !success {
-            throw CoordinatorError.executeFailed(exec["error"] as? String ?? "unknown")
+        if let err = exec["error"] as? String {
+            throw CoordinatorError.executeFailed(err)
         }
-        guard let digest = exec["digest"] as? String else {
+        guard let digest = exec["digest"] as? String, !digest.isEmpty else {
             throw CoordinatorError.executeFailed("no digest in response")
+        }
+
+        // If the backend minted a fresh proof, cache it so the next send
+        // skips the 2-4s Shinami round trip.
+        if let fresh = exec["freshProof"] {
+            ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: fresh)
         }
         return SignedSubmission(digest: digest)
     }

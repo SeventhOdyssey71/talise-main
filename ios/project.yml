@@ -41,13 +41,24 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         CFBundleURLTypes:
           - CFBundleURLName: io.talise.app
-            CFBundleURLSchemes: [talise]
+            CFBundleURLSchemes:
+              - talise
+              - com.googleusercontent.apps.786432206940-rnvri4af4ek2btleebt43i8ovc4h2lod
         LSApplicationQueriesSchemes: [googlechromes, googlechrome]
         NSCameraUsageDescription: "Talise uses the camera to scan payment QR codes."
         NSFaceIDUsageDescription: "Confirm sends and signatures with Face ID."
         ITSAppUsesNonExemptEncryption: false
+        # Allow http://localhost API calls in dev (TALISE_API_BASE_URL).
+        # Prod build sets NSAllowsArbitraryLoads:false; for now the
+        # localhost exception unblocks the simulator dev flow.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
+          NSExceptionDomains:
+            localhost:
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: true
+        TaliseGoogleClientID: "786432206940-rnvri4af4ek2btleebt43i8ovc4h2lod.apps.googleusercontent.com"
+        TaliseAPIBaseURL: "http://localhost:3000"
     entitlements:
       path: Talise/Resources/Talise.entitlements
       properties:
