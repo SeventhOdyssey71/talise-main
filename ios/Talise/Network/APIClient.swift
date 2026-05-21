@@ -52,8 +52,9 @@ final class APIClient {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        let bearer = try SecureSessionStore.shared.read(reason: "Authenticate Talise request")
-        req.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization")
+        if let bearer = SecureSessionStore.shared.read() {
+            req.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization")
+        }
 
         let payloadHash = Data(SHA256.hash(data: body ?? Data()))
         if let assertion = await AppAttestService.shared.assertion(forRequestHash: payloadHash) {

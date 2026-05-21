@@ -1,116 +1,127 @@
 import Foundation
 import CryptoKit
 import Security
-import LocalAuthentication
 
-/// Manages the zkLogin ephemeral keypair. Stored as a SecKey reference in
-/// the Secure Enclave with `.privateKeyUsage + .userPresence` — every sign
-/// operation triggers Face/Touch ID.
+/// Manages the zkLogin ephemeral keypair.
 ///
-/// We can't extract the private key (that's the whole point of the SE).
-/// Instead `signRaw(_:)` proxies to `SecKeyCreateSignature` which performs
-/// the signing inside the enclave.
+/// **Why not Secure Enclave**: zkLogin signatures must be **Ed25519** (sig
+/// scheme flag 0x00). Secure Enclave only supports P-256, and `SecKeyCreateRandomKey`
+/// for SE keys is rejected outright on iOS Simulator
+/// (`com.apple.LocalAuthentication / -1020: not supported on iOS Simulator`).
+/// So we use `Curve25519.Signing.PrivateKey` from CryptoKit and persist the
+/// 32-byte raw representation in Keychain.
 ///
-/// The Sui ZkLoginSignature expects Ed25519 by default, but Secure Enclave
-/// only supports P-256. The backend's zkLogin coordinator advertises the
-/// ephemeral public key in the same format Sui supports (`SerializedSignature`
-/// includes a flag byte: `0x02` for Secp256r1) — so this works end-to-end
-/// against the existing prover.
+/// The Keychain item is `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
+/// — readable after the user unlocks the phone the first time post-boot,
+/// but never leaves the device and never syncs to iCloud. Biometric
+/// confirmation on individual signatures happens at the UI layer (Face ID
+/// prompts before `signAndSubmit`), not at every Keychain read.
 @MainActor
 final class EphemeralKeyStore {
     static let shared = EphemeralKeyStore()
     private init() {}
 
-    private let tag = "io.talise.app.ephemeral.v1".data(using: .utf8)!
+    private let service = "io.talise.app.zklogin.ephemeral"
+    private let account = "v1"
 
     enum KeyError: Error {
-        case noAccessControl
-        case createKey(CFError?)
-        case copyPublic
-        case sign(CFError?)
-        case loadKey(OSStatus)
+        case keychainWrite(OSStatus)
+        case keychainRead(OSStatus)
+        case keyDecode
     }
 
-    func ensureKey() throws -> SecKey {
-        if let existing = try? loadKey() { return existing }
-        return try createKey()
-    }
-
-    private func createKey() throws -> SecKey {
-        var aclError: Unmanaged<CFError>?
-        guard let acl = SecAccessControlCreateWithFlags(
-            nil,
-            kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
-            [.privateKeyUsage, .userPresence],
-            &aclError
-        ) else {
-            throw KeyError.noAccessControl
+    /// Returns the current keypair, creating + persisting one on first call.
+    func loadOrCreate() throws -> Curve25519.Signing.PrivateKey {
+        if let raw = readRaw(),
+           let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: raw) {
+            return key
         }
-
-        let attrs: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecAttrKeySizeInBits as String: 256,
-            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
-            kSecPrivateKeyAttrs as String: [
-                kSecAttrIsPermanent as String: true,
-                kSecAttrApplicationTag as String: tag,
-                kSecAttrAccessControl as String: acl,
-            ],
-        ]
-
-        var error: Unmanaged<CFError>?
-        guard let key = SecKeyCreateRandomKey(attrs as CFDictionary, &error) else {
-            throw KeyError.createKey(error?.takeRetainedValue())
-        }
-        return key
+        let new = Curve25519.Signing.PrivateKey()
+        try writeRaw(new.rawRepresentation)
+        return new
     }
 
-    private func loadKey() throws -> SecKey {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: tag,
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecReturnRef as String: true,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess else { throw KeyError.loadKey(status) }
-        return item as! SecKey
+    /// 32-byte raw Ed25519 public key, base64-encoded — what the backend
+    /// expects in `ephemeralPubKeyB64`.
+    func publicKeyB64() throws -> String {
+        try loadOrCreate().publicKey.rawRepresentation.base64EncodedString()
     }
 
-    func publicKeyRawBytes() throws -> Data {
-        let priv = try ensureKey()
-        guard let pub = SecKeyCopyPublicKey(priv) else { throw KeyError.copyPublic }
-        var error: Unmanaged<CFError>?
-        guard let data = SecKeyCopyExternalRepresentation(pub, &error) as Data? else {
-            throw KeyError.copyPublic
-        }
-        return data
-    }
-
-    /// Signs raw bytes with SHA-256 pre-hash via the Secure Enclave key.
-    /// Returns ASN.1-DER ECDSA signature; the network layer converts to
-    /// Sui's serialized signature format before submitting.
-    func signRaw(_ payload: Data, reason: String) throws -> Data {
-        let key = try ensureKey()
-        let algorithm: SecKeyAlgorithm = .ecdsaSignatureMessageX962SHA256
-        var error: Unmanaged<CFError>?
-        guard let sig = SecKeyCreateSignature(
-            key,
-            algorithm,
-            payload as CFData,
-            &error
-        ) as Data? else {
-            throw KeyError.sign(error?.takeRetainedValue())
-        }
-        return sig
+    /// Sign raw bytes with the current ephemeral Ed25519 key.
+    /// Caller is responsible for prepending the Sui intent prefix
+    /// (`Data([0, 0, 0])`) before the tx bytes.
+    func sign(_ payload: Data) throws -> Data {
+        try loadOrCreate().signature(for: payload)
     }
 
     func wipe() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: tag,
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
         ]
-        SecItemDelete(query as CFDictionary)
+        SecItemDelete(q as CFDictionary)
+    }
+
+    // MARK: - Keychain primitives
+
+    private func writeRaw(_ data: Data) throws {
+        // Delete-then-insert is the simplest way to upsert in Keychain.
+        let delete: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(delete as CFDictionary)
+
+        let add: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let status = SecItemAdd(add as CFDictionary, nil)
+        guard status == errSecSuccess else { throw KeyError.keychainWrite(status) }
+    }
+
+    private func readRaw() -> Data? {
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(q as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return data
+    }
+}
+
+/// Generates a 16-byte big-endian decimal string for zkLogin randomness +
+/// salt. Sui's zkLogin requires values that fit in the BN254 scalar field,
+/// and Mysten's prover specifically wants a base-10 string.
+enum SuiRandomness {
+    static func generate() -> String {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return bytesToDecimalString(bytes)
+    }
+
+    static func bytesToDecimalString(_ bytes: [UInt8]) -> String {
+        var digits = bytes
+        var result = ""
+        while !digits.allSatisfy({ $0 == 0 }) {
+            var remainder: UInt32 = 0
+            for i in 0..<digits.count {
+                let current = (UInt32(remainder) << 8) | UInt32(digits[i])
+                digits[i] = UInt8(current / 10)
+                remainder = current % 10
+            }
+            result = "\(remainder)" + result
+        }
+        return result.isEmpty ? "0" : result
     }
 }
