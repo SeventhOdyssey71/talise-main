@@ -36,19 +36,30 @@ export function normalizeHandle(input: string): string | null {
   // strip leading `@`
   if (s.startsWith("@")) s = s.slice(1);
 
-  // strip `@talise` suffix
+  // Talise display forms (must be checked before bare `@talise`):
+  if (s.endsWith("@talise.sui")) s = s.slice(0, -"@talise.sui".length);
+  // strip `@talise` suffix (short form on cards)
   if (s.endsWith("@talise")) s = s.slice(0, -"@talise".length);
-
-  // strip `.talise.sui` suffix
+  // SuiNS canonical
   if (s.endsWith(".talise.sui")) s = s.slice(0, -".talise.sui".length);
 
   if (!USERNAME_RE.test(s)) return null;
   return s;
 }
 
-/** Render a bare username as the user-facing form. */
+/** Short display form used on cards and chips. */
 export function formatHandle(username: string): string {
   return `${username}@talise`;
+}
+
+/**
+ * Long / canonical user-facing form. Used in error messages and search
+ * hints where users need to see exactly which name was looked up. Uses
+ * `@` instead of `.` to keep Talise branding consistent — the on-chain
+ * SuiNS NameRecord stays the standard `.talise.sui` form.
+ */
+export function formatHandleFull(username: string): string {
+  return `${username}@talise.sui`;
 }
 
 /** True if the input looks like a Sui address (0x + 64 hex chars). */

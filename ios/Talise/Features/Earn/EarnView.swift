@@ -165,6 +165,10 @@ struct EarnView: View {
             .background(TaliseColor.usernameCard)
             .clipShape(RoundedRectangle(cornerRadius: 16))
 
+            if let projection = earningsProjection {
+                projectionBand(projection)
+            }
+
             Button(action: { Task { await supply() } }) {
                 HStack(spacing: 10) {
                     if supplying {
@@ -190,6 +194,83 @@ struct EarnView: View {
 
     private var canSupply: Bool {
         (Double(amount) ?? 0) > 0 && comparison?.best != nil && !supplying
+    }
+
+    // MARK: - Earnings projection
+
+    /// (daily, weekly, monthly, yearly) USD earnings at the best venue's
+    /// APY, for the amount currently in the input. Nil when no amount /
+    /// no venue / zero APY.
+    private var earningsProjection: (day: Double, week: Double, month: Double, year: Double)? {
+        guard let amt = Double(amount), amt > 0,
+              let best = comparison?.best, best.apy > 0 else { return nil }
+        let annual = amt * best.apy
+        return (
+            day:   annual / 365.0,
+            week:  annual / 52.0,
+            month: annual / 12.0,
+            year:  annual
+        )
+    }
+
+    private func projectionBand(
+        _ p: (day: Double, week: Double, month: Double, year: Double)
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            MicroLabel(
+                text: "You'll earn",
+                color: TaliseColor.fgDim
+            ).kerning(1.5)
+            HStack(spacing: 0) {
+                projectionCell(label: "Day", value: p.day)
+                projectionDivider
+                projectionCell(label: "Week", value: p.week)
+                projectionDivider
+                projectionCell(label: "Month", value: p.month)
+                projectionDivider
+                projectionCell(label: "Year", value: p.year, accent: true)
+            }
+            .padding(.vertical, 12)
+            .background(TaliseColor.usernameCard)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        .animation(.easeInOut(duration: 0.18), value: amount)
+    }
+
+    private func projectionCell(label: String, value: Double, accent: Bool = false) -> some View {
+        VStack(spacing: 4) {
+            Text(formatProjection(value))
+                .font(TaliseFont.heading(14, weight: .medium))
+                .kerning(-0.4)
+                .foregroundStyle(accent ? TaliseColor.accent : TaliseColor.fg)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            MicroLabel(text: label, color: TaliseColor.fgDim).kerning(0.8)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var projectionDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.05))
+            .frame(width: 1, height: 26)
+    }
+
+    private func formatProjection(_ v: Double) -> String {
+        // Below $1 -> show 4 decimals so daily on small balances doesn't
+        // collapse to $0.00. Above $1 -> 2 decimals.
+        let fmt = NumberFormatter()
+        fmt.numberStyle = .currency
+        fmt.currencyCode = "USD"
+        if v < 1.0 {
+            fmt.minimumFractionDigits = 4
+            fmt.maximumFractionDigits = 4
+        } else {
+            fmt.minimumFractionDigits = 2
+            fmt.maximumFractionDigits = 2
+        }
+        return fmt.string(from: NSNumber(value: v)) ?? "$0.00"
     }
 
     private var supplyLabel: String {
