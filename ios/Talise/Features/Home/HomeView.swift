@@ -73,16 +73,33 @@ struct HomeView: View {
                     .font(TaliseFont.body(16, weight: .light))
                     .kerning(-0.64)
                     .foregroundStyle(TaliseColor.fg)
-                Text(currency(balance?.totalUsd ?? 0))
+
+                // USDsui is the primary unit. We render it as `$X.XX`
+                // since it's pegged 1:1 to USD on chain. SUI balance
+                // gets its own sub-line so the user still sees gas
+                // headroom without a "total USD" rollup that can drift
+                // with SUI price.
+                Text(usdsuiFormatted)
                     .font(TaliseFont.display(28, weight: .medium))
                     .kerning(-1)
                     .foregroundStyle(TaliseColor.fg)
                     .contentTransition(.numericText())
-                Text(String(format: "Earn up to %.0f%%", apyHeadline * 100))
-                    .font(TaliseFont.mono(10, weight: .light))
-                    .kerning(-0.4)
-                    .foregroundStyle(TaliseColor.accent)
-                    .padding(.top, 2)
+                    .redacted(reason: loadingBalance ? .placeholder : [])
+
+                HStack(spacing: 8) {
+                    Text(suiLine)
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .kerning(-0.4)
+                        .foregroundStyle(TaliseColor.fgMuted)
+                    Text("·")
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                    Text(String(format: "Earn up to %.0f%%", apyHeadline * 100))
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .kerning(-0.4)
+                        .foregroundStyle(TaliseColor.accent)
+                }
+                .padding(.top, 2)
             }
             Spacer()
             HStack(spacing: 8) {
@@ -97,6 +114,23 @@ struct HomeView: View {
             }
             .padding(.bottom, 6)
         }
+    }
+
+    /// Primary balance figure — USDsui (1:1 USD). Pulled from the
+    /// /api/balances aggregate which itself calls
+    /// `sui_getBalance({ owner, coinType: USDC_TYPE })` server-side, so
+    /// this is the real on-chain balance of the user's wallet.
+    private var usdsuiFormatted: String {
+        TaliseFormat.usd2(balance?.usdsui ?? 0)
+    }
+
+    /// Secondary line showing SUI balance for gas awareness. Hidden
+    /// when zero so the headline isn't cluttered.
+    private var suiLine: String {
+        let sui = balance?.sui ?? 0
+        if sui < 0.0001 { return "0 SUI" }
+        if sui < 1 { return String(format: "%.4f SUI", sui) }
+        return String(format: "%.2f SUI", sui)
     }
 
     private func actionButton(
