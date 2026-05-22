@@ -49,7 +49,7 @@ struct SendView: View {
                 header
 
                 fieldBlock(title: "To") {
-                    TextField("name.talise or 0x…", text: $recipient)
+                    TextField("alice or alice@talise", text: $recipient)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .font(TaliseFont.body(16, weight: .regular))
@@ -60,6 +60,12 @@ struct SendView: View {
                         }
                     resolveStatus
                 }
+                MicroLabel(
+                    text: "Type a Talise handle (alice), full subname (alice.talise.sui), or 0x address.",
+                    color: TaliseColor.fgDim
+                )
+                .kerning(0.5)
+                .padding(.horizontal, 4)
 
                 fieldBlock(title: "Amount") {
                     HStack(alignment: .firstTextBaseline) {
@@ -118,22 +124,63 @@ struct SendView: View {
             if resolving {
                 MicroLabel(text: "Resolving…", color: TaliseColor.fgDim)
             } else if let resolved {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(TaliseColor.accent)
-                    Text(resolved.displayString)
-                        .font(TaliseFont.mono(11, weight: .light))
-                        .foregroundStyle(TaliseColor.accent)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                resolvedRow(resolved)
             } else if recipient.count >= 3 {
-                MicroLabel(text: "Not found", color: TaliseColor.danger)
+                notFoundRow
             } else {
                 Color.clear.frame(height: 14)
             }
         }
+    }
+
+    private func resolvedRow(_ r: RecipientResolution) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(TaliseColor.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                if let displayName = r.displayName, !displayName.isEmpty,
+                   displayName != r.address {
+                    Text(displayName)
+                        .font(TaliseFont.mono(11, weight: .light))
+                        .foregroundStyle(TaliseColor.accent)
+                        .lineLimit(1)
+                }
+                Text(short(r.address))
+                    .font(TaliseFont.mono(10, weight: .light))
+                    .foregroundStyle(TaliseColor.fgDim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+    }
+
+    private var notFoundRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.circle")
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(TaliseColor.danger)
+            Text(notFoundHint)
+                .font(TaliseFont.mono(11, weight: .light))
+                .foregroundStyle(TaliseColor.danger)
+                .lineLimit(2)
+        }
+    }
+
+    private var notFoundHint: String {
+        let q = recipient.trimmingCharacters(in: .whitespaces)
+        if q.hasPrefix("0x") {
+            return "Not a valid Sui address — should be 0x + 64 hex chars."
+        }
+        return "No Talise handle \"\(stripParent(q)).talise.sui\" on chain yet."
+    }
+
+    private func stripParent(_ s: String) -> String {
+        var out = s.lowercased()
+        if out.hasPrefix("@") { out.removeFirst() }
+        if out.hasSuffix("@talise") { out = String(out.dropLast(7)) }
+        if out.hasSuffix(".talise.sui") { out = String(out.dropLast(11)) }
+        return out
     }
 
     private var assetPicker: some View {

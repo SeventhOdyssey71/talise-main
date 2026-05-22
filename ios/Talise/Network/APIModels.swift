@@ -18,6 +18,29 @@ struct UserDTO: Codable, Hashable {
     let accountType: AccountType?
     let businessName: String?
     let businessHandle: String?
+    /// Bare on-chain SuiNS subname, e.g. "alice" (no parent suffix).
+    /// Nil until the user mints one via /api/username/claim.
+    let taliseHandle: String?
+    /// SuiNS canonical, e.g. "alice.talise.sui". Convenience companion
+    /// to taliseHandle so views don't need to recompose the string.
+    let taliseSubname: String?
+
+    /// Display string for Home / Receive cards. Prefers the real on-chain
+    /// handle, then the business handle, then a derived `name@talise`
+    /// placeholder.
+    func displayHandle() -> String {
+        if let h = taliseHandle, !h.isEmpty { return "\(h)@talise" }
+        if let h = businessHandle, !h.isEmpty { return "\(h)@talise" }
+        let base = (name ?? email)
+            .split(separator: "@").first ?? Substring("")
+        let first = String(base).split(separator: " ").first.map(String.init) ?? "you"
+        return "\(first.lowercased())@talise"
+    }
+
+    /// True once the user actually owns a `*.talise.sui` subname NFT.
+    var hasTaliseSubname: Bool {
+        (taliseHandle?.isEmpty == false)
+    }
 }
 
 struct EpochDTO: Codable {
