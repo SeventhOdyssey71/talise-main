@@ -14,11 +14,7 @@ struct ReceiveView: View {
 
     private var handleLine: String {
         guard case .ready(let user) = session.phase else { return "you@talise" }
-        if let h = user.businessHandle, !h.isEmpty { return "\(h)@talise" }
-        let base = (user.name ?? user.email)
-            .split(separator: "@").first ?? Substring("")
-        let first = String(base).split(separator: " ").first.map(String.init) ?? "you"
-        return "\(first.lowercased())@talise"
+        return user.displayHandle()
     }
 
     var body: some View {

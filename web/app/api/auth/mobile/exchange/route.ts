@@ -140,6 +140,14 @@ export async function POST(req: Request) {
     salt,
   });
 
+  // Returning users may already own a *.talise.sui subname — surface it
+  // immediately so HomeView shows the canonical handle without an extra
+  // round trip. First-time signers will get `null` here; KYCView mints
+  // one and a subsequent /api/me refreshes the value.
+  const { findTaliseSubnameForOwner } = await import("@/lib/suins-lookup");
+  const subname = await findTaliseSubnameForOwner(user.sui_address)
+    .catch(() => null);
+
   return NextResponse.json({
     user: {
       id: String(user.id),
@@ -151,6 +159,8 @@ export async function POST(req: Request) {
       accountType: user.account_type,
       businessName: user.business_name,
       businessHandle: user.business_handle,
+      taliseHandle: subname?.username ?? null,
+      taliseSubname: subname?.fullName ?? null,
     },
     bearer,
     proof,
