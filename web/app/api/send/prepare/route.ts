@@ -4,6 +4,7 @@ import { userById } from "@/lib/db";
 import { Transaction } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { sui, COIN_TYPES, USDSUI_DECIMALS } from "@/lib/sui";
+import { USDSUI_TYPE } from "@/lib/usdsui";
 
 export const runtime = "nodejs";
 
@@ -108,11 +109,15 @@ export async function POST(req: Request) {
       const [out] = tx.splitCoins(tx.object(primary.coinObjectId), [onchain]);
       tx.transferObjects([out], to);
     } else {
-      // USDsui — same pattern, but the coin type is USDC and we don't
-      // touch tx.gas at all.
+      // USDsui — coin type is the Talise-branded USDsui Move type
+      // (0x44f838…::usdsui::USDSUI), NOT native Circle USDC. They are
+      // separate coins with separate balances. Previous code used
+      // COIN_TYPES.USDC which always returned empty for users holding
+      // USDsui — the "no USDsui available to send" 400 was a bug, not
+      // a real empty wallet.
       const coins = await sui().getCoins({
         owner: user.sui_address,
-        coinType: COIN_TYPES.USDC,
+        coinType: USDSUI_TYPE,
       });
       if (coins.data.length === 0) {
         return NextResponse.json(
