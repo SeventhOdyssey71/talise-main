@@ -49,7 +49,7 @@ struct SendView: View {
                 header
 
                 fieldBlock(title: "To") {
-                    TextField("alice or alice@talise", text: $recipient)
+                    TextField("alice or alice@talise.sui", text: $recipient)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .font(TaliseFont.body(16, weight: .regular))
@@ -61,7 +61,7 @@ struct SendView: View {
                     resolveStatus
                 }
                 MicroLabel(
-                    text: "Type a Talise handle (alice), full subname (alice.talise.sui), or 0x address.",
+                    text: "Type a Talise handle (alice), full name (alice@talise.sui), or 0x address.",
                     color: TaliseColor.fgDim
                 )
                 .kerning(0.5)
@@ -172,14 +172,18 @@ struct SendView: View {
         if q.hasPrefix("0x") {
             return "Not a valid Sui address — should be 0x + 64 hex chars."
         }
-        return "No Talise handle \"\(stripParent(q)).talise.sui\" on chain yet."
+        return "No Talise handle \"\(stripParent(q))@talise.sui\" on chain yet."
     }
 
+    /// Trims any of the user-input wrappers — `@`, `@talise`, `@talise.sui`,
+    /// `.talise.sui` — so we can reformat to the canonical Talise display
+    /// form. Mirrors normalizeHandle in web/lib/handle.ts.
     private func stripParent(_ s: String) -> String {
         var out = s.lowercased()
         if out.hasPrefix("@") { out.removeFirst() }
-        if out.hasSuffix("@talise") { out = String(out.dropLast(7)) }
-        if out.hasSuffix(".talise.sui") { out = String(out.dropLast(11)) }
+        if out.hasSuffix("@talise.sui") { out = String(out.dropLast(11)) }
+        else if out.hasSuffix("@talise") { out = String(out.dropLast(7)) }
+        else if out.hasSuffix(".talise.sui") { out = String(out.dropLast(11)) }
         return out
     }
 
