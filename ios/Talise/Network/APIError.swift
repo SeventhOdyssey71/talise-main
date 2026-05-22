@@ -42,10 +42,22 @@ enum APIError: Error, LocalizedError {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         // Anything starting with markup is almost certainly a 404 page.
         if trimmed.hasPrefix("<") { return nil }
-        // Limit length so a verbose server error doesn't wrap the whole UI.
-        if trimmed.count > 140 {
-            return String(trimmed.prefix(137)) + "…"
+        // Extract `error` field from `{"error": "…"}` so the UI shows a
+        // clean sentence instead of raw JSON. Falls through to the
+        // verbatim path on parse failure.
+        if trimmed.hasPrefix("{"),
+           let data = trimmed.data(using: .utf8),
+           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let inner = (parsed["error"] as? String) ?? (parsed["message"] as? String),
+           !inner.isEmpty {
+            return clip(inner)
         }
-        return trimmed.isEmpty ? nil : trimmed
+        return clip(trimmed)
+    }
+
+    private static func clip(_ s: String) -> String? {
+        if s.isEmpty { return nil }
+        if s.count > 140 { return String(s.prefix(137)) + "…" }
+        return s
     }
 }
