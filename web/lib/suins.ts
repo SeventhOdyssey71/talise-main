@@ -66,15 +66,12 @@ function candidateSuinsNames(raw: string): string[] {
   if (!s) return [];
   if (s.startsWith("@")) s = s.slice(1);
 
-  // Already-canonical SuiNS forms — look up exactly as typed.
-  if (s.endsWith(".talise.sui")) {
-    return validateSui(s) ? [s] : [];
-  }
-  if (s.endsWith(".sui")) {
-    return validateSui(s) ? [s] : [];
-  }
-
-  // Talise display forms.
+  // IMPORTANT — Talise display forms (which contain `@`) must be
+  // matched BEFORE the generic `.sui` suffix branch. Otherwise a
+  // string like "alice@talise.sui" matches `.endsWith(".sui")` first
+  // and gets rejected by validateSui (because the "alice@talise"
+  // label contains `@`), returning [] and short-circuiting the rest
+  // of the candidate logic.
   if (s.endsWith("@talise.sui")) {
     const bare = s.slice(0, -"@talise.sui".length);
     return USERNAME_RE.test(bare) ? [`${bare}.talise.sui`] : [];
@@ -82,6 +79,14 @@ function candidateSuinsNames(raw: string): string[] {
   if (s.endsWith("@talise")) {
     const bare = s.slice(0, -"@talise".length);
     return USERNAME_RE.test(bare) ? [`${bare}.talise.sui`] : [];
+  }
+
+  // Already-canonical SuiNS forms.
+  if (s.endsWith(".talise.sui")) {
+    return validateSui(s) ? [s] : [];
+  }
+  if (s.endsWith(".sui")) {
+    return validateSui(s) ? [s] : [];
   }
 
   // Bare username — try Talise sub (our users), then root SuiNS
