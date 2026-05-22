@@ -127,10 +127,19 @@ export async function findAllTaliseSubnamesForOwner(
 export async function findTaliseSubnameForOwner(
   owner: string
 ): Promise<OwnedSubname | null> {
+  // We do TWO passes: first collect every `*.talise.sui` SubDomain NFT
+  // the user owns, then verify each via SuinsClient.getNameRecord and
+  // only surface one whose targetAddress is set.
+  //
+  // Why: early mints (and any mint where `setTargetAddress` failed) leave
+  // a SubDomainRegistration NFT in the wallet with a null SuiNS target.
+  // The previous version returned the *first owned* NFT regardless of
+  // whether the name actually resolved on chain — which made Home show
+  // "alice@talise.sui" but Send return "couldn't find" for the same
+  // name. We refuse to surface broken handles so Home shows the
+  // "Claim your name" CTA and the user can re-claim cleanly.
+  const owned: OwnedSubname[] = [];
   try {
-    // Page through owned objects. 50 per page is usually enough for one
-    // wallet; if a power user holds more we'd add pagination, but the very
-    // first matching subname wins, so an early break keeps it cheap.
     let cursor: string | null = null;
     for (let page = 0; page < 4; page++) {
       const r: {
@@ -168,19 +177,44 @@ export async function findTaliseSubnameForOwner(
         if (!/subdomain_registration::SubDomainRegistration/.test(t)) continue;
         const name = o.data?.display?.data?.name ?? "";
         if (!name.endsWith(PARENT_SUFFIX)) continue;
-        const username = name.slice(0, -PARENT_SUFFIX.length);
-        return {
-          username,
+        owned.push({
+          username: name.slice(0, -PARENT_SUFFIX.length),
           fullName: name,
           nftId: o.data?.objectId ?? "",
-        };
+        });
       }
 
       if (!r.hasNextPage || !r.nextCursor) break;
       cursor = r.nextCursor;
     }
-    return null;
   } catch {
     return null;
   }
+
+  if (owned.length === 0) return null;
+
+  // Pass 2: verify each name actually resolves on chain. The first one
+  // whose SuiNS NameRecord has a non-null targetAddress wins. If every
+  // owned NFT has a null target (early mints, partial mints), we return
+  // null so the UI prompts the user to claim a new one rather than
+  // surfacing a name Send can't resolve.
+  try {
+    const { SuinsClient } = await import("@mysten/suins");
+    const suins = new SuinsClient({
+      client: client() as never,
+      network: "mainnet",
+    });
+    for (const cand of owned) {
+      try {
+        const rec = await suins.getNameRecord(cand.fullName);
+        if (rec?.targetAddress) return cand;
+      } catch {
+        // "Object does not exist" / RPC hiccup — keep trying others.
+      }
+    }
+  } catch {
+    // SuinsClient init failed (rare) — be conservative and report none
+    // rather than risk surfacing a non-resolvable handle.
+  }
+  return null;
 }
