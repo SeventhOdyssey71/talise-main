@@ -1,19 +1,32 @@
 import SwiftUI
 
+/// Dark-mode palette. Sourced directly from Figma node 42-1819
+/// (Home design). The web product is still light mode — when we add a
+/// shared design system across both platforms we'll thread these through
+/// `@Environment(\.colorScheme)`; for now iOS is dark by spec.
 enum TaliseColor {
-    static let bg = Color(hex: 0xFFFFFF)
-    static let surface = Color(hex: 0xFFFFFF)
-    static let surface2 = Color(hex: 0xF5F5F5)
-    static let fg = Color(hex: 0x0A0A0A)
-    static let fgMuted = Color(hex: 0x525252)
-    static let fgDim = Color(hex: 0xA3A3A3)
-    static let line = Color(hex: 0xE5E5E5)
-    static let accent = Color(hex: 0x0A0A0A)
+    static let bg = Color(hex: 0x000000)                          // page background
+    static let surface = Color(hex: 0x252525)                     // activity card
+    static let surface2 = Color(hex: 0x3E3E3E)                    // small action buttons (+/send)
+    static let surfaceGlass = Color.white.opacity(0.08)           // username card + nav pill
+    static let surfaceGlassStrong = Color.white.opacity(0.14)     // active nav pill
+    static let usernameCard = Color(hex: 0x504F4F).opacity(0.2)   // username card fill (matches Figma rgba(80,79,79,0.2))
+    static let fg = Color(hex: 0xFFFFFF)                          // primary text
+    static let fgSubtle = Color(hex: 0xFAFAFA)                    // jude@talise text
+    static let fgMuted = Color(hex: 0xB5B5B5)
+    static let fgDim = Color(hex: 0x636363)
+    static let line = Color.white.opacity(0.08)
+    static let accent = Color(hex: 0x79D96C)                      // "Earn up to 11%" green
     static let accentSoft = Color(hex: 0x2A2A2A)
-    static let live = Color(hex: 0x404040)
-    static let success = Color(hex: 0x21A179)
+    static let live = Color(hex: 0x79D96C)
+    static let success = Color(hex: 0x79D96C)
     static let warmGold = Color(hex: 0xC08A3E)
     static let danger = Color(hex: 0xA05A3E)
+
+    // Activity row badge backgrounds (extracted from the Figma Ellipse fills).
+    static let badgeSent = Color(hex: 0x6C3A38).opacity(0.5)      // muted red
+    static let badgeReceived = Color(hex: 0x355F40).opacity(0.5)  // muted green
+    static let badgeNeutral = Color(hex: 0x4A4A4A).opacity(0.6)   // claim/invest
 }
 
 enum TaliseSpacing {
@@ -27,10 +40,11 @@ enum TaliseSpacing {
 }
 
 enum TaliseRadius {
-    static let sm: CGFloat = 8
-    static let md: CGFloat = 12
-    static let lg: CGFloat = 16
-    static let xl: CGFloat = 20
+    static let sm: CGFloat = 10
+    static let md: CGFloat = 14
+    static let lg: CGFloat = 20
+    static let xl: CGFloat = 25      // Figma uses 25 for big cards (activity + username)
+    static let pill: CGFloat = 40    // bottom nav + active pill
 }
 
 enum TaliseHeight {
