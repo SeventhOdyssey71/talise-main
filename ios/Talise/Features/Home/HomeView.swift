@@ -10,6 +10,7 @@ struct HomeView: View {
     @State private var loadingBalance = true
     @State private var loadingActivity = true
     @State private var contactsSheetVisible = false
+    @State private var claimSheetVisible = false
     private let apyHeadline: Double = 0.11
 
     var body: some View {
@@ -136,11 +137,18 @@ struct HomeView: View {
                 .padding(.trailing, 26)
                 .frame(maxWidth: .infinity, alignment: .topTrailing)
             VStack(alignment: .leading, spacing: 0) {
-                Text(handleLine)
-                    .font(TaliseFont.heading(20, weight: .medium))
-                    .kerning(-0.8)
-                    .foregroundStyle(TaliseColor.fgSubtle)
-                    .padding(.top, 27)
+                if let handle = currentHandle {
+                    Text(handle)
+                        .font(TaliseFont.heading(20, weight: .medium))
+                        .kerning(-0.8)
+                        .foregroundStyle(TaliseColor.fgSubtle)
+                        .padding(.top, 27)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else {
+                    claimCTA
+                        .padding(.top, 24)
+                }
                 Spacer(minLength: 0)
                 HStack {
                     MicroLabel(text: "$0.00 FEE")
@@ -154,10 +162,45 @@ struct HomeView: View {
             .padding(.horizontal, 32)
             .frame(height: 212)
         }
+        .sheet(isPresented: $claimSheetVisible) {
+            ClaimHandleSheet()
+                .presentationDetents([.medium, .large])
+                .presentationBackground(TaliseColor.bg)
+        }
     }
 
-    private var handleLine: String {
-        guard case .ready(let user) = session.phase else { return "you@talise" }
+    /// CTA shown on the username card when the user hasn't minted a
+    /// `*.talise.sui` subname yet. Tap → ClaimHandleSheet.
+    private var claimCTA: some View {
+        Button {
+            claimSheetVisible = true
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Claim your name")
+                    .font(TaliseFont.heading(20, weight: .medium))
+                    .kerning(-0.8)
+                    .foregroundStyle(TaliseColor.fgSubtle)
+                HStack(spacing: 6) {
+                    Text("So friends can send you USDsui by name.")
+                        .font(TaliseFont.body(12, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .lineLimit(2)
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(TaliseColor.accent)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Real on-chain handle if minted, the short address as a fallback
+    /// when on Home we still want to identify the wallet. Returning nil
+    /// triggers the Claim CTA.
+    private var currentHandle: String? {
+        guard case .ready(let user) = session.phase else { return nil }
         return user.displayHandle()
     }
 

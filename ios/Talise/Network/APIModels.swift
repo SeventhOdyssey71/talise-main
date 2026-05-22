@@ -25,22 +25,47 @@ struct UserDTO: Codable, Hashable {
     /// to taliseHandle so views don't need to recompose the string.
     let taliseSubname: String?
 
-    /// Display string for Home / Receive cards. Prefers the real on-chain
-    /// handle, then the business handle, then a derived `name@talise`
-    /// placeholder.
-    func displayHandle() -> String {
-        if let h = taliseHandle, !h.isEmpty { return "\(h)@talise" }
-        if let h = businessHandle, !h.isEmpty { return "\(h)@talise" }
-        let base = (name ?? email)
-            .split(separator: "@").first ?? Substring("")
-        let first = String(base).split(separator: " ").first.map(String.init) ?? "you"
-        return "\(first.lowercased())@talise"
+    /// Canonical display ONLY when the user actually owns the subname
+    /// on chain. Returns nil if no SuiNS handle is claimed yet —
+    /// callers should branch on this (e.g. show a "Claim your name"
+    /// CTA) rather than fabricating a placeholder that doesn't exist.
+    func displayHandle() -> String? {
+        if let h = taliseHandle, !h.isEmpty { return "\(h)@talise.sui" }
+        if let h = businessHandle, !h.isEmpty { return "\(h)@talise.sui" }
+        return nil
+    }
+
+    /// Suggestion used to seed the claim sheet — derived from Google
+    /// name (then email local-part). Never shown standalone as if it
+    /// were the user's real handle.
+    func suggestedHandle() -> String {
+        let source: String = {
+            if let name, !name.isEmpty,
+               let first = name.split(separator: " ").first {
+                return String(first)
+            }
+            if let local = email.split(separator: "@").first {
+                return String(local)
+            }
+            return "you"
+        }()
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789_")
+        let normalized = source.lowercased().unicodeScalars
+            .filter { allowed.contains($0) }
+            .map(String.init).joined()
+        return String(normalized.prefix(20))
     }
 
     /// True once the user actually owns a `*.talise.sui` subname NFT.
     var hasTaliseSubname: Bool {
         (taliseHandle?.isEmpty == false)
     }
+}
+
+/// Response shape for /api/username/check?u=<input>.
+struct UsernameCheckResponse: Codable {
+    let available: Bool
+    let reason: String?
 }
 
 struct EpochDTO: Codable {

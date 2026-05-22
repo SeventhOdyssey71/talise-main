@@ -12,6 +12,7 @@ struct ProfileView: View {
     @State private var savingNotify = false
     @State private var settingsError: String?
     @State private var signOutConfirm = false
+    @State private var claimSheetVisible = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -29,6 +30,11 @@ struct ProfileView: View {
             .padding(.top, 24)
         }
         .taliseScreenBackground()
+        .sheet(isPresented: $claimSheetVisible) {
+            ClaimHandleSheet()
+                .presentationDetents([.medium, .large])
+                .presentationBackground(TaliseColor.bg)
+        }
         .alert("Sign out?", isPresented: $signOutConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Sign out", role: .destructive) { session.signOut() }
@@ -56,10 +62,28 @@ struct ProfileView: View {
             HStack(spacing: 14) {
                 avatar
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(displayHandle)
-                        .font(TaliseFont.heading(18, weight: .medium))
-                        .kerning(-0.6)
-                        .foregroundStyle(TaliseColor.fg)
+                    if let handle = currentUser?.displayHandle() {
+                        Text(handle)
+                            .font(TaliseFont.heading(17, weight: .medium))
+                            .kerning(-0.6)
+                            .foregroundStyle(TaliseColor.fg)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } else {
+                        Button {
+                            claimSheetVisible = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("Claim your name")
+                                    .font(TaliseFont.heading(15, weight: .medium))
+                                    .foregroundStyle(TaliseColor.accent)
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(TaliseColor.accent)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
                     if let user = currentUser {
                         Text(user.email)
                             .font(TaliseFont.body(12, weight: .light))
@@ -284,13 +308,23 @@ struct ProfileView: View {
         return nil
     }
 
-    private var displayHandle: String {
-        currentUser?.displayHandle() ?? "you@talise"
-    }
-
+    /// First-letter initials for the avatar circle. Prefers a real
+    /// claimed handle, falls back to the user's display name, then to
+    /// the first character of the email local-part.
     private var initials: String {
-        let h = displayHandle
-        return String(h.first.map(String.init) ?? "·").uppercased()
+        if let handle = currentUser?.taliseHandle, let c = handle.first {
+            return String(c).uppercased()
+        }
+        if let n = currentUser?.name?
+            .trimmingCharacters(in: .whitespaces)
+            .split(separator: " ").first?.first {
+            return String(n).uppercased()
+        }
+        if let local = currentUser?.email
+            .split(separator: "@").first?.first {
+            return String(local).uppercased()
+        }
+        return "·"
     }
 
     private func saveNotify(_ on: Bool) async {

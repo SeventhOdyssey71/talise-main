@@ -12,9 +12,13 @@ struct ReceiveView: View {
         return ""
     }
 
+    /// Receive card title. Prefers the on-chain handle; if the user
+    /// hasn't claimed one yet we show the canonical short address so
+    /// the QR card still identifies the wallet (the QR encodes the
+    /// full address regardless).
     private var handleLine: String {
-        guard case .ready(let user) = session.phase else { return "you@talise" }
-        return user.displayHandle()
+        guard case .ready(let user) = session.phase else { return "your wallet" }
+        return user.displayHandle() ?? short(user.suiAddress)
     }
 
     var body: some View {
