@@ -66,7 +66,7 @@ struct SendView: View {
                     resolveStatus
                 }
                 MicroLabel(
-                    text: "Type a handle like alice, the full name alice@talise.sui, or a 0x address.",
+                    text: "Type a Talise handle (alice), a SuiNS name (alice.sui, alice@talise.sui), or a 0x address.",
                     color: TaliseColor.fgDim
                 )
                 .kerning(0.5)
@@ -173,22 +173,33 @@ struct SendView: View {
     }
 
     private var notFoundHint: String {
-        let q = recipient.trimmingCharacters(in: .whitespaces)
+        let q = recipient.trimmingCharacters(in: .whitespaces).lowercased()
         if q.hasPrefix("0x") {
             return "Not a valid Sui address — should be 0x + 64 hex chars."
         }
-        return "No Talise handle \"\(stripParent(q))@talise.sui\" on chain yet."
+        if q.hasSuffix(".sui") {
+            return "No SuiNS record for \"\(q)\" on chain yet."
+        }
+        let bare = stripParent(q)
+        if bare.isEmpty {
+            return "Use a Talise handle, full SuiNS name, or 0x address."
+        }
+        // We try the Talise sub then the root SuiNS, so the message
+        // names both candidates that just failed.
+        return "Couldn't find \(bare)@talise.sui or \(bare).sui on chain yet."
     }
 
     /// Trims any of the user-input wrappers — `@`, `@talise`, `@talise.sui`,
-    /// `.talise.sui` — so we can reformat to the canonical Talise display
-    /// form. Mirrors normalizeHandle in web/lib/handle.ts.
+    /// `.talise.sui`, bare `.sui` — to recover the base label. Mirrors the
+    /// candidateSuinsNames logic in web/lib/suins.ts so error messages
+    /// align with what the server actually tried.
     private func stripParent(_ s: String) -> String {
         var out = s.lowercased()
         if out.hasPrefix("@") { out.removeFirst() }
         if out.hasSuffix("@talise.sui") { out = String(out.dropLast(11)) }
         else if out.hasSuffix("@talise") { out = String(out.dropLast(7)) }
         else if out.hasSuffix(".talise.sui") { out = String(out.dropLast(11)) }
+        else if out.hasSuffix(".sui") { out = String(out.dropLast(4)) }
         return out
     }
 
