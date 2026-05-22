@@ -51,6 +51,8 @@ private struct LaunchView: View {
 struct MainTabView: View {
     enum Tab: Hashable { case home, invest, rewards }
     @State private var tab: Tab = .home
+    @State private var sendSheetVisible = false
+    @State private var receiveSheetVisible = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -69,7 +71,27 @@ struct MainTabView: View {
                 .padding(.horizontal, 49)
                 .padding(.bottom, 20)
         }
+        .sheet(isPresented: $sendSheetVisible) {
+            SendView(onDone: { sendSheetVisible = false })
+                .presentationDetents([.large])
+                .presentationBackground(TaliseColor.bg)
+        }
+        .sheet(isPresented: $receiveSheetVisible) {
+            ReceiveView()
+                .presentationDetents([.medium, .large])
+                .presentationBackground(TaliseColor.bg)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestSendSheet)) { _ in
+            sendSheetVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestReceiveSheet)) { _ in
+            receiveSheetVisible = true
+        }
     }
+}
+
+extension Notification.Name {
+    static let taliseRequestReceiveSheet = Notification.Name("io.talise.requestReceiveSheet")
 }
 
 /// Floating pill nav. Filled with a soft white glass; the active tab gets

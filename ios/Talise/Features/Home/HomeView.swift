@@ -1,13 +1,15 @@
 import SwiftUI
 
-/// Implements Figma node 42-1819 (Home, dark mode). Pixel positions in
-/// the design are based on a 402-pt reference frame; we adapt them to
-/// fluid SwiftUI layout using the same proportions / paddings.
+/// Figma node 42-1819 — Home, dark mode. Real data: balance from
+/// /api/balances, activity from /api/activity. Empty state matches the
+/// Figma "no rows" look (a single muted card).
 struct HomeView: View {
     @Environment(AppSession.self) private var session
-    @State private var balance: Double = 0
-    @State private var apyHeadline: Double = 0.11
-    @State private var activity: [ActivityRow] = ActivityRow.placeholders
+    @State private var balance: BalancesDTO?
+    @State private var activity: [ActivityEntryDTO] = []
+    @State private var loadingBalance = true
+    @State private var loadingActivity = true
+    private let apyHeadline: Double = 0.11
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -29,16 +31,15 @@ struct HomeView: View {
                     Color.clear.frame(height: 120)
                 }
             }
+            .refreshable { await loadAll(force: true) }
         }
-        .task { await load() }
+        .task { await loadAll(force: false) }
     }
 
-    // MARK: - Top bar (logo + people icon)
+    // MARK: - Top bar
 
     private var topBar: some View {
         HStack {
-            // Talise mark — 4 droplets in a windmill. Built inline so we
-            // don't need to bundle an extra asset for this primitive.
             TaliseLogoMark()
                 .frame(width: 24, height: 22)
                 .foregroundStyle(TaliseColor.fg)
@@ -60,10 +61,11 @@ struct HomeView: View {
                     .font(TaliseFont.body(16, weight: .light))
                     .kerning(-0.64)
                     .foregroundStyle(TaliseColor.fg)
-                Text(currency(balance))
+                Text(currency(balance?.totalUsd ?? 0))
                     .font(TaliseFont.display(28, weight: .medium))
                     .kerning(-1)
                     .foregroundStyle(TaliseColor.fg)
+                    .contentTransition(.numericText())
                 Text(String(format: "Earn up to %.0f%%", apyHeadline * 100))
                     .font(TaliseFont.mono(10, weight: .light))
                     .kerning(-0.4)
@@ -73,10 +75,14 @@ struct HomeView: View {
             Spacer()
             HStack(spacing: 8) {
                 actionButton(systemName: "plus") {
-                    // open onramp / add funds
+                    // TODO: open /api/onramp/session in Safari
                 }
                 actionButton(systemName: "paperplane.fill", rotated: -30) {
-                    // navigate to send
+                    // Send is now a sheet — see SendView. Bottom nav has
+                    // 3 tabs so the easiest entry is the paperplane here.
+                    NotificationCenter.default.post(
+                        name: .taliseRequestSendSheet, object: nil
+                    )
                 }
             }
             .padding(.bottom, 6)
@@ -100,7 +106,7 @@ struct HomeView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Username card (jude@talise + Sui drop)
+    // MARK: - Username card
 
     private var usernameCard: some View {
         ZStack(alignment: .topLeading) {
@@ -111,8 +117,6 @@ struct HomeView: View {
                         .stroke(Color.white.opacity(0.05), lineWidth: 1)
                 )
                 .frame(height: 212)
-
-            // Sui drop top-right
             Image("sui-drop")
                 .renderingMode(.template)
                 .resizable()
@@ -122,7 +126,6 @@ struct HomeView: View {
                 .padding(.top, 24)
                 .padding(.trailing, 26)
                 .frame(maxWidth: .infinity, alignment: .topTrailing)
-
             VStack(alignment: .leading, spacing: 0) {
                 Text(handleLine)
                     .font(TaliseFont.heading(20, weight: .medium))
@@ -145,15 +148,12 @@ struct HomeView: View {
     }
 
     private var handleLine: String {
-        if case .ready(let user) = session.phase,
-           let handle = user.businessHandle, !handle.isEmpty {
-            return "\(handle)@talise"
-        }
-        if case .ready(let user) = session.phase {
-            let first = (user.name ?? user.email).split(separator: "@").first?.split(separator: " ").first ?? ""
-            return "\(String(first).lowercased())@talise"
-        }
-        return "you@talise"
+        guard case .ready(let user) = session.phase else { return "you@talise" }
+        if let h = user.businessHandle, !h.isEmpty { return "\(h)@talise" }
+        let base = (user.name ?? user.email)
+            .split(separator: "@").first ?? Substring("")
+        let first = String(base).split(separator: " ").first.map(String.init) ?? "you"
+        return "\(first.lowercased())@talise"
     }
 
     // MARK: - Activity card
@@ -163,35 +163,82 @@ struct HomeView: View {
             .fill(TaliseColor.surface)
             .frame(height: 283)
             .overlay(alignment: .top) {
-                VStack(spacing: 0) {
-                    ForEach(Array(activity.prefix(4).enumerated()), id: \.offset) { _, row in
-                        activityRow(row)
+                if loadingActivity {
+                    activityLoadingState
+                } else if activity.isEmpty {
+                    activityEmptyState
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(activity.prefix(4)) { row in
+                            activityRow(row)
+                        }
                     }
+                    .padding(.top, 18)
+                    .padding(.horizontal, 24)
                 }
-                .padding(.top, 18)
-                .padding(.horizontal, 24)
             }
     }
 
-    private func activityRow(_ row: ActivityRow) -> some View {
-        HStack(spacing: 14) {
+    private var activityLoadingState: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<3, id: \.self) { _ in
+                HStack(spacing: 14) {
+                    Circle().fill(TaliseColor.badgeNeutral).frame(width: 30, height: 30)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Capsule().fill(TaliseColor.line).frame(width: 80, height: 10)
+                        Capsule().fill(TaliseColor.line).frame(width: 50, height: 8)
+                    }
+                    Spacer()
+                    Capsule().fill(TaliseColor.line).frame(width: 60, height: 10)
+                }
+                .frame(height: 56)
+                .redacted(reason: .placeholder)
+                .opacity(0.5)
+            }
+        }
+        .padding(.top, 18)
+        .padding(.horizontal, 24)
+    }
+
+    private var activityEmptyState: some View {
+        VStack(spacing: 6) {
+            Text("Nothing yet")
+                .font(TaliseFont.body(14, weight: .light))
+                .foregroundStyle(TaliseColor.fg)
+            Text("Your sends and receives will land here.")
+                .font(TaliseFont.mono(10, weight: .light))
+                .kerning(-0.32)
+                .foregroundStyle(TaliseColor.fgDim)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func activityRow(_ entry: ActivityEntryDTO) -> some View {
+        let isReceived = entry.isReceived
+        let icon = isReceived ? "arrow.down.left" : "arrow.up.right"
+        let iconColor = isReceived
+            ? Color(hex: 0x79D96C) : Color(hex: 0xE08D8A)
+        let badge = isReceived ? TaliseColor.badgeReceived : TaliseColor.badgeSent
+        let title = isReceived ? "Received" : "Sent"
+        let amount = formatAmount(entry)
+        return HStack(spacing: 14) {
             ZStack {
-                Circle().fill(row.badgeColor).frame(width: 30, height: 30)
-                Image(systemName: row.icon)
+                Circle().fill(badge).frame(width: 30, height: 30)
+                Image(systemName: icon)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(row.iconColor)
+                    .foregroundStyle(iconColor)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(row.title)
+                Text(title)
                     .font(TaliseFont.body(12, weight: .light))
                     .kerning(-0.48)
                     .foregroundStyle(TaliseColor.fg)
-                MicroLabel(text: row.subtitle)
+                MicroLabel(text: relativeTime(entry.timestampMs))
                     .kerning(-0.32)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text(row.amount)
+                Text(amount)
                     .font(TaliseFont.body(14, weight: .light))
                     .kerning(-0.56)
                     .foregroundStyle(TaliseColor.fg)
@@ -207,14 +254,54 @@ struct HomeView: View {
         .frame(height: 56)
     }
 
+    private func formatAmount(_ e: ActivityEntryDTO) -> String {
+        if let usd = e.amountUsdsui {
+            let abs = Swift.abs(usd)
+            let prefix = e.isReceived ? "+" : "-"
+            return prefix + currency(abs)
+        }
+        if let sui = e.amountSui {
+            let abs = Swift.abs(sui)
+            let prefix = e.isReceived ? "+" : "-"
+            return String(format: "\(prefix)%.4f SUI", abs)
+        }
+        return e.isReceived ? "+—" : "-—"
+    }
+
+    private func relativeTime(_ ms: Double) -> String {
+        let date = Date(timeIntervalSince1970: ms / 1000)
+        let fmt = RelativeDateTimeFormatter()
+        fmt.unitsStyle = .abbreviated
+        return fmt.localizedString(for: date, relativeTo: Date())
+    }
+
     // MARK: - Data
 
-    private func load() async {
-        if case .ready(let user) = session.phase {
-            _ = user
-            // TODO: GET /api/balances (aggregate) once that endpoint exists.
-            // The Figma displays a non-zero default; on first sign-in we
-            // show the real $0.00.
+    private func loadAll(force: Bool) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await loadBalance() }
+            group.addTask { await loadActivity() }
+        }
+    }
+
+    private func loadBalance() async {
+        loadingBalance = true
+        defer { loadingBalance = false }
+        do {
+            balance = try await APIClient.shared.get("/api/balances")
+        } catch {
+            balance = nil
+        }
+    }
+
+    private func loadActivity() async {
+        loadingActivity = true
+        defer { loadingActivity = false }
+        do {
+            let r: ActivityResponse = try await APIClient.shared.get("/api/activity?limit=20")
+            activity = r.entries
+        } catch {
+            activity = []
         }
     }
 
@@ -227,53 +314,11 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Activity row model
-
-private struct ActivityRow {
-    let icon: String
-    let iconColor: Color
-    let badgeColor: Color
-    let title: String
-    let subtitle: String
-    let amount: String
-
-    static let placeholders: [ActivityRow] = [
-        .init(
-            icon: "arrow.up.right",
-            iconColor: Color(hex: 0xE08D8A),
-            badgeColor: TaliseColor.badgeSent,
-            title: "Sent",
-            subtitle: "2h ago",
-            amount: "-$320.00"
-        ),
-        .init(
-            icon: "arrow.down.left",
-            iconColor: Color(hex: 0x79D96C),
-            badgeColor: TaliseColor.badgeReceived,
-            title: "Received",
-            subtitle: "4h ago",
-            amount: "+$5000.00"
-        ),
-        .init(
-            icon: "gift.fill",
-            iconColor: TaliseColor.fg,
-            badgeColor: TaliseColor.badgeNeutral,
-            title: "Claim Reward",
-            subtitle: "7h ago",
-            amount: "+$2.50"
-        ),
-        .init(
-            icon: "leaf.fill",
-            iconColor: TaliseColor.fg,
-            badgeColor: TaliseColor.badgeNeutral,
-            title: "Invest",
-            subtitle: "2h ago",
-            amount: "$100.00"
-        ),
-    ]
+extension Notification.Name {
+    /// Posted by HomeView when the paperplane action is tapped. MainTabView
+    /// observes this and presents the Send sheet over the active tab.
+    static let taliseRequestSendSheet = Notification.Name("io.talise.requestSendSheet")
 }
-
-// MARK: - Talise logo mark (four droplets in a windmill)
 
 private struct TaliseLogoMark: View {
     var body: some View {
@@ -281,7 +326,6 @@ private struct TaliseLogoMark: View {
             let cx = size.width / 2
             let cy = size.height / 2
             let r: CGFloat = size.width * 0.22
-            // Four small ovals around the center, rotated 0/90/180/270.
             for i in 0..<4 {
                 let angle = CGFloat(i) * .pi / 2
                 var transform = CGAffineTransform(translationX: cx, y: cy)

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readSessionEntryId } from "@/lib/session";
+import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { resolveRecipient } from "@/lib/suins";
 
 export const runtime = "nodejs";
@@ -12,7 +12,7 @@ export const runtime = "nodejs";
  * don't want to leak the handle table to crawlers.
  */
 export async function GET(req: Request) {
-  const userId = await readSessionEntryId();
+  const userId = await readEntryIdFromRequest(req);
   if (!userId)
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
 

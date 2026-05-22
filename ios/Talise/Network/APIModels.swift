@@ -37,8 +37,54 @@ struct ZkProofResponse: Codable {
 
 struct RecipientResolution: Codable {
     let address: String
-    let display: String
-    let source: String
+    /// Web endpoint returns `displayName`; some callers may use `display`.
+    let displayName: String?
+    let display: String?
+    let source: String?
+
+    var displayString: String {
+        displayName ?? display ?? address
+    }
+}
+
+struct BalancesDTO: Codable {
+    let address: String
+    let usdsui: Double
+    let sui: Double
+    let suiPriceUsd: Double
+    let totalUsd: Double
+}
+
+struct ActivityEntryDTO: Codable, Identifiable {
+    let digest: String
+    let timestampMs: Double
+    let direction: String   // "sent" | "received"
+    let amountUsdsui: Double?
+    let amountSui: Double?
+    let counterparty: String?
+    let counterpartyName: String?
+
+    var id: String { digest }
+    var isReceived: Bool { direction == "received" }
+}
+
+struct ActivityResponse: Codable {
+    let entries: [ActivityEntryDTO]
+}
+
+struct SendBuildRequest: Codable {
+    let to: String
+    let amount: Double
+    let asset: String
+}
+
+struct BuildKindResponse: Codable {
+    let transactionKindB64: String
+}
+
+struct SupplyBuildRequest: Codable {
+    let venue: String
+    let amount: Double
 }
 
 struct YieldVenue: Codable, Identifiable {
