@@ -43,8 +43,14 @@ final class APIClient {
         method: String,
         body: Data?
     ) async throws -> T {
-        var url = URL(string: AppConfig.shared.apiBaseURL)!
-        url.append(path: path)
+        // URL.append(path:) treats the entire input as a path SEGMENT and
+        // percent-encodes every reserved character — including `?`, which
+        // means any caller-supplied query string gets turned into a 404'd
+        // path (`/api/foo%3Fbar=1`). Build via URL(string:) instead so
+        // path + query parse correctly.
+        guard let url = URL(string: AppConfig.shared.apiBaseURL + path) else {
+            throw APIError.invalidResponse
+        }
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.httpBody = body
