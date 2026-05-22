@@ -53,6 +53,15 @@ struct MainTabView: View {
     @State private var tab: Tab = .home
     @State private var sendSheetVisible = false
     @State private var receiveSheetVisible = false
+    @State private var claimSheetVisible = false
+
+    /// True whenever ANY sheet is being presented over the tab content.
+    /// Drives the blur applied to the underlying tab — the system sheet
+    /// only dims by default; this makes the background read as a true
+    /// glass blur, matching the Figma's depth treatment.
+    private var anySheetUp: Bool {
+        sendSheetVisible || receiveSheetVisible || claimSheetVisible
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -67,10 +76,15 @@ struct MainTabView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .blur(radius: anySheetUp ? 14 : 0)
+            .animation(.easeInOut(duration: 0.22), value: anySheetUp)
+            .allowsHitTesting(!anySheetUp)
 
             BottomNavPill(active: $tab)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 20)
+                .blur(radius: anySheetUp ? 14 : 0)
+                .animation(.easeInOut(duration: 0.22), value: anySheetUp)
         }
         .sheet(isPresented: $sendSheetVisible) {
             SendView(onDone: { sendSheetVisible = false })
@@ -82,17 +96,26 @@ struct MainTabView: View {
                 .presentationDetents([.medium, .large])
                 .presentationBackground(TaliseColor.bg)
         }
+        .sheet(isPresented: $claimSheetVisible) {
+            ClaimHandleSheet()
+                .presentationDetents([.medium, .large])
+                .presentationBackground(TaliseColor.bg)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestSendSheet)) { _ in
             sendSheetVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestReceiveSheet)) { _ in
             receiveSheetVisible = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestClaimSheet)) { _ in
+            claimSheetVisible = true
+        }
     }
 }
 
 extension Notification.Name {
     static let taliseRequestReceiveSheet = Notification.Name("io.talise.requestReceiveSheet")
+    static let taliseRequestClaimSheet = Notification.Name("io.talise.requestClaimSheet")
 }
 
 /// Floating pill nav with the Figma's "Glass" treatment.

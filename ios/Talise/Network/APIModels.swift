@@ -172,6 +172,22 @@ struct UsernameClaimResponse: Codable {
     let error: String?
 }
 
+/// Response from /api/sweep/prepare (preview action). Describes what's
+/// swappable into USDsui without actually building the PTB.
+struct SweepPreviewDTO: Codable {
+    let eligible: Bool
+    let from: SweepLeg
+    let to: SweepLeg
+    let route: String?
+    let sponsored: Bool?
+
+    struct SweepLeg: Codable {
+        let coin: String
+        let amount: Double?
+        let estimateUsd: Double?
+    }
+}
+
 struct YieldVenue: Codable, Identifiable {
     var id: String { venue }
     let venue: String

@@ -55,51 +55,65 @@ final class ZkLoginCoordinator {
     // MARK: - Sign-in
 
     func signIn() async throws -> SignInResult {
-        let google = GoogleSignInService()
-        let oauth = try await google.signIn()
-
+        // 1. Make sure we have an ephemeral key BEFORE OAuth so we can
+        //    bind it into the start-state cookie.
         let key = try EphemeralKeyStore.shared.loadOrCreate()
         let pubKeyB64 = key.publicKey.rawRepresentation.base64EncodedString()
 
-        guard let maxEpoch = await fetchMaxEpoch() else {
-            throw CoordinatorError.exchangeFailed(
-                "Could not read current Sui epoch — is the backend reachable?"
-            )
-        }
-
-        let body: [String: Any] = [
-            "idToken": oauth.idToken,
-            "ephemeralPubKeyB64": pubKeyB64,
-            "jwtRandomness": oauth.jwtRandomness,
-            "maxEpoch": maxEpoch,
-        ]
-        let response = try await postUnauthenticated(
-            path: "/api/auth/mobile/exchange",
-            body: body
+        // 2. Open the server-mediated OAuth flow. This uses the WEB
+        //    GOOGLE_CLIENT_ID + secret so the resulting JWT has the
+        //    same `aud` Shinami sees on web — same wallet, same Sui
+        //    address. ASWebAuthenticationSession comes back with the
+        //    minted mobile bearer via talise://auth/callback.
+        let signed = try await GoogleSignInService().signIn(
+            ephemeralPubKeyB64: pubKeyB64
         )
+        try SecureSessionStore.shared.save(token: signed.bearer)
 
-        guard let bearer = response["bearer"] as? String,
-              let userJSON = response["user"] as? [String: Any] else {
-            throw CoordinatorError.exchangeFailed("malformed response")
+        // 3. Authoritative user record via /api/me (taliseHandle on
+        //    chain, accountType, businessHandle, etc.).
+        let me: UserDTO = try await APIClient.shared.get("/api/me")
+
+        // 4. Warm the zkLogin proof so the first send skips Shinami's
+        //    cold start. Best-effort; sponsor-execute will mint on
+        //    demand if this fails.
+        let randomness = SuiRandomness.generate()
+        ProofCache.shared.jwtRandomness = randomness
+        if let maxEpoch = await fetchMaxEpoch() {
+            ProofCache.shared.maxEpoch = maxEpoch
+            Task { await warmProof(
+                pubKeyB64: pubKeyB64,
+                randomness: randomness,
+                maxEpoch: maxEpoch
+            ) }
         }
-        // Persist bearer first so subsequent calls authorize.
-        try SecureSessionStore.shared.save(token: bearer)
 
-        // Cache the pre-warmed proof + jwtRandomness + maxEpoch — the
-        // sponsor-execute endpoint will look this up via the bearer.
-        ProofCache.shared.maxEpoch = maxEpoch
-        ProofCache.shared.jwtRandomness = oauth.jwtRandomness
-        // The proof field may be missing OR JSON-null (backend couldn't
-        // mint pre-warm) OR a dict (success). Only serialize if it's a
-        // dict/array — otherwise JSONSerialization raises NSException
-        // and try? does NOT catch Objective-C exceptions.
-        if let proof = response["proof"],
-           JSONSerialization.isValidJSONObject(proof) {
-            ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: proof)
+        return SignInResult(user: me)
+    }
+
+    /// Best-effort proof pre-mint via /api/zk/proof. Silent on failure.
+    private func warmProof(pubKeyB64: String, randomness: String, maxEpoch: Int) async {
+        struct Body: Encodable {
+            let ephemeralPubKeyB64: String
+            let maxEpoch: Int
+            let randomness: String
         }
-
-        let user = try parseUser(userJSON)
-        return SignInResult(user: user)
+        struct Response: Decodable { let proof: AnyCodable? }
+        do {
+            let r: Response = try await APIClient.shared.post(
+                "/api/zk/proof",
+                body: Body(
+                    ephemeralPubKeyB64: pubKeyB64,
+                    maxEpoch: maxEpoch,
+                    randomness: randomness
+                )
+            )
+            if let raw = r.proof?.raw {
+                ProofCache.shared.proofRaw = raw
+            }
+        } catch {
+            // Cold cache — first send pays the latency. Fine.
+        }
     }
 
     // MARK: - Sign + submit
