@@ -221,16 +221,16 @@ struct EarnView: View {
                 text: "You'll earn",
                 color: TaliseColor.fgDim
             ).kerning(1.5)
-            HStack(spacing: 0) {
-                projectionCell(label: "Day", value: p.day)
-                projectionDivider
-                projectionCell(label: "Week", value: p.week)
-                projectionDivider
-                projectionCell(label: "Month", value: p.month)
-                projectionDivider
-                projectionCell(label: "Year", value: p.year, accent: true)
+            VStack(spacing: 0) {
+                projectionRow(label: "Day",   value: p.day)
+                projectionRowDivider
+                projectionRow(label: "Week",  value: p.week)
+                projectionRowDivider
+                projectionRow(label: "Month", value: p.month)
+                projectionRowDivider
+                projectionRow(label: "Year",  value: p.year, accent: true)
             }
-            .padding(.vertical, 12)
+            .padding(.vertical, 4)
             .background(TaliseColor.usernameCard)
             .clipShape(RoundedRectangle(cornerRadius: 16))
         }
@@ -238,31 +238,39 @@ struct EarnView: View {
         .animation(.easeInOut(duration: 0.18), value: amount)
     }
 
-    private func projectionCell(label: String, value: Double, accent: Bool = false) -> some View {
-        VStack(spacing: 4) {
+    private func projectionRow(label: String, value: Double, accent: Bool = false) -> some View {
+        HStack {
+            Text(label)
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+            Spacer()
             Text(formatProjection(value))
-                .font(TaliseFont.heading(14, weight: .medium))
+                .font(TaliseFont.heading(15, weight: .medium))
                 .kerning(-0.4)
                 .foregroundStyle(accent ? TaliseColor.accent : TaliseColor.fg)
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            MicroLabel(text: label, color: TaliseColor.fgDim).kerning(0.8)
+                .minimumScaleFactor(0.7)
         }
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
     }
 
-    private var projectionDivider: some View {
+    private var projectionRowDivider: some View {
         Rectangle()
             .fill(Color.white.opacity(0.05))
-            .frame(width: 1, height: 26)
+            .frame(height: 1)
+            .padding(.horizontal, 12)
     }
 
     private func formatProjection(_ v: Double) -> String {
-        // Below $1 -> show 4 decimals so daily on small balances doesn't
-        // collapse to $0.00. Above $1 -> 2 decimals.
+        // Use en_US locale so the symbol renders as "$" — without this
+        // a device set to en_GB / en_NG returns "US$0.10" which reads
+        // wrong in a Talise UI that's already implicitly USD.
         let fmt = NumberFormatter()
         fmt.numberStyle = .currency
+        fmt.locale = Locale(identifier: "en_US")
         fmt.currencyCode = "USD"
+        fmt.currencySymbol = "$"
         if v < 1.0 {
             fmt.minimumFractionDigits = 4
             fmt.maximumFractionDigits = 4

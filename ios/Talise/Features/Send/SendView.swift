@@ -49,9 +49,14 @@ struct SendView: View {
                 header
 
                 fieldBlock(title: "To") {
-                    TextField("alice or alice@talise.sui", text: $recipient)
+                    // Placeholder kept simple — anything with "@" trips
+                    // iOS's smart data detection and the placeholder
+                    // renders as a blue tappable email link.
+                    TextField("Talise handle or 0x address", text: $recipient)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
+                        .textContentType(.username)
+                        .keyboardType(.asciiCapable)
                         .font(TaliseFont.body(16, weight: .regular))
                         .foregroundStyle(TaliseColor.fg)
                         .tint(TaliseColor.accent)
@@ -61,7 +66,7 @@ struct SendView: View {
                     resolveStatus
                 }
                 MicroLabel(
-                    text: "Type a Talise handle (alice), full name (alice@talise.sui), or 0x address.",
+                    text: "Type a handle like alice, the full name alice@talise.sui, or a 0x address.",
                     color: TaliseColor.fgDim
                 )
                 .kerning(0.5)

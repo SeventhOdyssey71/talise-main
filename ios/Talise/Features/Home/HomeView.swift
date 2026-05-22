@@ -313,11 +313,7 @@ struct HomeView: View {
     }
 
     private func currency(_ v: Double) -> String {
-        let fmt = NumberFormatter()
-        fmt.numberStyle = .currency
-        fmt.currencyCode = "USD"
-        fmt.maximumFractionDigits = 2
-        return fmt.string(from: NSNumber(value: v)) ?? "$0.00"
+        TaliseFormat.usd(v)
     }
 
     /// Open the onramp flow in Safari. Backend creates a hosted session
