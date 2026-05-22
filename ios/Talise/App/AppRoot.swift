@@ -94,50 +94,109 @@ extension Notification.Name {
     static let taliseRequestReceiveSheet = Notification.Name("io.talise.requestReceiveSheet")
 }
 
-/// Floating pill nav. Filled with a soft white glass; the active tab gets
-/// a smaller filled pill behind it (matches the Figma's nested rounded
-/// rectangles at the bottom).
+/// Floating pill nav with the Figma's "Glass" treatment.
+///
+/// Layering, outer → inner:
+///  1. `.ultraThinMaterial` capsule — system glass blur backdrop.
+///  2. A subtle dark tint on top of the material so it reads dark mode
+///     (the system material alone is too neutral against a black bg).
+///  3. Top + bottom hairlines for the refraction/edge feel from Figma:
+///     top stroke is white-translucent (specular highlight); bottom is
+///     a darker stroke to give the pill thickness.
+///  4. Drop shadow under the whole pill for depth against the page bg.
+///
+/// The active tab gets its own smaller capsule with a stronger material
+/// fill + white top hairline so it pops out of the pill — matches the
+/// "Home" inset in the Figma reference.
 private struct BottomNavPill: View {
     @Binding var active: MainTabView.Tab
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 6) {
             tabButton(.home, icon: "house.fill", label: "Home")
             tabButton(.invest, icon: "leaf.fill", label: "Invest")
             tabButton(.rewards, icon: "gift.fill", label: "Rewards")
         }
-        .padding(.horizontal, 10)
-        .frame(height: 60)
+        .padding(.horizontal, 8)
+        .frame(height: 64)
         .background(
-            Capsule().fill(TaliseColor.surfaceGlass)
+            ZStack {
+                // System glass blur — captures whatever sits behind the
+                // pill (the activity card, the page bg).
+                Capsule().fill(.ultraThinMaterial)
+                // Dark tint pulls it into dark-mode territory. Without
+                // this, .ultraThinMaterial reads too light.
+                Capsule().fill(Color.black.opacity(0.45))
+            }
         )
         .overlay(
-            Capsule().stroke(Color.white.opacity(0.06), lineWidth: 1)
+            // Top specular highlight — thin white hairline.
+            Capsule()
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.22),
+                            Color.white.opacity(0.04),
+                            Color.white.opacity(0.10),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
         )
+        .shadow(color: Color.black.opacity(0.6), radius: 24, x: 0, y: 10)
+        .shadow(color: Color.black.opacity(0.4), radius: 4, x: 0, y: 2)
     }
 
     private func tabButton(_ which: MainTabView.Tab, icon: String, label: String) -> some View {
         let isActive = active == which
         return Button {
-            withAnimation(.easeInOut(duration: 0.15)) { active = which }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                active = which
+            }
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .regular))
                     .foregroundStyle(TaliseColor.fg)
                 Text(label)
-                    .font(TaliseFont.body(9, weight: .regular))
+                    .font(TaliseFont.body(10, weight: .regular))
                     .kerning(-0.36)
                     .foregroundStyle(TaliseColor.fg)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 40)
-            .background(
-                Capsule()
-                    .fill(isActive ? TaliseColor.surfaceGlassStrong : Color.clear)
-            )
+            .frame(height: 48)
+            .background(activeBackdrop(isActive))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func activeBackdrop(_ isActive: Bool) -> some View {
+        if isActive {
+            ZStack {
+                Capsule().fill(.ultraThinMaterial)
+                Capsule().fill(Color.white.opacity(0.10))
+                Capsule()
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.35),
+                                Color.white.opacity(0.05),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+            }
+            // Tiny inset so the active capsule clearly nests inside the
+            // outer pill (the Figma effect).
+            .padding(.vertical, 2)
+        } else {
+            Color.clear
+        }
     }
 }

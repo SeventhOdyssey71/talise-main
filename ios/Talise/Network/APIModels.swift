@@ -87,6 +87,35 @@ struct SupplyBuildRequest: Codable {
     let amount: Double
 }
 
+struct ContactDTO: Codable, Identifiable {
+    let address: String
+    let name: String?
+    let lastSeenMs: Double
+    let sentCount: Int
+    let receivedCount: Int
+
+    var id: String { address }
+    var display: String {
+        name ?? Self.short(address)
+    }
+    private static func short(_ a: String) -> String {
+        guard a.count > 14 else { return a }
+        return String(a.prefix(8)) + "…" + String(a.suffix(6))
+    }
+}
+
+struct ContactsResponse: Codable {
+    let contacts: [ContactDTO]
+}
+
+struct UsernameClaimResponse: Codable {
+    let ok: Bool?
+    let username: String?
+    let digest: String?
+    let subnameNftId: String?
+    let error: String?
+}
+
 struct YieldVenue: Codable, Identifiable {
     var id: String { venue }
     let venue: String

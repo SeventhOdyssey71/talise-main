@@ -30,6 +30,17 @@ struct SendView: View {
             }
         }
         .presentationDragIndicator(.visible)
+        .onAppear {
+            // ContactsSheet writes the tapped address here when the user
+            // picks a contact. Pick it up exactly once and clear.
+            let key = "io.talise.send.prefillRecipient"
+            if let prefill = UserDefaults.standard.string(forKey: key),
+               !prefill.isEmpty {
+                recipient = prefill
+                scheduleResolve(prefill)
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
     }
 
     private var form: some View {
