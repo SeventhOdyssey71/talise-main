@@ -100,20 +100,14 @@ struct HomeView: View {
                     .contentTransition(.numericText())
                     .redacted(reason: loadingBalance ? .placeholder : [])
 
-                HStack(spacing: 8) {
-                    Text(suiLine)
-                        .font(TaliseFont.mono(10, weight: .light))
-                        .kerning(-0.4)
-                        .foregroundStyle(TaliseColor.fgMuted)
-                    Text("·")
-                        .font(TaliseFont.mono(10, weight: .light))
-                        .foregroundStyle(TaliseColor.fgDim)
-                    Text(String(format: "Earn up to %.0f%%", apyHeadline * 100))
-                        .font(TaliseFont.mono(10, weight: .light))
-                        .kerning(-0.4)
-                        .foregroundStyle(TaliseColor.accent)
-                }
-                .padding(.top, 2)
+                // USDsui is the only unit Talise exposes — any other coin
+                // gets auto-converted via the sweep banner below. So the
+                // sub-line just nudges the user toward yield.
+                Text(String(format: "Earn up to %.0f%%", apyHeadline * 100))
+                    .font(TaliseFont.mono(10, weight: .light))
+                    .kerning(-0.4)
+                    .foregroundStyle(TaliseColor.accent)
+                    .padding(.top, 2)
             }
             Spacer()
             HStack(spacing: 8) {
@@ -138,14 +132,6 @@ struct HomeView: View {
         TaliseFormat.usd2(balance?.usdsui ?? 0)
     }
 
-    /// Secondary line showing SUI balance for gas awareness. Hidden
-    /// when zero so the headline isn't cluttered.
-    private var suiLine: String {
-        let sui = balance?.sui ?? 0
-        if sui < 0.0001 { return "0 SUI" }
-        if sui < 1 { return String(format: "%.4f SUI", sui) }
-        return String(format: "%.2f SUI", sui)
-    }
 
     private func actionButton(
         systemName: String,
@@ -494,16 +480,25 @@ struct HomeView: View {
         defer { sweeping = false }
         struct Body: Encodable { let action: String }
         do {
-            // The endpoint currently returns 501 — Cetus PTB build ships
-            // in the next pass. We surface the message so the user
-            // doesn't think the button is broken.
-            let _: SweepPreviewDTO = try await APIClient.shared.post(
+            // 1. Backend builds the Cetus router-swap PTB (transactionKindB64).
+            let built: SweepExecuteDTO = try await APIClient.shared.post(
                 "/api/sweep/prepare",
                 body: Body(action: "execute")
             )
+            // 2. Hand to the same Onara-sponsored sign+submit pipeline
+            //    Send/Earn use. The user signs the intent once with the
+            //    ephemeral Curve25519 key; Onara pays gas.
+            let amt = built.from.amount ?? 0
+            let intent = String(format: "Convert %.4f SUI to USDsui", amt)
+            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                transactionKindB64: built.transactionKindB64,
+                intent: intent
+            )
+            sweepAlertMessage = "Converted to USDsui · digest \(result.digest.prefix(10))…"
+            sweepAlertVisible = true
             await loadAll(force: true)
         } catch APIError.status(_, let msg) {
-            sweepAlertMessage = msg ?? "Conversion isn't available yet."
+            sweepAlertMessage = msg ?? "Conversion couldn't be built right now."
             sweepAlertVisible = true
         } catch {
             sweepAlertMessage = error.localizedDescription

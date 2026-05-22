@@ -172,20 +172,29 @@ struct UsernameClaimResponse: Codable {
     let error: String?
 }
 
-/// Response from /api/sweep/prepare (preview action). Describes what's
-/// swappable into USDsui without actually building the PTB.
+/// Response from /api/sweep/prepare with action="preview". Describes
+/// what's swappable into USDsui without building the PTB.
 struct SweepPreviewDTO: Codable {
     let eligible: Bool
     let from: SweepLeg
     let to: SweepLeg
     let route: String?
     let sponsored: Bool?
+}
 
-    struct SweepLeg: Codable {
-        let coin: String
-        let amount: Double?
-        let estimateUsd: Double?
-    }
+/// Response from /api/sweep/prepare with action="execute". Carries the
+/// Cetus-router PTB ready to feed into /api/zk/sponsor.
+struct SweepExecuteDTO: Codable {
+    let transactionKindB64: String
+    let from: SweepLeg
+    let to: SweepLeg
+    let slippage: Double?
+}
+
+struct SweepLeg: Codable {
+    let coin: String
+    let amount: Double?
+    let estimateUsd: Double?
 }
 
 struct YieldVenue: Codable, Identifiable {
