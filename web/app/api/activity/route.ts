@@ -31,7 +31,12 @@ export async function GET(req: Request) {
   const limit = Math.max(1, Math.min(50, Number.isFinite(rawLimit) ? rawLimit : 20));
 
   try {
-    const entries = await getRecentActivity(user.sui_address, limit);
+    // Mobile feed shows every USDsui/SUI movement, not just Talise
+    // payment-kit txs — users want to see incoming funding from any
+    // wallet, not a curated subset.
+    const entries = await getRecentActivity(user.sui_address, limit, {
+      includeNonTalise: true,
+    });
     return NextResponse.json({
       entries: entries.map((e) => ({
         digest: e.digest,

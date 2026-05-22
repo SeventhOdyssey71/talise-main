@@ -182,9 +182,18 @@ function isTaliseTransaction(
   return false;
 }
 
+/**
+ * `includeNonTalise: true` shows every successful USDsui / SUI movement
+ * the address has been involved in, regardless of whether the tx flowed
+ * through Talise's payment-kit registry. Used by the iOS /api/activity
+ * feed (users want to see "money I received" — they don't care about
+ * which kit was used). The web feeds keep the curated default so the
+ * Talise UI stays branded.
+ */
 export async function getRecentActivity(
   address: string,
-  limit = 12
+  limit = 12,
+  opts: { includeNonTalise?: boolean } = {}
 ): Promise<ActivityEntry[]> {
   const c = client();
   const options = {
@@ -228,15 +237,15 @@ export async function getRecentActivity(
   }
 
   // Resolve the talise registry id once. If this throws (e.g. payment-kit
-  // not initialized in this environment) we degrade to an empty feed rather
-  // than leak non-Talise transactions into the UI.
-  let registryId: string;
-  let namespaceId: string;
+  // not initialized in this environment) we either show a fully-open feed
+  // (mobile, opts.includeNonTalise=true) or degrade to empty (curated web).
+  let registryId: string | null = null;
+  let namespaceId: string | null = null;
   try {
     registryId = globalRegistryId();
     namespaceId = namespaceObjectId();
   } catch {
-    return [];
+    if (!opts.includeNonTalise) return [];
   }
 
   // Dedupe by digest. A tx can appear in both filters (e.g. a self-send).
@@ -248,10 +257,15 @@ export async function getRecentActivity(
   const entries: ActivityEntry[] = [];
   for (const tx of byDigest.values()) {
     if (tx.effects?.status?.status !== "success") continue;
-    // Only surface transactions that flowed through Talise's payment-kit
-    // registry. Everything else (random transfers, NFT mints, gas-only
-    // operations from before payment-kit was wired in) is hidden.
-    if (!isTaliseTransaction(tx, registryId, namespaceId)) continue;
+    // Web (default): only surface txs that flowed through Talise's
+    // payment-kit registry — keeps the curated feed clean.
+    // Mobile (includeNonTalise=true): surface every successful USDsui
+    // / SUI movement the address was involved in, so the user sees
+    // their funding txs and direct transfers from outside Talise.
+    if (!opts.includeNonTalise) {
+      if (!registryId || !namespaceId) continue;
+      if (!isTaliseTransaction(tx, registryId, namespaceId)) continue;
+    }
     const { myUsdsui, mySui, counterparty } = summarize(tx, address);
     // Ignore txs where the user's net movement is essentially zero (e.g.
     // sponsorship-only events, dust). Don't clutter the feed with noise.
