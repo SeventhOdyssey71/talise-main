@@ -1,60 +1,126 @@
 import SwiftUI
 import CoreImage.CIFilterBuiltins
+import UIKit
 
 struct ReceiveView: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
 
-    var address: String {
+    private var address: String {
         if case .ready(let user) = session.phase { return user.suiAddress }
         return ""
     }
 
-    var subname: String? {
-        // TODO: resolve via /api/username/lookup once user is loaded.
-        nil
+    private var handleLine: String {
+        guard case .ready(let user) = session.phase else { return "you@talise" }
+        if let h = user.businessHandle, !h.isEmpty { return "\(h)@talise" }
+        let base = (user.name ?? user.email)
+            .split(separator: "@").first ?? Substring("")
+        let first = String(base).split(separator: " ").first.map(String.init) ?? "you"
+        return "\(first.lowercased())@talise"
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    PageHeader(eyebrow: "Receive", title: "Get paid")
-
-                    VStack(spacing: 16) {
-                        Eyebrow(text: subname ?? "Your wallet")
-                        QRView(content: "sui:\(address)")
-                            .frame(width: 220, height: 220)
-                        Text(shortAddress(address))
-                            .font(TaliseFont.mono(13))
-                            .foregroundStyle(TaliseColor.fg)
-                        HStack(spacing: 12) {
-                            TaliseButton(title: "Copy", variant: .secondary, icon: "doc.on.doc") {
-                                UIPasteboard.general.string = address
-                            }
-                            TaliseButton(title: "Share", variant: .secondary, icon: "square.and.arrow.up") {
-                                share(text: address)
-                            }
-                        }
-                    }
-                    .padding(24)
-                    .background(TaliseColor.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: TaliseRadius.lg)
-                            .stroke(TaliseColor.line, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.lg))
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    MicroLabel(text: "Receive", color: TaliseColor.fgDim).kerning(1.5)
+                    Text("Get paid")
+                        .font(TaliseFont.heading(28, weight: .medium))
+                        .kerning(-1)
+                        .foregroundStyle(TaliseColor.fg)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 24)
-                .padding(.bottom, 32)
+                .padding(.top, 12)
+
+                qrCard
+                    .padding(.horizontal, 24)
+
+                actions
+                    .padding(.horizontal, 24)
+
+                Spacer(minLength: 40)
             }
-            .navigationBarHidden(true)
-            .background(TaliseColor.bg)
+        }
+        .background(TaliseColor.bg.ignoresSafeArea())
+        .presentationDragIndicator(.visible)
+    }
+
+    private var qrCard: some View {
+        VStack(spacing: 18) {
+            Text(handleLine)
+                .font(TaliseFont.heading(20, weight: .medium))
+                .kerning(-0.8)
+                .foregroundStyle(TaliseColor.fgSubtle)
+
+            QRView(content: "sui:\(address)")
+                .frame(width: 220, height: 220)
+                .padding(16)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+
+            Text(short(address))
+                .font(TaliseFont.mono(13, weight: .light))
+                .foregroundStyle(TaliseColor.fg)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.vertical, 28)
+        .frame(maxWidth: .infinity)
+        .background(TaliseColor.usernameCard)
+        .clipShape(RoundedRectangle(cornerRadius: 25))
+    }
+
+    private var actions: some View {
+        HStack(spacing: 12) {
+            actionButton(
+                icon: copied ? "checkmark" : "doc.on.doc",
+                label: copied ? "Copied" : "Copy address",
+                primary: false
+            ) {
+                UIPasteboard.general.string = address
+                withAnimation(.easeInOut(duration: 0.15)) { copied = true }
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    await MainActor.run { copied = false }
+                }
+            }
+            actionButton(
+                icon: "square.and.arrow.up",
+                label: "Share",
+                primary: true
+            ) {
+                share(text: address)
+            }
         }
     }
 
-    private func shortAddress(_ a: String) -> String {
-        guard a.count > 12 else { return a }
-        return String(a.prefix(8)) + "…" + String(a.suffix(6))
+    private func actionButton(
+        icon: String,
+        label: String,
+        primary: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                Text(label)
+                    .font(TaliseFont.heading(14, weight: .medium))
+            }
+            .foregroundStyle(primary ? TaliseColor.bg : TaliseColor.fg)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(primary ? TaliseColor.fg : TaliseColor.surface2)
+            .clipShape(Capsule())
+        }
+    }
+
+    private func short(_ a: String) -> String {
+        guard a.count > 14 else { return a }
+        return String(a.prefix(10)) + "…" + String(a.suffix(8))
     }
 
     private func share(text: String) {
