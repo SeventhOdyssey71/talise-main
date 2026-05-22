@@ -25,13 +25,21 @@ struct UserDTO: Codable, Hashable {
     /// to taliseHandle so views don't need to recompose the string.
     let taliseSubname: String?
 
-    /// Canonical display ONLY when the user actually owns the subname
-    /// on chain. Returns nil if no SuiNS handle is claimed yet —
-    /// callers should branch on this (e.g. show a "Claim your name"
-    /// CTA) rather than fabricating a placeholder that doesn't exist.
+    /// Canonical display ONLY when the user actually owns a resolvable
+    /// SuiNS handle. Returns nil otherwise so callers can show a
+    /// "Claim your name" CTA instead of fabricating one.
+    ///
+    /// `businessHandle` is honored only for `accountType == .business`
+    /// accounts. The DB keeps the business_handle column on personal
+    /// users when they once tried business onboarding (it's not auto
+    /// cleared), so reading it unconditionally on a personal account
+    /// surfaces a name that doesn't represent the wallet.
     func displayHandle() -> String? {
         if let h = taliseHandle, !h.isEmpty { return "\(h)@talise.sui" }
-        if let h = businessHandle, !h.isEmpty { return "\(h)@talise.sui" }
+        if accountType == .business,
+           let h = businessHandle, !h.isEmpty {
+            return "\(h)@talise.sui"
+        }
         return nil
     }
 
