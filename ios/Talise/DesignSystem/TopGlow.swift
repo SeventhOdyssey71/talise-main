@@ -58,3 +58,51 @@ extension View {
         modifier(TaliseScreenBackground())
     }
 }
+
+/// Reusable "Liquid Glass" treatment matching the Figma's depth spec.
+/// Same recipe as the bottom-nav pill — a `.ultraThinMaterial` blur,
+/// a dark tint to anchor it on a black page, a top→bottom gradient
+/// stroke for the specular highlight, and two layered drop-shadows for
+/// elevation.
+///
+/// Usage: `.taliseGlass(cornerRadius: 25)` on any container view. The
+/// blur captures whatever sits behind the card (page background,
+/// TopGlow wash), so cards over the TopGlow region read as ambient
+/// glass against the dark blue, not flat black plates.
+struct TaliseGlassCard: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color.black.opacity(0.45))
+                }
+            )
+            .overlay(
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.22),
+                            Color.white.opacity(0.04),
+                            Color.white.opacity(0.10),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .clipShape(shape)
+            .shadow(color: Color.black.opacity(0.45), radius: 22, x: 0, y: 10)
+            .shadow(color: Color.black.opacity(0.30), radius: 3, x: 0, y: 1)
+    }
+}
+
+extension View {
+    func taliseGlass(cornerRadius: CGFloat = 25) -> some View {
+        modifier(TaliseGlassCard(cornerRadius: cornerRadius))
+    }
+}

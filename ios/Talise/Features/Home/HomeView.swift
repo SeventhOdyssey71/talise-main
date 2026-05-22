@@ -154,13 +154,14 @@ struct HomeView: View {
 
     private var usernameCard: some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 25)
-                .fill(TaliseColor.usernameCard)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 25)
-                        .stroke(Color.white.opacity(0.05), lineWidth: 1)
-                )
+            // Empty container the glass modifier attaches to. The
+            // 212pt height matches the Figma spec; the glass
+            // treatment (.ultraThinMaterial + dark tint + top
+            // hairline + drop shadow) lives in TaliseGlassCard so
+            // it stays in sync with the bottom nav pill.
+            Color.clear
                 .frame(height: 212)
+                .taliseGlass(cornerRadius: 25)
             Image("sui-drop")
                 .renderingMode(.template)
                 .resizable()
