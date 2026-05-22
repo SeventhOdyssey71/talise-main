@@ -183,14 +183,52 @@ final class ZkLoginCoordinator {
 
     /// Fetches the current Sui epoch and returns `epoch + 2` — the standard
     /// zkLogin window (~48 hours). Shinami's prover rejects maxEpoch values
-    /// that are out of range, so a hard-coded fallback like 1_000_000 is
-    /// what was causing the (-32602) "Invalid params" error.
+    /// outside this band.
+    ///
+    /// Two paths in priority order:
+    ///   1. Our backend `/api/sui/epoch` (fast, already-warm SuiClient)
+    ///   2. Direct mainnet JSON-RPC fallback — so a dev-server outage or
+    ///      stale cache doesn't block sign-in. The epoch is public chain
+    ///      state; either source returns the same value.
     private func fetchMaxEpoch() async -> Int? {
+        if let v = await fetchEpochViaBackend() { return v + 2 }
+        if let v = await fetchEpochViaMainnetRPC() { return v + 2 }
+        return nil
+    }
+
+    private func fetchEpochViaBackend() async -> Int? {
         struct Response: Decodable { let epoch: String }
         do {
             let r: Response = try await APIClient.shared.get("/api/sui/epoch")
-            guard let current = Int(r.epoch) else { return nil }
-            return current + 2
+            return Int(r.epoch)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Direct call to the public Sui mainnet fullnode RPC. Mirrors what
+    /// the backend does, but skips our server so we still get sign-in
+    /// even if the dev server is down or rebooting.
+    private func fetchEpochViaMainnetRPC() async -> Int? {
+        var req = URLRequest(url: URL(string: "https://fullnode.mainnet.sui.io:443")!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 8
+        let body: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "sui_getLatestSuiSystemState",
+            "params": [],
+        ]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            struct Envelope: Decodable {
+                struct Result: Decodable { let epoch: String }
+                let result: Result?
+            }
+            let env = try JSONDecoder().decode(Envelope.self, from: data)
+            return env.result.flatMap { Int($0.epoch) }
         } catch {
             return nil
         }
