@@ -49,7 +49,7 @@ private struct LaunchView: View {
 /// Three-tab pill nav matching Figma node 42-1819. Home, Invest, Rewards
 /// — Send and Receive live as actions on Home, not as nav destinations.
 struct MainTabView: View {
-    enum Tab: Hashable { case home, invest, rewards }
+    enum Tab: Hashable { case home, invest, rewards, profile }
     @State private var tab: Tab = .home
     @State private var sendSheetVisible = false
     @State private var receiveSheetVisible = false
@@ -63,12 +63,13 @@ struct MainTabView: View {
                 case .home: HomeView()
                 case .invest: EarnView()
                 case .rewards: RewardsView()
+                case .profile: ProfileView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             BottomNavPill(active: $tab)
-                .padding(.horizontal, 49)
+                .padding(.horizontal, 24)
                 .padding(.bottom, 20)
         }
         .sheet(isPresented: $sendSheetVisible) {
@@ -112,12 +113,13 @@ private struct BottomNavPill: View {
     @Binding var active: MainTabView.Tab
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             tabButton(.home, icon: "house.fill", label: "Home")
             tabButton(.invest, icon: "leaf.fill", label: "Invest")
             tabButton(.rewards, icon: "gift.fill", label: "Rewards")
+            tabButton(.profile, icon: "person.crop.circle.fill", label: "Profile")
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 6)
         .frame(height: 64)
         .background(
             ZStack {

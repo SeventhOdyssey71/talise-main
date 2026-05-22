@@ -12,28 +12,26 @@ struct EarnView: View {
     @State private var success: String?
 
     var body: some View {
-        ZStack(alignment: .top) {
-            TaliseColor.bg.ignoresSafeArea()
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
-                    header
-                    venueCards
-                    supplyCard
-                    if let error {
-                        Text(error)
-                            .font(TaliseFont.body(12, weight: .light))
-                            .foregroundStyle(TaliseColor.danger)
-                    }
-                    if let success {
-                        successBanner(success)
-                    }
-                    Spacer(minLength: 120)
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 22) {
+                header
+                venueCards
+                supplyCard
+                if let error {
+                    Text(error)
+                        .font(TaliseFont.body(12, weight: .light))
+                        .foregroundStyle(TaliseColor.danger)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
+                if let success {
+                    successBanner(success)
+                }
+                Spacer(minLength: 120)
             }
-            .refreshable { await load() }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
         }
+        .refreshable { await load() }
+        .taliseScreenBackground()
         .task { await load() }
     }
 
