@@ -10,7 +10,10 @@ struct HomeView: View {
     @State private var loadingBalance = true
     @State private var loadingActivity = true
     @State private var contactsSheetVisible = false
-    @State private var claimSheetVisible = false
+    @State private var sweepPreview: SweepPreviewDTO?
+    @State private var sweepAlertVisible = false
+    @State private var sweepAlertMessage = ""
+    @State private var sweeping = false
     private let apyHeadline: Double = 0.11
 
     var body: some View {
@@ -22,6 +25,11 @@ struct HomeView: View {
                 balanceBlock
                     .padding(.horizontal, 30)
                     .padding(.top, 32)
+                if let preview = sweepPreview, preview.eligible {
+                    sweepBanner(preview)
+                        .padding(.horizontal, 32)
+                        .padding(.top, 18)
+                }
                 usernameCard
                     .padding(.horizontal, 32)
                     .padding(.top, 24)
@@ -34,6 +42,12 @@ struct HomeView: View {
         .refreshable { await loadAll(force: true) }
         .taliseScreenBackground()
         .task { await loadAll(force: false) }
+        .alert("Convert to USDsui", isPresented: $sweepAlertVisible) {
+            Button("Cancel", role: .cancel) {}
+            Button("Convert") { Task { await executeSweep() } }
+        } message: {
+            Text(sweepAlertMessage)
+        }
     }
 
     // MARK: - Top bar
@@ -196,18 +210,16 @@ struct HomeView: View {
             .padding(.horizontal, 32)
             .frame(height: 212)
         }
-        .sheet(isPresented: $claimSheetVisible) {
-            ClaimHandleSheet()
-                .presentationDetents([.medium, .large])
-                .presentationBackground(TaliseColor.bg)
-        }
     }
 
     /// CTA shown on the username card when the user hasn't minted a
-    /// `*.talise.sui` subname yet. Tap → ClaimHandleSheet.
+    /// `*.talise.sui` subname yet. Tap → MainTabView opens the
+    /// ClaimHandleSheet (so the underlying tab blurs uniformly).
     private var claimCTA: some View {
         Button {
-            claimSheetVisible = true
+            NotificationCenter.default.post(
+                name: .taliseRequestClaimSheet, object: nil
+            )
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Claim your name")
@@ -363,6 +375,7 @@ struct HomeView: View {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await loadBalance() }
             group.addTask { await loadActivity() }
+            group.addTask { await loadSweepPreview() }
         }
     }
 
@@ -397,6 +410,105 @@ struct HomeView: View {
         let base = AppConfig.shared.apiBaseURL
         let url = URL(string: base + "/api/onramp/session?provider=hosted")!
         await UIApplication.shared.open(url)
+    }
+
+    // MARK: - Sweep to USDsui (Onara-sponsored, Cetus route)
+
+    /// Renders when the wallet holds non-USDsui coins worth more than
+    /// dust. Tap → confirmation alert → POST /api/sweep/prepare with
+    /// action=execute → sponsored swap via Onara.
+    private func sweepBanner(_ p: SweepPreviewDTO) -> some View {
+        Button {
+            sweepAlertMessage = sweepConfirmationMessage(p)
+            sweepAlertVisible = true
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(TaliseColor.accent.opacity(0.18))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(TaliseColor.accent)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(sweepHeadline(p))
+                        .font(TaliseFont.body(13, weight: .light))
+                        .foregroundStyle(TaliseColor.fg)
+                    MicroLabel(
+                        text: "Onara-sponsored · No fee",
+                        color: TaliseColor.fgDim
+                    ).kerning(0.8)
+                }
+                Spacer()
+                if sweeping {
+                    ProgressView().controlSize(.small).tint(TaliseColor.fg)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(TaliseColor.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(TaliseColor.accent.opacity(0.18), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(sweeping)
+    }
+
+    private func sweepHeadline(_ p: SweepPreviewDTO) -> String {
+        let fromAmt = p.from.amount ?? 0
+        let toUsd = p.to.estimateUsd ?? 0
+        let fromStr = fromAmt < 1
+            ? String(format: "%.4f", fromAmt)
+            : String(format: "%.2f", fromAmt)
+        return "Convert \(fromStr) \(p.from.coin) → \(TaliseFormat.usd2(toUsd)) USDsui"
+    }
+
+    private func sweepConfirmationMessage(_ p: SweepPreviewDTO) -> String {
+        let toUsd = p.to.estimateUsd ?? 0
+        return "Swap your SUI to USDsui via Cetus. Onara pays the gas — you pay $0 in fees. Estimated: \(TaliseFormat.usd2(toUsd))."
+    }
+
+    private func loadSweepPreview() async {
+        struct Body: Encodable { let action: String }
+        do {
+            sweepPreview = try await APIClient.shared.post(
+                "/api/sweep/prepare",
+                body: Body(action: "preview")
+            )
+        } catch {
+            sweepPreview = nil
+        }
+    }
+
+    private func executeSweep() async {
+        sweeping = true
+        defer { sweeping = false }
+        struct Body: Encodable { let action: String }
+        do {
+            // The endpoint currently returns 501 — Cetus PTB build ships
+            // in the next pass. We surface the message so the user
+            // doesn't think the button is broken.
+            let _: SweepPreviewDTO = try await APIClient.shared.post(
+                "/api/sweep/prepare",
+                body: Body(action: "execute")
+            )
+            await loadAll(force: true)
+        } catch APIError.status(_, let msg) {
+            sweepAlertMessage = msg ?? "Conversion isn't available yet."
+            sweepAlertVisible = true
+        } catch {
+            sweepAlertMessage = error.localizedDescription
+            sweepAlertVisible = true
+        }
     }
 }
 

@@ -12,7 +12,6 @@ struct ProfileView: View {
     @State private var savingNotify = false
     @State private var settingsError: String?
     @State private var signOutConfirm = false
-    @State private var claimSheetVisible = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -30,11 +29,6 @@ struct ProfileView: View {
             .padding(.top, 24)
         }
         .taliseScreenBackground()
-        .sheet(isPresented: $claimSheetVisible) {
-            ClaimHandleSheet()
-                .presentationDetents([.medium, .large])
-                .presentationBackground(TaliseColor.bg)
-        }
         .alert("Sign out?", isPresented: $signOutConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Sign out", role: .destructive) { session.signOut() }
@@ -71,7 +65,9 @@ struct ProfileView: View {
                             .truncationMode(.middle)
                     } else {
                         Button {
-                            claimSheetVisible = true
+                            NotificationCenter.default.post(
+                                name: .taliseRequestClaimSheet, object: nil
+                            )
                         } label: {
                             HStack(spacing: 4) {
                                 Text("Claim your name")
