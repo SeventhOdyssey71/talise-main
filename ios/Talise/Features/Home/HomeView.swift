@@ -13,27 +13,25 @@ struct HomeView: View {
     private let apyHeadline: Double = 0.11
 
     var body: some View {
-        ZStack(alignment: .top) {
-            TaliseColor.bg.ignoresSafeArea()
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    topBar
-                        .padding(.horizontal, 30)
-                        .padding(.top, 4)
-                    balanceBlock
-                        .padding(.horizontal, 30)
-                        .padding(.top, 32)
-                    usernameCard
-                        .padding(.horizontal, 32)
-                        .padding(.top, 24)
-                    activityCard
-                        .padding(.horizontal, 32)
-                        .padding(.top, 22)
-                    Color.clear.frame(height: 120)
-                }
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                topBar
+                    .padding(.horizontal, 30)
+                    .padding(.top, 4)
+                balanceBlock
+                    .padding(.horizontal, 30)
+                    .padding(.top, 32)
+                usernameCard
+                    .padding(.horizontal, 32)
+                    .padding(.top, 24)
+                activityCard
+                    .padding(.horizontal, 32)
+                    .padding(.top, 22)
+                Color.clear.frame(height: 120)
             }
-            .refreshable { await loadAll(force: true) }
         }
+        .refreshable { await loadAll(force: true) }
+        .taliseScreenBackground()
         .task { await loadAll(force: false) }
     }
 
