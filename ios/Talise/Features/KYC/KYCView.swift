@@ -127,19 +127,81 @@ struct KYCView: View {
     private func submit() async {
         submitting = true
         defer { submitting = false }
-        struct Body: Encodable {
+        struct OnboardBody: Encodable {
             let country: String
             let accountType: String
         }
+        struct OnboardResp: Decodable { let ok: Bool }
         do {
-            struct Resp: Decodable { let ok: Bool }
-            let _: Resp = try await APIClient.shared.post(
+            let _: OnboardResp = try await APIClient.shared.post(
                 "/api/onboarding",
-                body: Body(country: country, accountType: accountType.rawValue)
+                body: OnboardBody(country: country, accountType: accountType.rawValue)
             )
+
+            // Sponsored SuiNS subname mint — the talise.sui operator wallet
+            // signs + pays gas, so the user is never asked to fund or sign
+            // this transaction. Best-effort: if the handle is taken or the
+            // operator is misconfigured, we still proceed to the dashboard
+            // (the user can claim later from /settings).
+            await claimTaliseHandle()
+
             await session.bootstrap()
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// Derives a candidate handle from the user's Google name (falling back
+    /// to the email local-part), then POSTs /api/username/claim. On a
+    /// collision (HTTP 409), we append a 4-digit suffix and retry up to
+    /// three times.
+    private func claimTaliseHandle() async {
+        let base = candidateHandle()
+        guard !base.isEmpty else { return }
+
+        struct ClaimBody: Encodable { let username: String }
+        var attempt = 0
+        var handle = base
+        while attempt < 3 {
+            do {
+                let _: UsernameClaimResponse = try await APIClient.shared.post(
+                    "/api/username/claim",
+                    body: ClaimBody(username: handle)
+                )
+                return
+            } catch APIError.status(let code, _) where code == 409 {
+                // Taken — append a short numeric suffix and try again.
+                let suffix = String(Int.random(in: 100...9999))
+                handle = String((base + suffix).prefix(20))
+                attempt += 1
+            } catch {
+                // Operator down / RPC flake — fail silently. User keeps
+                // the wallet, just no on-chain handle yet.
+                return
+            }
+        }
+    }
+
+    private func candidateHandle() -> String {
+        // Prefer first word of display name; fall back to the email local-part.
+        let source: String = {
+            let name = (user.name ?? "").trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty,
+               let first = name.split(separator: " ").first {
+                return String(first)
+            }
+            if let local = user.email.split(separator: "@").first {
+                return String(local)
+            }
+            return ""
+        }()
+        // Normalize to what SuiNS accepts: [a-z0-9_] 3-20 chars.
+        let normalized = source
+            .lowercased()
+            .unicodeScalars
+            .filter { CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789_").contains($0) }
+            .map(String.init)
+            .joined()
+        return String(normalized.prefix(20))
     }
 }

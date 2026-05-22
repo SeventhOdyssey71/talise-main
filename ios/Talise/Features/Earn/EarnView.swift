@@ -171,9 +171,6 @@ struct EarnView: View {
                         ProgressView()
                             .progressViewStyle(.circular)
                             .tint(TaliseColor.bg)
-                    } else {
-                        Image(systemName: "chart.line.uptrend.xyaxis")
-                            .font(.system(size: 14, weight: .medium))
                     }
                     Text(supplying ? "Supplying…" : supplyLabel)
                         .font(TaliseFont.heading(15, weight: .medium))

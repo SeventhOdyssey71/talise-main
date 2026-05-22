@@ -9,6 +9,7 @@ struct HomeView: View {
     @State private var activity: [ActivityEntryDTO] = []
     @State private var loadingBalance = true
     @State private var loadingActivity = true
+    @State private var contactsSheetVisible = false
     private let apyHeadline: Double = 0.11
 
     var body: some View {
@@ -44,12 +45,24 @@ struct HomeView: View {
                 .frame(width: 24, height: 22)
                 .foregroundStyle(TaliseColor.fg)
             Spacer()
-            Image(systemName: "person.2.fill")
-                .symbolRenderingMode(.hierarchical)
-                .font(.system(size: 18, weight: .regular))
-                .foregroundStyle(TaliseColor.fg)
+            Button {
+                contactsSheetVisible = true
+            } label: {
+                Image(systemName: "person.2.fill")
+                    .symbolRenderingMode(.hierarchical)
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(TaliseColor.fg)
+                    .padding(6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .frame(height: 28)
+        .sheet(isPresented: $contactsSheetVisible) {
+            ContactsSheet()
+                .presentationDetents([.medium, .large])
+                .presentationBackground(TaliseColor.bg)
+        }
     }
 
     // MARK: - Balance + actions
@@ -75,11 +88,9 @@ struct HomeView: View {
             Spacer()
             HStack(spacing: 8) {
                 actionButton(systemName: "plus") {
-                    // TODO: open /api/onramp/session in Safari
+                    Task { await openOnramp() }
                 }
                 actionButton(systemName: "paperplane.fill", rotated: -30) {
-                    // Send is now a sheet — see SendView. Bottom nav has
-                    // 3 tabs so the easiest entry is the paperplane here.
                     NotificationCenter.default.post(
                         name: .taliseRequestSendSheet, object: nil
                     )
@@ -311,6 +322,150 @@ struct HomeView: View {
         fmt.currencyCode = "USD"
         fmt.maximumFractionDigits = 2
         return fmt.string(from: NSNumber(value: v)) ?? "$0.00"
+    }
+
+    /// Open the onramp flow in Safari. Backend creates a hosted session
+    /// (see /api/onramp/session) and redirects to the provider.
+    private func openOnramp() async {
+        let base = AppConfig.shared.apiBaseURL
+        let url = URL(string: base + "/api/onramp/session?provider=hosted")!
+        await UIApplication.shared.open(url)
+    }
+}
+
+/// Contacts sheet — pulls /api/contacts (counterparties from recent
+/// on-chain activity). Tap a row to open Send with the recipient prefilled.
+struct ContactsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var contacts: [ContactDTO] = []
+    @State private var loading = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                MicroLabel(text: "Contacts", color: TaliseColor.fgDim).kerning(1.5)
+                Text("People you've paid")
+                    .font(TaliseFont.heading(22, weight: .medium))
+                    .kerning(-0.8)
+                    .foregroundStyle(TaliseColor.fg)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.top, 18)
+
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    if loading {
+                        ForEach(0..<4, id: \.self) { _ in placeholderRow }
+                    } else if contacts.isEmpty {
+                        emptyState
+                    } else {
+                        ForEach(contacts) { contact in
+                            contactRow(contact)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 32)
+            }
+        }
+        .background(TaliseColor.bg.ignoresSafeArea())
+        .presentationDragIndicator(.visible)
+        .task { await load() }
+    }
+
+    private var placeholderRow: some View {
+        HStack(spacing: 12) {
+            Circle().fill(TaliseColor.badgeNeutral).frame(width: 36, height: 36)
+            VStack(alignment: .leading, spacing: 4) {
+                Capsule().fill(TaliseColor.line).frame(width: 120, height: 10)
+                Capsule().fill(TaliseColor.line).frame(width: 80, height: 8)
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(TaliseColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .redacted(reason: .placeholder)
+        .opacity(0.5)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "person.2")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(TaliseColor.fgDim)
+                .padding(.top, 28)
+            Text("No contacts yet")
+                .font(TaliseFont.body(14, weight: .light))
+                .foregroundStyle(TaliseColor.fg)
+            Text("Anyone you send money to will appear here.")
+                .font(TaliseFont.mono(10, weight: .light))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(TaliseColor.fgDim)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func contactRow(_ c: ContactDTO) -> some View {
+        Button {
+            // Hand the address off to Send via UserDefaults bridge.
+            UserDefaults.standard.set(c.address, forKey: "io.talise.send.prefillRecipient")
+            dismiss()
+            // Tiny delay so the sheet dismiss completes before the next
+            // sheet presentation request fires.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                NotificationCenter.default.post(
+                    name: .taliseRequestSendSheet, object: nil
+                )
+            }
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(TaliseColor.badgeNeutral).frame(width: 36, height: 36)
+                    Text(initials(c))
+                        .font(TaliseFont.heading(13, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(c.display)
+                        .font(TaliseFont.body(14, weight: .light))
+                        .foregroundStyle(TaliseColor.fg)
+                        .lineLimit(1)
+                    MicroLabel(text: "\(c.sentCount) sent · \(c.receivedCount) received", color: TaliseColor.fgDim)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
+            .padding(14)
+            .background(TaliseColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func initials(_ c: ContactDTO) -> String {
+        if let name = c.name, !name.isEmpty {
+            return String(name.first!).uppercased()
+        }
+        // 0x address — show the first hex char after 0x.
+        let idx = c.address.index(c.address.startIndex, offsetBy: min(2, c.address.count))
+        return String(c.address[idx...].first.map(String.init) ?? "·").uppercased()
+    }
+
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        do {
+            let r: ContactsResponse = try await APIClient.shared.get("/api/contacts")
+            contacts = r.contacts
+        } catch {
+            contacts = []
+        }
     }
 }
 
