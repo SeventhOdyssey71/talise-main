@@ -26,7 +26,9 @@ export async function GET(req: Request) {
   }
 
   try {
-    const activity = await getRecentActivity(user.sui_address, 50);
+    const activity = await getRecentActivity(user.sui_address, 50, {
+      includeNonTalise: true,
+    });
     const seen = new Map<
       string,
       {
