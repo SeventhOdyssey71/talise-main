@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { readSessionEntryId } from "@/lib/session";
+import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { updateUserProfile, userById } from "@/lib/db";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const userId = await readSessionEntryId();
+  const userId = await readEntryIdFromRequest(req);
   if (!userId)
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   const user = await userById(userId);

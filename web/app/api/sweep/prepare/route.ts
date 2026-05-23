@@ -4,7 +4,7 @@ import { userById } from "@/lib/db";
 import { getSuiBalance, sui, COIN_TYPES } from "@/lib/sui";
 import { getSuiUsdcPrice } from "@/lib/deepbook";
 import { USDSUI_TYPE } from "@/lib/usdsui";
-import { Transaction } from "@mysten/sui/transactions";
+import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { AggregatorClient, Env } from "@cetusprotocol/aggregator-sdk";
 
@@ -94,25 +94,16 @@ export async function POST(req: Request) {
   }
 
   try {
-    // 1. Pull the user's SUI coin objects. We can't use tx.gas because
-    //    in a sponsored tx the gas coin belongs to Onara, not the
-    //    sender — so we splitCoins from one of the sender's own SUI
-    //    coins instead, exactly like /api/send/prepare does for native
-    //    SUI transfers.
-    const coins = await sui().getCoins({
+    // 1. Resolve total SUI value to swap. We use getBalance (not
+    //    getCoins) so this works whether the user's SUI is held as
+    //    discrete Coin<SUI> objects or as the new Address Balance
+    //    (May 2026 gasless-stablecoins mechanism). coinWithBalance
+    //    below handles both forms when building the PTB.
+    const balance = await sui().getBalance({
       owner: user.sui_address,
       coinType: COIN_TYPES.SUI,
     });
-    if (coins.data.length === 0) {
-      return NextResponse.json(
-        { error: "no SUI coin to sweep" },
-        { status: 400 }
-      );
-    }
-    const totalMist = coins.data.reduce(
-      (sum, c) => sum + BigInt(c.balance),
-      0n
-    );
+    const totalMist = BigInt(balance.totalBalance);
     if (totalMist <= 0n) {
       return NextResponse.json(
         { error: "SUI balance is zero" },
@@ -134,19 +125,21 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3. Build the PTB: merge coins → split off the swap amount →
-    //    hand to Cetus → transfer the output USDsui back to the user.
+    // 3. Build the PTB: coinWithBalance resolves the input SUI from
+    //    either Coin<SUI> objects or the Address Balance pool. Hand it
+    //    to Cetus, transfer the output USDsui back to the user.
+    //    useGasCoin: false — in a sponsored tx the gas coin belongs to
+    //    Onara, not the sender; we must not touch it.
     const tx = new Transaction();
     tx.setSender(user.sui_address);
 
-    const primary = tx.object(coins.data[0].coinObjectId);
-    if (coins.data.length > 1) {
-      tx.mergeCoins(
-        primary,
-        coins.data.slice(1).map((c) => tx.object(c.coinObjectId))
-      );
-    }
-    const [swapInput] = tx.splitCoins(primary, [totalMist]);
+    const swapInput = tx.add(
+      coinWithBalance({
+        type: COIN_TYPES.SUI,
+        balance: totalMist,
+        useGasCoin: false,
+      })
+    );
 
     const outputCoin = await aggregator().routerSwap({
       router,
