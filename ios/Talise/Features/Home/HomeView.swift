@@ -112,14 +112,23 @@ struct HomeView: View {
                     .contentTransition(.numericText())
                     .redacted(reason: loadingBalance ? .placeholder : [])
 
-                // USDsui is the only unit Talise exposes — any other coin
-                // gets auto-converted via the sweep banner below. So the
-                // sub-line just nudges the user toward yield.
-                Text(String(format: "Earn up to %.0f%%", apyHeadline * 100))
-                    .font(TaliseFont.mono(10, weight: .light))
-                    .kerning(-0.4)
-                    .foregroundStyle(TaliseColor.accent)
-                    .padding(.top, 2)
+                // Two-part sub-line: the underlying USDsui amount so the
+                // user can sanity-check the FX conversion, then the
+                // green "earn" nudge.
+                HStack(spacing: 8) {
+                    Text(suiusdFormatted)
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .kerning(-0.4)
+                        .foregroundStyle(TaliseColor.fgMuted)
+                    Text("·")
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                    Text(String(format: "Earn up to %.0f%%", apyHeadline * 100))
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .kerning(-0.4)
+                        .foregroundStyle(TaliseColor.accent)
+                }
+                .padding(.top, 2)
             }
             Spacer()
             HStack(spacing: 8) {
@@ -143,8 +152,18 @@ struct HomeView: View {
     private var usdsuiFormatted: String {
         TaliseFormat.local2(balance?.usdsui ?? 0)
     }
-
-
+    
+    /// Secondary "0.05 USDsui" line beneath the localized balance.
+    /// Always shows the on-chain unit so the user can sanity-check
+    /// the FX conversion against the asset that's actually moving.
+    private var suiusdFormatted: String {
+        let v = balance?.usdsui ?? 0
+        if v < 0.01 {
+            return String(format: "%.4f USDsui", v)
+        }
+        return String(format: "%.2f USDsui", v)
+    }
+    
     private func actionButton(
         systemName: String,
         rotated degrees: Double = 0,

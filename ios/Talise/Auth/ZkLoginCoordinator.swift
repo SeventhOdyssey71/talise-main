@@ -116,28 +116,46 @@ final class ZkLoginCoordinator {
         )
     }
 
-    /// Best-effort proof pre-mint via /api/zk/proof. Silent on failure.
+    /// Best-effort proof pre-mint via /api/zk/proof.
+    ///
+    /// We DON'T go through APIClient + Codable here because the proof
+    /// shape is a nested dict with arrays + objects (issBase64Details,
+    /// proofPoints, headerBase64). Routing it through AnyCodable
+    /// stringifies the inner JSON — sending that back to the server
+    /// makes valibot reject with "Expected object, found string". So
+    /// we read the raw JSON, extract the proof dict directly, and
+    /// store its byte-identical re-serialization. That preserves the
+    /// exact wire shape Shinami emitted.
     private func warmProof(pubKeyB64: String, randomness: String, maxEpoch: Int) async {
-        struct Body: Encodable {
-            let ephemeralPubKeyB64: String
-            let maxEpoch: Int
-            let randomness: String
+        guard let bearer = SecureSessionStore.shared.read() else { return }
+        guard let url = URL(string: AppConfig.shared.apiBaseURL + "/api/zk/proof") else {
+            return
         }
-        struct Response: Decodable { let proof: AnyCodable? }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "ephemeralPubKeyB64": pubKeyB64,
+            "maxEpoch": maxEpoch,
+            "randomness": randomness,
+        ])
+        req.timeoutInterval = 30
         do {
-            let r: Response = try await APIClient.shared.post(
-                "/api/zk/proof",
-                body: Body(
-                    ephemeralPubKeyB64: pubKeyB64,
-                    maxEpoch: maxEpoch,
-                    randomness: randomness
-                )
-            )
-            if let raw = r.proof?.raw {
-                ProofCache.shared.proofRaw = raw
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                return
             }
+            guard let top = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let proof = top["proof"] as? [String: Any],
+                  JSONSerialization.isValidJSONObject(proof) else {
+                return
+            }
+            // Byte-identical re-serialization of the dict — no
+            // AnyCodable wrapping anywhere in this path.
+            ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: proof)
         } catch {
-            // Cold cache — first send pays the latency. Fine.
+            // Cold cache — first send pays the Shinami latency. Fine.
         }
     }
 
@@ -192,9 +210,19 @@ final class ZkLoginCoordinator {
             "randomness": jwtRandomness,
             "userSignature": userSig,
         ]
+        // Only forward a CACHED proof if its shape still looks like
+        // what Shinami emits. Older builds wrote a stringified-JSON
+        // form into the cache (AnyCodable round-trip bug); sending
+        // that produces a server-side valibot error ("Expected
+        // object, found string"). Dropping it here lets the server
+        // mint a fresh one on this call.
         if let proofData = ProofCache.shared.proofRaw,
-           let proofJSON = try? JSONSerialization.jsonObject(with: proofData) {
+           let proofJSON = try? JSONSerialization.jsonObject(with: proofData) as? [String: Any],
+           proofJSON["proofPoints"] is [String: Any] {
             executeBody["cachedProof"] = proofJSON
+        } else {
+            // Clean the corrupted bytes so we don't keep trying.
+            ProofCache.shared.proofRaw = nil
         }
 
         let exec = try await postAuthenticated(
