@@ -39,6 +39,8 @@ final class CurrencySettings {
     static let shared = CurrencySettings()
 
     private let defaultsKey = "io.talise.app.displayCurrency"
+    private let ratesKey = "io.talise.app.fxRates"
+    private let ratesAtKey = "io.talise.app.fxRatesAt"
     private(set) var current: TaliseCurrency
     private(set) var rates: [String: Double] = ["USD": 1]
     private(set) var ratesLoaded = false
@@ -46,6 +48,17 @@ final class CurrencySettings {
     private init() {
         let stored = UserDefaults.standard.string(forKey: defaultsKey)
         self.current = stored.map(TaliseCurrency.find) ?? .usd
+
+        // Hydrate rates from the last persisted snapshot so the first
+        // render uses real conversion factors instead of falling back to
+        // 1.0 (which renders \$0.20 as "₦0.20"). The background refresh
+        // updates them for the next session.
+        if let data = UserDefaults.standard.data(forKey: ratesKey),
+           let snap = try? JSONDecoder().decode([String: Double].self, from: data),
+           !snap.isEmpty {
+            rates = snap
+            ratesLoaded = true
+        }
     }
 
     func set(_ currency: TaliseCurrency) {
@@ -54,7 +67,8 @@ final class CurrencySettings {
     }
 
     /// One-shot rate fetch — call from AppSession.bootstrap. Idempotent;
-    /// soft-fails to USD-only.
+    /// soft-fails to USD-only. Persists every successful response so the
+    /// next cold start has a warm cache.
     func refresh() async {
         struct Response: Decodable {
             let rates: [String: Double]
@@ -63,9 +77,25 @@ final class CurrencySettings {
             let r: Response = try await APIClient.shared.get("/api/fx")
             rates = r.rates
             ratesLoaded = true
+            if let data = try? JSONEncoder().encode(r.rates) {
+                UserDefaults.standard.set(data, forKey: ratesKey)
+                UserDefaults.standard.set(
+                    Date().timeIntervalSince1970,
+                    forKey: ratesAtKey
+                )
+            }
         } catch {
-            // Keep whatever we had (USD baseline).
+            // Keep whatever we had (cached snap or USD baseline).
         }
+    }
+
+    /// True when the persisted rates are older than `ttlSec`. Views can
+    /// call refresh() on appear if this returns true so a stale offline
+    /// cache doesn't quietly persist for days.
+    func isStale(ttlSec: TimeInterval = 60 * 60 * 4) -> Bool {
+        let ts = UserDefaults.standard.double(forKey: ratesAtKey)
+        if ts == 0 { return true }
+        return Date().timeIntervalSince1970 - ts > ttlSec
     }
 
     /// Convert a USD amount to the user's display currency. Returns
