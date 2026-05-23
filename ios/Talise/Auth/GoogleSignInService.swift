@@ -48,13 +48,25 @@ final class GoogleSignInService: NSObject, ASWebAuthenticationPresentationContex
     /// `ephemeralPubKeyB64` is the device's Curve25519 ephemeral public
     /// key. The backend binds it to the OAuth state so a hostile
     /// redirect can't swap in a different key.
+    ///
+    /// Sent as base64URL (RFC 4648 §5) rather than standard base64.
+    /// Standard base64 contains `+`, which travels through a URL
+    /// query string just fine but gets decoded back to a SPACE by
+    /// Next.js's URLSearchParams — corrupting the bytes server-side.
+    /// base64URL uses `-` and `_` instead, which survive any URL
+    /// parser cleanly.
     func signIn(ephemeralPubKeyB64: String) async throws -> Result {
         let base = AppConfig.shared.apiBaseURL
         guard !base.isEmpty else { throw SignInError.configMissing }
 
+        let urlSafe = ephemeralPubKeyB64
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+
         var components = URLComponents(string: base + "/api/auth/mobile/start")!
         components.queryItems = [
-            URLQueryItem(name: "ephemeralPubKey", value: ephemeralPubKeyB64),
+            URLQueryItem(name: "ephemeralPubKey", value: urlSafe),
         ]
         guard let startURL = components.url else {
             throw SignInError.configMissing

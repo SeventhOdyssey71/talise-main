@@ -35,14 +35,23 @@ const MAX_EPOCH_HORIZON = 2; // current_epoch + 2 → ~48h window
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const ephemeralPubKey = url.searchParams.get("ephemeralPubKey") ?? "";
-  if (ephemeralPubKey.length < 8 || ephemeralPubKey.length > 256) {
+  const ephemeralPubKeyRaw = url.searchParams.get("ephemeralPubKey") ?? "";
+  if (ephemeralPubKeyRaw.length < 8 || ephemeralPubKeyRaw.length > 256) {
     return NextResponse.json({ error: "bad ephemeralPubKey" }, { status: 400 });
   }
 
-  // 1. Build the proper zkLogin nonce. This requires the ephemeral
-  //    public key as a PublicKey object so Mysten's helper can
-  //    extend it and Poseidon-hash with maxEpoch + randomness.
+  // 1. Normalize base64 vs base64URL. iOS sends base64URL (so the
+  //    `+` in standard base64 doesn't get URL-decoded into a space)
+  //    and we accept either form here. The downstream Ed25519PublicKey
+  //    constructor wants raw 32 bytes from standard base64.
+  const standardB64 = ephemeralPubKeyRaw
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .replace(/\s/g, "+");
+  const padded =
+    standardB64 + "=".repeat((4 - (standardB64.length % 4)) % 4);
+  const ephemeralPubKey = padded;
+
   let ephPubKey: Ed25519PublicKey;
   try {
     ephPubKey = new Ed25519PublicKey(fromBase64(ephemeralPubKey));
