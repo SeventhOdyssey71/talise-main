@@ -300,6 +300,12 @@ final class ZkLoginCoordinator {
         return parsed
     }
 
+    /// Specific error iOS surfaces when the backend returns
+    /// `code: session_rebind_required` — older bearer that predates
+    /// the Poseidon-nonce binding. SignInView intercepts this and
+    /// auto-signs-out so the user just sees a normal re-auth prompt.
+    enum SessionError: Error { case rebindRequired }
+
     private func postAuthenticated(
         path: String,
         body: [String: Any]
@@ -320,6 +326,14 @@ final class ZkLoginCoordinator {
             throw CoordinatorError.sponsorFailed("no response")
         }
         guard (200..<300).contains(http.statusCode) else {
+            // Detect the special "your session predates the nonce
+            // binding" 401 from /api/zk/sponsor-execute. Surface as
+            // SessionError.rebindRequired so the UI auto-signs-out.
+            if http.statusCode == 401,
+               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               (parsed["code"] as? String) == "session_rebind_required" {
+                throw SessionError.rebindRequired
+            }
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
             throw CoordinatorError.sponsorFailed(msg)
         }

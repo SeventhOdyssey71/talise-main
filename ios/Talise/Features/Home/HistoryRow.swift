@@ -18,10 +18,10 @@ struct HistoryRow: View {
         Button(action: onTap) {
             HStack(spacing: 14) {
                 ZStack {
-                    Circle().fill(badgeColor).frame(width: 32, height: 32)
+                    Circle().fill(TaliseColor.surface2).frame(width: 32, height: 32)
                     Image(systemName: iconName)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(iconColor)
+                        .foregroundStyle(TaliseColor.fg)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -48,45 +48,16 @@ struct HistoryRow: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(rowBackground)
-            .overlay(rowOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: Color.black.opacity(0.25), radius: 10, x: 0, y: 4)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Glass background + directional tint
-
-    private var rowBackground: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-            // Dark base — anchors the material against the black page so
-            // it doesn't read too light.
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.black.opacity(0.35))
-            // Directional tint — small alpha so the row stays glassy.
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(tintColor.opacity(tintAlpha))
-        }
-    }
-
-    private var rowOverlay: some View {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .strokeBorder(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.16),
-                        Color.white.opacity(0.04),
-                        Color.white.opacity(0.08),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 1
-            )
+        // Directional tint is only applied while the user is pressing
+        // the row — at rest the row reads as neutral glass; on press
+        // it picks up red (sent) or green (received) with a smooth
+        // crossfade. Neutral category never tints.
+        .buttonStyle(HistoryRowButtonStyle(
+            tintColor: tintColor,
+            tintAlpha: tintAlpha
+        ))
     }
 
     // MARK: - Category + tint
@@ -116,24 +87,8 @@ struct HistoryRow: View {
 
     private var tintAlpha: Double {
         switch category {
-        case .sent, .received: return 0.10
+        case .sent, .received: return 0.18  // press-only, so slightly punchier
         case .neutral:         return 0
-        }
-    }
-
-    private var badgeColor: Color {
-        switch category {
-        case .sent:     return Color(hex: 0xC95A4A).opacity(0.22)
-        case .received: return Color(hex: 0x4FB35E).opacity(0.24)
-        case .neutral:  return TaliseColor.surface2
-        }
-    }
-
-    private var iconColor: Color {
-        switch category {
-        case .sent:     return Color(hex: 0xE08D8A)
-        case .received: return Color(hex: 0x79D96C)
-        case .neutral:  return TaliseColor.fg
         }
     }
 
@@ -169,5 +124,44 @@ struct HistoryRow: View {
             return String(format: "\(prefix)%.4f SUI", Swift.abs(sui))
         }
         return prefix + "—"
+    }
+}
+
+/// Glassy row background that animates a directional tint in/out
+/// based on the button's pressed state. At rest the row reads as
+/// neutral glass; on press it picks up red (Sent) or green (Received).
+private struct HistoryRowButtonStyle: ButtonStyle {
+    let tintColor: Color
+    let tintAlpha: Double
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        let alpha = configuration.isPressed ? tintAlpha : 0
+        return configuration.label
+            .background(
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color.black.opacity(0.35))
+                    shape.fill(tintColor.opacity(alpha))
+                }
+            )
+            .overlay(
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.16),
+                            Color.white.opacity(0.04),
+                            Color.white.opacity(0.08),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .clipShape(shape)
+            .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
+            .shadow(color: Color.black.opacity(0.25), radius: 10, x: 0, y: 4)
+            .animation(.easeOut(duration: 0.18), value: configuration.isPressed)
     }
 }

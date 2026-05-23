@@ -411,6 +411,12 @@ struct SendView: View {
                 asset: "USDsui",
                 recipient: resolved.displayString
             )
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            // Old bearer that predates the Poseidon-nonce binding.
+            // Signing it would always 401 — bounce the user back to
+            // sign-in cleanly instead of leaving them stuck.
+            self.error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             self.error = error.localizedDescription
         }
