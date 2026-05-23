@@ -10,15 +10,13 @@ struct SendView: View {
 
     @State private var recipient = ""
     @State private var amount = ""
-    @State private var asset = "USDsui"
     @State private var resolved: RecipientResolution?
     @State private var resolveTask: Task<Void, Never>?
     @State private var resolving = false
     @State private var sending = false
     @State private var error: String?
     @State private var success: SendSuccess?
-
-    private let supportedAssets = ["USDsui", "SUI"]
+    @State private var balance: BalancesDTO?
 
     var body: some View {
         ZStack {
@@ -40,6 +38,7 @@ struct SendView: View {
                 scheduleResolve(prefill)
                 UserDefaults.standard.removeObject(forKey: key)
             }
+            Task { await loadBalance() }
         }
     }
 
@@ -73,15 +72,17 @@ struct SendView: View {
                 .padding(.horizontal, 4)
 
                 fieldBlock(title: "Amount") {
-                    HStack(alignment: .firstTextBaseline) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(CurrencySettings.shared.current.symbol)
+                            .font(TaliseFont.heading(34, weight: .medium))
+                            .foregroundStyle(TaliseColor.fgMuted)
                         TextField("0.00", text: $amount)
                             .keyboardType(.decimalPad)
                             .font(TaliseFont.heading(34, weight: .medium))
                             .foregroundStyle(TaliseColor.fg)
                             .tint(TaliseColor.accent)
-                        Spacer()
-                        assetPicker
                     }
+                    balanceLine
                 }
 
                 if let error {
@@ -203,29 +204,64 @@ struct SendView: View {
         return out
     }
 
-    private var assetPicker: some View {
-        Menu {
-            ForEach(supportedAssets, id: \.self) { a in
-                Button(a) { asset = a }
+    /// Available balance line under the amount input. Shown in the
+    /// user's display currency (matches the headline on Home). When
+    /// the typed amount exceeds the available balance, the line
+    /// turns red and the Send button is disabled.
+    private var balanceLine: some View {
+        HStack(spacing: 4) {
+            if let avail = availableLocal {
+                if typedExceedsBalance {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(TaliseColor.danger)
+                    Text("Not enough — you have \(avail)")
+                        .font(TaliseFont.mono(11, weight: .light))
+                        .foregroundStyle(TaliseColor.danger)
+                } else {
+                    Text("Available")
+                        .font(TaliseFont.mono(11, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                    Text(avail)
+                        .font(TaliseFont.mono(11, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                }
+            } else {
+                Text("Loading balance…")
+                    .font(TaliseFont.mono(11, weight: .light))
+                    .foregroundStyle(TaliseColor.fgDim)
             }
-        } label: {
-            HStack(spacing: 4) {
-                Text(asset)
-                    .font(TaliseFont.heading(14, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(TaliseColor.fgMuted)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(TaliseColor.surface2)
-            .clipShape(Capsule())
+            Spacer()
         }
+        .padding(.top, 4)
+    }
+
+    /// Available balance formatted in the user's selected currency,
+    /// pulled from /api/balances at appear time.
+    private var availableLocal: String? {
+        guard let usdsui = balance?.usdsui else { return nil }
+        return TaliseFormat.local2(usdsui)
+    }
+
+    /// The typed amount converted from the user's display currency
+    /// back to USDsui — what the chain actually settles in.
+    private var typedAmountUsdsui: Double {
+        guard let typed = Double(amount), typed > 0 else { return 0 }
+        let rate = CurrencySettings.shared.rates[CurrencySettings.shared.current.code] ?? 1
+        return typed / rate
+    }
+
+    private var typedExceedsBalance: Bool {
+        let typed = typedAmountUsdsui
+        guard typed > 0, let have = balance?.usdsui else { return false }
+        return typed > have
     }
 
     private var canSend: Bool {
-        resolved != nil && (Double(amount) ?? 0) > 0 && !sending
+        resolved != nil
+            && typedAmountUsdsui > 0
+            && !typedExceedsBalance
+            && !sending
     }
 
     private var primaryButton: some View {
@@ -253,8 +289,9 @@ struct SendView: View {
     }
 
     private var sendLabel: String {
-        guard let amt = Double(amount), amt > 0 else { return "Send" }
-        return "Send \(amount) \(asset)"
+        guard let typed = Double(amount), typed > 0 else { return "Send" }
+        let symbol = CurrencySettings.shared.current.symbol
+        return "Send \(symbol)\(amount)"
     }
 
     // MARK: - Success
@@ -346,34 +383,46 @@ struct SendView: View {
     // MARK: - Send
 
     private func send() async {
-        guard let resolved, let amt = Double(amount), amt > 0 else { return }
+        guard let resolved else { return }
+        let amtUsdsui = typedAmountUsdsui
+        guard amtUsdsui > 0 else { return }
         sending = true
         error = nil
         defer { sending = false }
         do {
-            // 1. Build PTB kind bytes server-side.
+            // The user types in their display currency (₦, $, etc.);
+            // we convert via the cached FX rate to USDsui — the only
+            // unit the chain settles in — before hitting the backend.
             struct Body: Encodable {
                 let to: String; let amount: Double; let asset: String
             }
             let built: BuildKindResponse = try await APIClient.shared.post(
                 "/api/send/prepare",
-                body: Body(to: resolved.address, amount: amt, asset: asset)
+                body: Body(to: resolved.address, amount: amtUsdsui, asset: "USDsui")
             )
-
-            // 2. Sponsored sign + submit.
+            let symbol = CurrencySettings.shared.current.symbol
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
                 transactionKindB64: built.transactionKindB64,
-                intent: "Send \(amount) \(asset)"
+                intent: "Send \(symbol)\(amount)"
             )
-
             success = SendSuccess(
                 digest: result.digest,
-                amount: amount,
-                asset: asset,
+                amount: "\(symbol)\(amount)",
+                asset: "USDsui",
                 recipient: resolved.displayString
             )
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    /// Pulls /api/balances so the "Available" line + overdraft check
+    /// reflect the real on-chain USDsui balance.
+    private func loadBalance() async {
+        do {
+            balance = try await APIClient.shared.get("/api/balances")
+        } catch {
+            balance = nil
         }
     }
 }
