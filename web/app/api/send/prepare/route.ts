@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
-import { Transaction } from "@mysten/sui/transactions";
+import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { sui, COIN_TYPES, USDSUI_DECIMALS } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
@@ -80,61 +80,20 @@ export async function POST(req: Request) {
     const tx = new Transaction();
     tx.setSender(user.sui_address);
 
-    if (asset === "SUI") {
-      // Split from gas coin (we're sponsored — gas comes from Onara, but
-      // the PTB still references the sender's SUI coin via tx.gas).
-      // For SUI sends from a sponsored sender, the cleanest path is to
-      // splitCoins from one of the user's SUI coins (NOT tx.gas, since
-      // gas is owned by sponsor in the sponsored tx). We resolve a SUI
-      // coin object owned by the sender at request time.
-      const coins = await sui().getCoins({
-        owner: user.sui_address,
-        coinType: COIN_TYPES.SUI,
-      });
-      if (coins.data.length === 0) {
-        return NextResponse.json(
-          { error: "no SUI coin available to send" },
-          { status: 400 }
-        );
-      }
-      const primary = coins.data[0];
-      // Merge any extras into the primary so splitCoins has the full
-      // available balance.
-      if (coins.data.length > 1) {
-        tx.mergeCoins(
-          tx.object(primary.coinObjectId),
-          coins.data.slice(1).map((c) => tx.object(c.coinObjectId))
-        );
-      }
-      const [out] = tx.splitCoins(tx.object(primary.coinObjectId), [onchain]);
-      tx.transferObjects([out], to);
-    } else {
-      // USDsui — coin type is the Talise-branded USDsui Move type
-      // (0x44f838…::usdsui::USDSUI), NOT native Circle USDC. They are
-      // separate coins with separate balances. Previous code used
-      // COIN_TYPES.USDC which always returned empty for users holding
-      // USDsui — the "no USDsui available to send" 400 was a bug, not
-      // a real empty wallet.
-      const coins = await sui().getCoins({
-        owner: user.sui_address,
-        coinType: USDSUI_TYPE,
-      });
-      if (coins.data.length === 0) {
-        return NextResponse.json(
-          { error: "no USDsui available to send" },
-          { status: 400 }
-        );
-      }
-      const primary = coins.data[0];
-      if (coins.data.length > 1) {
-        tx.mergeCoins(
-          tx.object(primary.coinObjectId),
-          coins.data.slice(1).map((c) => tx.object(c.coinObjectId))
-        );
-      }
-      const [out] = tx.splitCoins(tx.object(primary.coinObjectId), [onchain]);
-      tx.transferObjects([out], to);
-    }
+    // `coinWithBalance` handles both forms of coin ownership on Sui:
+    //   • Legacy Coin<T> objects (sui_getCoins returns one or more)
+    //   • The new Address Balances (May 2026 gasless stablecoins) where
+    //     funds are pooled per-address and don't surface as Coin<T> objects.
+    // Older code used getCoins + merge + split, which silently returned
+    // empty for any user whose USDsui was stored as an Address Balance —
+    // the "no USDsui available to send" 400 was that bug.
+    // useGasCoin: false guarantees we never reach for tx.gas (sponsor-owned
+    // in a sponsored tx, so the sender doesn't control it).
+    const coinType = asset === "SUI" ? COIN_TYPES.SUI : USDSUI_TYPE;
+    const out = tx.add(
+      coinWithBalance({ type: coinType, balance: onchain, useGasCoin: false })
+    );
+    tx.transferObjects([out], to);
 
     const kind = await tx.build({
       client: sui() as never,
