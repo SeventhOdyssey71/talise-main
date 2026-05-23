@@ -257,8 +257,11 @@ struct HomeView: View {
     /// full feed + filters.
     private var activityCard: some View {
         VStack(spacing: 14) {
-            HStack {
-                MicroLabel(text: "History", color: TaliseColor.fgDim).kerning(1.5)
+            HStack(alignment: .firstTextBaseline) {
+                Text("History")
+                    .font(TaliseFont.heading(17, weight: .medium))
+                    .kerning(-0.4)
+                    .foregroundStyle(TaliseColor.fg)
                 Spacer()
                 if !activity.isEmpty {
                     Button {

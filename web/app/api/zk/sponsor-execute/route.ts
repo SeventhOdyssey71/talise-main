@@ -78,11 +78,9 @@ export async function POST(req: Request) {
   }
 
   // Mobile callers: ALWAYS prefer the (ephPubKey, maxEpoch,
-  // randomness) values stored at sign-in time over what the client
-  // supplied. The JWT's nonce was Poseidon-hashed from those values,
-  // so the prover only accepts proofs minted against them. Letting
-  // the client provide its own randomness causes -32602 Invalid
-  // params 100% of the time.
+  // randomness) values stored at sign-in time. The JWT's nonce was
+  // Poseidon-hashed from those values, so the prover only accepts
+  // proofs minted against them.
   const bound = isMobileRequest(req)
     ? (signing as unknown as {
         ephemeralPubKeyB64: string | null;
@@ -90,6 +88,27 @@ export async function POST(req: Request) {
         randomness: string | null;
       })
     : null;
+
+  // Sessions minted before the Poseidon-nonce fix (commit 6f0a919)
+  // have NULL binding columns. Their JWT's nonce is just random
+  // bytes, so any proof mint will -32602. Force a re-sign-in
+  // instead of trying anyway and surfacing an opaque Shinami error.
+  if (isMobileRequest(req)) {
+    if (
+      !bound?.ephemeralPubKeyB64 ||
+      bound.maxEpoch == null ||
+      !bound.randomness
+    ) {
+      return NextResponse.json(
+        {
+          error: "Sign in again — your session predates the latest fix.",
+          code: "session_rebind_required",
+        },
+        { status: 401 }
+      );
+    }
+  }
+
   const ephemeralPubKeyB64 = bound?.ephemeralPubKeyB64 ?? body.ephemeralPubKeyB64;
   const maxEpochToUse = bound?.maxEpoch ?? body.maxEpoch;
   const randomnessToUse = bound?.randomness ?? body.randomness;
