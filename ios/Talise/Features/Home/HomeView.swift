@@ -124,12 +124,12 @@ struct HomeView: View {
         }
     }
 
-    /// Primary balance figure — USDsui (1:1 USD). Pulled from the
-    /// /api/balances aggregate which itself calls
-    /// `sui_getBalance({ owner, coinType: USDC_TYPE })` server-side, so
-    /// this is the real on-chain balance of the user's wallet.
+    /// Primary balance figure — rendered in the user's chosen display
+    /// currency (defaults to USD, configurable from Profile). On-chain
+    /// the wallet still holds USDsui (1:1 USD); this just maps it
+    /// through the FX rate.
     private var usdsuiFormatted: String {
-        TaliseFormat.usd2(balance?.usdsui ?? 0)
+        TaliseFormat.local2(balance?.usdsui ?? 0)
     }
 
 

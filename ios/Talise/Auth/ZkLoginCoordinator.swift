@@ -91,6 +91,31 @@ final class ZkLoginCoordinator {
         return SignInResult(user: me)
     }
 
+    /// Idempotent warm-up. Called from AppSession.bootstrap so a
+    /// returning user (bearer in Keychain, no fresh signIn this launch)
+    /// still gets a usable ProofCache before they tap Send.
+    ///
+    /// Skips if the cache already has BOTH randomness + maxEpoch +
+    /// proof bytes. Otherwise mints fresh.
+    func ensureProofWarm() async {
+        if ProofCache.shared.jwtRandomness != nil,
+           ProofCache.shared.maxEpoch != nil,
+           ProofCache.shared.proofRaw != nil {
+            return
+        }
+        guard let key = try? EphemeralKeyStore.shared.loadOrCreate() else { return }
+        let pubKeyB64 = key.publicKey.rawRepresentation.base64EncodedString()
+        let randomness = ProofCache.shared.jwtRandomness ?? SuiRandomness.generate()
+        ProofCache.shared.jwtRandomness = randomness
+        guard let maxEpoch = await fetchMaxEpoch() else { return }
+        ProofCache.shared.maxEpoch = maxEpoch
+        await warmProof(
+            pubKeyB64: pubKeyB64,
+            randomness: randomness,
+            maxEpoch: maxEpoch
+        )
+    }
+
     /// Best-effort proof pre-mint via /api/zk/proof. Silent on failure.
     private func warmProof(pubKeyB64: String, randomness: String, maxEpoch: Int) async {
         struct Body: Encodable {
@@ -310,21 +335,112 @@ final class ZkLoginCoordinator {
     }
 }
 
-/// In-memory cache for the per-session zkLogin proof + the metadata the
-/// server needs to assemble a SerializedSignature on every sponsor-execute.
-/// Cleared on sign-out.
+/// Keychain-backed cache for the per-session zkLogin proof + metadata
+/// the server needs to assemble a SerializedSignature on every
+/// sponsor-execute.
+///
+/// Previously in-memory only — meant the cache evaporated on every cold
+/// start. Users who relaunched the app between actions hit
+/// "no proof cache — sign in again" on the next Send, even though
+/// they were still signed in. Now we persist a small blob (JSON of
+/// maxEpoch + randomness + proof) under a Keychain item with the
+/// same accessibility as the bearer, so it survives relaunches but
+/// stays per-device.
 @MainActor
 final class ProofCache {
     static let shared = ProofCache()
-    private init() {}
+    private init() { hydrate() }
 
-    var maxEpoch: Int?
-    var jwtRandomness: String?
-    var proofRaw: Data?
+    var maxEpoch: Int? {
+        didSet { persist() }
+    }
+    var jwtRandomness: String? {
+        didSet { persist() }
+    }
+    var proofRaw: Data? {
+        didSet { persist() }
+    }
 
     func clear() {
         maxEpoch = nil
         jwtRandomness = nil
         proofRaw = nil
+        wipe()
+    }
+
+    // MARK: - Keychain backing
+
+    private let service = "io.talise.app.proof-cache"
+    private let account = "v1"
+
+    private struct Snapshot: Codable {
+        let maxEpoch: Int?
+        let jwtRandomness: String?
+        let proofRaw: Data?
+    }
+
+    private func hydrate() {
+        guard let data = readKeychain(),
+              let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else {
+            return
+        }
+        // Bypass didSet by writing the snapshot atomically without
+        // re-triggering persist() three times in a row.
+        let alreadyHydrated = (maxEpoch ?? -1) == (snap.maxEpoch ?? -2)
+        if alreadyHydrated { return }
+        maxEpoch = snap.maxEpoch
+        jwtRandomness = snap.jwtRandomness
+        proofRaw = snap.proofRaw
+    }
+
+    private func persist() {
+        let snap = Snapshot(
+            maxEpoch: maxEpoch,
+            jwtRandomness: jwtRandomness,
+            proofRaw: proofRaw
+        )
+        guard let data = try? JSONEncoder().encode(snap) else { return }
+        writeKeychain(data)
+    }
+
+    private func writeKeychain(_ data: Data) {
+        let delete: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(delete as CFDictionary)
+
+        let add: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    private func readKeychain() -> Data? {
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(q as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return data
+    }
+
+    private func wipe() {
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(q as CFDictionary)
     }
 }
