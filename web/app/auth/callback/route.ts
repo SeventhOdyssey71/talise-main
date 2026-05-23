@@ -111,9 +111,43 @@ export async function GET(req: Request) {
     // Mobile flow: state was prefixed with "m1." by /api/auth/mobile/start.
     // Mint a bearer token and bounce back to the app via custom scheme.
     if (state.startsWith("m1.")) {
+      // Read the (ephPubKey, maxEpoch, randomness) triple stashed by
+      // /api/auth/mobile/start. These are the EXACT values that bound
+      // the JWT's nonce; we must persist them so future proof mints
+      // recompute the same Poseidon hash the Shinami prover sees in
+      // jwt.nonce. Without this every send fails -32602 Invalid params.
+      const { cookies: cookieJar } = await import("next/headers");
+      const { verify } = await import("@/lib/auth");
+      const jar = await cookieJar();
+      const bindingRaw = jar.get("talise_m1_binding")?.value;
+      let bindingPubKey: string | null = null;
+      let bindingMaxEpoch: number | null = null;
+      let bindingRandomness: string | null = null;
+      if (bindingRaw) {
+        const verified = verify(bindingRaw);
+        if (verified) {
+          try {
+            const decoded = JSON.parse(
+              Buffer.from(verified, "base64url").toString("utf8")
+            );
+            bindingPubKey = decoded.ephemeralPubKey ?? null;
+            bindingMaxEpoch =
+              typeof decoded.maxEpoch === "number" ? decoded.maxEpoch : null;
+            bindingRandomness = decoded.randomness ?? null;
+          } catch {
+            // Malformed — fall through; signing still works but a
+            // future send will need its own randomness generation.
+          }
+        }
+      }
+      jar.delete("talise_m1_binding");
+
       const bearer = await issueMobileBearer(user.id, {
         jwt: id_token,
         salt: user.salt,
+        ephemeralPubKeyB64: bindingPubKey ?? undefined,
+        maxEpoch: bindingMaxEpoch ?? undefined,
+        randomness: bindingRandomness ?? undefined,
       });
       const callback = new URL("talise://auth/callback");
       callback.searchParams.set("token", bearer);

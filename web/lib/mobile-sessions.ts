@@ -33,6 +33,9 @@ export async function ensureMobileSessionsSchema() {
       app_attest_key_id TEXT,
       jwt TEXT,
       salt TEXT,
+      ephemeral_pubkey_b64 TEXT,
+      max_epoch INTEGER,
+      randomness TEXT,
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL,
       revoked INTEGER NOT NULL DEFAULT 0,
@@ -42,14 +45,19 @@ export async function ensureMobileSessionsSchema() {
   await client.execute(
     `CREATE INDEX IF NOT EXISTS mobile_sessions_user_idx ON mobile_sessions(user_id)`
   );
-  // Defensive ALTER for installs that pre-date the jwt/salt columns.
+  // Defensive ALTERs for installs that pre-date later columns.
   // Idempotent: errors when columns already exist are swallowed.
-  try {
-    await client.execute(`ALTER TABLE mobile_sessions ADD COLUMN jwt TEXT`);
-  } catch {}
-  try {
-    await client.execute(`ALTER TABLE mobile_sessions ADD COLUMN salt TEXT`);
-  } catch {}
+  for (const sql of [
+    `ALTER TABLE mobile_sessions ADD COLUMN jwt TEXT`,
+    `ALTER TABLE mobile_sessions ADD COLUMN salt TEXT`,
+    `ALTER TABLE mobile_sessions ADD COLUMN ephemeral_pubkey_b64 TEXT`,
+    `ALTER TABLE mobile_sessions ADD COLUMN max_epoch INTEGER`,
+    `ALTER TABLE mobile_sessions ADD COLUMN randomness TEXT`,
+  ]) {
+    try {
+      await client.execute(sql);
+    } catch {}
+  }
 }
 
 function hash(token: string): string {
@@ -58,21 +66,36 @@ function hash(token: string): string {
 
 export async function issueMobileBearer(
   userId: number,
-  opts: { deviceId?: string; jwt?: string; salt?: string } = {}
+  opts: {
+    deviceId?: string;
+    jwt?: string;
+    salt?: string;
+    /// The ephemeral public key whose nonce-hash is baked into jwt.nonce.
+    /// Persisted so sponsor-execute uses the SAME pubkey the prover
+    /// expects — mismatching it produces -32602 Invalid params.
+    ephemeralPubKeyB64?: string;
+    maxEpoch?: number;
+    randomness?: string;
+  } = {}
 ): Promise<string> {
   await ensureMobileSessionsSchema();
   const token = randomBytes(32).toString("base64url");
   const now = Date.now();
   await db().execute({
     sql: `INSERT INTO mobile_sessions
-            (token_hash, user_id, device_id, jwt, salt, created_at, expires_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            (token_hash, user_id, device_id, jwt, salt,
+             ephemeral_pubkey_b64, max_epoch, randomness,
+             created_at, expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       hash(token),
       userId,
       opts.deviceId ?? null,
       opts.jwt ?? null,
       opts.salt ?? null,
+      opts.ephemeralPubKeyB64 ?? null,
+      opts.maxEpoch ?? null,
+      opts.randomness ?? null,
       now,
       now + MOBILE_SESSION_TTL_MS,
     ],
@@ -114,18 +137,37 @@ export async function revokeAllMobileSessions(userId: number) {
  */
 export async function mobileSigningContext(
   userId: number
-): Promise<{ jwt: string; salt: string } | null> {
+): Promise<{
+  jwt: string;
+  salt: string;
+  ephemeralPubKeyB64: string | null;
+  maxEpoch: number | null;
+  randomness: string | null;
+} | null> {
   await ensureMobileSessionsSchema();
   const row = await db().execute({
-    sql: `SELECT jwt, salt FROM mobile_sessions
+    sql: `SELECT jwt, salt, ephemeral_pubkey_b64, max_epoch, randomness
+          FROM mobile_sessions
           WHERE user_id = ? AND revoked = 0 AND expires_at > ?
             AND jwt IS NOT NULL AND salt IS NOT NULL
           ORDER BY created_at DESC LIMIT 1`,
     args: [userId, Date.now()],
   });
-  const r = row.rows[0] as unknown as { jwt: string; salt: string } | undefined;
+  const r = row.rows[0] as unknown as {
+    jwt: string;
+    salt: string;
+    ephemeral_pubkey_b64: string | null;
+    max_epoch: number | null;
+    randomness: string | null;
+  } | undefined;
   if (!r) return null;
-  return { jwt: r.jwt, salt: r.salt };
+  return {
+    jwt: r.jwt,
+    salt: r.salt,
+    ephemeralPubKeyB64: r.ephemeral_pubkey_b64,
+    maxEpoch: r.max_epoch,
+    randomness: r.randomness,
+  };
 }
 
 /**
