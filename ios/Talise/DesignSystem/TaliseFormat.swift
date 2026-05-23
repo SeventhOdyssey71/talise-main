@@ -27,4 +27,44 @@ enum TaliseFormat {
         fmt.maximumFractionDigits = decimals
         return fmt
     }
+
+    /// Render a USD amount in the user's chosen display currency,
+    /// applying the FX rate from CurrencySettings. Talise always settles
+    /// in USDsui (1:1 USD) on chain — this only changes presentation.
+    /// Falls back to USD output when rates haven't loaded yet.
+    @MainActor
+    static func local(_ usd: Double) -> String {
+        let s = CurrencySettings.shared
+        let (amount, currency) = s.convert(usd: usd)
+        return symbolic(amount, currency: currency)
+    }
+
+    /// Companion that pins decimal places for headline figures.
+    @MainActor
+    static func local2(_ usd: Double) -> String {
+        let s = CurrencySettings.shared
+        let (amount, currency) = s.convert(usd: usd)
+        return symbolic(amount, currency: currency, fixed: 2)
+    }
+
+    /// Render an amount in any TaliseCurrency without going through
+    /// CurrencySettings — used in the picker preview rows.
+    static func symbolic(
+        _ amount: Double,
+        currency: TaliseCurrency,
+        fixed: Int? = nil
+    ) -> String {
+        let decimals: Int = {
+            if let f = fixed { return f }
+            if amount < 1 { return 4 }
+            return 2
+        }()
+        let fmt = NumberFormatter()
+        fmt.numberStyle = .decimal
+        fmt.locale = Locale(identifier: "en_US")
+        fmt.minimumFractionDigits = decimals
+        fmt.maximumFractionDigits = decimals
+        let body = fmt.string(from: NSNumber(value: amount)) ?? "0"
+        return "\(currency.symbol)\(body)"
+    }
 }

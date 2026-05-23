@@ -29,6 +29,14 @@ final class AppSession {
                 phase = .onboarding(user: me)
             } else {
                 phase = .ready(user: me)
+                // Returning users — their bearer survived but the
+                // ProofCache might be cold (esp. if it predates the
+                // Keychain persistence). Warm it in the background so
+                // the first Send doesn't fail with "no proof cache".
+                Task { await ZkLoginCoordinator.shared.ensureProofWarm() }
+                // FX rates for the display-currency picker. Soft-fails
+                // to USD-only if /api/fx is unreachable.
+                Task { await CurrencySettings.shared.refresh() }
             }
         } catch APIError.unauthorized {
             SecureSessionStore.shared.clear()

@@ -165,8 +165,16 @@ struct ProfileView: View {
     // MARK: - Settings (notify-on-receive)
 
     private var settingsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             MicroLabel(text: "Preferences", color: TaliseColor.fgDim).kerning(1.5)
+
+            // Display currency picker. Talise always settles in USDsui
+            // on chain — this just changes what the UI renders. The FX
+            // rate comes from /api/fx, cached server-side for 1h.
+            currencyRow
+
+            Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
+
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Email me when I receive")
@@ -195,6 +203,50 @@ struct ProfileView: View {
         .padding(18)
         .background(TaliseColor.usernameCard)
         .clipShape(RoundedRectangle(cornerRadius: 22))
+    }
+
+    private var currencyRow: some View {
+        Menu {
+            ForEach(TaliseCurrency.allSupported) { c in
+                Button {
+                    CurrencySettings.shared.set(c)
+                } label: {
+                    if c == CurrencySettings.shared.current {
+                        Label("\(c.symbol)  \(c.name)", systemImage: "checkmark")
+                    } else {
+                        Text("\(c.symbol)  \(c.name)")
+                    }
+                }
+            }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Display currency")
+                        .font(TaliseFont.body(14, weight: .light))
+                        .foregroundStyle(TaliseColor.fg)
+                    Text("Wallet settles in USDsui; this only changes display.")
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
+                Spacer()
+                HStack(spacing: 6) {
+                    Text(CurrencySettings.shared.current.symbol)
+                        .font(TaliseFont.heading(14, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                    Text(CurrencySettings.shared.current.code)
+                        .font(TaliseFont.mono(11, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(TaliseColor.surface2)
+                .clipShape(Capsule())
+            }
+            .contentShape(Rectangle())
+        }
     }
 
     // MARK: - Support / web links

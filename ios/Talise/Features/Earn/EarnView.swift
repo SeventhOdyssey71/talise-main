@@ -261,22 +261,10 @@ struct EarnView: View {
     }
 
     private func formatProjection(_ v: Double) -> String {
-        // Use en_US locale so the symbol renders as "$" — without this
-        // a device set to en_GB / en_NG returns "US$0.10" which reads
-        // wrong in a Talise UI that's already implicitly USD.
-        let fmt = NumberFormatter()
-        fmt.numberStyle = .currency
-        fmt.locale = Locale(identifier: "en_US")
-        fmt.currencyCode = "USD"
-        fmt.currencySymbol = "$"
-        if v < 1.0 {
-            fmt.minimumFractionDigits = 4
-            fmt.maximumFractionDigits = 4
-        } else {
-            fmt.minimumFractionDigits = 2
-            fmt.maximumFractionDigits = 2
-        }
-        return fmt.string(from: NSNumber(value: v)) ?? "$0.00"
+        // Routes through the user's display-currency setting so
+        // earnings show in ₦ for a Nigerian, $ for a US user, etc.
+        // Falls back to USD output until /api/fx has loaded.
+        TaliseFormat.local(v)
     }
 
     private var supplyLabel: String {
@@ -323,22 +311,40 @@ struct EarnView: View {
         error = nil
         success = nil
         defer { supplying = false }
-        do {
-            struct Body: Encodable { let venue: String; let amount: Double }
-            let built: BuildKindResponse = try await APIClient.shared.post(
-                "/api/earn/supply/prepare",
-                body: Body(venue: best.venue, amount: amt)
-            )
-            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
-                transactionKindB64: built.transactionKindB64,
-                intent: "Supply \(amount) USDsui"
-            )
-            success = result.digest
-            amount = ""
-            // Refresh comparison so the supplied row updates.
-            Task { await load() }
-        } catch {
-            self.error = error.localizedDescription
+
+        // Try the "best" APY venue first. If the backend doesn't yet
+        // expose that venue to mobile (NAVI returns 501 until @t2000
+        // SDK is split into a pure builder), automatically retry with
+        // DeepBook so the user gets a working supply instead of an
+        // opaque error.
+        let attemptOrder: [String] = {
+            if best.venue == "deepbook" { return ["deepbook"] }
+            return [best.venue, "deepbook"]
+        }()
+
+        for (index, venue) in attemptOrder.enumerated() {
+            do {
+                struct Body: Encodable { let venue: String; let amount: Double }
+                let built: BuildKindResponse = try await APIClient.shared.post(
+                    "/api/earn/supply/prepare",
+                    body: Body(venue: venue, amount: amt)
+                )
+                let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                    transactionKindB64: built.transactionKindB64,
+                    intent: "Supply \(amount) USDsui to \(venue.uppercased())"
+                )
+                success = result.digest
+                amount = ""
+                Task { await load() }
+                return
+            } catch APIError.status(let code, _) where code == 501 &&
+                                                       index < attemptOrder.count - 1 {
+                // Venue not yet wired — fall through to next candidate.
+                continue
+            } catch {
+                self.error = error.localizedDescription
+                return
+            }
         }
     }
 }
