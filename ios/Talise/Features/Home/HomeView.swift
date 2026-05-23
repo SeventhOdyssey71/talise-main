@@ -15,6 +15,7 @@ struct HomeView: View {
     @State private var sweepAlertMessage = ""
     @State private var sweeping = false
     @State private var receiptEntry: ActivityEntryDTO?
+    @State private var historySheetVisible = false
     private let apyHeadline: Double = 0.11
 
     var body: some View {
@@ -52,6 +53,11 @@ struct HomeView: View {
         .sheet(item: $receiptEntry) { entry in
             TxReceiptView(entry: entry)
                 .presentationDetents([.medium, .large])
+                .presentationBackground(TaliseColor.bg)
+        }
+        .sheet(isPresented: $historySheetVisible) {
+            HistoryView()
+                .presentationDetents([.large])
                 .presentationBackground(TaliseColor.bg)
         }
     }
@@ -245,48 +251,77 @@ struct HomeView: View {
 
     // MARK: - Activity card
 
+    /// History section — no surrounding container, each row is its
+    /// own glassmorphic pill with a directional tint (red/green/none).
+    /// Capped at 4 rows here; "See all" opens HistoryView with the
+    /// full feed + filters.
     private var activityCard: some View {
-        RoundedRectangle(cornerRadius: 25)
-            .fill(TaliseColor.surface)
-            .frame(height: 283)
-            .overlay(alignment: .top) {
-                if loadingActivity {
-                    activityLoadingState
-                } else if activity.isEmpty {
-                    activityEmptyState
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(activity.prefix(4)) { row in
-                            activityRow(row)
+        VStack(spacing: 14) {
+            HStack {
+                MicroLabel(text: "History", color: TaliseColor.fgDim).kerning(1.5)
+                Spacer()
+                if !activity.isEmpty {
+                    Button {
+                        historySheetVisible = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("See all")
+                                .font(TaliseFont.body(12, weight: .light))
+                                .foregroundStyle(TaliseColor.fgMuted)
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(TaliseColor.fgMuted)
                         }
                     }
-                    .padding(.top, 18)
-                    .padding(.horizontal, 24)
+                    .buttonStyle(.plain)
                 }
             }
-    }
 
-    private var activityLoadingState: some View {
-        VStack(spacing: 0) {
-            ForEach(0..<3, id: \.self) { _ in
-                HStack(spacing: 14) {
-                    Circle().fill(TaliseColor.badgeNeutral).frame(width: 30, height: 30)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Capsule().fill(TaliseColor.line).frame(width: 80, height: 10)
-                        Capsule().fill(TaliseColor.line).frame(width: 50, height: 8)
-                    }
-                    Spacer()
-                    Capsule().fill(TaliseColor.line).frame(width: 60, height: 10)
+            if loadingActivity {
+                VStack(spacing: 10) {
+                    ForEach(0..<3, id: \.self) { _ in activityRowSkeleton }
                 }
-                .frame(height: 56)
-                .redacted(reason: .placeholder)
-                .opacity(0.5)
+            } else if activity.isEmpty {
+                activityEmptyState
+                    .padding(.vertical, 24)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(activity.prefix(4)) { row in
+                        HistoryRow(entry: row) { receiptEntry = row }
+                    }
+                }
             }
         }
-        .padding(.top, 18)
-        .padding(.horizontal, 24)
     }
 
+    /// Single-row placeholder matching the glassy HistoryRow look.
+    private var activityRowSkeleton: some View {
+        HStack(spacing: 14) {
+            Circle().fill(TaliseColor.badgeNeutral).frame(width: 32, height: 32)
+            VStack(alignment: .leading, spacing: 4) {
+                Capsule().fill(TaliseColor.line).frame(width: 80, height: 10)
+                Capsule().fill(TaliseColor.line).frame(width: 50, height: 8)
+            }
+            Spacer()
+            Capsule().fill(TaliseColor.line).frame(width: 60, height: 12)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .redacted(reason: .placeholder)
+        .opacity(0.6)
+    }
+
+    /// Empty state for the History section. Rendered inline (no
+    /// surrounding container) since the section itself no longer
+    /// uses a card frame.
     private var activityEmptyState: some View {
         VStack(spacing: 6) {
             Text("Nothing yet")
@@ -297,81 +332,7 @@ struct HomeView: View {
                 .kerning(-0.32)
                 .foregroundStyle(TaliseColor.fgDim)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func activityRow(_ entry: ActivityEntryDTO) -> some View {
-        let isReceived = entry.isReceived
-        let icon = isReceived ? "arrow.down.left" : "arrow.up.right"
-        let iconColor = isReceived
-            ? Color(hex: 0x79D96C) : Color(hex: 0xE08D8A)
-        let badge = isReceived ? TaliseColor.badgeReceived : TaliseColor.badgeSent
-        let title = isReceived ? "Received" : "Sent"
-        let amount = formatAmount(entry)
-        return Button {
-            receiptEntry = entry
-        } label: {
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle().fill(badge).frame(width: 30, height: 30)
-                    Image(systemName: icon)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(iconColor)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(TaliseFont.body(12, weight: .light))
-                        .kerning(-0.48)
-                        .foregroundStyle(TaliseColor.fg)
-                    MicroLabel(text: relativeTime(entry.timestampMs))
-                        .kerning(-0.32)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(amount)
-                        .font(TaliseFont.body(14, weight: .light))
-                        .kerning(-0.56)
-                        .foregroundStyle(TaliseColor.fg)
-                    HStack(spacing: 2) {
-                        MicroLabel(text: "Details")
-                            .kerning(-0.32)
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 8, weight: .regular))
-                            .foregroundStyle(TaliseColor.fg)
-                    }
-                }
-            }
-            .frame(height: 56)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func formatAmount(_ e: ActivityEntryDTO) -> String {
-        if let usd = e.amountUsdsui {
-            let abs = Swift.abs(usd)
-            let prefix = e.isReceived ? "+" : "-"
-            // Route through the user's display-currency setting so
-            // Received / Sent rows match the headline (₦274.22 etc).
-            return prefix + TaliseFormat.local2(abs)
-        }
-        if let sui = e.amountSui {
-            let abs = Swift.abs(sui)
-            let prefix = e.isReceived ? "+" : "-"
-            // SUI moves are rare in Talise — keep raw SUI to avoid
-            // claiming a USD-pegged price for a token whose value
-            // changes minute to minute. The sweep banner converts
-            // SUI on the user's tap.
-            return String(format: "\(prefix)%.4f SUI", abs)
-        }
-        return e.isReceived ? "+—" : "-—"
-    }
-
-    private func relativeTime(_ ms: Double) -> String {
-        let date = Date(timeIntervalSince1970: ms / 1000)
-        let fmt = RelativeDateTimeFormatter()
-        fmt.unitsStyle = .abbreviated
-        return fmt.localizedString(for: date, relativeTo: Date())
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Data
