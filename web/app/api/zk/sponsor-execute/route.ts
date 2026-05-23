@@ -77,13 +77,30 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
 
+  // Mobile callers: ALWAYS prefer the (ephPubKey, maxEpoch,
+  // randomness) values stored at sign-in time over what the client
+  // supplied. The JWT's nonce was Poseidon-hashed from those values,
+  // so the prover only accepts proofs minted against them. Letting
+  // the client provide its own randomness causes -32602 Invalid
+  // params 100% of the time.
+  const bound = isMobileRequest(req)
+    ? (signing as unknown as {
+        ephemeralPubKeyB64: string | null;
+        maxEpoch: number | null;
+        randomness: string | null;
+      })
+    : null;
+  const ephemeralPubKeyB64 = bound?.ephemeralPubKeyB64 ?? body.ephemeralPubKeyB64;
+  const maxEpochToUse = bound?.maxEpoch ?? body.maxEpoch;
+  const randomnessToUse = bound?.randomness ?? body.randomness;
+
   try {
     const t0 = Date.now();
     const { signature: zkLoginSignature, proof, isFresh } =
       await assembleZkLoginSignature({
-        ephemeralPubKeyB64: body.ephemeralPubKeyB64,
-        maxEpoch: body.maxEpoch,
-        randomness: body.randomness,
+        ephemeralPubKeyB64,
+        maxEpoch: maxEpochToUse,
+        randomness: randomnessToUse,
         userSignature: body.userSignature,
         cachedProof: body.cachedProof,
         jwt: signing.jwt,

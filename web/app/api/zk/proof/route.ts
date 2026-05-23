@@ -51,14 +51,21 @@ export async function POST(req: Request) {
   }
 
   // Mobile callers: pull JWT + salt from the bearer's signing context.
+  // ALSO prefer the (ephPubKey, maxEpoch, randomness) bound at sign-in
+  // time over the client-supplied values — those are the only ones the
+  // JWT's nonce was Poseidon-hashed from, so they're the only ones the
+  // prover will accept.
   const mobileCtx = isMobileRequest(req) ? await mobileSigningContext(userId) : null;
+  const ephemeralPubKeyB64 = mobileCtx?.ephemeralPubKeyB64 ?? body.ephemeralPubKeyB64;
+  const maxEpochToUse = mobileCtx?.maxEpoch ?? body.maxEpoch;
+  const randomnessToUse = mobileCtx?.randomness ?? body.randomness;
 
   try {
     const t0 = Date.now();
     const proof = await mintZkProof({
-      ephemeralPubKeyB64: body.ephemeralPubKeyB64,
-      maxEpoch: body.maxEpoch,
-      randomness: body.randomness,
+      ephemeralPubKeyB64,
+      maxEpoch: maxEpochToUse,
+      randomness: randomnessToUse,
       jwt: mobileCtx?.jwt,
       salt: mobileCtx?.salt,
     });
