@@ -14,6 +14,7 @@ struct HomeView: View {
     @State private var sweepAlertVisible = false
     @State private var sweepAlertMessage = ""
     @State private var sweeping = false
+    @State private var receiptEntry: ActivityEntryDTO?
     private let apyHeadline: Double = 0.11
 
     var body: some View {
@@ -47,6 +48,11 @@ struct HomeView: View {
             Button("Convert") { Task { await executeSweep() } }
         } message: {
             Text(sweepAlertMessage)
+        }
+        .sheet(item: $receiptEntry) { entry in
+            TxReceiptView(entry: entry)
+                .presentationDetents([.medium, .large])
+                .presentationBackground(TaliseColor.bg)
         }
     }
 
@@ -302,48 +308,60 @@ struct HomeView: View {
         let badge = isReceived ? TaliseColor.badgeReceived : TaliseColor.badgeSent
         let title = isReceived ? "Received" : "Sent"
         let amount = formatAmount(entry)
-        return HStack(spacing: 14) {
-            ZStack {
-                Circle().fill(badge).frame(width: 30, height: 30)
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(iconColor)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(TaliseFont.body(12, weight: .light))
-                    .kerning(-0.48)
-                    .foregroundStyle(TaliseColor.fg)
-                MicroLabel(text: relativeTime(entry.timestampMs))
-                    .kerning(-0.32)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(amount)
-                    .font(TaliseFont.body(14, weight: .light))
-                    .kerning(-0.56)
-                    .foregroundStyle(TaliseColor.fg)
-                HStack(spacing: 2) {
-                    MicroLabel(text: "Details")
-                        .kerning(-0.32)
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 8, weight: .regular))
+        return Button {
+            receiptEntry = entry
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle().fill(badge).frame(width: 30, height: 30)
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(iconColor)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(TaliseFont.body(12, weight: .light))
+                        .kerning(-0.48)
                         .foregroundStyle(TaliseColor.fg)
+                    MicroLabel(text: relativeTime(entry.timestampMs))
+                        .kerning(-0.32)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(amount)
+                        .font(TaliseFont.body(14, weight: .light))
+                        .kerning(-0.56)
+                        .foregroundStyle(TaliseColor.fg)
+                    HStack(spacing: 2) {
+                        MicroLabel(text: "Details")
+                            .kerning(-0.32)
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 8, weight: .regular))
+                            .foregroundStyle(TaliseColor.fg)
+                    }
                 }
             }
+            .frame(height: 56)
+            .contentShape(Rectangle())
         }
-        .frame(height: 56)
+        .buttonStyle(.plain)
     }
 
     private func formatAmount(_ e: ActivityEntryDTO) -> String {
         if let usd = e.amountUsdsui {
             let abs = Swift.abs(usd)
             let prefix = e.isReceived ? "+" : "-"
-            return prefix + currency(abs)
+            // Route through the user's display-currency setting so
+            // Received / Sent rows match the headline (₦274.22 etc).
+            return prefix + TaliseFormat.local2(abs)
         }
         if let sui = e.amountSui {
             let abs = Swift.abs(sui)
             let prefix = e.isReceived ? "+" : "-"
+            // SUI moves are rare in Talise — keep raw SUI to avoid
+            // claiming a USD-pegged price for a token whose value
+            // changes minute to minute. The sweep banner converts
+            // SUI on the user's tap.
             return String(format: "\(prefix)%.4f SUI", abs)
         }
         return e.isReceived ? "+—" : "-—"
