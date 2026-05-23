@@ -32,6 +32,15 @@ struct TxReceiptView: View {
         }
         .background(TaliseColor.bg.ignoresSafeArea())
         .presentationDragIndicator(.visible)
+        .task {
+            // If the FX cache is stale (cold launch with old persisted
+            // rates), refresh in the background so the amount picks up
+            // the right local-currency conversion the next time the
+            // view re-renders.
+            if CurrencySettings.shared.isStale() {
+                await CurrencySettings.shared.refresh()
+            }
+        }
     }
 
     // MARK: - Direction badge
@@ -75,7 +84,10 @@ struct TxReceiptView: View {
     }
 
     private var primaryAmount: String {
-        let prefix = entry.isReceived ? "+" : "-"
+        // U+202F NARROW NO-BREAK SPACE between sign and currency symbol
+        // so "-₦0.01" doesn't render with the minus stroke kissing the
+        // ₦ glyph at this big point size.
+        let prefix = entry.isReceived ? "+\u{202F}" : "-\u{202F}"
         if let usd = entry.amountUsdsui {
             return prefix + TaliseFormat.local2(Swift.abs(usd))
         }
@@ -89,7 +101,15 @@ struct TxReceiptView: View {
 
     private var detailsCard: some View {
         VStack(spacing: 0) {
-            row(label: "From", value: counterpartyOrAddress, mono: !hasCounterpartyName)
+            // For a Sent tx the counterparty is the RECIPIENT — label
+            // it "To". For a Received tx it's the SENDER — label "From".
+            // Old code always said "From" which read backwards for any
+            // outgoing transfer.
+            row(
+                label: entry.isReceived ? "From" : "To",
+                value: counterpartyOrAddress,
+                mono: !hasCounterpartyName
+            )
             divider
             row(label: "Date", value: dateFormatter.string(from: timestamp))
             divider
