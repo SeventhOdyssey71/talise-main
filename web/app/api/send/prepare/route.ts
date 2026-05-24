@@ -80,15 +80,20 @@ export async function POST(req: Request) {
     const tx = new Transaction();
     tx.setSender(user.sui_address);
 
-    // `coinWithBalance` handles both forms of coin ownership on Sui:
-    //   • Legacy Coin<T> objects (sui_getCoins returns one or more)
-    //   • The new Address Balances (May 2026 gasless stablecoins) where
-    //     funds are pooled per-address and don't surface as Coin<T> objects.
-    // Older code used getCoins + merge + split, which silently returned
-    // empty for any user whose USDsui was stored as an Address Balance —
-    // the "no USDsui available to send" 400 was that bug.
-    // useGasCoin: false guarantees we never reach for tx.gas (sponsor-owned
-    // in a sponsored tx, so the sender doesn't control it).
+    // Onara's sponsor policy requires every PTB to contain at least
+    // one MoveCall (so vanilla coin transfers via splitCoins +
+    // transferObjects get rejected). The cheapest no-op MoveCall on
+    // Sui is `0x2::clock::timestamp_ms` — reads the Clock object's
+    // current timestamp, drops the u64 return. Costs nothing in
+    // chain state, satisfies the policy.
+    tx.moveCall({
+      target: "0x2::clock::timestamp_ms",
+      arguments: [tx.object("0x6")],
+    });
+
+    // coinWithBalance handles both Coin<T> objects AND the new
+    // Address Balance form (May 2026 gasless stablecoins). useGasCoin:
+    // false guarantees we never reach for tx.gas (sponsor-owned).
     const coinType = asset === "SUI" ? COIN_TYPES.SUI : USDSUI_TYPE;
     const out = tx.add(
       coinWithBalance({ type: coinType, balance: onchain, useGasCoin: false })
