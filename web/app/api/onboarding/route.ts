@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import {
   clearReferralCookie,
   readReferralCookie,
-  readSessionEntryId,
 } from "@/lib/session";
+import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import {
   attributeReferral,
   isHandleTaken,
@@ -45,7 +45,7 @@ async function tryAttributeReferral(
 }
 
 export async function POST(req: Request) {
-  const id = await readSessionEntryId();
+  const id = await readEntryIdFromRequest(req);
   if (!id) return NextResponse.json({ error: "not authenticated" }, { status: 401 });
 
   const user = await userById(id);

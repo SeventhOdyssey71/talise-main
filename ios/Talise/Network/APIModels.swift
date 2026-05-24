@@ -76,20 +76,16 @@ struct UsernameCheckResponse: Codable {
     let reason: String?
 }
 
-struct EpochDTO: Codable {
-    let epoch: Int
-    let maxEpoch: Int
-}
-
-struct ZkProofRequest: Codable {
-    let ephemeralPubKeyB64: String
-    let maxEpoch: Int
-    let randomness: String
-}
-
-struct ZkProofResponse: Codable {
-    let proof: AnyCodable
-}
+// Note: /api/sui/epoch returns `{ epoch: String }` (Sui SDK stringifies
+// epoch numbers). Callers decode inline with their own struct rather
+// than going through a shared DTO, so there's intentionally no
+// `EpochDTO` here.
+//
+// /api/zk/proof + /api/zk/sponsor + /api/zk/sponsor-execute response
+// shapes are read by ZkLoginCoordinator via raw `[String: Any]`
+// decoding (the proof body is a nested freeform object; round-tripping
+// it through Codable produces stringified inner JSON — see warmProof's
+// comment). No shared DTOs for those paths either.
 
 struct RecipientResolution: Codable {
     let address: String
@@ -224,30 +220,12 @@ struct RewardsEvent: Codable, Identifiable {
     let createdAt: String
 }
 
-struct SponsorRequest: Codable {
-    let ptbBytesB64: String
-    let sender: String
-    let cachedProof: AnyCodable?
-}
-
-struct SponsorResponse: Codable {
-    let txBytes: String
-    let sponsorSignature: String
-    let expiryEpoch: Int
-}
-
-struct SponsorExecuteRequest: Codable {
-    let txBytes: String
-    let userSignature: String
-    let sponsorSignature: String
-    let kind: String?
-}
-
-struct SponsorExecuteResponse: Codable {
-    let digest: String
-    let success: Bool
-    let error: String?
-}
+// Sponsor + sponsor-execute request/response shapes are NOT modeled
+// as Codable here. ZkLoginCoordinator builds the request bodies as
+// `[String: Any]` directly and decodes responses via JSONSerialization
+// — the proof object is a nested freeform structure that gets
+// stringified if forced through AnyCodable. See ZkLoginCoordinator.swift
+// for the actual wire shapes used end-to-end.
 
 /// Minimal AnyCodable for shapes the backend returns as freeform JSON
 /// (e.g. the zkLogin proof object). We don't introspect the structure.

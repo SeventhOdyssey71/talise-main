@@ -207,7 +207,11 @@ await hit("POST /api/settings", "/api/settings", {
 // ─── Sign-out (kept last) ───────────────────────────────────────────
 // /api/auth/mobile/start is a GET that redirects to Google — we just
 // verify it returns a 3xx Location.
-await hit("GET /api/auth/mobile/start", "/api/auth/mobile/start?ephemeralPubKey=" + "A".repeat(44), {
+// Valid-looking 32-byte Ed25519 public key (all zeros). The route
+// validates length + decodes via Ed25519PublicKey; a 32-byte b64
+// blob passes both checks and we get the expected 302 to Google.
+const testEphPubB64 = Buffer.alloc(32, 0).toString("base64").replace(/=/g, "");
+await hit("GET /api/auth/mobile/start", `/api/auth/mobile/start?ephemeralPubKey=${testEphPubB64}`, {
   bearer,
   expect: (r) => (r.status === 302 || r.status === 200 ? null : `unexpected status ${r.status}`),
 });
