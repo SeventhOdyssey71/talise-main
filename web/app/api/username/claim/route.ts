@@ -84,17 +84,47 @@ export async function POST(req: Request) {
     }
   }
 
-  try {
-    const { digest, subnameNftId } = await mintSubname({
-      username,
-      userAddress: user.sui_address,
-    });
-    return NextResponse.json({ ok: true, username, digest, subnameNftId });
-  } catch (err) {
-    const reason = (err as Error).message ?? "subname mint failed";
-    return NextResponse.json(
-      { error: `On-chain subname mint failed: ${reason}` },
-      { status: 502 }
-    );
-  }
+  // Per-user concurrency gate. A double-tap on the Claim button (or a
+  // misbehaving client retrying mid-mint) would otherwise pass the
+  // ownership + availability checks twice and broadcast two mint txs.
+  // The second always reverts on chain (good — we don't end up with
+  // duplicate NFTs), but the response is an opaque 502 from the
+  // already-spent SuiNS field. An in-process Map of inflight promises
+  // collapses concurrent calls for the same user into one mint.
+  return await singleflight(userId, async () => {
+    try {
+      const { digest, subnameNftId } = await mintSubname({
+        username,
+        userAddress: user.sui_address,
+      });
+      return NextResponse.json({ ok: true, username, digest, subnameNftId });
+    } catch (err) {
+      const reason = (err as Error).message ?? "subname mint failed";
+      return NextResponse.json(
+        { error: `On-chain subname mint failed: ${reason}` },
+        { status: 502 }
+      );
+    }
+  });
+}
+
+/// Single-flight gate keyed by user id. Subsequent calls for the same
+/// user while the first is in-flight await the same result. Resets
+/// when the inflight settles. Module-scope so it survives across
+/// requests within one server process — good enough until we're
+/// running multiple instances behind a load balancer; at that point
+/// we'd swap this for a Redis lock or DB advisory lock.
+const inflight = new Map<number, Promise<NextResponse>>();
+async function singleflight(
+  userId: number,
+  fn: () => Promise<NextResponse>
+): Promise<NextResponse> {
+  // Multiple awaiters on the same Promise all get the same resolved
+  // NextResponse — fine because we never mutate the response after
+  // construction. No .clone() needed.
+  const existing = inflight.get(userId);
+  if (existing) return existing;
+  const p = fn().finally(() => inflight.delete(userId));
+  inflight.set(userId, p);
+  return p;
 }

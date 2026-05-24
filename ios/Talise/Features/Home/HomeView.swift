@@ -392,12 +392,16 @@ struct HomeView: View {
         TaliseFormat.usd(v)
     }
 
-    /// Open the onramp flow in Safari. Backend creates a hosted session
-    /// (see /api/onramp/session) and redirects to the provider.
+    /// The "+" deposit button. Until the Stripe Onramp flow has a
+    /// one-time bearer→cookie bridge wired (so Safari can carry the
+    /// iOS auth across to /api/onramp/session), this button opens the
+    /// Receive sheet — the user can copy their address / share the
+    /// QR with anyone holding USDsui (another Talise user, an exchange,
+    /// a hot wallet) and have funds delivered without leaving the app.
     private func openOnramp() async {
-        let base = AppConfig.shared.apiBaseURL
-        let url = URL(string: base + "/api/onramp/session?provider=hosted")!
-        await UIApplication.shared.open(url)
+        NotificationCenter.default.post(
+            name: .taliseRequestReceiveSheet, object: nil
+        )
     }
 
     // MARK: - Sweep to USDsui (Onara-sponsored, Cetus route)
