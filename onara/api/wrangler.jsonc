@@ -3,6 +3,13 @@
   "name": "talise-onara",
   "main": "src/workers.ts",
   "compatibility_date": "2026-02-26",
+  // The Cetus aggregator SDK pulls in `bn.js`, which lazily tries to
+  // `require("buffer")` inside a try/catch. With `nodejs_compat` on
+  // (paired with a compat date ≥ 2024-09-23) this resolves cleanly via
+  // workerd's built-in Node compat layer. Without the flag the require
+  // silently fails and BN keeps working in pure-JS mode — but enabling
+  // it makes the behavior deterministic across cold starts.
+  "compatibility_flags": ["nodejs_compat"],
   "dev": {
     "port": 8787
   },

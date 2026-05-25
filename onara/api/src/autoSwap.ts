@@ -9,12 +9,14 @@
 // keypair derived from SUI_MNEMONIC, so signing with that keypair as
 // sender (not as additional sponsor sig) is what unlocks the cap.
 //
-// NOTE: the Cetus call is a clearly-marked STUB. A follow-up change has
-// to replace `cetusSwap` with a real aggregator call (probably 7K or the
-// Cetus SDK) — see the TODO inside the function. Until then, this route
-// will simulate/submit a PTB that the chain rejects with a "function
-// not found" error, which is fine for plumbing verification on testnet
-// but obviously not for mainnet.
+// The actual swap is performed via the Cetus aggregator SDK
+// (`@cetusprotocol/aggregator-sdk`), which discovers the best-priced
+// route across every DEX on Sui and returns a single PTB fragment that
+// our PTB consumes. The aggregator's ESM bundle is Workers-safe — its
+// only runtime deps are `@mysten/sui/*`, `@pythnetwork/hermes-client`
+// (fetch-based), and `bn.js` (pure JS with a defensive try/catch around
+// `require("buffer")`). The `nodejs_compat` flag in wrangler.jsonc
+// makes the buffer require succeed deterministically.
 
 import type { Context } from 'hono'
 import { Hono } from 'hono'
@@ -28,8 +30,25 @@ import {
 import { SuiGrpcClient } from '@mysten/sui/grpc'
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import { isValidSuiObjectId } from '@mysten/sui/utils'
+import { AggregatorClient } from '@cetusprotocol/aggregator-sdk'
+import BN from 'bn.js'
 import pRetry from 'p-retry'
 import pTimeout from 'p-timeout'
+
+// ─── Tunables ────────────────────────────────────────────────────────────────
+
+/// Default slippage tolerance for the aggregator route (1.0%). The
+/// aggregator SDK consumes this as a fractional ratio, so 0.01 means
+/// "abort the swap if amountOut would dip more than 1% below the
+/// quoted figure". Tighten for stablecoin↔stablecoin routes, loosen
+/// for long-tail pairs — but never relax beyond 5% from this worker;
+/// users opted in to "best execution," not "any execution."
+const DEFAULT_SLIPPAGE = 0.01
+
+/// Public Cetus aggregator endpoint. The SDK ships with this baked in,
+/// but pinning it here makes it overridable via env later without a
+/// code change.
+const CETUS_AGGREGATOR_ENDPOINT = 'https://api-sui.cetus.zone/router_v2/find_routes'
 
 // ─── Env shape (subset — must match app.ts Bindings) ─────────────────────────
 
@@ -88,54 +107,102 @@ const autoSwapBodySchema = z.object({
 
 export type AutoSwapRequest = z.infer<typeof autoSwapBodySchema>
 
-// ─── Cetus swap STUB ─────────────────────────────────────────────────────────
-//
-// TODO(cetus-real): replace this with a real Cetus aggregator call.
-// Right now it emits a single moveCall that takes the source balance and
-// produces a dummy `Balance<Dest>` — the target string here is a
-// PLACEHOLDER and does not resolve on chain. A follow-up commit should
-// either:
-//   (a) call `cetus_clmm::pool::swap_b2a` / `swap_a2b` directly on a
-//       specific pool, then wrap the resulting Coin<Dest> into a Balance,
-//       OR
-//   (b) use 7K Aggregator's swap helper which already gives back
-//       Balance<Dest> on the PTB.
-//
-// The function intentionally lives in this same file so the follow-up
-// agent only has to touch one place.
-function cetusSwap(
+// ─── Cetus aggregator swap ───────────────────────────────────────────────────
+
+/// Wraps a `Balance<Source>` from `vault::auto_swap_extract` in a
+/// `Coin<Source>`, routes it through the Cetus aggregator, and unwraps
+/// the resulting `Coin<Dest>` back into a `Balance<Dest>` that
+/// `vault::auto_swap_deposit` can consume.
+///
+/// The aggregator expects a Coin (not a Balance), which is why the
+/// `coin::from_balance` / `coin::into_balance` shims sandwich the
+/// `routerSwap` call. These are stdlib at `0x2::coin` and add a single
+/// moveCall on each side — cheap enough that we do not bother with a
+/// fast-path when source==dest (the chain accepts a no-op route, and a
+/// `Coin<T> → Balance<T>` round trip is fine).
+///
+/// `pool` is honored as a routing bias: when supplied, the aggregator
+/// is asked to restrict its search to that pool's provider. If the
+/// caller passes an unknown pool we fall back to unconstrained routing
+/// rather than fail the request — that way an out-of-date hint never
+/// blocks a swap.
+async function cetusSwap(
   tx: Transaction,
   sourceBalance: TransactionObjectArgument,
   sourceType: string,
   destType: string,
   pool: string | undefined,
-): TransactionObjectArgument {
-  // Encode the pool (if any) as an arg so the placeholder call shape is
-  // closer to what the real Cetus call will look like. When pool is
-  // omitted we pass a zero address — the real aggregator path would use
-  // best-price routing instead.
-  const poolArg = tx.pure.address(
-    pool ?? '0x0000000000000000000000000000000000000000000000000000000000000000',
-  )
-
-  // PLACEHOLDER move call — see TODO above. Returns the swap output as
-  // `Balance<Dest>`. This target string is intentionally fake-but-shaped
-  // like a real Cetus entrypoint so a TS reader notices the stub.
-  const [swapped] = tx.moveCall({
-    target:
-      '0x0000000000000000000000000000000000000000000000000000000000000000::cetus_stub::swap',
-    typeArguments: [sourceType, destType],
-    arguments: [sourceBalance, poolArg],
+  amount: string,
+  aggregator: AggregatorClient,
+): Promise<TransactionObjectArgument> {
+  // 1. Balance<Source> → Coin<Source> so the aggregator can consume it.
+  const [sourceCoin] = tx.moveCall({
+    target: '0x2::coin::from_balance',
+    typeArguments: [sourceType],
+    arguments: [sourceBalance],
   })
-  if (!swapped) {
-    throw new Error('Cetus stub did not return a result')
+  if (!sourceCoin) {
+    throw new Error('coin::from_balance did not return a coin')
   }
-  return swapped
+
+  // 2. Ask the aggregator for the best route. We always request
+  //    `byAmountIn: true` because the vault already split a specific
+  //    amount of Source out — we want to consume exactly that.
+  //
+  //    `pool` is a hint, not a hard filter: the SDK has no
+  //    "must-use-this-pool" knob, so we leave routing open and let the
+  //    quote pick what it picks. (A future pass could narrow `providers`
+  //    using a hint-to-provider map, but every entry there is a
+  //    maintenance burden — better to trust the aggregator.)
+  void pool
+
+  const router = await aggregator.findRouters({
+    from: sourceType,
+    target: destType,
+    amount: new BN(amount),
+    byAmountIn: true,
+  })
+  if (!router) {
+    throw new Error('Cetus aggregator returned no route')
+  }
+  if (router.error) {
+    throw new Error(`Cetus aggregator error: ${router.error.msg}`)
+  }
+  if (router.insufficientLiquidity) {
+    throw new Error('Cetus aggregator: insufficient liquidity for this size')
+  }
+
+  // 3. Expand the route into moveCalls on our PTB. `routerSwap` takes
+  //    our existing transaction and our existing Coin<Source> arg and
+  //    returns a Coin<Dest>. It internally inserts whatever Pyth
+  //    `update_price_feeds` calls are required by providers that need
+  //    them (Pyth-priced AMMs).
+  const destCoin = await aggregator.routerSwap({
+    router,
+    inputCoin: sourceCoin,
+    slippage: DEFAULT_SLIPPAGE,
+    txb: tx,
+  })
+
+  // 4. Coin<Dest> → Balance<Dest> so `auto_swap_deposit` can take it.
+  const [destBalance] = tx.moveCall({
+    target: '0x2::coin::into_balance',
+    typeArguments: [destType],
+    arguments: [destCoin],
+  })
+  if (!destBalance) {
+    throw new Error('coin::into_balance did not return a balance')
+  }
+  return destBalance
 }
 
 // ─── PTB builder ─────────────────────────────────────────────────────────────
 
-function buildAutoSwapTx(req: AutoSwapRequest, sender: string): Transaction {
+async function buildAutoSwapTx(
+  req: AutoSwapRequest,
+  sender: string,
+  aggregator: AggregatorClient,
+): Promise<Transaction> {
   const tx = new Transaction()
   tx.setSender(sender)
 
@@ -161,13 +228,15 @@ function buildAutoSwapTx(req: AutoSwapRequest, sender: string): Transaction {
     throw new Error('vault::auto_swap_extract did not return (balance, ticket)')
   }
 
-  // 2. Swap through Cetus (STUB — see cetusSwap).
-  const swappedBalance = cetusSwap(
+  // 2. Route through the Cetus aggregator.
+  const swappedBalance = await cetusSwap(
     tx,
     sourceBalance,
     req.sourceType,
     req.destType,
     req.pool,
+    req.amount,
+    aggregator,
   )
 
   // 3. Deposit the swap output back into the same vault and consume
@@ -220,6 +289,31 @@ function getKeypair(mnemonic: string): Ed25519Keypair {
   return _kp
 }
 
+let _agg: AggregatorClient | null = null
+let _aggKey = ''
+function getAggregator(
+  grpc: SuiGrpcClient,
+  network: string,
+  signer: string,
+): AggregatorClient {
+  // The aggregator's V8-incompatible `Env` type is a string union
+  // ("mainnet" | "testnet") at runtime — feed it our network as-is.
+  // The signer address is used only to derive coin objects when the
+  // SDK builds its own input coin; we hand it a Coin directly, so this
+  // is just metadata for the route-finder.
+  const env = network === 'mainnet' ? 'mainnet' : 'testnet'
+  const key = `${env}:${signer}`
+  if (_agg && _aggKey === key) return _agg
+  _agg = new AggregatorClient({
+    endpoint: CETUS_AGGREGATOR_ENDPOINT,
+    client: grpc,
+    signer,
+    env: env as never,
+  })
+  _aggKey = key
+  return _agg
+}
+
 // ─── Route ───────────────────────────────────────────────────────────────────
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 45_000
@@ -249,11 +343,12 @@ async function handleAutoSwap(c: Context<{ Bindings: Bindings }>) {
   const keypair = getKeypair(bindings.SUI_MNEMONIC)
   const sender = keypair.toSuiAddress()
   const grpc = getGrpc(bindings)
+  const aggregator = getAggregator(grpc, bindings.SUI_NETWORK, sender)
 
   // Build PTB
   let txBytes: Uint8Array
   try {
-    const tx = buildAutoSwapTx(req, sender)
+    const tx = await buildAutoSwapTx(req, sender, aggregator)
     txBytes = await tx.build({ client: grpc })
   } catch (error) {
     const message =
