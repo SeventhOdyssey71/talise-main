@@ -49,7 +49,7 @@ export default async function Landing({
 
       <TopBar />
 
-      <main className="relative z-10 mx-auto w-full max-w-[1100px] px-6 pb-32">
+      <main className="relative z-10 mx-auto w-full max-w-[1320px] px-6 pb-32 md:px-10">
         <Hero err={params.err} />
         <FeatureGrid />
         <PersonaStories />
@@ -66,7 +66,7 @@ export default async function Landing({
 
 function TopBar() {
   return (
-    <header className="relative z-10 mx-auto flex w-full max-w-[1100px] items-center justify-between px-6 py-5">
+    <header className="relative z-10 mx-auto flex w-full max-w-[1320px] items-center justify-between px-6 py-5 md:px-10">
       <Link
         href="/"
         className="flex items-center gap-2 text-[15px] tracking-tight text-[var(--color-fg)]"
@@ -94,85 +94,73 @@ function TopBar() {
 
 function Hero({ err }: { err?: string }) {
   return (
-    <section className="pt-16 pb-20 md:pt-20">
-      {/*
-       * Two-column hero: copy + CTA on the left, real iPhone screenshot
-       * on the right. Stacks vertically on mobile where the column is
-       * narrow enough that side-by-side would crush the screenshot.
-       */}
-      <div className="grid items-center gap-12 md:grid-cols-[1.05fr_1fr] md:gap-10 lg:gap-16">
-        {/* ── Left column: eyebrow + headline + copy + CTA ───────── */}
-        <div className="text-left">
-          <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
-            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
-            new — live on Sui mainnet
-          </div>
-
-          <h1 className="mt-6 text-[clamp(40px,6vw,68px)] font-medium leading-[1.03] tracking-[-0.02em] text-[var(--color-fg)]">
-            Send money across the globe.{" "}
-            <span
-              className="text-[var(--color-accent)]"
-              style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
-            >
-              For free.
-            </span>
-          </h1>
-
-          <p className="mt-6 max-w-[520px] text-[15px] leading-[1.55] text-[var(--color-fg-muted)]">
-            Talise moves naira, shillings, cedis, and rand across borders in
-            seconds — at a fraction of what Wise, Western Union, or Remitly
-            charge. Sign in with Google. No app, no agent, no queue.
-          </p>
-
-          <div id="cta" className="mt-9 max-w-[340px]">
-            <SignInButton variant="primary" label="Continue with Google" />
-            <div className="mt-3 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-              <span>no app to install</span>
-              <span>·</span>
-              <span>arrives in seconds</span>
-            </div>
-          </div>
-
-          {err && <ErrorBanner err={err} />}
-        </div>
-
-        {/* ── Right column: actual app screenshot ────────────────── */}
-        <PhoneShot />
+    <section className="pt-12 pb-12 text-center md:pt-20 md:pb-16">
+      {/* Eyebrow */}
+      <div className="mx-auto flex items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
+        new — live on Sui mainnet
       </div>
+
+      {/* Centered headline — bigger, fills the page. Italic accent on
+          "For free." picks up the Instrument Serif from layout fonts. */}
+      <h1 className="mx-auto mt-6 max-w-[1000px] text-[clamp(44px,7.5vw,88px)] font-medium leading-[1.02] tracking-[-0.025em] text-[var(--color-fg)]">
+        Send money across the globe.{" "}
+        <span
+          className="text-[var(--color-accent)]"
+          style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
+        >
+          For free.
+        </span>
+      </h1>
+
+      <p className="mx-auto mt-6 max-w-[620px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
+        Talise moves naira, shillings, cedis, and rand across borders in
+        seconds — at a fraction of what Wise, Western Union, or Remitly
+        charge. Sign in with Google. No app, no agent, no queue.
+      </p>
+
+      <div id="cta" className="mx-auto mt-9 max-w-[360px]">
+        <SignInButton variant="primary" label="Continue with Google" />
+        <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
+          <span>no app to install</span>
+          <span>·</span>
+          <span>arrives in seconds</span>
+        </div>
+      </div>
+
+      {err && <ErrorBanner err={err} />}
+
+      {/* Big phone collage below the text, centered. The artwork is a
+          pre-composed image of two iPhone screens (Earn + Home) with
+          watercolor accent foliage — sits in a soft green wash that
+          ties into the page-level TopGlow. */}
+      <PhoneCollage />
 
       <StatRow />
     </section>
   );
 }
 
-/**
- * Real iPhone Pro screenshot of the Home tab, framed in a soft accent
- * glow so it visually anchors the right side of the hero. No HTML mock —
- * just the actual app so the visual matches the product 1:1.
- */
-function PhoneShot() {
+function PhoneCollage() {
   return (
-    <div className="relative mx-auto w-full max-w-[360px] md:max-w-[400px]">
-      {/* soft green wash behind the phone, matches iOS TopGlow */}
+    <div className="relative mx-auto mt-14 w-full max-w-[1100px] md:mt-20">
+      {/* soft green wash behind the artwork */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10 blur-3xl"
+        className="pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-[80%] max-w-[900px] blur-3xl"
         style={{
           background:
-            "radial-gradient(60% 50% at 50% 35%, color-mix(in srgb, var(--color-accent) 35%, transparent), transparent 70%)",
+            "radial-gradient(60% 55% at 50% 50%, color-mix(in srgb, var(--color-accent) 28%, transparent), transparent 70%)",
         }}
       />
       <Image
-        src="/app-home-preview.png"
-        alt="Talise iOS app — Home screen showing balance and recent activity"
-        width={1206}
-        height={2622}
+        src="/talise-app-collage.png"
+        alt="Talise iOS app — Earn + Home screens shown side by side"
+        width={2208}
+        height={1242}
         priority
-        className="w-full h-auto rounded-[40px]"
-        style={{
-          boxShadow:
-            "0 30px 80px -20px rgba(0,0,0,0.7), 0 2px 6px rgba(0,0,0,0.4)",
-        }}
+        sizes="(max-width: 768px) 100vw, 1100px"
+        className="mx-auto h-auto w-full"
       />
     </div>
   );
