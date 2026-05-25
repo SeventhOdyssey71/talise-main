@@ -23,6 +23,8 @@
 
 import { Transaction } from "@mysten/sui/transactions";
 import { USDSUI_TYPE } from "./usdsui";
+import { SuinsTransaction } from "@mysten/suins";
+import { suins } from "./suins-operator";
 
 // ───────────────────────────────────────────────────────────────────
 // Env / package resolution
@@ -130,6 +132,41 @@ export function buildEnableAutoSwapTx(
       tx.pure.u64(BigInt(maxPerSwap)),
       tx.pure.u64(BigInt(expiresAtMs)),
     ],
+  });
+  return tx;
+}
+
+/**
+ * Build a PTB that re-targets a `*.talise.sui` SuiNS subname NFT at a
+ * new address (typically the user's vault id). The signer MUST be the
+ * current owner of the subname NFT — Talise's operator key cannot do
+ * this on the user's behalf because the SubDomainRegistration NFT is
+ * transferred to the user at mint time, and SuiNS's `set_target_address`
+ * asserts NFT ownership in the calling tx.
+ *
+ * No package id from `vaultPackageIds()` is needed — the call targets
+ * the SuiNS package, which is always live on mainnet. We still keep this
+ * builder colocated with the other vault PTBs because every caller pairs
+ * a repoint with a vault operation.
+ *
+ * Use cases:
+ *   • `/api/vault/record` returns this PTB so a brand-new vault flow
+ *     can immediately repoint the user's existing handle.
+ *   • `/api/vault/migrate-bundle` issues this as stage B of the
+ *     legacy-user migration (after stage A created the vault).
+ */
+export function buildRepointSubnameTx(
+  sender: string,
+  nftId: string,
+  newTarget: string
+): Transaction {
+  const tx = new Transaction();
+  tx.setSender(sender);
+  const sx = new SuinsTransaction(suins(), tx);
+  sx.setTargetAddress({
+    nft: nftId,
+    address: newTarget,
+    isSubname: true,
   });
   return tx;
 }

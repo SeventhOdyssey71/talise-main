@@ -32,6 +32,9 @@ struct HomeView: View {
                         .padding(.horizontal, 32)
                         .padding(.top, 18)
                 }
+                AutoSwapMigrationBanner()
+                    .padding(.horizontal, 32)
+                    .padding(.top, 14)
                 usernameCard
                     .padding(.horizontal, 32)
                     .padding(.top, 24)

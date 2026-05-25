@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById, setTaliseVaultId } from "@/lib/db";
 import { sui } from "@/lib/sui";
-import { vaultPackageIds, VaultNotDeployedError } from "@/lib/vault";
+import {
+  vaultPackageIds,
+  VaultNotDeployedError,
+  buildRepointSubnameTx,
+} from "@/lib/vault";
+import { findTaliseSubnameForOwner } from "@/lib/suins-lookup";
+import { suins } from "@/lib/suins-operator";
+import { toBase64 } from "@mysten/sui/utils";
 
 export const runtime = "nodejs";
 
@@ -128,12 +135,75 @@ export async function POST(req: Request) {
     );
   }
 
-  // TODO(suins-repoint): once the vault is recorded, repoint the user's
-  // `@<handle>.talise.sui` SuiNS subname target from their wallet address
-  // to `vaultId` so incoming sends land inside the vault. This requires
-  // an operator-signed `setTargetAddress` call — see
-  // `lib/suins-lookup.ts` for the read side and `lib/suins-operator.ts`
-  // for the write helpers. After success, call
-  // `markVaultSubnameRepointed(userId)`.
-  return NextResponse.json({ ok: true, vaultId });
+  // SuiNS repoint stage. After the vault is on record we attempt to build
+  // a follow-up PTB that re-targets the user's `*.talise.sui` subname at
+  // the new vault id so incoming sends land *inside* the vault instead
+  // of the user's plain wallet address.
+  //
+  // Why this is a separate PTB (not folded into vault::create):
+  //   • The subname NFT is owned by the user; only the NFT owner can sign
+  //     `set_target_address`. The operator key that minted the subname
+  //     no longer has authority over it.
+  //   • `vault::create()` uses `transfer::share_object`, so the new
+  //     vault id is only knowable from the digest's objectChanges. A
+  //     single PTB can chain `create → enable → set_target_address` if
+  //     it referenced the create's TransactionResult, but `create` is an
+  //     entry function that returns nothing — we'd need a `create_and_share`
+  //     variant that returns the vault id, which doesn't exist yet.
+  //
+  // So we return `repoint` as an optional companion PTB. iOS calls
+  // `signAndSubmit` once more, then POSTs to `/api/vault/repoint-confirm`
+  // to flip the `talise_vault_subname_repointed` flag. The vault create
+  // is durable on its own — repoint failure is non-fatal.
+  let repoint:
+    | {
+        bytesB64: string;
+        sender: string;
+        nftId: string;
+        fullName: string;
+        currentTarget: string | null;
+        newTarget: string;
+      }
+    | null = null;
+  try {
+    const sub = await findTaliseSubnameForOwner(user.sui_address);
+    if (sub) {
+      let currentTarget: string | null = null;
+      try {
+        const rec = await suins().getNameRecord(sub.fullName);
+        currentTarget = rec?.targetAddress ?? null;
+      } catch {
+        currentTarget = null;
+      }
+      // Skip if it's already pointing at the vault.
+      if (
+        !currentTarget ||
+        currentTarget.toLowerCase() !== vaultId.toLowerCase()
+      ) {
+        const tx = buildRepointSubnameTx(user.sui_address, sub.nftId, vaultId);
+        const kind = await tx.build({
+          client: sui() as never,
+          onlyTransactionKind: true,
+        });
+        repoint = {
+          bytesB64: toBase64(kind),
+          sender: user.sui_address,
+          nftId: sub.nftId,
+          fullName: sub.fullName,
+          currentTarget,
+          newTarget: vaultId,
+        };
+      }
+    }
+  } catch (err) {
+    // Repoint construction failure is non-fatal — the vault is already
+    // recorded. Log and return repoint:null; iOS shows a banner that the
+    // user can act on later.
+    console.warn(
+      `[vault/record] repoint build failed for user ${userId}: ${(err as Error).message}`
+    );
+    repoint = null;
+  }
+
+  return NextResponse.json({ ok: true, vaultId, repoint });
 }

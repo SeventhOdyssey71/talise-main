@@ -538,6 +538,23 @@ struct VaultBalance: Codable, Identifiable, Hashable {
     }
 }
 
+/// Snapshot from `GET /api/vault/migration-status`. Drives the Home-
+/// tab upgrade banner for users who pre-date the vault feature — they
+/// have a `@talise` subname but no vault yet, or a vault whose subname
+/// still resolves to the plain wallet.
+struct VaultMigrationStatus: Codable, Hashable {
+    let needsMigration: Bool
+    let reason: String  // "no-subname" | "no-vault" | "subname-not-repointed" | "done"
+    let subname: VaultMigrationSubname?
+    let vaultId: String?
+}
+
+struct VaultMigrationSubname: Codable, Hashable {
+    let id: String
+    let fullName: String
+    let currentTarget: String?
+}
+
 /// One `AutoSwapCap<T>` owned by the user. The presence of a cap for
 /// a given `sourceType` is what "auto-swap enabled" means — the
 /// `AutoSwapSettings` list reads this array and renders the matching

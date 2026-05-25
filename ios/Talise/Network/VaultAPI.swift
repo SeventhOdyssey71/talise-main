@@ -12,6 +12,15 @@ import Foundation
 /// list of source coins + their cap status.
 @MainActor
 enum VaultAPI {
+    /// `GET /api/vault/migration-status` — read-only snapshot used by
+    /// the Home banner to decide whether to surface an upgrade CTA for
+    /// users who pre-date the vault feature. Returns a "done" stub with
+    /// 503 when the package isn't deployed yet; the client treats that
+    /// as "no banner."
+    static func migrationStatus() async throws -> VaultMigrationStatus {
+        return try await APIClient.shared.get("/api/vault/migration-status")
+    }
+
     /// `POST /api/vault/create` — prepares the PTB that mints a fresh
     /// `TaliseVault` shared object for the signed-in user. Backend
     /// hardwires the user's address as `owner`. After this PTB settles,
