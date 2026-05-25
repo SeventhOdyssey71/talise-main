@@ -8,19 +8,17 @@
 /// makes Path-C auto-swap work: balances inside a shared object can be
 /// touched by a worker-signed PTB, gated by an `AutoSwapCap<T>`.
 ///
-/// Custody invariants:
-///   • Only `vault.owner` can withdraw funds. Period. The worker, the
-///     admin, and any third party can deposit but cannot withdraw.
-///   • The auto-swap entry can move SOURCE balance `T` out of the vault
-///     and put the resulting USDsui back in — both legs are atomic
-///     inside the same PTB, and the destination is hardcoded to the
-///     same vault, so funds can never "leak out" to another address.
-///   • Auto-swap is opt-in: it only runs when the user has minted a
-///     valid `AutoSwapCap<T>` for the source coin type.
-///
-/// The actual DEX call (Cetus, etc.) is composed off-chain in the PTB,
-/// and the swap output is funneled back through `deposit_usdsui` so
-/// the vault stays the single source of truth for the user's funds.
+/// Custody invariants (after v2 audit pass):
+///   • Only `vault.owner` can withdraw. Period.
+///   • Only `vault.owner` can mint an `AutoSwapCap<T>` against this
+///     vault (asserted in `enable_auto_swap`).
+///   • `auto_swap_extract` returns a `SwapTicket` hot potato in
+///     addition to the source balance. `auto_swap_deposit` is the
+///     only function that consumes it — the PTB cannot type-check
+///     unless the extracted balance is deposited back atomically.
+///   • The ticket carries the source vault id; deposit asserts the
+///     swap output lands in the same vault, so funds can't be
+///     siphoned to another vault inside the same PTB.
 module talise::vault;
 
 use sui::bag::{Self, Bag};
@@ -49,7 +47,7 @@ const E_WRONG_VAULT: u64 = 204;
 /// set to this object's address.
 public struct TaliseVault has key {
     id: UID,
-    /// The only address that can withdraw from this vault.
+    /// The only address that can withdraw or mint auto-swap caps.
     owner: address,
     /// Map of type-name (vector<u8>) -> Balance<T>. We use a Bag because
     /// we need heterogeneous Balance<T> in one object; sui::table can't
@@ -58,6 +56,23 @@ public struct TaliseVault has key {
     /// Monotonic counters for telemetry / activity feed.
     deposits_total: u64,
     auto_swaps_total: u64,
+}
+
+/// Hot-potato. Returned by `auto_swap_extract` and consumed by
+/// `auto_swap_deposit`. No `drop`, no `store`, no `copy`, no `key` —
+/// the only thing the runtime can do with this is hand it to deposit
+/// before the transaction ends. Forces the worker to actually deposit
+/// the swap output rather than walking away with the source balance.
+public struct SwapTicket {
+    /// The vault the ticket was issued against. Deposit asserts the
+    /// vault it's depositing into is the same one.
+    vault_id: ID,
+    /// Source-type name captured at extract time, threaded through to
+    /// the deposit event so the indexer can show "Auto-swapped 0.5
+    /// SUI → 1.20 USDsui" without an extra RPC.
+    from_type: vector<u8>,
+    /// Source amount that was extracted (in source-coin decimals).
+    from_amount: u64,
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -95,8 +110,8 @@ public struct VaultAutoSwap has copy, drop {
 // Vault lifecycle
 
 /// Create a new vault for the calling user. One call per user, post-
-/// onboarding. The vault is shared so anyone can `deposit_*` into it
-/// (that's the point), but only the owner can withdraw.
+/// onboarding. Shared so anyone can `deposit_*`, but only the owner
+/// can withdraw or mint auto-swap caps.
 public entry fun create(ctx: &mut TxContext) {
     let vault = TaliseVault {
         id: object::new(ctx),
@@ -110,6 +125,32 @@ public entry fun create(ctx: &mut TxContext) {
         owner: ctx.sender(),
     });
     transfer::share_object(vault);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Auto-swap enablement — vault-aware so we can assert ownership
+
+/// Mint an `AutoSwapCap<T>` bound to this vault. The vault-owner check
+/// happens here, with `&TaliseVault` in scope, which closes the audit-
+/// flagged hole where a user could mint a cap targeting someone else's
+/// vault id.
+public entry fun enable_auto_swap<T>(
+    vault: &TaliseVault,
+    max_per_swap: u64,
+    expires_at_ms: u64,
+    ctx: &mut TxContext,
+) {
+    assert!(ctx.sender() == vault.owner, E_NOT_OWNER);
+
+    let cap = auto_swap::mint_cap<T>(
+        object::id(vault),
+        vault.owner,
+        max_per_swap,
+        expires_at_ms,
+        ctx,
+    );
+
+    transfer::public_transfer(cap, vault.owner);
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -176,8 +217,6 @@ public fun withdraw<T>(
     assert!(balance::value(held) >= amount, E_INSUFFICIENT_BALANCE);
     let out = balance::split(held, amount);
 
-    // If we drained the bucket to zero, remove the entry to keep the
-    // Bag tidy and the held-types list accurate.
     if (balance::value(held) == 0) {
         let empty: Balance<T> = vault.balances.remove(key);
         balance::destroy_zero(empty);
@@ -205,24 +244,18 @@ public entry fun withdraw_and_send<T>(
 }
 
 // ───────────────────────────────────────────────────────────────────
-// Auto-swap: worker-signed source-balance extraction
+// Auto-swap: worker-signed source-balance extraction (with hot potato)
 
-/// Worker calls this to extract a `Balance<Source>` for swapping. The
-/// worker is expected to:
-///   1. Build a PTB whose first move call is this function.
-///   2. Pass the returned `Balance<Source>` to a Cetus swap node.
-///   3. Pipe Cetus's `Balance<USDsui>` output into `auto_swap_deposit`
-///      (next function down) so the vault is the final landing zone.
+/// Worker calls this to extract a `Balance<Source>` for swapping.
+/// Returns the balance AND a `SwapTicket` hot potato that MUST be
+/// consumed by `auto_swap_deposit` later in the same PTB. The ticket
+/// has no abilities, so the PTB will not type-check if the worker
+/// tries to walk away with the source balance.
 ///
-/// `talise::auto_swap::validate_for_swap` enforces: worker == admin,
-/// cap.vault matches THIS vault, not paused, not expired, amount ≤
-/// cap.max_per_swap. The `Source` type parameter must match the cap's
-/// phantom — the type system catches "use a USDC cap to drain SUI."
-///
-/// After this returns, the vault's `T` balance is reduced by `amount`.
-/// The caller is responsible for getting USDsui back in via
-/// `auto_swap_deposit`; if Cetus fails between these two calls, the
-/// whole PTB aborts and the balance is never moved.
+/// Validates inside `auto_swap::validate_for_swap`: sender == admin,
+/// cap not paused, cap not expired, amount ≤ cap.max_per_swap. The
+/// `Source` type parameter must match the cap's phantom — the type
+/// system catches "use a USDC cap to drain SUI."
 public fun auto_swap_extract<Source>(
     vault: &mut TaliseVault,
     registry: &mut AutoSwapRegistry,
@@ -230,7 +263,7 @@ public fun auto_swap_extract<Source>(
     amount: u64,
     clock: &Clock,
     ctx: &TxContext,
-): Balance<Source> {
+): (Balance<Source>, SwapTicket) {
     assert!(auto_swap::cap_vault(cap) == object::id(vault), E_WRONG_VAULT);
     assert!(amount > 0, E_ZERO_AMOUNT);
 
@@ -239,7 +272,7 @@ public fun auto_swap_extract<Source>(
         cap,
         amount,
         clock.timestamp_ms(),
-        ctx.sender(),
+        ctx,
     );
 
     let key = type_name::with_defining_ids<Source>().into_string().into_bytes();
@@ -253,20 +286,33 @@ public fun auto_swap_extract<Source>(
         balance::destroy_zero(empty);
     };
 
-    extracted
+    let ticket = SwapTicket {
+        vault_id: object::id(vault),
+        from_type: key,
+        from_amount: amount,
+    };
+
+    (extracted, ticket)
 }
 
-/// Deposit the swap output back into the vault. Worker must call
-/// this with the Cetus-swap output `Balance<Dest>`. We DON'T constrain
-/// `Dest = USDsui` at the type level here — the off-chain SDK builds
-/// the PTB with `Dest = USDsui` only — but in v2 we should add a
-/// registry-level allowlist of destination types and assert it here.
+/// Deposit the swap output back into the vault and consume the ticket.
+/// Asserts the ticket was issued against THIS vault — funds cannot
+/// flow to a different vault inside the same PTB.
+///
+/// `Dest` is unconstrained at the type level here; the off-chain SDK
+/// builds the PTB with `Dest = USDsui`. v2 should add a registry-level
+/// allowlist of destination types and assert it (see AUTOSWAP.md).
 public fun auto_swap_deposit<Dest>(
     vault: &mut TaliseVault,
     output: Balance<Dest>,
-    from_amount: u64,
+    ticket: SwapTicket,
     clock: &Clock,
 ) {
+    // Destructure the ticket — this is the consumer that satisfies the
+    // hot-potato discipline. After this line, the ticket is gone.
+    let SwapTicket { vault_id, from_type, from_amount } = ticket;
+    assert!(vault_id == object::id(vault), E_WRONG_VAULT);
+
     let to_amount = balance::value(&output);
     if (to_amount > 0) {
         let key = type_name::with_defining_ids<Dest>().into_string().into_bytes();
@@ -284,7 +330,7 @@ public fun auto_swap_deposit<Dest>(
 
     event::emit(VaultAutoSwap {
         vault_id: object::id(vault),
-        from_type: vector[],  // Source type captured in `extract`'s validate event
+        from_type,
         to_type: type_name::with_defining_ids<Dest>().into_string().into_bytes(),
         from_amount,
         to_amount,
