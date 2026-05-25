@@ -20,6 +20,33 @@ import { issueMobileBearer } from "@/lib/mobile-sessions";
 
 export const runtime = "nodejs";
 
+/**
+ * Build the right "something went wrong" redirect for this leg of the auth
+ * flow. The web flow sends users back to `/?err=...`; the mobile flow has
+ * to bounce them through the `talise://` custom scheme so that
+ * `ASWebAuthenticationSession` on iOS resolves and surfaces the error
+ * inside the app — otherwise the in-app browser just lands on the public
+ * web home page and the iOS continuation never fires.
+ *
+ * Mobile state strings are minted by `/api/auth/mobile/start` with an
+ * `m1.` prefix; presence of that prefix is the unambiguous signal that
+ * we owe the caller a `talise://` redirect instead of a web one.
+ */
+function redirectAuthError(
+  req: Request,
+  state: string | null,
+  err: string
+): NextResponse {
+  if (state && state.startsWith("m1.")) {
+    const callback = new URL("talise://auth/callback");
+    callback.searchParams.set("err", err);
+    return NextResponse.redirect(callback.toString());
+  }
+  return NextResponse.redirect(
+    new URL(`/?err=${encodeURIComponent(err)}`, req.url)
+  );
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -27,15 +54,15 @@ export async function GET(req: Request) {
   const error = url.searchParams.get("error");
 
   if (error) {
-    return NextResponse.redirect(new URL(`/?err=${encodeURIComponent(error)}`, req.url));
+    return redirectAuthError(req, state, error);
   }
   if (!code || !state) {
-    return NextResponse.redirect(new URL(`/?err=missing_code`, req.url));
+    return redirectAuthError(req, state, "missing_code");
   }
 
   const expected = await readStateCookie();
   if (!expected || expected !== state) {
-    return NextResponse.redirect(new URL(`/?err=bad_state`, req.url));
+    return redirectAuthError(req, state, "bad_state");
   }
   await clearStateCookie();
 
@@ -44,10 +71,10 @@ export async function GET(req: Request) {
     const claims = decodeJwt(id_token);
 
     if (claims.email_verified === false) {
-      return NextResponse.redirect(new URL(`/?err=unverified_email`, req.url));
+      return redirectAuthError(req, state, "unverified_email");
     }
     if (claims.aud !== process.env.GOOGLE_CLIENT_ID) {
-      return NextResponse.redirect(new URL(`/?err=bad_audience`, req.url));
+      return redirectAuthError(req, state, "bad_audience");
     }
 
     const country = req.headers.get("x-vercel-ip-country");
@@ -169,7 +196,7 @@ export async function GET(req: Request) {
       user.account_type && returnTo ? returnTo : defaultDest;
     return NextResponse.redirect(new URL(dest, req.url));
   } catch (err) {
-    const msg = encodeURIComponent((err as Error).message.slice(0, 120));
-    return NextResponse.redirect(new URL(`/?err=${msg}`, req.url));
+    const msg = (err as Error).message.slice(0, 120);
+    return redirectAuthError(req, state, msg);
   }
 }
