@@ -311,6 +311,45 @@ async function doEnsureSchema(): Promise<void> {
     }
   }
 
+  // Widen any int4 timestamp columns to int8. The original Postgres
+  // migration shipped briefly with `INTEGER` for ms-precision timestamps;
+  // `Date.now()` is ~1.78 trillion today, well beyond int4's ~2.15B limit,
+  // so inserts blow up with
+  //   ERROR: value "1779729508821" is out of range for type integer
+  // `CREATE TABLE IF NOT EXISTS` won't fix an already-narrow column —
+  // need an explicit ALTER. Gate each on `information_schema.columns`
+  // so the migration is a no-op once columns are already int8.
+  const tsColumns: Array<[string, string]> = [
+    ["users", "created_at"],
+    ["users", "last_seen_at"],
+    ["users", "notified_at"],
+    ["tx_history", "created_at"],
+    ["invoices", "created_at"],
+    ["invoices", "paid_at"],
+    ["rewards_events", "created_at"],
+    ["savings_goals", "created_at"],
+    ["savings_goals", "deadline_ms"],
+    ["redemptions", "created_at"],
+    ["redemptions", "fulfilled_at"],
+  ];
+  for (const [table, col] of tsColumns) {
+    try {
+      const r = await c.execute({
+        sql: `SELECT data_type FROM information_schema.columns
+              WHERE table_name = ? AND column_name = ?`,
+        args: [table, col],
+      });
+      const dt = r.rows[0]?.data_type as string | undefined;
+      if (dt === "integer") {
+        await c.execute(
+          `ALTER TABLE ${table} ALTER COLUMN ${col} TYPE BIGINT USING ${col}::bigint`
+        );
+      }
+    } catch {
+      /* table not yet created — fresh DBs get BIGINT from CREATE above */
+    }
+  }
+
   // Unique indexes for columns added via ALTER. `CREATE UNIQUE INDEX IF NOT
   // EXISTS` is safe to call repeatedly.
   try {
