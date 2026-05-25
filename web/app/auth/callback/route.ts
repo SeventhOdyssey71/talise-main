@@ -1,5 +1,5 @@
 import { NextResponse, after } from "next/server";
-import { exchangeCodeForTokens } from "@/lib/auth";
+import { exchangeCodeForTokens, redirectUriFromRequest } from "@/lib/auth";
 import { decodeJwt, deriveSuiAddress, generateSalt } from "@/lib/zklogin";
 import {
   upsertUser,
@@ -67,7 +67,14 @@ export async function GET(req: Request) {
   await clearStateCookie();
 
   try {
-    const { id_token } = await exchangeCodeForTokens(code);
+    // Use the SAME redirect URI Google saw at auth-time. Since we derive
+    // it from the request host on both legs, app.talise.io ↔ app.talise.io
+    // and talise.io ↔ talise.io stay consistent — Google rejects mismatches
+    // with `invalid_grant`.
+    const { id_token } = await exchangeCodeForTokens(
+      code,
+      redirectUriFromRequest(req)
+    );
     const claims = decodeJwt(id_token);
 
     if (claims.email_verified === false) {

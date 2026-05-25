@@ -58,9 +58,11 @@ targets:
               NSExceptionAllowsInsecureHTTPLoads: true
               NSIncludesSubdomains: true
         TaliseGoogleClientID: "786432206940-rnvri4af4ek2btleebt43i8ovc4h2lod.apps.googleusercontent.com"
-        # Production backend. For local dev, override at the scheme level via
-        # the TALISE_API_BASE_URL environment variable (see AppConfig.swift).
-        TaliseAPIBaseURL: "https://talise.io"
+        # Production backend — separated from the public web hostname so
+        # iOS traffic stays on its own subdomain. For local dev, override
+        # at the scheme level via the TALISE_API_BASE_URL environment
+        # variable (see AppConfig.swift).
+        TaliseAPIBaseURL: "https://app.talise.io"
     entitlements:
       path: Talise/Resources/Talise.entitlements
       properties:
