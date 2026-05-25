@@ -59,7 +59,7 @@
 	<key>NSFaceIDUsageDescription</key>
 	<string>Confirm sends and signatures with Face ID.</string>
 	<key>TaliseAPIBaseURL</key>
-	<string>http://localhost:3000</string>
+	<string>https://app.talise.io</string>
 	<key>TaliseGoogleClientID</key>
 	<string>786432206940-rnvri4af4ek2btleebt43i8ovc4h2lod.apps.googleusercontent.com</string>
 	<key>UIApplicationSceneManifest</key>

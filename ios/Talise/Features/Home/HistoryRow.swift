@@ -74,18 +74,22 @@ struct HistoryRow: View {
         case received
         case invest
         case withdraw
+        case autoswap
         case neutral
     }
 
     /// Server-side `direction` field carries the classification. Plain
     /// transfers ride the chain-derived sent/received; yield venue
     /// txs (DeepBook supply, NAVI lending) come back as
-    /// `invest`/`withdraw` and get their own icon + tint.
+    /// `invest`/`withdraw`; vault auto-swap conversions come back as
+    /// `autoswap` (emitted by `VaultAutoSwap` event in the Move
+    /// `talise::vault` module). Each gets its own icon + tint.
     private var category: Category {
         switch entry.direction {
         case "received": return .received
         case "invest":   return .invest
         case "withdraw": return .withdraw
+        case "autoswap": return .autoswap
         case "sent":     return .sent
         default:         return .neutral
         }
@@ -99,6 +103,9 @@ struct HistoryRow: View {
         // yield motion, not money lost / gained from another wallet.
         case .invest:   return TaliseColor.accent
         case .withdraw: return Color(hex: 0x4FB35E)
+        // Auto-swap also reads as green — it's the system working on
+        // the user's behalf to keep the @handle in USDsui.
+        case .autoswap: return TaliseColor.accent
         case .neutral:  return .clear
         }
     }
@@ -113,6 +120,7 @@ struct HistoryRow: View {
         case .received: return Color(hex: 0x4FB35E).opacity(0.32)
         case .invest:   return TaliseColor.accent.opacity(0.22)
         case .withdraw: return Color(hex: 0x4FB35E).opacity(0.32)
+        case .autoswap: return TaliseColor.accent.opacity(0.22)
         case .neutral:  return TaliseColor.surface2
         }
     }
@@ -126,14 +134,15 @@ struct HistoryRow: View {
         case .received: return Color(hex: 0xA9DFB3)
         case .invest:   return TaliseColor.accent
         case .withdraw: return Color(hex: 0xA9DFB3)
+        case .autoswap: return TaliseColor.accent
         case .neutral:  return TaliseColor.fg
         }
     }
 
     private var tintAlpha: Double {
         switch category {
-        case .sent, .received, .invest, .withdraw: return 0.18
-        case .neutral:                              return 0
+        case .sent, .received, .invest, .withdraw, .autoswap: return 0.18
+        case .neutral:                                         return 0
         }
     }
 
@@ -148,6 +157,10 @@ struct HistoryRow: View {
         case .received: return "arrow.down.left"
         case .invest:   return "leaf.fill"
         case .withdraw: return "leaf"
+        // Auto-swap reuses the leaf — same family as the Earn / Invest
+        // tab, signalling "the system worked for you". The conversion
+        // is implicit in the title ("Auto-swapped 0.5 SUI → $1.20").
+        case .autoswap: return "leaf.fill"
         case .neutral:  return "circle"
         }
     }
@@ -166,6 +179,16 @@ struct HistoryRow: View {
                 return "Withdrew from \(displayVenueName(v))"
             }
             return "Withdrew"
+        case .autoswap:
+            // For auto-swap rows the server emits the source coin via
+            // `venue` (re-purposed — it's the field that already
+            // carries Move-call provenance for invest/withdraw). The
+            // amountFormatted handles the "0.5 SUI → $1.20 USDsui"
+            // composition; the title is the prefix.
+            if let v = entry.venue, !v.isEmpty {
+                return "Auto-swapped \(v.uppercased())"
+            }
+            return "Auto-swapped to USDsui"
         case .neutral:  return "Activity"
         }
     }
@@ -178,6 +201,20 @@ struct HistoryRow: View {
     }
 
     private var amountFormatted: String {
+        // Auto-swap is net-neutral economically — the vault swapped
+        // one coin for another. We surface the USDsui output amount
+        // unsigned (no +/-) so the row reads as a transformation
+        // rather than a debit/credit. The title already tells the
+        // user what got converted.
+        if category == .autoswap {
+            if let usd = entry.amountUsdsui {
+                return "→ " + TaliseFormat.local2(Swift.abs(usd))
+            }
+            if let sui = entry.amountSui {
+                return String(format: "→ %.4f SUI", Swift.abs(sui))
+            }
+            return "→ —"
+        }
         // Invest = wallet → pool (debit, "-"); Withdraw = pool → wallet
         // (credit, "+"). Plain transfers use direction directly.
         let isInflow = entry.isReceived || entry.isWithdraw

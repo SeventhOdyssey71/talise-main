@@ -23,6 +23,9 @@ struct ProfileView: View {
     /// Fetched on appear so the stats strip can show Bronze/Silver/etc.
     /// Soft-fails to nil — the strip degrades gracefully.
     @State private var rewards: RewardsSummary?
+    /// True while the auto-swap settings sheet is up. Driven by the
+    /// Preferences row that opens `AutoSwapSettings`.
+    @State private var showAutoSwap = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -42,6 +45,21 @@ struct ProfileView: View {
         .refreshable { await loadRewards() }
         .taliseScreenBackground()
         .task { await loadRewards() }
+        .sheet(isPresented: $showAutoSwap) {
+            // Wrap in a NavigationStack so the user has a Done button
+            // to dismiss. AutoSwapSettings itself is the full feature
+            // surface — `taliseScreenBackground()` provides the TopGlow.
+            NavigationStack {
+                AutoSwapSettings()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showAutoSwap = false }
+                                .foregroundStyle(TaliseColor.accent)
+                        }
+                    }
+            }
+            .presentationBackground(TaliseColor.bg)
+        }
         .alert("Sign out?", isPresented: $signOutConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Sign out", role: .destructive) { session.signOut() }
@@ -247,6 +265,8 @@ struct ProfileView: View {
             VStack(spacing: 0) {
                 currencyRow
                 sectionDivider
+                autoSwapRow
+                sectionDivider
                 notifyRow
                 if let err = settingsError {
                     sectionDivider
@@ -301,6 +321,30 @@ struct ProfileView: View {
             .padding(.vertical, 14)
             .contentShape(Rectangle())
         }
+    }
+
+    /// Entry point for the always-hold-USDsui settings. Opens
+    /// `AutoSwapSettings` in a presented NavigationStack so the user
+    /// can opt-in / manage caps without leaving the Profile tab.
+    private var autoSwapRow: some View {
+        Button {
+            showAutoSwap = true
+        } label: {
+            HStack {
+                rowLabel(
+                    title: "Auto-convert to USDsui",
+                    subtitle: "Any coin sent to your @handle becomes USDsui."
+                )
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var notifyRow: some View {
