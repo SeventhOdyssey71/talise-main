@@ -28,18 +28,17 @@ export async function ensureMobileSessionsSchema() {
   await client.execute(`
     CREATE TABLE IF NOT EXISTS mobile_sessions (
       token_hash TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id),
       device_id TEXT,
       app_attest_key_id TEXT,
       jwt TEXT,
       salt TEXT,
       ephemeral_pubkey_b64 TEXT,
-      max_epoch INTEGER,
+      max_epoch BIGINT,
       randomness TEXT,
-      created_at INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL,
-      revoked INTEGER NOT NULL DEFAULT 0,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      created_at BIGINT NOT NULL,
+      expires_at BIGINT NOT NULL,
+      revoked INTEGER NOT NULL DEFAULT 0
     )
   `);
   await client.execute(

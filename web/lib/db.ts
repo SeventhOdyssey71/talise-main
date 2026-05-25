@@ -331,6 +331,12 @@ async function doEnsureSchema(): Promise<void> {
     ["savings_goals", "deadline_ms"],
     ["redemptions", "created_at"],
     ["redemptions", "fulfilled_at"],
+    // mobile_sessions is created out-of-band in lib/mobile-sessions.ts but
+    // suffers from the same int4 issue — fold it in here so the widener
+    // covers it on first cold start.
+    ["mobile_sessions", "created_at"],
+    ["mobile_sessions", "expires_at"],
+    ["mobile_sessions", "max_epoch"],
   ];
   for (const [table, col] of tsColumns) {
     try {
