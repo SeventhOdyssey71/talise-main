@@ -19,6 +19,11 @@ struct ClaimHandleSheet: View {
     @State private var claiming = false
     @State private var error: String?
     @State private var claimed: String?
+    /// True once the user taps the "Always hold USDsui?" card on the
+    /// success screen — drives a push to `AutoSwapSettings`. Lives on
+    /// the parent here (not on Done) so the user can dismiss either
+    /// way without losing the route.
+    @State private var showAutoSwap = false
     @FocusState private var focused: Bool
 
     enum AvailabilityState: Equatable {
@@ -193,7 +198,7 @@ struct ClaimHandleSheet: View {
 
     private func successView(handle: String) -> some View {
         VStack(spacing: 16) {
-            Spacer()
+            Spacer(minLength: 24)
             ZStack {
                 Circle().fill(TaliseColor.accent.opacity(0.15)).frame(width: 84, height: 84)
                 Image(systemName: "checkmark.seal.fill")
@@ -207,6 +212,18 @@ struct ClaimHandleSheet: View {
             Text("\(handle)@talise.sui is yours.")
                 .font(TaliseFont.body(14, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
+
+            // ANCHOR: autoswap-onboarding-cta
+            // One-tap on-ramp to the vault + auto-swap setup. Sits on
+            // the post-claim success screen because that's the moment
+            // the user has just told us "this is the name people will
+            // send to" — exactly when "always hold USDsui at that
+            // handle" reads as a natural next step rather than a
+            // surprise upsell.
+            autoSwapCTA
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+
             Spacer()
             Button {
                 dismiss()
@@ -223,6 +240,71 @@ struct ClaimHandleSheet: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
         }
+        // Pushes a full-screen AutoSwapSettings on tap. Sheet-over-sheet
+        // has known interaction quirks on iOS 17, so we use the
+        // existing in-sheet navigation surface — the user lands on the
+        // settings screen with a Done button at the top to come back.
+        .sheet(isPresented: $showAutoSwap) {
+            NavigationStack {
+                AutoSwapSettings()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showAutoSwap = false }
+                                .foregroundStyle(TaliseColor.accent)
+                        }
+                    }
+            }
+            .presentationBackground(TaliseColor.bg)
+        }
+    }
+
+    /// Always-hold-USDsui card on the claim success screen. Renders
+    /// as a glass card with a leaf glyph, short explainer, and a single
+    /// "Set up" CTA — small enough to not crowd the Done button, big
+    /// enough that users notice it's the next-best-action.
+    private var autoSwapCTA: some View {
+        Button {
+            showAutoSwap = true
+        } label: {
+            HStack(alignment: .top, spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(TaliseColor.accent.opacity(0.18))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "leaf.fill")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(TaliseColor.accent)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Always hold USDsui?")
+                        .font(TaliseFont.heading(15, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                    Text("Anyone sends any coin to \(currentHandle); we auto-convert it. One-time setup.")
+                        .font(TaliseFont.body(12, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TaliseColor.accent)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .taliseGlass(cornerRadius: 18)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// "<handle>@talise.sui" for the CTA copy. Reads from the
+    /// just-claimed value so the message is personal — "anyone sends
+    /// any coin to alice@talise.sui" not "anyone sends any coin to
+    /// your handle".
+    private var currentHandle: String {
+        if let h = claimed, !h.isEmpty { return "\(h)@talise.sui" }
+        return "your handle"
     }
 
     // MARK: - Helpers

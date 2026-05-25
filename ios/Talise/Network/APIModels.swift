@@ -459,6 +459,104 @@ struct RedeemRequest: Encodable {
     let sku: String
 }
 
+// MARK: - Phase 5: Vault + Auto-Swap
+
+/// Response from `POST /api/vault/create` (and the other vault PTB
+/// builders). The server prepares the PTB; iOS signs it with the
+/// zkLogin ephemeral key and forwards to `/api/zk/sponsor-execute`
+/// for Onara to broadcast.
+///
+/// `bytesB64` is the base64'd transaction-kind bytes — same shape the
+/// existing send/earn flows consume as `transactionKindB64`. We keep
+/// the new field name to match the vault API spec in
+/// `move/talise/AUTOSWAP.md`; the iOS coordinator treats them
+/// interchangeably.
+struct VaultCreatePrepareResponse: Codable {
+    let bytesB64: String
+    let sender: String
+}
+
+/// Body for `POST /api/vault/record`. Called after the create PTB
+/// settles on-chain — passes the freshly created vault object id +
+/// the broadcast digest so the backend can persist the link to the
+/// user row.
+struct VaultRecordRequest: Codable {
+    let vaultId: String
+    let digest: String
+}
+
+/// Body for `POST /api/vault/enable-autoswap`. The user opts a single
+/// source coin type into auto-conversion.
+///
+/// • `sourceType` is the Move type tag (e.g. `"0x2::sui::SUI"`).
+/// • `maxPerSwap` is u64 — kept as a String over the wire so values
+///   approaching `2^53` don't lose precision.
+/// • `expiresAtMs` is the cap's expiry timestamp in epoch-ms. The
+///   server clips to a sane upper bound (~1y from now) on mint.
+struct VaultEnableAutoSwapRequest: Codable {
+    let sourceType: String
+    let maxPerSwap: String
+    let expiresAtMs: UInt64
+}
+
+/// Generic body for `pause / resume / disable` endpoints — same shape
+/// for all three operations, with the action implicit in the route.
+struct VaultCapMutationRequest: Codable {
+    let capId: String
+    let sourceType: String
+}
+
+/// Response from `GET /api/vault/state` — the user's vault contents
+/// (if any) plus every active `AutoSwapCap` they own. Drives the
+/// `AutoSwapSettings` row list.
+struct VaultStateResponse: Codable {
+    let vault: VaultDTO?
+    let caps: [AutoSwapCapDTO]
+}
+
+/// On-chain vault summary. `balances` lists each `Balance<T>` sitting
+/// in the bag — used by the vault-status card on `AutoSwapSettings`.
+struct VaultDTO: Codable {
+    let id: String
+    let balances: [VaultBalance]
+}
+
+/// One coin-balance row inside a vault. `amount` is u64-as-String for
+/// BigInt safety; iOS converts to Double for display via
+/// `VaultBalance.amountDouble`.
+struct VaultBalance: Codable, Identifiable, Hashable {
+    let coinType: String
+    let amount: String
+
+    var id: String { coinType }
+
+    /// Parse `amount` (raw on-chain units, u64-as-string) into a Double
+    /// for headline display. Loses precision past ~2^53 but those
+    /// values aren't meaningful at the human-facing tier.
+    var amountDouble: Double {
+        Double(amount) ?? 0
+    }
+}
+
+/// One `AutoSwapCap<T>` owned by the user. The presence of a cap for
+/// a given `sourceType` is what "auto-swap enabled" means — the
+/// `AutoSwapSettings` list reads this array and renders the matching
+/// row as toggled-on.
+struct AutoSwapCapDTO: Codable, Identifiable, Hashable {
+    let id: String
+    let sourceType: String
+    let maxPerSwap: String
+    let expiresAtMs: UInt64
+    let paused: Bool
+
+    /// Convenience for the slider display — converts the raw u64 cap
+    /// amount to a Double. See `VaultBalance.amountDouble` for the
+    /// precision caveat.
+    var maxPerSwapDouble: Double {
+        Double(maxPerSwap) ?? 0
+    }
+}
+
 // Sponsor + sponsor-execute request/response shapes are NOT modeled
 // as Codable here. ZkLoginCoordinator builds the request bodies as
 // `[String: Any]` directly and decodes responses via JSONSerialization
