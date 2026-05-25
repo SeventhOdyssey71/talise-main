@@ -49,7 +49,7 @@ export default async function Landing({
 
       <TopBar />
 
-      <main className="relative z-10 mx-auto w-full px-6 pb-32 md:px-12 lg:px-16">
+      <main className="relative z-10 mx-auto w-full max-w-[1440px] px-6 pb-32 md:px-12 lg:px-16">
         <Hero err={params.err} />
         <FeatureGrid />
         <DeepFeatures />
@@ -67,7 +67,7 @@ export default async function Landing({
 
 function TopBar() {
   return (
-    <header className="relative z-10 mx-auto flex w-full items-center justify-between px-6 py-5 md:px-12 lg:px-16">
+    <header className="relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between px-6 py-5 md:px-12 lg:px-16">
       <Link
         href="/"
         className="flex items-center gap-2 text-[15px] tracking-tight text-[var(--color-fg)]"
@@ -115,9 +115,10 @@ function Hero({ err }: { err?: string }) {
       </h1>
 
       <p className="mx-auto mt-6 max-w-[640px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
-        Talise moves naira, shillings, cedis, and rand across borders in
-        seconds, at a fraction of what Wise, Western Union, or Remitly
-        charge. Sign in with Google. No app, no agent, no queue.
+        Talise moves naira, shillings, cedis, and rand across borders with
+        sub-second finality, at a fraction of what Wise, Western Union, or
+        Remitly charge. Sign in on the web or grab the iOS app. No agent,
+        no queue.
       </p>
 
       {/* Dual CTAs: web sign-in (Google) + mobile download (App Store).
@@ -132,9 +133,9 @@ function Hero({ err }: { err?: string }) {
         <AppStoreButton />
       </div>
       <div className="mt-4 flex items-center justify-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-        <span>no app to install</span>
+        <span>web + iOS</span>
         <span>·</span>
-        <span>arrives in seconds</span>
+        <span>finality under 1 second</span>
       </div>
 
       {err && <ErrorBanner err={err} />}
@@ -163,7 +164,7 @@ function AppStoreButton() {
   return (
     <a
       href="#"
-      className="group inline-flex flex-1 items-center justify-center gap-3 rounded-md bg-[#0a0a0a] px-5 py-3.5 text-[var(--color-fg)] ring-1 ring-[var(--color-line)] transition hover:bg-[var(--color-surface)]"
+      className="group inline-flex flex-1 items-center justify-center gap-3 rounded-2xl bg-[#0a0a0a] px-5 py-3.5 text-[var(--color-fg)] ring-1 ring-[var(--color-line)] transition hover:bg-[var(--color-surface)]"
       aria-label="Download Talise on the App Store"
     >
       <AppleGlyph />
@@ -945,7 +946,7 @@ function ErrorBanner({ err }: { err: string }) {
 function StatRow() {
   const stats: Array<[string, string, string]> = [
     ["avg send fee", "0%", "vs ~5% Wise"],
-    ["settlement", "~1 sec", "any corridor"],
+    ["finality", "<1s", "sub-second on Sui"],
     ["fee at $100", "$0.00", "no markup"],
   ];
   return (
