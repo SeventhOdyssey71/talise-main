@@ -37,6 +37,7 @@
     "framer-motion": "^12.38.0",
     "jose": "^5.9.6",
     "next": "^15.5.0",
+    "postgres": "^3.4.9",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
