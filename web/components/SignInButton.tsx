@@ -37,7 +37,7 @@ export function SignInButton({
   }
 
   const base =
-    "group inline-flex items-center justify-center gap-3 rounded-md text-[15px] font-medium transition disabled:cursor-wait disabled:opacity-80";
+    "group inline-flex items-center justify-center gap-3 rounded-2xl text-[15px] font-medium transition disabled:cursor-wait disabled:opacity-80";
 
   const styles: Record<Variant, string> = {
     primary:
