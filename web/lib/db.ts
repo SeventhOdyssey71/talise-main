@@ -71,6 +71,21 @@ function getSql(): Sql {
     connect_timeout: 10,
     // Don't transform — keep snake_case column names exactly as queried.
     transform: { undefined: null },
+    // Parse BIGINT (oid 20) as a plain JS Number instead of postgres.js's
+    // default (BigInt or string). Our BIGINT columns hold millisecond
+    // timestamps (~1.78e12) — well under Number.MAX_SAFE_INTEGER (9e15) —
+    // and downstream code (`new Date(row.created_at).toISOString()`,
+    // formatLocal(), etc.) treats them as numbers. Returning strings was
+    // surfacing as "Invalid time value" on /api/rewards/insights and the
+    // /earn snapshot.
+    types: {
+      bigint: {
+        to: 20,
+        from: [20],
+        serialize: (x: number | bigint | string) => String(x),
+        parse: (x: string) => Number(x),
+      },
+    },
   });
   return _sql;
 }
