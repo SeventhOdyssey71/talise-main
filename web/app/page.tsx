@@ -125,7 +125,7 @@ function Hero({ err }: { err?: string }) {
           On small screens they stack; on sm+ they sit side by side. */}
       <div
         id="cta"
-        className="mx-auto mt-9 flex w-full max-w-[620px] flex-col items-stretch gap-3 sm:flex-row sm:justify-center"
+        className="mx-auto mt-9 flex w-full max-w-[520px] flex-col items-stretch gap-3 sm:flex-row sm:justify-center"
       >
         <div className="flex flex-1">
           <SignInButton variant="primary" label="Sign Up with Google" />
@@ -164,15 +164,15 @@ function AppStoreButton() {
   return (
     <a
       href="#"
-      className="group inline-flex flex-1 items-center justify-center gap-3 rounded-2xl bg-[#0a0a0a] px-5 py-3.5 text-[var(--color-fg)] ring-1 ring-[var(--color-line)] transition hover:bg-[var(--color-surface)]"
+      className="group inline-flex h-[54px] flex-1 items-center justify-center gap-3 rounded-2xl bg-[#0a0a0a] px-5 text-[var(--color-fg)] ring-1 ring-[var(--color-line)] transition hover:bg-[var(--color-surface)]"
       aria-label="Download Talise on the App Store"
     >
       <AppleGlyph />
-      <span className="flex flex-col items-start leading-tight">
-        <span className="text-[9px] uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+      <span className="flex flex-col items-start leading-[1.05]">
+        <span className="text-[8px] uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
           Download on the
         </span>
-        <span className="text-[15px] font-medium text-[var(--color-fg)]">
+        <span className="text-[14px] font-medium text-[var(--color-fg)]">
           App Store
         </span>
       </span>
@@ -182,7 +182,7 @@ function AppStoreButton() {
 
 function AppleGlyph() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
       <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
     </svg>
   );

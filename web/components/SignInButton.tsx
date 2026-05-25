@@ -35,11 +35,11 @@ export function SignInButton({
   }
 
   const base =
-    "group inline-flex items-center justify-center gap-3 rounded-2xl text-[15px] font-medium transition disabled:cursor-wait disabled:opacity-80";
+    "group inline-flex items-center justify-center gap-3 rounded-2xl text-[14px] font-medium transition disabled:cursor-wait disabled:opacity-80";
 
   const styles: Record<Variant, string> = {
     primary:
-      "bg-[var(--color-fg)] px-5 py-3.5 text-[var(--color-bg)] hover:bg-[var(--color-accent-soft)] w-full",
+      "h-[54px] bg-[var(--color-fg)] px-5 text-[var(--color-bg)] hover:bg-[var(--color-accent-soft)] w-full",
     ghost:
       "border border-[var(--color-line)] bg-[var(--color-surface)] px-3.5 py-1.5 text-[13px] text-[var(--color-fg)] hover:border-[var(--color-accent)]",
     full: "bg-[var(--color-fg)] px-5 py-3 text-[14px] text-[var(--color-bg)] hover:bg-[var(--color-accent-soft)]",
