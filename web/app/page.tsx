@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
 import { SignInButton } from "@/components/SignInButton";
+import { LandingMotion } from "@/components/LandingMotion";
 import { userById } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
 
@@ -46,6 +47,7 @@ export default async function Landing({
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[var(--color-bg)] text-[var(--color-fg)]">
+      <LandingMotion />
       <div className="talise-top-glow" aria-hidden />
 
       <TopBar />
@@ -68,7 +70,7 @@ export default async function Landing({
 
 function TopBar() {
   return (
-    <header className="relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between px-6 py-5 md:px-12 lg:px-16">
+    <header className="motion-topbar relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between px-6 py-5 md:px-12 lg:px-16">
       <Link
         href="/"
         className="flex items-center gap-2 text-[15px] tracking-tight text-[var(--color-fg)]"
@@ -98,14 +100,14 @@ function Hero({ err }: { err?: string }) {
   return (
     <section className="pt-12 pb-12 text-center md:pt-20 md:pb-16">
       {/* Eyebrow */}
-      <div className="mx-auto flex items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+      <div className="motion-eyebrow mx-auto flex items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
         <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
         new, live on Sui mainnet
       </div>
 
       {/* Centered headline. Italic accent on "For free." picks up
           Instrument Serif from the layout fonts. */}
-      <h1 className="mx-auto mt-6 max-w-[1100px] text-[clamp(44px,7.5vw,88px)] font-medium leading-[1.02] tracking-[-0.025em] text-[var(--color-fg)]">
+      <h1 className="motion-headline mx-auto mt-6 max-w-[1100px] text-[clamp(44px,7.5vw,88px)] font-medium leading-[1.02] tracking-[-0.025em] text-[var(--color-fg)]">
         Send money across the globe.{" "}
         <span
           className="text-[var(--color-accent)]"
@@ -115,7 +117,7 @@ function Hero({ err }: { err?: string }) {
         </span>
       </h1>
 
-      <p className="mx-auto mt-6 max-w-[640px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
+      <p className="motion-subtitle mx-auto mt-6 max-w-[640px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
         Talise moves naira, shillings, cedis, and rand across borders with
         sub-second finality, at a fraction of what Wise, Western Union, or
         Remitly charge. Sign in on the web or grab the iOS app. No agent,
@@ -126,14 +128,14 @@ function Hero({ err }: { err?: string }) {
           On small screens they stack; on sm+ they sit side by side. */}
       <div
         id="cta"
-        className="mx-auto mt-9 flex w-full max-w-[520px] flex-col items-stretch gap-3 sm:flex-row sm:justify-center"
+        className="motion-cta mx-auto mt-9 flex w-full max-w-[520px] flex-col items-stretch gap-3 sm:flex-row sm:justify-center"
       >
         <div className="flex flex-1">
           <SignInButton variant="primary" label="Sign Up with Google" />
         </div>
         <AppStoreButton />
       </div>
-      <div className="mt-4 flex items-center justify-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
+      <div className="motion-tagline mt-4 flex items-center justify-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
         <span>web + iOS</span>
         <span>·</span>
         <span>finality under 1 second</span>
@@ -191,7 +193,7 @@ function AppleGlyph() {
 
 function PhoneCollage() {
   return (
-    <div className="relative mx-auto mt-14 w-full max-w-[1100px] md:mt-20">
+    <div className="motion-collage relative mx-auto mt-14 w-full max-w-[1100px] md:mt-20">
       {/* soft green wash behind the artwork */}
       <div
         aria-hidden
@@ -259,11 +261,11 @@ function FeatureGrid() {
         </span>
       </h2>
 
-      <div className="mt-12 grid gap-4 md:grid-cols-3">
+      <div className="motion-feature-row mt-12 grid gap-4 md:grid-cols-3">
         {items.map((it) => (
           <article
             key={it.eyebrow}
-            className="talise-glass rounded-2xl p-6"
+            className="motion-feature-card talise-glass rounded-2xl p-6"
           >
             <div className="flex items-center justify-between">
               <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
@@ -294,28 +296,38 @@ function FeatureGrid() {
 function DeepFeatures() {
   return (
     <section className="mt-32 border-t border-[var(--color-line)] pt-24">
-      <SectionLabel value="01 / sign-in" />
-      <SignInDeep />
+      <div className="motion-deep-section">
+        <SectionLabel value="01 / sign-in" />
+        <SignInDeep />
+      </div>
 
       <Divider />
 
-      <SectionLabel value="02 / round-up & save" />
-      <RoundupDeep />
+      <div className="motion-deep-section">
+        <SectionLabel value="02 / round-up & save" />
+        <RoundupDeep />
+      </div>
 
       <Divider />
 
-      <SectionLabel value="03 / earn" />
-      <EarnDeep />
+      <div className="motion-deep-section">
+        <SectionLabel value="03 / earn" />
+        <EarnDeep />
+      </div>
 
       <Divider />
 
-      <SectionLabel value="04 / username" />
-      <UsernameDeep />
+      <div className="motion-deep-section">
+        <SectionLabel value="04 / username" />
+        <UsernameDeep />
+      </div>
 
       <Divider />
 
-      <SectionLabel value="05 / no-fee transfers" />
-      <GaslessDeep />
+      <div className="motion-deep-section">
+        <SectionLabel value="05 / no-fee transfers" />
+        <GaslessDeep />
+      </div>
     </section>
   );
 }
@@ -336,7 +348,7 @@ function Divider() {
 function SignInDeep() {
   return (
     <div className="mt-3 grid items-center gap-12 md:grid-cols-[1.1fr_1fr] md:gap-16">
-      <div>
+      <div className="motion-deep-item">
         <h2 className="max-w-[600px] text-[clamp(30px,4.5vw,52px)] font-medium leading-[1.08] tracking-[-0.015em]">
           Sign in.{" "}
           <span
@@ -362,7 +374,9 @@ function SignInDeep() {
           ]}
         />
       </div>
-      <FauxSignInCard />
+      <div className="motion-deep-item">
+        <FauxSignInCard />
+      </div>
     </div>
   );
 }
@@ -371,7 +385,7 @@ function SignInDeep() {
 function RoundupDeep() {
   return (
     <div className="mt-3 text-center">
-      <h2 className="mx-auto max-w-[820px] text-[clamp(30px,4.5vw,52px)] font-medium leading-[1.08] tracking-[-0.015em]">
+      <h2 className="motion-deep-item mx-auto max-w-[820px] text-[clamp(30px,4.5vw,52px)] font-medium leading-[1.08] tracking-[-0.015em]">
         Round up. Save up.{" "}
         <span
           className="text-[var(--color-accent)]"
@@ -380,14 +394,14 @@ function RoundupDeep() {
           Earn up.
         </span>
       </h2>
-      <p className="mx-auto mt-5 max-w-[620px] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
+      <p className="motion-deep-item mx-auto mt-5 max-w-[620px] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
         Every time you send money, Talise quietly sweeps a small slice into
         a yield-bearing position. You pick the percentage (1% to 10%). The
         savings live on chain in your own wallet, earn lending yield in the
         background, and you can pull them out any time.
       </p>
 
-      <div className="mx-auto mt-12 grid max-w-[900px] gap-3 sm:grid-cols-3">
+      <div className="motion-deep-item mx-auto mt-12 grid max-w-[900px] gap-3 sm:grid-cols-3">
         <BigStat
           label="set once"
           value="1–10%"
@@ -405,7 +419,7 @@ function RoundupDeep() {
         />
       </div>
 
-      <p className="mx-auto mt-10 max-w-[640px] text-[13px] leading-[1.6] text-[var(--color-fg-dim)]">
+      <p className="motion-deep-item mx-auto mt-10 max-w-[640px] text-[13px] leading-[1.6] text-[var(--color-fg-dim)]">
         Send ₦50, save ₦2. Send ₦5,000, save ₦200. Same swipe, same signed
         transaction. By the end of the month, your "lazy money" pile has
         grown without you doing anything.
@@ -418,8 +432,10 @@ function RoundupDeep() {
 function EarnDeep() {
   return (
     <div className="mt-3 grid items-center gap-12 md:grid-cols-[1fr_1.1fr] md:gap-16">
-      <FauxEarnCard />
-      <div>
+      <div className="motion-deep-item">
+        <FauxEarnCard />
+      </div>
+      <div className="motion-deep-item">
         <h2 className="max-w-[600px] text-[clamp(30px,4.5vw,52px)] font-medium leading-[1.08] tracking-[-0.015em]">
           Idle money should{" "}
           <span
@@ -455,7 +471,7 @@ function EarnDeep() {
 function UsernameDeep() {
   return (
     <div className="mt-3 text-center">
-      <h2 className="mx-auto max-w-[820px] text-[clamp(30px,4.5vw,52px)] font-medium leading-[1.08] tracking-[-0.015em]">
+      <h2 className="motion-deep-item mx-auto max-w-[820px] text-[clamp(30px,4.5vw,52px)] font-medium leading-[1.08] tracking-[-0.015em]">
         A username,{" "}
         <span
           className="text-[var(--color-fg-muted)]"
@@ -464,18 +480,18 @@ function UsernameDeep() {
           not a wallet address.
         </span>
       </h2>
-      <p className="mx-auto mt-5 max-w-[620px] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
+      <p className="motion-deep-item mx-auto mt-5 max-w-[620px] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
         Claim a Talise handle and people can pay you at{" "}
         <span className="font-mono text-[var(--color-fg)]">name@talise</span>.
         It's a real on-chain SuiNS subname, anyone can look it up, and it
         resolves to your wallet without you ever sharing 32 hex characters.
       </p>
 
-      <div className="mx-auto mt-12 max-w-[520px]">
+      <div className="motion-deep-item mx-auto mt-12 max-w-[520px]">
         <FauxUsernameCard />
       </div>
 
-      <div className="mx-auto mt-10 grid max-w-[900px] gap-3 sm:grid-cols-3">
+      <div className="motion-deep-item mx-auto mt-10 grid max-w-[900px] gap-3 sm:grid-cols-3">
         <SmallNote
           eyebrow="receivers"
           body="Share `name@talise` instead of an address. People remember it."
@@ -497,7 +513,7 @@ function UsernameDeep() {
 function GaslessDeep() {
   return (
     <div className="mt-3 grid items-center gap-12 md:grid-cols-[1fr_1.1fr] md:gap-16">
-      <div>
+      <div className="motion-deep-item">
         <h2 className="max-w-[640px] text-[clamp(30px,4.5vw,52px)] font-medium leading-[1.08] tracking-[-0.015em]">
           No SUI required.{" "}
           <span
@@ -526,7 +542,9 @@ function GaslessDeep() {
           ]}
         />
       </div>
-      <FauxFeeCard />
+      <div className="motion-deep-item">
+        <FauxFeeCard />
+      </div>
     </div>
   );
 }
@@ -837,7 +855,7 @@ function PersonaStories() {
         it.
       </p>
 
-      <div className="mt-12 grid gap-4 md:grid-cols-2">
+      <div className="motion-persona-row mt-12 grid gap-4 md:grid-cols-2">
         <PersonaCard
           name="Chiamaka"
           eyebrow="London → Lagos · NHS Nurse, sending home"
@@ -859,7 +877,7 @@ function PersonaStories() {
 
 function FinalCta() {
   return (
-    <section className="mt-32 text-center">
+    <section className="motion-final mt-32 text-center">
       <h2 className="mx-auto max-w-[760px] text-[clamp(34px,5.5vw,60px)] font-medium leading-[1.05] tracking-[-0.02em]">
         Send. Save. Earn.{" "}
         <span
@@ -885,12 +903,12 @@ function FinalCta() {
 
 function SiteFooter() {
   return (
-    <footer className="relative z-10 border-t border-[var(--color-line)] bg-[var(--color-bg)]">
+    <footer className="motion-footer relative z-10 border-t border-[var(--color-line)] bg-[var(--color-bg)]">
       <div className="mx-auto w-full max-w-[1440px] px-6 py-20 md:px-12 lg:px-16">
         {/* Top: branding column + 4-column link grid */}
         <div className="grid gap-14 lg:grid-cols-[1.3fr_2.5fr]">
           {/* ── Branding block ─────────────────────────────────────── */}
-          <div>
+          <div className="motion-footer-col">
             <Link href="/" className="flex items-center gap-2 text-[20px] tracking-tight text-[var(--color-fg)]">
               <Diamond />
               <span>talise</span>
@@ -1049,11 +1067,11 @@ function StatRow() {
     ["fee at $100", "$0.00", "no markup"],
   ];
   return (
-    <div className="mx-auto mt-20 grid max-w-[860px] grid-cols-1 gap-3 md:grid-cols-3">
+    <div className="motion-stat-row mx-auto mt-20 grid max-w-[860px] grid-cols-1 gap-3 md:grid-cols-3">
       {stats.map(([label, value, sub]) => (
         <div
           key={label}
-          className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-4 text-left"
+          className="motion-stat rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-4 text-left"
         >
           <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
             {label}
@@ -1087,7 +1105,7 @@ function PersonaCard({
   after: string;
 }) {
   return (
-    <article className="talise-glass rounded-2xl p-6">
+    <article className="motion-persona talise-glass rounded-2xl p-6">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[18px] font-medium tracking-tight">{name}</h3>
@@ -1130,7 +1148,7 @@ function FooterCol({
   links: Array<[string, string]>;
 }) {
   return (
-    <div>
+    <div className="motion-footer-col">
       <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
         {title}
       </div>
