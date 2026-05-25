@@ -55,46 +55,51 @@ export function LandingMotion() {
 
         tl.from(".motion-topbar", {
           y: -16,
-          autoAlpha: 0,
+          opacity: 0,
           duration: 0.55,
           ease: "power2.out",
         });
 
         tl.from(
           ".motion-eyebrow",
-          { y: 14, autoAlpha: 0, duration: 0.5 },
+          { y: 14, opacity: 0, duration: 0.5 },
           "-=0.25"
         );
 
         if (split && split.words.length > 0) {
           tl.from(
             split.words,
-            { y: 56, autoAlpha: 0, stagger: 0.05, duration: 0.75 },
+            { y: 56, opacity: 0, stagger: 0.05, duration: 0.75 },
             "-=0.2"
           );
         }
 
         tl.from(
           ".motion-subtitle",
-          { y: 18, autoAlpha: 0, duration: 0.55 },
+          { y: 18, opacity: 0, duration: 0.55 },
           "-=0.45"
         );
 
-        tl.from(
+        tl.fromTo(
           ".motion-cta > *",
+          { y: 16, opacity: 0 },
           {
-            y: 16,
-            autoAlpha: 0,
+            y: 0,
+            opacity: 1,
             stagger: 0.09,
             duration: 0.5,
             ease: "back.out(1.4)",
+            // Strip the inline transform/opacity once the buttons land —
+            // otherwise interrupted hot-reloads can leave a stranded
+            // opacity: 0 on the App Store button.
+            clearProps: "transform,opacity",
           },
           "-=0.35"
         );
 
         tl.from(
           ".motion-tagline",
-          { autoAlpha: 0, y: 6, duration: 0.4 },
+          { opacity: 0, y: 6, duration: 0.4 },
           "-=0.2"
         );
 
@@ -102,7 +107,7 @@ export function LandingMotion() {
           ".motion-collage",
           {
             y: 70,
-            autoAlpha: 0,
+            opacity: 0,
             scale: 0.94,
             duration: 1.1,
             ease: "power4.out",
@@ -123,7 +128,7 @@ export function LandingMotion() {
         gsap.from(".motion-stat", {
           scrollTrigger: { trigger: ".motion-stat-row", start: "top 85%" },
           y: 32,
-          autoAlpha: 0,
+          opacity: 0,
           stagger: 0.1,
           duration: 0.8,
           ease: "power3.out",
@@ -133,7 +138,7 @@ export function LandingMotion() {
         gsap.from(".motion-feature-card", {
           scrollTrigger: { trigger: ".motion-feature-row", start: "top 85%" },
           y: 44,
-          autoAlpha: 0,
+          opacity: 0,
           stagger: 0.12,
           duration: 0.9,
           ease: "power3.out",
@@ -149,7 +154,7 @@ export function LandingMotion() {
           gsap.from(items, {
             scrollTrigger: { trigger: section, start: "top 78%" },
             y: 38,
-            autoAlpha: 0,
+            opacity: 0,
             stagger: 0.1,
             duration: 0.85,
             ease: "power3.out",
@@ -160,7 +165,7 @@ export function LandingMotion() {
         gsap.from(".motion-persona", {
           scrollTrigger: { trigger: ".motion-persona-row", start: "top 82%" },
           y: 50,
-          autoAlpha: 0,
+          opacity: 0,
           stagger: 0.18,
           duration: 0.95,
           ease: "power3.out",
@@ -170,7 +175,7 @@ export function LandingMotion() {
         gsap.from(".motion-final > *", {
           scrollTrigger: { trigger: ".motion-final", start: "top 80%" },
           y: 26,
-          autoAlpha: 0,
+          opacity: 0,
           stagger: 0.09,
           duration: 0.75,
           ease: "power3.out",
@@ -180,7 +185,7 @@ export function LandingMotion() {
         gsap.from(".motion-footer-col", {
           scrollTrigger: { trigger: ".motion-footer", start: "top 90%" },
           y: 24,
-          autoAlpha: 0,
+          opacity: 0,
           stagger: 0.08,
           duration: 0.7,
           ease: "power3.out",
