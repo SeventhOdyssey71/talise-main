@@ -46,7 +46,8 @@
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "resend": "^4.8.0"
+    "resend": "^4.8.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
