@@ -125,9 +125,9 @@ function Hero({ err }: { err?: string }) {
           On small screens they stack; on sm+ they sit side by side. */}
       <div
         id="cta"
-        className="mx-auto mt-9 flex w-full max-w-[600px] flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-center"
+        className="mx-auto mt-9 flex w-full max-w-[620px] flex-col items-stretch gap-3 sm:flex-row sm:justify-center"
       >
-        <div className="flex-1">
+        <div className="flex flex-1">
           <SignInButton variant="primary" label="Sign Up with Google" />
         </div>
         <AppStoreButton />
