@@ -21,6 +21,22 @@ export function googleRedirectUri(): string {
   return v;
 }
 
+/**
+ * Derive the OAuth redirect URI from the incoming request's host. Used by
+ * server-side flows that want the redirect to land back on whichever host
+ * the user is talking to — e.g. mobile sign-in routes through
+ * `app.talise.io/auth/callback`, the web flow stays on
+ * `talise.io/auth/callback`. Both hosts must be registered as Authorized
+ * Redirect URIs in Google Cloud Console.
+ *
+ * Note: Vercel forwards the original host header, so `new URL(req.url).host`
+ * is reliable behind their proxy.
+ */
+export function redirectUriFromRequest(req: Request): string {
+  const u = new URL(req.url);
+  return `${u.protocol}//${u.host}/auth/callback`;
+}
+
 function sessionSecret(): Buffer {
   const v = process.env.SESSION_SECRET;
   if (!v || v.length < 16) throw new Error("SESSION_SECRET must be set (>=16 chars)");
@@ -49,11 +65,11 @@ export function newStateToken(): string {
   return randomBytes(16).toString("base64url");
 }
 
-export function buildGoogleAuthUrl(state: string): string {
+export function buildGoogleAuthUrl(state: string, redirectUri?: string): string {
   const u = new URL(GOOGLE_AUTH_URL);
   u.searchParams.set("response_type", "code");
   u.searchParams.set("client_id", googleClientId());
-  u.searchParams.set("redirect_uri", googleRedirectUri());
+  u.searchParams.set("redirect_uri", redirectUri ?? googleRedirectUri());
   u.searchParams.set("scope", "openid email profile");
   u.searchParams.set("access_type", "online");
   u.searchParams.set("prompt", "select_account");
@@ -61,7 +77,15 @@ export function buildGoogleAuthUrl(state: string): string {
   return u.toString();
 }
 
-export async function exchangeCodeForTokens(code: string): Promise<{
+/**
+ * Exchange the auth code for tokens. Google enforces that `redirect_uri`
+ * here matches the value sent in the initial auth request — callers should
+ * pass `redirectUriFromRequest(req)` so both legs use the same host.
+ */
+export async function exchangeCodeForTokens(
+  code: string,
+  redirectUri?: string
+): Promise<{
   id_token: string;
   access_token?: string;
   expires_in?: number;
@@ -70,7 +94,7 @@ export async function exchangeCodeForTokens(code: string): Promise<{
     code,
     client_id: googleClientId(),
     client_secret: googleClientSecret(),
-    redirect_uri: googleRedirectUri(),
+    redirect_uri: redirectUri ?? googleRedirectUri(),
     grant_type: "authorization_code",
   });
   const r = await fetch(GOOGLE_TOKEN_URL, {

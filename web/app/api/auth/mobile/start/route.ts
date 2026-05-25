@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
-import { sign } from "@/lib/auth";
+import { sign, redirectUriFromRequest } from "@/lib/auth";
 import { Ed25519PublicKey } from "@mysten/sui/keypairs/ed25519";
 import { fromBase64 } from "@mysten/sui/utils";
 import { generateNonce } from "@mysten/sui/zklogin";
@@ -117,10 +117,14 @@ export async function GET(req: Request) {
   });
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
-  if (!clientId || !redirectUri) {
+  if (!clientId) {
     return NextResponse.json({ error: "oauth not configured" }, { status: 500 });
   }
+  // Derive the redirect URI from the host we're being called on so iOS
+  // (hitting app.talise.io) and web (hitting talise.io) each round-trip
+  // back to their own host. Both must be Authorized Redirect URIs in
+  // Google Cloud Console.
+  const redirectUri = redirectUriFromRequest(req);
 
   const params = new URLSearchParams({
     client_id: clientId,
