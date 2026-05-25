@@ -1,0 +1,13 @@
+{
+  "name": "talise",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm --filter talise-web build",
+    "start": "pnpm --filter talise-web start",
+    "dev": "pnpm --filter talise-web dev"
+  }
+}
