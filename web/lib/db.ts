@@ -49,9 +49,21 @@ function getSql(): Sql {
     );
   }
   _sql = postgres(url, {
-    // pxxl's Postgres exposes a public TLS-enabled endpoint; allow self-signed
-    // certs since we don't pin the CA. The connection is still encrypted.
-    ssl: url.includes("sslmode=disable") ? false : { rejectUnauthorized: false },
+    // Be permissive about TLS so the same code path works whether the host
+    // has STARTTLS configured or not. Behaviour:
+    //   • URL has `sslmode=disable`            → no TLS
+    //   • URL has `sslmode=require`            → require TLS, no cert pinning
+    //   • everything else (incl. no override)  → prefer TLS, fall back to plain
+    // The pxxl Postgres docker image (`postgres:16-alpine`) doesn't enable
+    // TLS by default on its public endpoint; forcing TLS there closes the
+    // socket mid-handshake ("Client network socket disconnected before
+    // secure TLS connection was established"). `prefer` avoids that.
+    ssl: (() => {
+      const mode = new URL(url).searchParams.get("sslmode");
+      if (mode === "disable") return false;
+      if (mode === "require") return { rejectUnauthorized: false };
+      return "prefer";
+    })(),
     // Modest pool — keep headroom for parallel requests without hammering the
     // ~1G memory pxxl box. Adjust if function concurrency rises.
     max: 8,
