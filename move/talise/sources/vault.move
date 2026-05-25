@@ -365,3 +365,15 @@ public fun balance_of<T>(vault: &TaliseVault): u64 {
 public fun type_string<T>(): String {
     type_name::with_defining_ids<T>().into_string().to_string()
 }
+
+// ───────────────────────────────────────────────────────────────────
+// Test-only shims
+
+#[test_only]
+public fun test_deposit_balance<T>(
+    vault: &mut TaliseVault,
+    balance: Balance<T>,
+    from: address,
+) {
+    deposit_balance(vault, balance, from)
+}

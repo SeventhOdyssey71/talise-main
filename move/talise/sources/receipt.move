@@ -105,3 +105,29 @@ public fun amount(r: &PaymentReceipt): u64 { r.amount }
 public fun asset(r: &PaymentReceipt): &String { &r.asset }
 public fun memo(r: &PaymentReceipt): &String { &r.memo }
 public fun ts_ms(r: &PaymentReceipt): u64 { r.ts_ms }
+
+// --- test-only ---
+
+#[test_only]
+public fun test_init(ctx: &mut TxContext) {
+    init(RECEIPT {}, ctx)
+}
+
+#[test_only]
+public fun test_mint(
+    from: address,
+    to: address,
+    amount: u64,
+    asset: String,
+    memo: String,
+    ts_ms: u64,
+    ctx: &mut TxContext,
+): PaymentReceipt {
+    mint(from, to, amount, asset, memo, ts_ms, ctx)
+}
+
+#[test_only]
+public fun destroy_for_testing(r: PaymentReceipt) {
+    let PaymentReceipt { id, from: _, to: _, amount: _, asset: _, memo: _, ts_ms: _ } = r;
+    id.delete();
+}
