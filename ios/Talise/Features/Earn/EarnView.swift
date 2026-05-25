@@ -579,10 +579,16 @@ private struct WithdrawSheet: View {
                 accent: true
             )
             rowDivider
+            // Show actual amount whenever there's a position earning yield —
+            // the previous `>= 0.0001 USD` threshold hid daily earnings for
+            // small positions (e.g. a ₦57 supplied position earns ~₦0.10/day
+            // which is below the USD threshold but still meaningful in local
+            // currency). Use `local` (not `local2`) so sub-1 values render
+            // with 4 decimals instead of rounding to ₦0.00.
             row(
                 label: "Earning / day",
-                value: dailyEarning >= 0.0001
-                    ? TaliseFormat.local2(dailyEarning)
+                value: (supplied > 0 && apy > 0)
+                    ? TaliseFormat.local(dailyEarning)
                     : "—"
             )
         }
