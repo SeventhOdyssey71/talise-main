@@ -110,14 +110,21 @@ struct BalancesDTO: Codable {
 struct ActivityEntryDTO: Codable, Identifiable {
     let digest: String
     let timestampMs: Double
-    let direction: String   // "sent" | "received"
+    /// "sent" | "received" | "invest" | "withdraw"
+    let direction: String
     let amountUsdsui: Double?
     let amountSui: Double?
     let counterparty: String?
     let counterpartyName: String?
+    /// For invest/withdraw rows: which yield venue (e.g. "deepbook",
+    /// "navi"). Nil for plain transfers. Server populates this from
+    /// MoveCall package detection in lib/activity.ts.
+    let venue: String?
 
     var id: String { digest }
     var isReceived: Bool { direction == "received" }
+    var isInvest: Bool { direction == "invest" }
+    var isWithdraw: Bool { direction == "withdraw" }
 }
 
 struct ActivityResponse: Codable {
@@ -199,6 +206,27 @@ struct YieldVenue: Codable, Identifiable {
     let apy: Double
     let supplied: Double?
     let pendingRewards: Double?
+
+    /// Display-cased venue name — the venue code stays lowercased over
+    /// the wire (server keys + activity classifier use "navi" /
+    /// "deepbook"), but the UI shows them as proper nouns.
+    var displayName: String { displayVenueName(venue) }
+}
+
+/// Maps a venue code (`"navi"`, `"deepbook"`) to its branded display
+/// name (`"Navi"`, `"Deepbook"`). Unknown venues fall back to a
+/// capitalized form so we don't surface raw `"my_pool"` to the user.
+/// Single source of truth — every History label, receipt, button
+/// caption, and intent string flows through here.
+func displayVenueName(_ code: String) -> String {
+    let normalized = code.lowercased()
+    switch normalized {
+    case "navi":     return "Navi"
+    case "deepbook": return "Deepbook"
+    default:
+        guard let first = normalized.first else { return code }
+        return first.uppercased() + normalized.dropFirst()
+    }
 }
 
 struct YieldComparison: Codable {
@@ -211,6 +239,46 @@ struct RewardsSummary: Codable {
     let pointsTotal: Int
     let referralCount: Int
     let recentEvents: [RewardsEvent]
+    /// Tier (Bronze/Silver/Gold/Platinum). Nil for old server builds
+    /// that haven't shipped the rewards refresh yet — UI falls back
+    /// to a points-only display.
+    let tier: RewardsTier?
+    /// Lifetime tally — what the user has sent / saved through Talise,
+    /// in USD. Rendered through `TaliseFormat.local2` so a Nigerian
+    /// user sees ₦, a US user sees $, etc.
+    let lifetimeSentUsd: Double?
+    let lifetimeSavedUsd: Double?
+    /// Round-up & Save toggle state. Drives the Roundup card on the
+    /// Rewards tab.
+    let roundup: RoundupConfig?
+    /// Lifetime amount auto-swept via round-up (USD). Rendered as the
+    /// "Saved via round-up" line on the RoundupCard. Separate from
+    /// `lifetimeSavedUsd` because that one also includes explicit
+    /// invests and goal deposits.
+    let roundupSavedUsd: Double?
+    /// Point-earning rates from the server so iOS can render the
+    /// "earn rules" copy without hardcoding (1 pt / $1 sent, etc.)
+    let pointRates: PointRates?
+}
+
+struct RewardsTier: Codable {
+    let id: String         // "bronze" | "silver" | "gold" | "plat"
+    let label: String
+    let pointsToNext: Int? // nil at top tier
+    let nextLabel: String?
+}
+
+struct RoundupConfig: Codable {
+    let enabled: Bool
+    let percentage: Int    // 1-10
+}
+
+struct PointRates: Codable {
+    let send: Int
+    let save: Int
+    let withdraw: Int
+    let roundup: Int
+    let goal: Int
 }
 
 struct RewardsEvent: Codable, Identifiable {
@@ -218,6 +286,165 @@ struct RewardsEvent: Codable, Identifiable {
     let kind: String
     let points: Int
     let createdAt: String
+}
+
+// MARK: - Phase 3: Savings Goals + Insights
+
+/// One savings goal (named bucket on top of the user's main NAVI position).
+/// `currentUsd` and `targetUsd` are USD figures the iOS formatter localizes
+/// via `TaliseFormat.local2`. v1 deposits are tracking-only — no on-chain
+/// per-goal segregation; bumping `currentUsd` mints a `goal_deposit`
+/// rewards_event (4 pts/$1 via the canonical earn engine).
+struct SavingsGoal: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let targetUsd: Double
+    let currentUsd: Double
+    /// Optional epoch-ms deadline. Drives the "23 days left" countdown.
+    let deadlineMs: Double?
+    /// Optional accent hex (e.g. "#2DC07A"). Nil → fall back to TaliseColor.accent.
+    let color: String?
+    let createdAtMs: Double
+    let archived: Bool
+
+    /// 0…1 fill ratio for the progress ring. Caps at 1 even when the user
+    /// has overshot the target.
+    var progress: Double {
+        guard targetUsd > 0 else { return 0 }
+        return min(1, max(0, currentUsd / targetUsd))
+    }
+
+    /// "23 days left" / "Past due" / nil if no deadline.
+    var deadlineLabel: String? {
+        guard let deadlineMs else { return nil }
+        let now = Date().timeIntervalSince1970 * 1000.0
+        let diffDays = Int((deadlineMs - now) / (1000.0 * 60 * 60 * 24))
+        if diffDays < 0 { return "Past due" }
+        if diffDays == 0 { return "Due today" }
+        if diffDays == 1 { return "1 day left" }
+        return "\(diffDays) days left"
+    }
+}
+
+/// Wrapper for GET/POST /api/rewards/goals.
+struct SavingsGoalsResponse: Codable {
+    let goals: [SavingsGoal]
+}
+
+/// POST body for /api/rewards/goals (create).
+struct SavingsGoalCreateRequest: Codable {
+    let name: String
+    let targetUsd: Double
+    let deadlineMs: Double?
+    let color: String?
+}
+
+/// PATCH body for /api/rewards/goals/[id] (update / archive).
+struct SavingsGoalUpdateRequest: Codable {
+    let name: String?
+    let targetUsd: Double?
+    let deadlineMs: Double?
+    let color: String?
+    let archive: Bool?
+}
+
+/// POST body for /api/rewards/goals/[id] (tracking deposit).
+struct GoalDepositRequest: Codable {
+    let amountUsd: Double
+}
+
+/// Response from a goal mutation (create / patch / deposit). `pointsAwarded`
+/// is only present on the deposit call.
+struct SavingsGoalMutationResponse: Codable {
+    let goal: SavingsGoal
+    let pointsAwarded: Int?
+}
+
+/// One row in the "top counterparties this month" strip.
+struct InsightsCounterparty: Codable, Identifiable, Hashable {
+    let address: String
+    let name: String?
+    let count: Int
+    let totalUsd: Double
+
+    var id: String { address }
+    /// "jude" / `0xab12…cdef` fallback for raw addresses.
+    var displayName: String {
+        if let name, !name.isEmpty { return name }
+        guard address.count > 14 else { return address }
+        return String(address.prefix(8)) + "…" + String(address.suffix(6))
+    }
+}
+
+/// Month-to-date insights derived from getRecentActivity on the server.
+/// Mirrors `MonthInsights` in web/lib/rewards/insights.ts.
+struct MonthInsights: Codable {
+    let spentUsd: Double
+    let receivedUsd: Double
+    let savedUsd: Double
+    let monthStartMs: Double
+    let sampleSize: Int
+    let topCounterparties: [InsightsCounterparty]
+}
+
+// MARK: - Phase 4: Redemption catalogue
+
+/// Mirrors the catalogue entry shape from `web/lib/rewards/catalogue.ts`
+/// + the `canAfford` affordability hint computed server-side from the
+/// user's current `pointsTotal`. iOS doesn't decode `metadata`/lock
+/// hints client-side — the server is the source of truth, so the
+/// `canAfford` boolean drives the disabled state and `minTier` is a
+/// presentation cue.
+struct RedeemSKU: Codable, Identifiable, Hashable {
+    let sku: String
+    let label: String
+    let description: String
+    let pointsCost: Int
+    /// "instant" | "flagged" | "pending"
+    let kind: String
+    let icon: String?
+    /// nil when the SKU has no tier gate. "bronze" | "silver" | "gold" | "plat".
+    let minTier: String?
+    let stackable: Bool?
+    /// Window the perk is active for, in ms. nil for permanent perks.
+    let durationMs: Double?
+    /// Server-computed: does the user's current `pointsTotal` cover this?
+    let canAfford: Bool
+
+    var id: String { sku }
+}
+
+/// Response from `GET /api/rewards/catalogue` — the list of redeemable
+/// SKUs plus the user's current points total (so iOS can render
+/// "Redeem"/"X pts needed" without a second round-trip).
+struct RedemptionsCatalogue: Codable {
+    let pointsTotal: Int
+    let items: [RedeemSKU]
+}
+
+/// Response from `POST /api/rewards/redeem` — the new points total plus
+/// the freshly created redemption row. iOS uses the `pointsTotal` to
+/// update the parent Rewards summary inline (the section also fires
+/// `onRedeemed` so the parent can refetch the whole summary).
+struct RedemptionResponse: Codable {
+    let ok: Bool
+    let pointsTotal: Int
+    let redemption: RedemptionRow
+}
+
+struct RedemptionRow: Codable, Identifiable {
+    let id: String
+    let sku: String
+    let pointsSpent: Int
+    /// "pending" | "fulfilled" | "expired" | "refunded"
+    let status: String
+    let createdAt: String
+    let fulfilledAt: String?
+}
+
+/// Request body for `POST /api/rewards/redeem`.
+struct RedeemRequest: Encodable {
+    let sku: String
 }
 
 // Sponsor + sponsor-execute request/response shapes are NOT modeled
