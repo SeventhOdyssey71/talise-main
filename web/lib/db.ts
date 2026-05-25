@@ -71,6 +71,12 @@ function getSql(): Sql {
     connect_timeout: 10,
     // Don't transform — keep snake_case column names exactly as queried.
     transform: { undefined: null },
+    // Silence NOTICE chatter from idempotent migrations. CREATE TABLE
+    // IF NOT EXISTS / ALTER TABLE ADD COLUMN IF NOT EXISTS each emit
+    // a NOTICE on every cold start once the DB is migrated — useful
+    // information once, pure log spam after that. Real warnings and
+    // errors still propagate as exceptions on the query path.
+    onnotice: () => {},
     // Parse BIGINT (oid 20) as a plain JS Number instead of postgres.js's
     // default (BigInt or string). Our BIGINT columns hold millisecond
     // timestamps (~1.78e12) — well under Number.MAX_SAFE_INTEGER (9e15) —
