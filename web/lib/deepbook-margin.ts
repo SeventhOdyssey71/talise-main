@@ -34,9 +34,25 @@ export const LENDING_POOLS = {
   USDSUI: "0x78a0ddd02745d9b500fb7e9aae2ff8b665d974f00fd1f6060d59f4a8e891402c",
 } as const;
 
-/** SupplierCap struct type used to filter owned objects. */
+/**
+ * SupplierCap struct type used to filter owned objects.
+ *
+ * Sui's qualified type names anchor to the package that ORIGINALLY
+ * defined the struct, even after upgrades — so this is always the
+ * margin protocol's v1 (canonical) package id. DeepBook upgraded
+ * its margin package in late 2026 (new MARGIN_PACKAGE_ID =
+ * 0x124bb3…cff2e in SDK 1.4.1), but existing SupplierCap objects
+ * — and any newly minted ones — keep the v1 type identifier below.
+ *
+ * Earlier code hardcoded the intermediate 0xfbd3…1377 id, which
+ * lookups never matched (returning null for every user), forcing
+ * `buildSupplyUsdsuiMargin` to mint a fresh cap on every call.
+ * That always aborted on `margin_registry::load_inner` (code 10 —
+ * Versioned mismatch) because the OLD package's mint helper was
+ * touching the NEW registry's versioned inner.
+ */
 const SUPPLIER_CAP_TYPE =
-  "0xfbd322126f1452fd4c89aedbaeb9fd0c44df9b5cedbe70d76bf80dc086031377::margin_pool::SupplierCap";
+  "0x97d9473771b01f77b0940c589484184b49f6444627ec121314fae6a6d36fb86b::margin_pool::SupplierCap";
 
 const USDSUI_DECIMALS = 6;
 

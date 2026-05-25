@@ -44,6 +44,10 @@ struct HomeView: View {
         .refreshable { await loadAll(force: true) }
         .taliseScreenBackground()
         .task { await loadAll(force: false) }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseTxCompleted)) { note in
+            guard let ev = note.object as? TaliseTxEvent else { return }
+            applyOptimisticTx(ev)
+        }
         .alert("Convert to USDsui", isPresented: $sweepAlertVisible) {
             Button("Cancel", role: .cancel) {}
             Button("Convert") { Task { await executeSweep() } }
@@ -66,17 +70,25 @@ struct HomeView: View {
 
     private var topBar: some View {
         HStack {
-            TaliseLogoMark()
+            // Brand mark — the source PNG already ships at the right
+            // tint, so we render as-is (rendering intent on the asset
+            // catalog is "original"). 24×22 keeps the bounding box
+            // identical to the prior Canvas-drawn `TaliseLogoMark`
+            // so the rest of the navbar layout doesn't shift.
+            Image("TaliseLogo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
                 .frame(width: 24, height: 22)
-                .foregroundStyle(TaliseColor.fg)
             Spacer()
             Button {
                 contactsSheetVisible = true
             } label: {
-                Image(systemName: "person.2.fill")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(TaliseColor.fg)
+                // Custom contacts glyph from design (person + stacked
+                // lines). Replaces the SF Symbol `person.2.fill`.
+                Image("ContactsGlyph")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 22, height: 22)
                     .padding(6)
                     .contentShape(Rectangle())
             }
@@ -135,7 +147,12 @@ struct HomeView: View {
                 actionButton(systemName: "plus") {
                     Task { await openOnramp() }
                 }
-                actionButton(systemName: "paperplane.fill", rotated: -30) {
+                // SF Symbol `paperplane` (outlined, not `.fill`) ships at
+                // the canonical ~45° upper-right angle that reads as
+                // "send" in every messaging app since Telegram. The old
+                // `.fill` + `rotated: -30` combo pushed the body nearly
+                // vertical and lost the directional cue.
+                actionButton(systemName: "paperplane", rotated: 0) {
                     NotificationCenter.default.post(
                         name: .taliseRequestSendSheet, object: nil
                     )
@@ -193,14 +210,17 @@ struct HomeView: View {
             Color.clear
                 .frame(height: 212)
                 .taliseGlass(cornerRadius: 25)
-            Image("sui-drop")
-                .renderingMode(.template)
+            // Branded Sui coin mark in the card's top-right corner.
+            // Source PNG is the full-color Sui mark, so we render as
+            // original (no template tint). Box bumped 18×24 → 26×26
+            // to give the round mark a proportional footprint vs the
+            // narrower drop the old `sui-drop` SVG used.
+            Image("SuiCoinMark")
                 .resizable()
-                .scaledToFit()
-                .foregroundStyle(TaliseColor.fg)
-                .frame(width: 18, height: 24)
-                .padding(.top, 24)
-                .padding(.trailing, 26)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 26, height: 26)
+                .padding(.top, 22)
+                .padding(.trailing, 24)
                 .frame(maxWidth: .infinity, alignment: .topTrailing)
             VStack(alignment: .leading, spacing: 0) {
                 if let handle = currentHandle {
@@ -373,7 +393,15 @@ struct HomeView: View {
         do {
             balance = try await APIClient.shared.get("/api/balances")
         } catch {
-            balance = nil
+            // A pull-to-refresh that lands while a prior .task load is
+            // still in flight cancels the older request (-999). Wiping
+            // `balance` on a cancellation would clobber the working
+            // value we already had on screen — the user sees ₦0.00
+            // flash in. Preserve last-known state on cancel; only nil
+            // out for genuine load failures.
+            if !isCancellation(error) {
+                balance = nil
+            }
         }
     }
 
@@ -382,9 +410,93 @@ struct HomeView: View {
         defer { loadingActivity = false }
         do {
             let r: ActivityResponse = try await APIClient.shared.get("/api/activity?limit=20")
+            #if DEBUG
+            print("[activity] decoded \(r.entries.count) entries")
+            #endif
             activity = r.entries
         } catch {
-            activity = []
+            #if DEBUG
+            print("[activity] load failed: \(error)")
+            #endif
+            if !isCancellation(error) {
+                activity = []
+            }
+        }
+    }
+
+    /// True when the URLSession task was cancelled (typically because
+    /// SwiftUI tore down the previous `.task` while a refresh kicked
+    /// off a new one). Cancellations are NOT load failures — preserve
+    /// any data we already have on screen.
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        let ns = error as NSError
+        return ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
+    }
+
+    /// Sui fullnode `suix_queryTransactionBlocks` and `suix_getBalance`
+    /// can lag the actual chain state by 1-3 seconds after a tx lands,
+    /// even though Onara's gRPC `executeTransaction` already confirmed
+    /// the digest. Refreshing immediately therefore returns pre-send
+    /// state and the user sees their balance unchanged + their tx
+    /// missing from History.
+    ///
+    /// To avoid that flash of stale data, we apply an optimistic patch
+    /// the moment the sender hands us the digest:
+    ///   • prepend a synthetic ActivityEntryDTO so the row appears
+    ///     immediately (with the same shape /api/activity will emit
+    ///     a second later)
+    ///   • adjust the on-screen USDsui balance by the moved amount
+    /// Then we schedule a real reload 1.5s out to reconcile against
+    /// the canonical chain query — whichever side of the optimistic
+    /// patch ends up wrong is fixed silently on that pass.
+    private func applyOptimisticTx(_ ev: TaliseTxEvent) {
+        // Drop any prior optimistic entry for the same digest (e.g.
+        // the user sent twice quickly and we already showed the first).
+        let synthetic = ActivityEntryDTO(
+            digest: ev.digest,
+            timestampMs: Date().timeIntervalSince1970 * 1000,
+            direction: ev.direction,
+            amountUsdsui: ev.amountUsdsui,
+            amountSui: nil,
+            counterparty: ev.counterparty,
+            counterpartyName: ev.counterpartyName,
+            venue: ev.venue
+        )
+        activity = [synthetic] + activity.filter { $0.digest != ev.digest }
+
+        // Balance: sent + invest leave the wallet (decrement);
+        // withdraw returns to the wallet (increment).
+        if let b = balance {
+            let delta: Double
+            switch ev.direction {
+            case "sent", "invest":   delta = -ev.amountUsdsui
+            case "withdraw":         delta =  ev.amountUsdsui
+            default:                 delta = 0
+            }
+            let nextUsdsui = max(0, b.usdsui + delta)
+            // totalUsd: USDsui counts 1:1; SUI side stays as-is. We
+            // keep this consistent with the server's calc so the
+            // reconciled refresh doesn't visibly jump.
+            let nextTotal = max(0, b.totalUsd + delta)
+            balance = BalancesDTO(
+                address: b.address,
+                usdsui: nextUsdsui,
+                sui: b.sui,
+                suiPriceUsd: b.suiPriceUsd,
+                totalUsd: nextTotal
+            )
+        }
+
+        // Reconcile against canonical chain state. 1.5s is empirically
+        // enough for the fullnode's queryTransactionBlocks index to
+        // catch up after Onara's broadcast-and-wait completes; if it
+        // hasn't, the optimistic row simply stays on screen until the
+        // next pull-to-refresh picks it up (it's the same digest, so
+        // there's no dupe).
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await loadAll(force: true)
         }
     }
 
@@ -477,7 +589,11 @@ struct HomeView: View {
                 body: Body(action: "preview")
             )
         } catch {
-            sweepPreview = nil
+            // Same cancellation-vs-failure split as loadBalance — don't
+            // clobber the banner state on a refresh-triggered cancel.
+            if !isCancellation(error) {
+                sweepPreview = nil
+            }
         }
     }
 
@@ -573,9 +689,15 @@ struct ContactsSheet: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: "person.2")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(TaliseColor.fgDim)
+            // Same brand contacts glyph as the navbar — at 36pt so it
+            // reads as the empty-state hero. Faded via opacity since
+            // the source PNG isn't a template asset (rendering intent
+            // "original" preserves the design's tint).
+            Image("ContactsGlyph")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 36, height: 36)
+                .opacity(0.5)
                 .padding(.top, 28)
             Text("No contacts yet")
                 .font(TaliseFont.body(14, weight: .light))
@@ -653,6 +775,30 @@ extension Notification.Name {
     /// Posted by HomeView when the paperplane action is tapped. MainTabView
     /// observes this and presents the Send sheet over the active tab.
     static let taliseRequestSendSheet = Notification.Name("io.talise.requestSendSheet")
+
+    /// Posted by SendView / EarnView once a sponsored tx returns a
+    /// digest. HomeView listens, prepends an optimistic row, and
+    /// kicks off a delayed real refresh so the UI stays accurate even
+    /// while the Sui fullnode propagation lags by a second or two.
+    static let taliseTxCompleted = Notification.Name("io.talise.txCompleted")
+}
+
+/// Payload for `.taliseTxCompleted`. Built from the data the sender
+/// already has on hand — no extra chain round-trip needed to populate
+/// the optimistic row.
+struct TaliseTxEvent {
+    let digest: String
+    /// "sent" | "invest" | "withdraw" — matches ActivityEntryDTO.direction.
+    let direction: String
+    /// Positive USDsui units the user moved. Always positive — the
+    /// direction field determines the sign in the UI.
+    let amountUsdsui: Double
+    /// For sends: recipient address. For invest/withdraw: nil (the
+    /// counterparty is a pool, no address to show).
+    let counterparty: String?
+    let counterpartyName: String?
+    /// "deepbook" | "navi" — only set for invest/withdraw.
+    let venue: String?
 }
 
 private struct TaliseLogoMark: View {

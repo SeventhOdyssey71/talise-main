@@ -35,6 +35,13 @@ export const EVENT_LABELS: Record<RewardsEventKind, string> = {
   first_send: "Your first send",
   first_claim: "Claimed your @talise name",
   streak: "Daily streak",
+  // Phase 1 earn-engine kinds.
+  send_earn: "Earned from a send",
+  save_earn: "Earned from saving to yield",
+  roundup_save: "Round-up saved",
+  withdraw_earn: "Withdrew from yield",
+  goal_deposit: "Added to a savings goal",
+  redeemed: "Redeemed points",
 };
 
 /** Format a points delta with a leading `+`. */

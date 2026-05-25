@@ -8,6 +8,8 @@ import {
   buildSupplyUsdsuiMargin,
   fetchSupplierCapId,
 } from "@/lib/deepbook-margin";
+import { appendNaviSupply } from "@/lib/navi-supply";
+import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 
 export const runtime = "nodejs";
 
@@ -56,26 +58,42 @@ export async function POST(req: Request) {
     );
   }
 
-  if (venue === "navi") {
-    // NAVI supply uses the @t2000/sdk PTB builder; we already expose
-    // /api/t2000/execute for the web flow. Until that helper is split
-    // into a pure builder, mobile uses DeepBook as the default.
-    return NextResponse.json(
-      { error: "NAVI venue not yet exposed to mobile — try venue=deepbook" },
-      { status: 501 }
-    );
-  }
-
   try {
     const tx = new Transaction();
     tx.setSender(user.sui_address);
 
-    const capId = await fetchSupplierCapId(user.sui_address).catch(() => null);
-    buildSupplyUsdsuiMargin({
-      senderAddress: user.sui_address,
-      amountUsdsui: amount,
-      existingSupplierCapId: capId,
-    }).build(tx);
+    if (venue === "navi") {
+      // NAVI is the real default — live ~5% APY on USDsui supply.
+      // @t2000/sdk 2.11's NaviAdapter.addSaveToTx is now public, so
+      // we can build the supply PTB inline without going through the
+      // web-only /api/t2000/execute route.
+      await appendNaviSupply(tx, user.sui_address, amount);
+    } else {
+      // DeepBook margin pool — USDsui borrow demand is ~0% so the
+      // realized APY is also ~0%. We still expose the venue for the
+      // user who wants to provide liquidity to bootstrap utilization,
+      // but it's no longer the default.
+      const capId = await fetchSupplierCapId(user.sui_address).catch(() => null);
+      buildSupplyUsdsuiMargin({
+        senderAddress: user.sui_address,
+        amountUsdsui: amount,
+        existingSupplierCapId: capId,
+      }).build(tx);
+    }
+
+    // Universal Talise receipt — appends a Payment Kit
+    // `processRegistryPayment` 1-micro self-ping carrying a typed
+    // memo `talise/v1|invest|...|venue=navi|...`. The venue's own
+    // MoveCalls above do the real money movement; this just tags
+    // the tx so the activity classifier (and any third-party
+    // indexer) can recover the kind + venue authoritatively from
+    // the on-chain PaymentRecord instead of sniffing MoveCall
+    // packages heuristically.
+    const { nonce } = appendPaymentKitReceipt(tx, {
+      kind: "invest",
+      sender: user.sui_address,
+      refs: { venue },
+    });
 
     const kind = await tx.build({
       client: sui() as never,
@@ -86,6 +104,7 @@ export async function POST(req: Request) {
       transactionKindB64: toBase64(kind),
       venue,
       amount,
+      receiptNonce: nonce,
     });
   } catch (err) {
     return NextResponse.json(

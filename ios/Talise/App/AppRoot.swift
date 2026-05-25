@@ -11,7 +11,10 @@ struct AppRoot: View {
             case .launching:
                 LaunchView()
             case .signedOut:
-                SignInView()
+                // Plan 10 onboarding: splash → welcome → 3-slide brand
+                // intro → Continue with Google → KYC tier picker → ready.
+                // `SignInView` is reached internally by `SignInScreen`.
+                OnboardingRoot()
             case .onboarding(let user):
                 KYCView(user: user)
             case .ready:
@@ -46,9 +49,14 @@ private struct LaunchView: View {
     }
 }
 
-/// Three-tab pill nav matching Figma node 42-1819. Home, Invest, Rewards
-/// — Send and Receive live as actions on Home, not as nav destinations.
+/// Five-tab pill nav. Home, Invest, **Chat**, Rewards, Profile — Send and
+/// Receive live as actions on Home, not as nav destinations. The Chat tab
+/// hosts the AI finance assistant (Plan 12, `/api/chat/stream` backend).
 struct MainTabView: View {
+    // Chat tab removed from the user-facing nav. The ChatTabView is
+    // kept in the codebase so we can re-add the slot once the agent
+    // UX (Payment-Intent confirm cards, voice input, deeper grounding)
+    // is ready — but it shouldn't ship to users half-baked.
     enum Tab: Hashable { case home, invest, rewards, profile }
     @State private var tab: Tab = .home
     @State private var sendSheetVisible = false
@@ -86,10 +94,14 @@ struct MainTabView: View {
                 .blur(radius: anySheetUp ? 14 : 0)
                 .animation(.easeInOut(duration: 0.22), value: anySheetUp)
         }
-        .sheet(isPresented: $sendSheetVisible) {
+        // Send is a full-page push, not a bottom-up sheet — multi-step
+        // flows (amount → recipient → review → sending → complete) read
+        // wrong with a drag handle at the top, and the dismiss-by-swipe
+        // gesture mid-flight can land the user on a half-confirmed
+        // state. `.fullScreenCover` gives the takeover feel of a new
+        // page while still letting AppRoot own the dismiss state.
+        .fullScreenCover(isPresented: $sendSheetVisible) {
             SendView(onDone: { sendSheetVisible = false })
-                .presentationDetents([.large])
-                .presentationBackground(TaliseColor.bg)
         }
         .sheet(isPresented: $receiveSheetVisible) {
             ReceiveView()

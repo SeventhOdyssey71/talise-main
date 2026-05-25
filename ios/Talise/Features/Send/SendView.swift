@@ -1,9 +1,116 @@
 import SwiftUI
 
-/// End-to-end Send: resolve recipient (SuiNS or 0x address) → server-side
-/// PTB build → ZkLoginCoordinator sponsored sign + submit. Presented as
-/// a sheet from HomeView's paperplane action.
+/// Entry point for the Send sheet. Picks between the legacy single-screen
+/// `LegacySendView` and the new multi-page `SendFlowView` based on a
+/// build-time feature flag so AppRoot can keep presenting `SendView(...)`
+/// unchanged.
+///
+/// Flip `useNewSendFlow` to false to fall back to the original sheet.
 struct SendView: View {
+    /// Compile-time switch between the legacy single-screen send and the
+    /// new five-step NavigationStack flow. AppRoot calls `SendView(...)`
+    /// either way; the dispatch happens here.
+    static let useNewSendFlow = true
+
+    var onDone: (() -> Void)? = nil
+
+    var body: some View {
+        if Self.useNewSendFlow {
+            SendFlowView(onDone: onDone)
+        } else {
+            LegacySendView(onDone: onDone)
+        }
+    }
+}
+
+// MARK: - Shared shapes for the new flow
+
+/// State-machine cursor for the multi-page send flow. Drives both the
+/// NavigationStack path and the in-flight `sending`/`complete` states.
+enum SendStep: Hashable {
+    case amount
+    case recipient
+    case review
+    case sending
+    case complete
+}
+
+/// Mutable draft passed by `@Bindable` through the SendFlowView pages.
+/// Holds everything the flow accumulates before hitting the backend —
+/// raw input (so the user's typing reads back exactly as entered), the
+/// converted USDsui amount, and the resolved recipient.
+@Observable
+final class SendDraft {
+    /// User-entered string in the display currency (e.g. "1235" or
+    /// "12.50"). The view layer formats it for display; we never mutate
+    /// it for cosmetic reasons.
+    var rawAmount: String = ""
+
+    /// Recipient text from the input field. Mirrors what the user typed
+    /// before resolution lands.
+    var recipientInput: String = ""
+
+    /// Server-resolved recipient (SuiNS or 0x lookup result).
+    var resolved: RecipientResolution?
+
+    /// Snapshot of the display currency at the moment the user typed the
+    /// amount, so later screens can re-render in the same currency even
+    /// if the global picker is changed mid-flow.
+    var currency: TaliseCurrency
+
+    /// USDsui-equivalent of `rawAmount` at submission time. Filled by
+    /// `SendReviewView` right before posting to /api/send/prepare.
+    var amountUsdsui: Double = 0
+
+    /// Submission outcome — surfaces in `SendCompleteView`.
+    var success: SendSuccess?
+
+    /// Error to surface inside the in-progress page.
+    var errorMessage: String?
+
+    /// Optional historical sent-count between the current user and this
+    /// recipient. Used by the review screen ("3 previous sends") when we
+    /// have it from the /api/contacts payload.
+    var previousSendsToRecipient: Int?
+
+    init(currency: TaliseCurrency) {
+        self.currency = currency
+    }
+}
+
+/// Snapshot of a successful send. Persists across `sending → complete`
+/// so the SendCompleteView can render details after the receipt lands.
+struct SendSuccess: Equatable {
+    let digest: String
+    /// User-entered amount string (raw, no symbol).
+    let displayAmount: String
+    /// Currency the user typed in.
+    let currency: TaliseCurrency
+    /// USDsui-equivalent posted on chain.
+    let usdsui: Double
+    /// Resolved recipient address (0x...).
+    let recipientAddress: String
+    /// Display name (handle or short address) for the recipient.
+    let recipientDisplay: String
+}
+
+// `TaliseTxEvent` + `Notification.Name.taliseTxCompleted` are declared
+// canonically in `Features/Home/HomeView.swift` — that struct carries
+// `direction: String` ("sent" | "invest" | "withdraw") and a `venue`
+// field so the same notification fans out to optimistic updates for
+// invest/withdraw txs from EarnView too. The Send flow uses those
+// existing types; do NOT redeclare them here (would produce duplicate-
+// symbol errors and split the listener graph between two incompatible
+// struct shapes).
+
+// MARK: - Legacy single-screen send
+
+/// Original single-screen Send flow. Preserved verbatim so we can flip
+/// `SendView.useNewSendFlow` back to false if the new flow regresses.
+///
+/// End-to-end: resolve recipient (SuiNS or 0x address) → server-side
+/// PTB build → ZkLoginCoordinator sponsored sign + submit.
+struct LegacySendView: View {
     var onDone: (() -> Void)? = nil
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -15,7 +122,7 @@ struct SendView: View {
     @State private var resolving = false
     @State private var sending = false
     @State private var error: String?
-    @State private var success: SendSuccess?
+    @State private var success: LegacySuccess?
     @State private var balance: BalancesDTO?
 
     var body: some View {
@@ -48,9 +155,6 @@ struct SendView: View {
                 header
 
                 fieldBlock(title: "To") {
-                    // Placeholder kept simple — anything with "@" trips
-                    // iOS's smart data detection and the placeholder
-                    // renders as a blue tappable email link.
                     TextField("Talise handle or 0x address", text: $recipient)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
@@ -185,15 +289,9 @@ struct SendView: View {
         if bare.isEmpty {
             return "Use a Talise handle, full SuiNS name, or 0x address."
         }
-        // We try the Talise sub then the root SuiNS, so the message
-        // names both candidates that just failed.
         return "Couldn't find \(bare)@talise.sui or \(bare).sui on chain yet."
     }
 
-    /// Trims any of the user-input wrappers — `@`, `@talise`, `@talise.sui`,
-    /// `.talise.sui`, bare `.sui` — to recover the base label. Mirrors the
-    /// candidateSuinsNames logic in web/lib/suins.ts so error messages
-    /// align with what the server actually tried.
     private func stripParent(_ s: String) -> String {
         var out = s.lowercased()
         if out.hasPrefix("@") { out.removeFirst() }
@@ -204,10 +302,6 @@ struct SendView: View {
         return out
     }
 
-    /// Available balance line under the amount input. Shown in the
-    /// user's display currency (matches the headline on Home). When
-    /// the typed amount exceeds the available balance, the line
-    /// turns red and the Send button is disabled.
     private var balanceLine: some View {
         HStack(spacing: 4) {
             if let avail = availableLocal {
@@ -236,15 +330,11 @@ struct SendView: View {
         .padding(.top, 4)
     }
 
-    /// Available balance formatted in the user's selected currency,
-    /// pulled from /api/balances at appear time.
     private var availableLocal: String? {
         guard let usdsui = balance?.usdsui else { return nil }
         return TaliseFormat.local2(usdsui)
     }
 
-    /// The typed amount converted from the user's display currency
-    /// back to USDsui — what the chain actually settles in.
     private var typedAmountUsdsui: Double {
         guard let typed = Double(amount), typed > 0 else { return 0 }
         let rate = CurrencySettings.shared.rates[CurrencySettings.shared.current.code] ?? 1
@@ -296,14 +386,14 @@ struct SendView: View {
 
     // MARK: - Success
 
-    private struct SendSuccess {
+    private struct LegacySuccess {
         let digest: String
         let amount: String
         let asset: String
         let recipient: String
     }
 
-    private func successView(_ s: SendSuccess) -> some View {
+    private func successView(_ s: LegacySuccess) -> some View {
         VStack(spacing: 16) {
             Spacer()
             ZStack {
@@ -350,7 +440,6 @@ struct SendView: View {
         resolved = nil
         let q = input.trimmingCharacters(in: .whitespaces)
         guard q.count >= 3 else { resolving = false; return }
-        // Bare 0x addresses don't need a server round-trip.
         if let addr = SuiAddress(q) {
             resolved = RecipientResolution(
                 address: addr.raw, displayName: addr.short,
@@ -390,9 +479,6 @@ struct SendView: View {
         error = nil
         defer { sending = false }
         do {
-            // The user types in their display currency (₦, $, etc.);
-            // we convert via the cached FX rate to USDsui — the only
-            // unit the chain settles in — before hitting the backend.
             struct Body: Encodable {
                 let to: String; let amount: Double; let asset: String
             }
@@ -403,18 +489,31 @@ struct SendView: View {
             let symbol = CurrencySettings.shared.current.symbol
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
                 transactionKindB64: built.transactionKindB64,
-                intent: "Send \(symbol)\(amount)"
+                intent: "Send \(symbol)\(amount)",
+                rewards: ZkLoginCoordinator.RewardsMeta(
+                    kind: "send",
+                    amountUsd: amtUsdsui,
+                    venue: nil
+                )
             )
-            success = SendSuccess(
+            success = LegacySuccess(
                 digest: result.digest,
                 amount: "\(symbol)\(amount)",
                 asset: "USDsui",
                 recipient: resolved.displayString
             )
+            NotificationCenter.default.post(
+                name: .taliseTxCompleted,
+                object: TaliseTxEvent(
+                    digest: result.digest,
+                    direction: "sent",
+                    amountUsdsui: amtUsdsui,
+                    counterparty: resolved.address,
+                    counterpartyName: resolved.displayName,
+                    venue: nil
+                )
+            )
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
-            // Old bearer that predates the Poseidon-nonce binding.
-            // Signing it would always 401 — bounce the user back to
-            // sign-in cleanly instead of leaving them stuck.
             self.error = "Sign in again — your session needs a refresh."
             session.signOut()
         } catch {
@@ -422,8 +521,6 @@ struct SendView: View {
         }
     }
 
-    /// Pulls /api/balances so the "Available" line + overdraft check
-    /// reflect the real on-chain USDsui balance.
     private func loadBalance() async {
         do {
             balance = try await APIClient.shared.get("/api/balances")

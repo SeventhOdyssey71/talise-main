@@ -23,14 +23,17 @@ struct RewardsView: View {
     @State private var error: String?
 
     var body: some View {
+        // Rewards = points + perks hub. The Money-management surfaces
+        // (Round-up, Goals, Insights) moved to the Invest tab where
+        // they semantically belong — Round-up auto-supplies to NAVI,
+        // Goals are savings buckets, Insights are spend/save analytics.
+        // Rewards stays focused on: tier progression, lifetime tallies,
+        // how-you-earn rules, the redemption catalogue, and referrals.
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 22) {
                 header
                 tierCard
                 lifetimeStatsRow
-                // ANCHOR: roundup-section
-                RoundupCard(summary: summary, onChange: { Task { await load() } })
-                // ANCHOR: goals-section
                 earnRulesCard
                 // ANCHOR: redeem-section
                 RedemptionsSection(pointsTotal: summary?.pointsTotal ?? 0, onRedeemed: { Task { await load() } })
@@ -74,25 +77,29 @@ struct RewardsView: View {
         let tier = summary?.tier
         let points = summary?.pointsTotal ?? 0
 
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    MicroLabel(
-                        text: tier?.label.uppercased() ?? "BRONZE",
-                        color: TaliseColor.accent
-                    ).kerning(2.0)
+        VStack(alignment: .leading, spacing: 18) {
+            // Tier label sits above a big accent-green points number.
+            // The earlier rosette-on-the-right was a separate visual
+            // element fighting the brand (bronze orange vs Talise
+            // green); dropped in favor of letting the number itself
+            // be the hero — exactly the treatment the Round-up
+            // card uses for "Saved via round-up ₦2.00".
+            VStack(alignment: .leading, spacing: 6) {
+                MicroLabel(
+                    text: tier?.label.uppercased() ?? "BRONZE",
+                    color: TaliseColor.accent
+                ).kerning(2.0)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("\(points)")
-                        .font(TaliseFont.heading(40, weight: .medium))
-                        .kerning(-1.4)
-                        .foregroundStyle(TaliseColor.fg)
+                        .font(TaliseFont.heading(44, weight: .medium))
+                        .kerning(-1.6)
+                        .foregroundStyle(TaliseColor.accent)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.6)
+                        .minimumScaleFactor(0.5)
                     Text("points")
-                        .font(TaliseFont.body(12, weight: .light))
+                        .font(TaliseFont.body(13, weight: .light))
                         .foregroundStyle(TaliseColor.fgDim)
                 }
-                Spacer()
-                tierGlyph(tier?.id ?? "bronze")
             }
 
             tierProgressBar(tier: tier, points: points)
@@ -100,53 +107,39 @@ struct RewardsView: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(TaliseColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .stroke(TaliseColor.accent.opacity(0.18), lineWidth: 1)
-        )
         .clipShape(RoundedRectangle(cornerRadius: 22))
     }
 
-    /// Color-shifted glyph per tier — a quick visual rank cue without
-    /// shipping bespoke artwork yet. Future: real tier badges from
-    /// the brand kit.
-    private func tierGlyph(_ id: String) -> some View {
-        let color: Color = {
-            switch id {
-            case "silver": return Color(hex: 0xC0C0C0)
-            case "gold":   return Color(hex: 0xE0B048)
-            case "plat":   return Color(hex: 0xB0E0E6)
-            default:       return Color(hex: 0xB87333) // bronze
-            }
-        }()
-        return ZStack {
-            Circle().fill(color.opacity(0.18))
-                .frame(width: 56, height: 56)
-            Image(systemName: "rosette")
-                .font(.system(size: 26, weight: .medium))
-                .foregroundStyle(color)
-        }
-    }
-
-    /// "850 points to Gold" sub-line + filled progress bar. Hidden
-    /// (replaced by "Top tier" pill) when `nextLabel` is nil.
+    /// "850 points to Silver" + a filled progress bar. The bar always
+    /// has a minimum filled width (8pt) so brand-new users at 4 of
+    /// 500 points don't see what looks like an empty track. Replaces
+    /// the pill on top-tier accounts.
     @ViewBuilder
     private func tierProgressBar(tier: RewardsTier?, points: Int) -> some View {
         if let nextLabel = tier?.nextLabel, let toNext = tier?.pointsToNext, toNext > 0 {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("\(toNext) points to \(nextLabel)")
-                    .font(TaliseFont.mono(11, weight: .light))
-                    .foregroundStyle(TaliseColor.fgMuted)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("\(toNext.formatted()) to \(nextLabel)")
+                        .font(TaliseFont.mono(11, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                    Spacer()
+                    Text("\(points.formatted()) / \((points + toNext).formatted())")
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
                 GeometryReader { geo in
                     let total = points + toNext
                     let progress: CGFloat = total > 0 ? CGFloat(points) / CGFloat(total) : 0
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.white.opacity(0.06))
+                        // Min 8pt filled so the bar reads as "started"
+                        // even for sub-1% progress. Looks like a real
+                        // step instead of an empty rail.
                         Capsule().fill(TaliseColor.accent)
-                            .frame(width: max(2, geo.size.width * progress))
+                            .frame(width: max(8, geo.size.width * progress))
                     }
                 }
-                .frame(height: 6)
+                .frame(height: 8)
             }
         } else if tier != nil {
             Text("Top tier — every point still counts toward perks")
@@ -176,16 +169,20 @@ struct RewardsView: View {
     }
 
     private func lifetimeTile(label: String, value: Double, accent: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             MicroLabel(text: label, color: TaliseColor.fgDim).kerning(1.5)
             Text(TaliseFormat.local2(value))
-                .font(TaliseFont.heading(22, weight: .medium))
-                .kerning(-0.8)
+                // Bigger + bolder than the previous 22pt — matches the
+                // confident "₦2.00" treatment on the Round-up card.
+                // Accent tile gets vivid Talise green; the other stays
+                // white so the eye picks the savings side as the win.
+                .font(TaliseFont.heading(26, weight: .medium))
+                .kerning(-0.9)
                 .foregroundStyle(accent ? TaliseColor.accent : TaliseColor.fg)
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(TaliseColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: 22))
@@ -202,6 +199,11 @@ struct RewardsView: View {
         let rates = summary?.pointRates
         VStack(alignment: .leading, spacing: 12) {
             MicroLabel(text: "How you earn", color: TaliseColor.fgDim).kerning(1.5)
+            // Visually-consistent rows — every icon uses the same
+            // subtle disc, every label same weight. The RATE value on
+            // the right is what differentiates the row (e.g. 5 pts/$1
+            // round-up reads as the standout because of the number,
+            // not because the whole row looks different).
             VStack(spacing: 0) {
                 earnRule(
                     icon: "paperplane",
@@ -212,8 +214,7 @@ struct RewardsView: View {
                 earnRule(
                     icon: "leaf.fill",
                     label: "Save to yield",
-                    rate: rates?.save ?? 3,
-                    accent: true
+                    rate: rates?.invest ?? 3
                 )
                 earnRuleDivider
                 earnRule(
@@ -234,26 +235,38 @@ struct RewardsView: View {
         }
     }
 
-    private func earnRule(icon: String, label: String, rate: Int, accent: Bool = false) -> some View {
-        HStack(spacing: 12) {
+    /// Uniform row treatment — same icon disc, same label weight, same
+    /// rate-text size across all four. The rate VALUE is the only
+    /// thing that varies (and accent-green so it's the data-point the
+    /// eye finds first). Earlier revision accented one whole row
+    /// (Save to yield) and left the other three muted, which made
+    /// the muted rows read as "lesser perks" rather than "different
+    /// rates of the same system".
+    private func earnRule(icon: String, label: String, rate: Int) -> some View {
+        HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(accent ? TaliseColor.accent.opacity(0.20) : TaliseColor.surface2)
-                    .frame(width: 32, height: 32)
+                    .fill(TaliseColor.accent.opacity(0.16))
+                    .frame(width: 34, height: 34)
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(accent ? TaliseColor.accent : TaliseColor.fg)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(TaliseColor.accent)
             }
             Text(label)
                 .font(TaliseFont.body(14, weight: .light))
                 .foregroundStyle(TaliseColor.fg)
             Spacer()
-            Text(rate == 1 ? "1 pt / $1" : "\(rate) pts / $1")
-                .font(TaliseFont.mono(11, weight: .light))
-                .foregroundStyle(accent ? TaliseColor.accent : TaliseColor.fgMuted)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(rate)")
+                    .font(TaliseFont.heading(15, weight: .medium))
+                    .foregroundStyle(TaliseColor.accent)
+                Text(rate == 1 ? "pt / $1" : "pts / $1")
+                    .font(TaliseFont.mono(10, weight: .light))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
     }
 
     private var earnRuleDivider: some View {

@@ -45,21 +45,78 @@ struct TxReceiptView: View {
 
     // MARK: - Direction badge
 
+    /// Category — mirrors HistoryRow's classification so the receipt
+    /// hero matches the row the user tapped. Earlier versions hardcoded
+    /// `isReceived ? received : sent`, which left every invest/withdraw
+    /// receipt rendering with the brick-red "Sent" badge + label.
+    private enum Category {
+        case sent, received, invest, withdraw
+    }
+
+    private var category: Category {
+        switch entry.direction {
+        case "received": return .received
+        case "invest":   return .invest
+        case "withdraw": return .withdraw
+        default:         return .sent
+        }
+    }
+
+    private var badgeBg: Color {
+        switch category {
+        case .sent:     return TaliseColor.badgeSent
+        case .received: return TaliseColor.badgeReceived
+        case .invest:   return TaliseColor.accent.opacity(0.22)
+        case .withdraw: return TaliseColor.badgeReceived
+        }
+    }
+
+    private var badgeFg: Color {
+        switch category {
+        case .sent:     return Color(hex: 0xE08D8A)
+        case .received: return Color(hex: 0x79D96C)
+        case .invest:   return TaliseColor.accent
+        case .withdraw: return Color(hex: 0x79D96C)
+        }
+    }
+
+    private var badgeIcon: String {
+        switch category {
+        case .sent:     return "arrow.up.right"
+        case .received: return "arrow.down.left"
+        case .invest:   return "leaf.fill"
+        case .withdraw: return "leaf"
+        }
+    }
+
+    private var headerLabel: String {
+        switch category {
+        case .sent:     return "Sent"
+        case .received: return "Received"
+        case .invest:
+            if let v = entry.venue, !v.isEmpty {
+                return "Invested in \(displayVenueName(v))"
+            }
+            return "Invested"
+        case .withdraw:
+            if let v = entry.venue, !v.isEmpty {
+                return "Withdrew from \(displayVenueName(v))"
+            }
+            return "Withdrew"
+        }
+    }
+
     private var directionBadge: some View {
         VStack(spacing: 10) {
             ZStack {
                 Circle()
-                    .fill(entry.isReceived ? TaliseColor.badgeReceived : TaliseColor.badgeSent)
+                    .fill(badgeBg)
                     .frame(width: 64, height: 64)
-                Image(systemName: entry.isReceived ? "arrow.down.left" : "arrow.up.right")
+                Image(systemName: badgeIcon)
                     .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(
-                        entry.isReceived
-                            ? Color(hex: 0x79D96C)
-                            : Color(hex: 0xE08D8A)
-                    )
+                    .foregroundStyle(badgeFg)
             }
-            MicroLabel(text: entry.isReceived ? "Received" : "Sent", color: TaliseColor.fgDim)
+            MicroLabel(text: headerLabel, color: TaliseColor.fgDim)
                 .kerning(2.0)
         }
         .padding(.top, 16)
@@ -87,7 +144,10 @@ struct TxReceiptView: View {
         // U+202F NARROW NO-BREAK SPACE between sign and currency symbol
         // so "-₦0.01" doesn't render with the minus stroke kissing the
         // ₦ glyph at this big point size.
-        let prefix = entry.isReceived ? "+\u{202F}" : "-\u{202F}"
+        // Inflow (received + withdraw from a venue) reads "+"; outflow
+        // (sent + invest into a venue) reads "-".
+        let isInflow = entry.isReceived || entry.isWithdraw
+        let prefix = isInflow ? "+\u{202F}" : "-\u{202F}"
         if let usd = entry.amountUsdsui {
             return prefix + TaliseFormat.local2(Swift.abs(usd))
         }
@@ -101,15 +161,25 @@ struct TxReceiptView: View {
 
     private var detailsCard: some View {
         VStack(spacing: 0) {
-            // For a Sent tx the counterparty is the RECIPIENT — label
-            // it "To". For a Received tx it's the SENDER — label "From".
+            // Counterparty row depends on direction:
+            //   sent     → "To"   <recipient>
+            //   received → "From" <sender>
+            //   invest   → "Venue" <NAVI/DEEPBOOK>
+            //   withdraw → "Venue" <NAVI/DEEPBOOK>
             // Old code always said "From" which read backwards for any
-            // outgoing transfer.
-            row(
-                label: entry.isReceived ? "From" : "To",
-                value: counterpartyOrAddress,
-                mono: !hasCounterpartyName
-            )
+            // outgoing transfer, and showed "—" for venue txs because
+            // there's no AddressOwner counterparty.
+            switch category {
+            case .sent:
+                row(label: "To", value: counterpartyOrAddress, mono: !hasCounterpartyName)
+            case .received:
+                row(label: "From", value: counterpartyOrAddress, mono: !hasCounterpartyName)
+            case .invest, .withdraw:
+                row(
+                    label: "Venue",
+                    value: entry.venue.map(displayVenueName) ?? "—"
+                )
+            }
             divider
             row(label: "Date", value: dateFormatter.string(from: timestamp))
             divider

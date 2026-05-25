@@ -4,6 +4,8 @@
 
 A consumer payments app for African corridors built on Sui — diaspora workers send money to family in seconds at a fraction of what Western Union charges. Recipients see their own currency (₦, KSh, GH₵, R) the whole way through. Sui is invisible underneath.
 
+Built with audit-grade rigor — see [THREAT_MODEL.md](THREAT_MODEL.md) for the full security posture.
+
 ## How it works
 
 | Layer | What | Tech |
@@ -63,8 +65,31 @@ See [STRATEGY.md](STRATEGY.md) for the consumer wedge, market sizing, and the se
 - [BRIEF.md](BRIEF.md) — Sui Overflow DeFi & Payments problem statement
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Move modules + system map
 - [WEB_ARCHITECTURE.md](WEB_ARCHITECTURE.md) — web app structure
+- [THREAT_MODEL.md](THREAT_MODEL.md) — trust boundaries, abuse vectors, key rotation, sponsor policy posture
 - [docs/PITCH.md](docs/PITCH.md) — pitch deck + 90-second pitch
 - [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — demo shot list
+
+## Security
+
+Talise handles user funds. The full posture is documented in
+[THREAT_MODEL.md](THREAT_MODEL.md) — trust boundaries, asset inventory, an
+abuse-vector matrix with code references, cryptography choices + provenance,
+key rotation policy, and the Onara sponsor policy that gates every
+transaction. The document is grounded in the codebase rather than written
+aspirationally: every mitigation cites the file and lines that enforce it,
+and gaps (TLS pinning leaf hashes, server-side App Attest cert-chain
+verification, sponsor-policy target tightening) are surfaced explicitly with
+links into the roadmap.
+
+Highlights:
+
+- zkLogin + Poseidon-bound JWT nonces — `(ephemeralPubKey, maxEpoch, jwtRandomness)` is recovered from the server-side mobile session, never trusted from the client, so a swapped ephemeral key cannot reuse the JWT.
+- App Attest assertions on every API call, payload-hash committed.
+- Sponsor (Onara) signs only as gas owner; user side requires the zkLogin signature.
+- Sui Payment Kit `PaymentRecord` is the durable on-chain receipt; `(nonce, amount, receiver, coinType)` uniqueness blocks replay.
+- Pure-Swift BLAKE2b-256 with known-answer tests cross-checked against `@noble/hashes`.
+
+Responsible disclosure: please open a private GitHub security advisory or email security@talise.io.
 
 ## License
 

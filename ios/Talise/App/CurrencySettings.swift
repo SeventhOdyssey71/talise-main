@@ -106,6 +106,17 @@ final class CurrencySettings {
         return (usd * rate, current)
     }
 
+    /// Reverse direction — local-currency amount back to USD. Used when
+    /// the user types an amount in their chosen currency on Invest /
+    /// Send / etc., and we need to convert to USDsui (1:1 USD) before
+    /// posting to the backend. Falls back to identity when the rate
+    /// hasn't loaded yet so we never silently zero out a supply.
+    func convertToUsd(local: Double) -> Double {
+        let rate = rates[current.code] ?? 1
+        guard rate > 0 else { return local }
+        return local / rate
+    }
+
     /// Country-code → currency-code heuristic. Used when the user
     /// completes onboarding so a Nigerian user defaults to NGN
     /// without having to flip the toggle themselves.

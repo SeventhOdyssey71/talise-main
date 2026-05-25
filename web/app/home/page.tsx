@@ -1,27 +1,9 @@
 import { redirect } from "next/navigation";
-import { userById, hasBusiness } from "@/lib/db";
+import { userById } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
-import {
-  getSuiBalance,
-  getUsdcBalance,
-  getUsdsuiBalance,
-  suiscanAccountUrl,
-} from "@/lib/sui";
+import { getSuiBalance, getUsdsuiBalance } from "@/lib/sui";
 import { getSuiUsdcPrice } from "@/lib/deepbook";
 import { getEarnSnapshot } from "@/lib/yield";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  ArrowUpRight01FreeIcons,
-  ArrowDownLeft01FreeIcons,
-  ArrowRight01FreeIcons,
-  LinkSquare02FreeIcons,
-  WavingHand02FreeIcons,
-} from "@hugeicons/core-free-icons";
-import { AppShell, NavIcons } from "@/components/AppShell";
-import { DashboardHero } from "@/components/DashboardHero";
-import { PaymentActions } from "@/components/PaymentActions";
-import { NetworkBanner } from "@/components/NetworkBanner";
-import { AutoConvertBanner } from "@/components/AutoConvertBanner";
 import { getOwnedCoins } from "@/lib/coins";
 import { isUsdsui } from "@/lib/usdsui";
 import {
@@ -29,10 +11,15 @@ import {
   findAllTaliseSubnamesForOwner,
 } from "@/lib/suins-lookup";
 import { FixSubnameBanner } from "@/components/FixSubnameBanner";
-import { TopUpButton } from "@/components/TopUpButton";
+import { AutoConvertBanner } from "@/components/AutoConvertBanner";
+import { NetworkBanner } from "@/components/NetworkBanner";
 import { OnrampSuccessToast } from "@/components/OnrampSuccessToast";
 import { getRecentActivity, type ActivityEntry } from "@/lib/activity";
-import { SectionHeader } from "@/components/PageIntro";
+import { formatLocal } from "@/lib/fx";
+import { AppShell } from "@/components/talise-app/AppShell";
+import { BalanceCard } from "@/components/talise-app/BalanceCard";
+import { HistoryRow } from "@/components/talise-app/HistoryRow";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -53,7 +40,6 @@ export default async function HomePage({
 
   const [
     balance,
-    usdc,
     usdsui,
     suiPrice,
     earnSnapshot,
@@ -63,13 +49,8 @@ export default async function HomePage({
     activity,
   ] = await Promise.all([
     getSuiBalance(user.sui_address),
-    // USDC is still fetched solely so the auto-convert banner can detect
-    // legacy USDC and convert it to USDsui. It is NOT shown as a balance.
-    getUsdcBalance(user.sui_address),
     getUsdsuiBalance(user.sui_address),
     getSuiUsdcPrice(),
-    // Real NAVI supply APY + the user's current supplied position.
-    // Same source as the /earn page so the strip is consistent.
     getEarnSnapshot(user.sui_address).catch(() => ({
       supplied: 0,
       apy: 0,
@@ -77,246 +58,126 @@ export default async function HomePage({
       pending: [],
       totalPendingUsd: 0,
     })),
-    // Surface every coin type the user holds so the auto-convert banner
-    // can sweep anything that isn't already USDsui into our canonical
-    // stable. Failures here shouldn't block the page from rendering.
     getOwnedCoins(user.sui_address).catch(() => []),
-    // Reverse-lookup the user's `*.talise.sui` subname directly from chain.
-    // Authoritative — no DB.
     findTaliseSubnameForOwner(user.sui_address),
-    // All owned `*.talise.sui` NFTs (with their current SuiNS target).
-    // Used to surface stale ones (target == null) for one-tap repair.
     findAllTaliseSubnamesForOwner(user.sui_address),
-    // On-chain activity feed — sent + received, with counterparty handles
-    // resolved when available. Authoritative; doesn't depend on our DB.
-    getRecentActivity(user.sui_address, 12).catch(() => [] as ActivityEntry[]),
+    getRecentActivity(user.sui_address, 20).catch(() => [] as ActivityEntry[]),
   ]);
 
   const staleSubnames = allSubnames.filter((s) => !s.targetAddress);
-
   const nonUsdsui = ownedCoins.filter((c) => !isUsdsui(c.coinType));
-  // Mark `usdc` as intentionally read for the auto-convert path. We do not
-  // surface USDC as a balance — USDsui is the canonical "Dollars" balance.
-  void usdc;
 
   const suiUsd = balance.sui * (suiPrice || 0);
   const totalUsd = suiUsd + usdsui.usdsui;
   const firstName = displayName(user.name);
-
-  const nav = [
-    { href: "/home", label: "Dashboard", icon: NavIcons.home, active: true },
-    { href: "/send", label: "Send", icon: NavIcons.send },
-    { href: "/receive", label: "Receive", icon: NavIcons.receive },
-    { href: "/pay", label: "Pay", icon: NavIcons.pay },
-    { href: "/earn", label: "Earn", icon: NavIcons.earn },
-    { href: "/chat", label: "Talise", icon: NavIcons.assistant },
-  ];
+  const primaryDisplay = formatLocal(totalUsd, "NGN");
+  const secondaryDisplay = `${usdsui.usdsui.toFixed(2)} USDsui`;
+  const apyText =
+    earnSnapshot.apy > 0
+      ? `Earn ${(earnSnapshot.apy * 100).toFixed(1)}%`
+      : "Earn up to 11%";
 
   return (
-    <AppShell
-      email={user.email}
-      picture={user.picture}
-      currentContext="personal"
-      hasBusinessContext={hasBusiness(user)}
-      navItems={nav}
-      pageEyebrow="Dashboard"
-      pageTitle={`Welcome, ${firstName}.`}
-      pageHeaderRight={
-        <div className="flex items-center gap-3">
-          <TopUpButton compact />
-          <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-muted)] md:flex">
-            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#21A179]" />
-            live
-          </div>
-        </div>
-      }
-    >
+    <AppShell active="home">
       <OnrampSuccessToast show={onrampSuccess} />
 
-      {/* Alerts — only render when something is actually wrong, so they
-          don't bloat the top of a healthy dashboard. */}
-      <div className="space-y-2 empty:hidden">
+      {/* Greeting — light, low-volume label, matches mobile. */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <div className="text-[12px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+            Hi, {firstName}
+          </div>
+          {subname?.fullName && (
+            <div className="mt-0.5 font-mono text-[11px] text-[var(--color-fg-muted)]">
+              {subname.fullName}
+            </div>
+          )}
+        </div>
+        <Link
+          href="/settings"
+          aria-label="Profile"
+          className="grid w-10 h-10 place-items-center rounded-full bg-[var(--color-surface-2)] text-[var(--color-fg)] text-[14px]"
+        >
+          {firstName.slice(0, 1).toUpperCase()}
+        </Link>
+      </div>
+
+      {/* Alerts only render when there's a problem to surface — keep the
+          healthy home page clean. */}
+      <div className="space-y-2 empty:hidden mb-4">
         <FixSubnameBanner
-          stale={staleSubnames.map((s) => ({
-            nftId: s.nftId,
-            fullName: s.fullName,
-          }))}
+          stale={staleSubnames.map((s) => ({ nftId: s.nftId, fullName: s.fullName }))}
           userAddress={user.sui_address}
         />
         <AutoConvertBanner coins={nonUsdsui} suiUsdPrice={suiPrice ?? 0} />
         <NetworkBanner />
       </div>
 
-      {/* Ledgerix-style hero: big centered total, asset tabs, 14-day
-          sparkline, weekly stat cards, and the Ask-Talise command bar. */}
-      <section className="mt-2">
-        <DashboardHero
-          totalUsd={totalUsd}
-          usdsui={usdsui.usdsui}
-          sui={balance.sui}
-          suiUsd={suiUsd}
-          activity={activity}
-          earnApy={earnSnapshot.apy}
-          earnSupplied={earnSnapshot.supplied}
-        />
-      </section>
+      <BalanceCard
+        usdsui={totalUsd}
+        primaryDisplay={primaryDisplay}
+        secondaryDisplay={`${secondaryDisplay} · ${apyText}`}
+      />
 
-      {/* Quick actions stay below the hero — small icon row, doesn't fight
-          for attention with the big number. */}
-      <section className="mt-8">
-        <PaymentActions />
-      </section>
-
-      {/* Subtle subname suggestion if the user hasn't claimed one yet —
-          one quiet line, not a section. Identity/wallet panel itself lives
-          on /receive + /settings where it actually belongs. */}
+      {/* Subname suggestion — single quiet line, only when missing. */}
       {!subname && (
-        <a
+        <Link
           href="/claim"
-          className="group mt-8 flex items-center justify-between rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-4 py-3 transition hover:border-[var(--color-fg)]"
+          className="talise-glass mt-6 flex items-center justify-between rounded-2xl px-4 py-3 text-[13px]"
         >
-          <div className="text-[13px] text-[var(--color-fg)]">
-            Claim your <span className="font-mono">@username</span> — get
-            paid at <span className="font-mono">name@talise</span>.
-          </div>
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-line)] bg-white text-[var(--color-fg)] transition group-hover:border-[var(--color-fg)]">
-            <HugeiconsIcon
-              icon={ArrowRight01FreeIcons}
-              size={13}
-              strokeWidth={1.8}
-              color="currentColor"
-            />
+          <span>
+            Claim <span className="font-mono text-[var(--color-accent)]">@username</span> — get paid at{" "}
+            <span className="font-mono">name@talise</span>
           </span>
-        </a>
+          <span className="text-[var(--color-fg-muted)]">→</span>
+        </Link>
       )}
 
-      {/* Activity — the main feed. Most of the time you open the
-          dashboard, this is what you came to see. */}
-      <section className="mt-10">
-        <SectionHeader title="Activity" />
+      {/* Activity — the main feed. Compact mobile rows. */}
+      <section className="mt-8">
+        <div className="mb-3 flex items-end justify-between">
+          <h2 className="text-[15px] text-[var(--color-fg)]">Activity</h2>
+          <Link
+            href={`https://suiscan.xyz/mainnet/account/${user.sui_address}`}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-[11px] font-mono text-[var(--color-fg-muted)]"
+          >
+            See all
+          </Link>
+        </div>
         {activity.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-[var(--color-line)] bg-[var(--color-surface-2)] p-12 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-[var(--color-line)] bg-white text-[var(--color-fg-muted)]">
-              <HugeiconsIcon
-                icon={WavingHand02FreeIcons}
-                size={20}
-                strokeWidth={1.6}
-                color="currentColor"
-              />
-            </div>
-            <p className="mt-5 text-[15px] font-medium text-[var(--color-fg)]">
-              You have no payments yet.
-            </p>
-            <p className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
-              Send money to a friend in seconds. No fees, instant delivery.
-            </p>
-            <a
-              href="/send"
-              className="mt-5 inline-flex items-center gap-1.5 rounded-md bg-[var(--color-fg)] px-4 py-2 text-[13px] font-medium text-[var(--color-bg)] transition hover:bg-[var(--color-accent-soft)]"
-            >
-              Send your first payment
-              <HugeiconsIcon
-                icon={ArrowRight01FreeIcons}
-                size={14}
-                strokeWidth={2}
-                color="currentColor"
-              />
-            </a>
-          </div>
+          <EmptyActivity />
         ) : (
-          <ul className="mt-4 space-y-2">
+          <ul className="space-y-2">
             {activity.map((e) => (
-              <ActivityRow key={e.digest} entry={e} />
+              <li key={e.digest}>
+                <HistoryRow entry={e} currency="NGN" />
+              </li>
             ))}
           </ul>
         )}
       </section>
-
     </AppShell>
   );
 }
 
-function ActivityRow({ entry }: { entry: ActivityEntry }) {
-  const sent = entry.direction === "sent";
-  const amount =
-    entry.amountUsdsui !== null
-      ? `$${entry.amountUsdsui.toFixed(2)}`
-      : entry.amountSui !== null
-        ? `${entry.amountSui.toFixed(4)} SUI`
-        : "—";
-  const counterparty =
-    entry.counterpartyName ??
-    (entry.counterparty
-      ? `${entry.counterparty.slice(0, 6)}…${entry.counterparty.slice(-4)}`
-      : "—");
-  const when = entry.timestampMs
-    ? new Date(entry.timestampMs).toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : "";
+function EmptyActivity() {
   return (
-    <li className="flex items-center justify-between rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] px-4 py-3.5 text-[13px]">
-      <div className="flex items-center gap-3">
-        <span
-          className={`flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-line)] ${
-            sent
-              ? "bg-white text-[var(--color-fg-muted)]"
-              : "bg-white text-[#0f6f4d]"
-          }`}
-          aria-hidden
-        >
-          <HugeiconsIcon
-            icon={sent ? ArrowUpRight01FreeIcons : ArrowDownLeft01FreeIcons}
-            size={14}
-            strokeWidth={1.8}
-            color="currentColor"
-          />
-        </span>
-        <div className="min-w-0">
-          <div className="text-[var(--color-fg)]">
-            {sent ? "Sent" : "Received"} {amount}{" "}
-            <span className="text-[var(--color-fg-muted)]">
-              {sent ? "to" : "from"}
-            </span>{" "}
-            <span
-              className={
-                entry.counterpartyName
-                  ? "font-mono text-[var(--color-fg)]"
-                  : "font-mono text-[var(--color-fg-muted)]"
-              }
-              title={entry.counterparty ?? undefined}
-            >
-              {counterparty}
-            </span>
-          </div>
-          {when && (
-            <div className="font-mono text-[11px] text-[var(--color-fg-dim)]">
-              {when}
-            </div>
-          )}
-        </div>
+    <div className="talise-glass rounded-2xl p-8 text-center">
+      <div className="text-[14px] text-[var(--color-fg)]">No payments yet.</div>
+      <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
+        Send to a friend in seconds — no fees, instant.
       </div>
-      <a
-        href={`https://suiscan.xyz/mainnet/tx/${entry.digest}`}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex items-center gap-1.5 text-[12px] text-[var(--color-fg-muted)] underline-offset-4 hover:text-[var(--color-fg)] hover:underline"
+      <Link
+        href="/send"
+        className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[var(--color-accent)] px-4 py-2 text-[12px] font-medium text-[var(--color-bg)]"
       >
-        receipt
-        <HugeiconsIcon
-          icon={LinkSquare02FreeIcons}
-          size={12}
-          strokeWidth={1.8}
-          color="currentColor"
-        />
-      </a>
-    </li>
+        Send your first payment →
+      </Link>
+    </div>
   );
 }
-
 
 function displayName(raw: string | null | undefined): string {
   const n = (raw ?? "").trim().split(/\s+/)[0];

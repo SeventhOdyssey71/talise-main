@@ -56,13 +56,26 @@ export async function ensurePaymentRegistry() {
     const operatorAddr = operator.getPublicKey().toSuiAddress();
 
     const tx = new Transaction();
-    // create_registry returns RegistryAdminCap. MUST be transferred or
-    // the tx aborts with UnusedValueWithoutDrop. Hand the cap to the
-    // operator wallet so we keep admin powers (set config, withdraw funds).
-    const adminCap = tx.add(
+    // `payment_kit::create_registry` returns `(PaymentRegistry,
+    // RegistryAdminCap)` — verified against the on-chain Move source.
+    // Earlier revision aborted with `CommandArgumentError
+    // InvalidResultArity { result_idx: 0 }` because it treated the
+    // tuple as a single value (transferring the registry instead of
+    // the cap, and leaving the cap unconsumed → UnusedValueWithoutDrop).
+    //
+    //   index 0 → PaymentRegistry  → `payment_kit::share` so anyone
+    //                                 can write PaymentRecord dynamic
+    //                                 fields under it
+    //   index 1 → RegistryAdminCap → transfer to operator wallet for
+    //                                 future setConfig / withdrawFromRegistry
+    const created = tx.add(
       pk.calls.createRegistry({ registryName: REGISTRY_NAME })
     );
-    tx.transferObjects([adminCap], operatorAddr);
+    tx.moveCall({
+      target: "@mysten/payment-kit::payment_kit::share",
+      arguments: [created[0]],
+    });
+    tx.transferObjects([created[1]], operatorAddr);
     tx.setSender(operatorAddr);
 
     const bytes = await tx.build({ client: client as never });

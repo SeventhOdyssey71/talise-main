@@ -2,6 +2,9 @@
   "name": "talise-web",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev --turbopack -p 3000",
     "build": "next build",
@@ -11,6 +14,7 @@
     "pk:bootstrap": "node --env-file=.env.local scripts/bootstrap-payment-registry.mjs"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^3.0.116",
     "@ai-sdk/openai": "^3.0.64",
     "@ai-sdk/react": "^3.0.187",
     "@cetusprotocol/aggregator-sdk": "^1.5.5",
@@ -19,7 +23,7 @@
     "@hugeicons/react": "^1.1.6",
     "@libsql/client": "^0.14.0",
     "@mysten-incubation/memwal": "^0.0.4",
-    "@mysten/deepbook-v3": "^1.3.6",
+    "@mysten/deepbook-v3": "^1.4.1",
     "@mysten/payment-kit": "^0.1.11",
     "@mysten/sui": "^2.16.3",
     "@mysten/suins": "^1.1.4",

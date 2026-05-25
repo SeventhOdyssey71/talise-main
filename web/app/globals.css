@@ -1,17 +1,35 @@
 @import "tailwindcss";
 
+/*
+ * Dark mode by default — matches the iOS app's palette so the web feels
+ * like the same product. Marketing / landing pages that want the old
+ * editorial monochrome can opt back in with `.light-page` at the root
+ * of the section.
+ *
+ * Color references mirror the iOS design system in
+ * `ios/Talise/DesignSystem/Tokens.swift`:
+ *   bg               #0A0E0B      page background, deep near-black
+ *   surface          #131815      raised tiles + cards
+ *   surface-2        #1B221E      pressable surfaces, slight lift
+ *   line             #FFFFFF12    hairline borders, 7% white
+ *   fg               #F2F4F2      primary text
+ *   fg-muted         #B9C0BB      secondary text
+ *   fg-dim           #6F7872      tertiary, labels, time
+ *   accent           #79D96C      Talise green ("Earn up to 11%")
+ *   accent-soft      #2A2A2A      pressed-state on accent surfaces
+ *   danger           #E08D8A      sent-tx red / destructive
+ */
 @theme {
-  /* Light mode default — pure black on warm white, editorial monochrome. */
-  --color-bg: #ffffff;
-  --color-surface: #ffffff;
-  --color-surface-2: #f5f5f5;
-  --color-fg: #0a0a0a;
-  --color-fg-muted: #525252;
-  --color-fg-dim: #a3a3a3;
-  --color-line: #e5e5e5;
-  --color-accent: #0a0a0a;
+  --color-bg: #0a0e0b;
+  --color-surface: #131815;
+  --color-surface-2: #1b221e;
+  --color-line: #ffffff12;
+  --color-fg: #f2f4f2;
+  --color-fg-muted: #b9c0bb;
+  --color-fg-dim: #6f7872;
+  --color-accent: #79d96c;
   --color-accent-soft: #2a2a2a;
-  --color-live: #404040;
+  --color-danger: #e08d8a;
 
   --font-sans: "Google Sans Variable", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-display: "Google Sans Variable", "Google Sans", system-ui, sans-serif;
@@ -29,8 +47,29 @@ body {
 }
 
 ::selection {
-  background: var(--color-fg);
+  background: var(--color-accent);
   color: var(--color-bg);
+}
+
+/*
+ * Editorial light-mode scope — keep the landing page's monochrome
+ * aesthetic available by wrapping the section root in `.light-page`.
+ * Variables shadow the dark defaults; child elements pick them up via
+ * standard CSS inheritance.
+ */
+.light-page {
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f5f5;
+  --color-fg: #0a0a0a;
+  --color-fg-muted: #525252;
+  --color-fg-dim: #a3a3a3;
+  --color-line: #e5e5e5;
+  --color-accent: #0a0a0a;
+  --color-accent-soft: #2a2a2a;
+
+  background: var(--color-bg);
+  color: var(--color-fg);
 }
 
 /* Strip the ugly spinner arrows from <input type="number"> across browsers. */
@@ -44,6 +83,106 @@ input[type="number"] {
   appearance: textfield;
 }
 
+/*
+ * Liquid Glass card — mirrors the iOS `taliseGlass()` ViewModifier
+ * (DesignSystem/TopGlow.swift). Layered fill of black tint over
+ * backdrop-blur, a one-pixel white-fade top-edge stroke, and a soft
+ * elevation shadow. Apply with `class="talise-glass"`.
+ */
+.talise-glass {
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.04) 0%,
+      transparent 80%
+    ),
+    rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 22px 60px -10px rgba(0, 0, 0, 0.45),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/*
+ * TopGlow — wide green horizon wash at the top of every authed page.
+ * Mirrors iOS's TopGlow.swift: a radial gradient centered well above
+ * the viewport (y: -60%) with a large radius so only a wide arc shows.
+ *
+ * Use by wrapping the page in:
+ *   <div class="relative">
+ *     <div class="talise-top-glow" />
+ *     ...content...
+ *   </div>
+ */
+.talise-top-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 360px;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(
+      ellipse 100% 90% at 50% -60%,
+      rgba(46, 168, 86, 0.55) 0%,
+      rgba(46, 168, 86, 0.18) 35%,
+      rgba(46, 168, 86, 0.04) 65%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 60% 50% at 50% 0%,
+      rgba(92, 200, 110, 0.32) 0%,
+      transparent 50%
+    );
+  filter: blur(8px);
+}
+
+/*
+ * Mobile-style authed app shell — narrow column (max 480px) centered,
+ * dark background, top glow behind. Apply to the outermost wrapper of
+ * any authed page that wants the mobile look.
+ */
+.talise-app-shell {
+  position: relative;
+  min-height: 100vh;
+  background: var(--color-bg);
+}
+
+.talise-app-column {
+  position: relative;
+  z-index: 1;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 0 24px 140px;
+}
+
+/*
+ * History-row press tint — mirrors iOS's HistoryRowButtonStyle. At rest
+ * the row reads as a neutral glass card; on hover it picks up the
+ * directional tint (red for sent, green for received). Apply via
+ * `class="talise-history-row" data-direction="sent|received|invest|withdraw"`.
+ */
+.talise-history-row {
+  background:
+    rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  transition: background 180ms ease, transform 180ms ease;
+}
+.talise-history-row:hover {
+  background:
+    color-mix(in srgb, var(--row-tint, transparent) 18%, rgba(255, 255, 255, 0.025));
+}
+.talise-history-row[data-direction="sent"]    { --row-tint: #c95a4a; }
+.talise-history-row[data-direction="received"]{ --row-tint: #4fb35e; }
+.talise-history-row[data-direction="invest"]  { --row-tint: #79d96c; }
+.talise-history-row[data-direction="withdraw"]{ --row-tint: #4fb35e; }
+
 /* Legacy moodboard tile class (still used by hero collage if re-enabled). */
 .tile {
   border: 1px solid var(--color-line);
@@ -53,22 +192,6 @@ input[type="number"] {
 
 .tile:hover {
   z-index: 5;
-}
-
-/* No-op alias kept for backwards compatibility — the whole site is light mode
-   by default now. Any subtree wrapped with .light-app simply gets the same
-   tokens redeclared (idempotent). */
-.light-app {
-  --color-bg: #ffffff;
-  --color-surface: #ffffff;
-  --color-surface-2: #f5f5f5;
-  --color-fg: #0a0a0a;
-  --color-fg-muted: #525252;
-  --color-fg-dim: #a3a3a3;
-  --color-line: #e5e5e5;
-  --color-accent: #0a0a0a;
-  --color-accent-soft: #2a2a2a;
-  --color-live: #404040;
 }
 
 .grain {

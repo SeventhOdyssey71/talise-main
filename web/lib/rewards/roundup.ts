@@ -4,54 +4,46 @@ import { db, ensureSchema, type User } from "@/lib/db";
 import { awardForTx, POINT_RATES } from "@/lib/rewards/earn";
 
 /**
- * Round-up & Save — Phase 2 of the Talise Rewards refresh.
+ * Round-up & Save — Phase 2 v2 (compound-PTB architecture).
  *
- * Every successful outbound send can trigger an auto-sweep: a small
- * percentage of the send amount (default 2%, configurable 1-10) gets
- * earmarked as "spare change" and supplied to NAVI on the user's
- * behalf. The funds stay in the user's wallet — NAVI's supply position
- * is theirs. The user earns 5 pts per $1 swept (via
- * `awardForTx({ trigger: "roundup" })`).
+ * Every outbound send by an opted-in user auto-supplies a configurable
+ * percentage (default 2%, 1-10) of the send amount to NAVI in the SAME
+ * PTB. The user signs once for both legs; Onara broadcasts; both land
+ * atomically. The user earns 5 pts per $1 swept on top of the 1 pt/$1
+ * for the send itself.
  *
- * ── v1 scope ────────────────────────────────────────────────────────
+ * ── Architecture ────────────────────────────────────────────────────
  *
- * For v1 we DO NOT execute the on-chain auto-supply. Doing so
- * non-interactively requires a per-user delegation key that lets the
- * backend co-sign sponsored txs on the user's behalf — and that key
- * material doesn't exist yet (we'd need a passkey signature flow or a
- * server-held secondary zkLogin authority). Without it we'd have to
- * pop up Face ID on the user's phone for every roundup, which defeats
- * the "set and forget" UX.
+ * The on-chain leg lives in `/api/send/prepare`: when `roundup_enabled`
+ * is on, it appends `appendNaviSupply(tx, sender, roundupUsd)` plus a
+ * Payment Kit marker to the send's compound PTB. No delegation key
+ * required — the user signs the whole tx once with their ephemeral
+ * zkLogin key.
  *
- * So v1 records the *would-have-been* round-up:
- *   • `users.roundup_saved_usd` += round-up amount (lifetime tally)
- *   • `users.lifetime_saved_usd` += same (via `awardForTx`)
+ * The OFF-chain bookkeeping happens in `/api/zk/sponsor-execute` after
+ * Onara confirms broadcast. Server reads the server-blessed
+ * `meta.roundupUsd` (came from prepare, can't be inflated by a lying
+ * client — the actual on-chain supply was for exactly that amount or
+ * the PTB would have failed validation), then:
+ *   • `users.roundup_saved_usd`  += amount (the RoundupCard's running tally)
+ *   • `users.lifetime_saved_usd` += amount (via `awardForTx`)
  *   • `users.points_total`       += 5 pts/$1 (via `awardForTx`)
- *   • a `rewards_events` row with `kind: "roundup_save"` + metadata
- *     `{ digest, amountUsd, sourceDigest, stub: true }`
+ *   • a `rewards_events` row with `kind: "roundup_save"`
  *
- * The UI thus shows the user "you saved $X via round-up" + the points
- * accrue, but no on-chain motion happens. Phase 2.5 wires the actual
- * auto-supply once delegation lands.
+ * ── Helpers in this file ───────────────────────────────────────────
  *
- * Idempotency is keyed on the source send digest: each send digest can
- * trigger AT MOST ONE roundup, even if sponsor-execute somehow gets
- * retried or replayed.
+ *   • `getRoundupConfig(userId)` — read the user's enabled + percentage
+ *      + lifetime saved tally. Used by both /api/send/prepare (to
+ *      decide whether to append the supply leg) and /api/referral/summary
+ *      (to render the RoundupCard).
  *
- * ── Caller contract ────────────────────────────────────────────────
+ *   • `setRoundupConfig(...)` — write the toggle + percentage. Called
+ *      from `/api/rewards/roundup` POST.
  *
- * `maybeRoundupForSend` is called from
- * `/api/zk/sponsor-execute` AFTER a successful `meta.kind === "send"`
- * settlement. The caller fires-and-forgets — never await it on the
- * response path. The function:
- *   1. Checks the user opted in (`roundup_enabled === 1`).
- *   2. Computes the round-up amount from their % setting.
- *   3. Dedupes against the source digest (no duplicate rewards if the
- *      hook fires twice for the same tx).
- *   4. Updates the tallies + writes the event row.
- *
- * Errors are swallowed at the caller — money already moved, rewards
- * are best-effort.
+ *   • `maybeRoundupForSend(...)` — LEGACY (v1 tracking-only path).
+ *      Kept temporarily for back-compat; no longer called from the
+ *      hot path. Marked `@deprecated`; safe to delete once nothing
+ *      references it.
  */
 
 /** Result returned by `maybeRoundupForSend` — useful for tests + logs. */

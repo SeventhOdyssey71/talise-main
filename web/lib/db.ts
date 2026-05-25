@@ -108,6 +108,38 @@ async function doEnsureSchema(): Promise<void> {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_rewards_user ON rewards_events(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_rewards_created ON rewards_events(created_at DESC)`,
+      // Phase 3 — Savings Goals. Named buckets the user can deposit
+      // into; each goal's `current_usd` is incremented on a sponsored
+      // NAVI supply tagged with the goal id in its PK memo refs.
+      `CREATE TABLE IF NOT EXISTS savings_goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        target_usd REAL NOT NULL,
+        current_usd REAL NOT NULL DEFAULT 0,
+        deadline_ms INTEGER,
+        color TEXT,
+        created_at INTEGER NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_goals_user ON savings_goals(user_id, archived)`,
+      // Phase 4 — Redemptions ledger. Every spend of points against
+      // the catalogue mints a row here + a `redeemed` rewards_event
+      // row (negative points delta). Status: pending → fulfilled |
+      // expired | refunded.
+      `CREATE TABLE IF NOT EXISTS redemptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        sku TEXT NOT NULL,
+        points_spent INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        metadata TEXT,
+        created_at INTEGER NOT NULL,
+        fulfilled_at INTEGER,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_redemptions_user ON redemptions(user_id, created_at DESC)`,
     ],
     "write"
   );
@@ -127,6 +159,23 @@ async function doEnsureSchema(): Promise<void> {
     "ALTER TABLE users ADD COLUMN referred_by_user_id INTEGER",
     "ALTER TABLE users ADD COLUMN referral_count INTEGER DEFAULT 0",
     "ALTER TABLE users ADD COLUMN points_total INTEGER DEFAULT 0",
+    // Round-up & Save — opt-in micro-savings hook. When enabled, every
+    // outbound send rounds the dollar amount up to the next integer
+    // (default) or applies a configurable percentage, and the diff
+    // gets sponsored-supplied to NAVI. 0 = off.
+    "ALTER TABLE users ADD COLUMN roundup_enabled INTEGER DEFAULT 0",
+    // 1-10 → percentage of send amount auto-saved (e.g. 2 = 2%).
+    // Defaults to 2 when roundup_enabled flips on.
+    "ALTER TABLE users ADD COLUMN roundup_percentage INTEGER DEFAULT 2",
+    // Lifetime tallies — written by lib/rewards/earn.ts. Used by the
+    // Rewards tab to render "saved this month" / "spent this month"
+    // without scanning the activity feed on every render.
+    "ALTER TABLE users ADD COLUMN lifetime_sent_usd REAL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN lifetime_saved_usd REAL DEFAULT 0",
+    // Phase 2 — Round-up & Save. Tracks the lifetime auto-swept
+    // round-up amount so the Rewards UI can render "saved X via
+    // round-up" without a GROUP BY over rewards_events.
+    "ALTER TABLE users ADD COLUMN roundup_saved_usd REAL DEFAULT 0",
     "ALTER TABLE invoices ADD COLUMN receipt_object_id TEXT",
   ]) {
     try {
@@ -205,15 +254,45 @@ export type User = {
   referred_by_user_id?: number | null;
   referral_count?: number | null;
   points_total?: number | null;
+  // Phase 1 rewards refresh — see `lib/rewards/earn.ts`.
+  roundup_enabled?: number | null;       // 0/1 boolean stored as int
+  roundup_percentage?: number | null;    // 1-10
+  lifetime_sent_usd?: number | null;
+  lifetime_saved_usd?: number | null;
 };
 
+/**
+ * Closed list of event kinds the rewards engine can write. Extended in
+ * Phase 1 of the rewards refresh (the original referral-only list is
+ * preserved verbatim so historical rows still type-check).
+ *
+ * Earn-on-action kinds — written by `lib/rewards/earn.ts` after every
+ * successful sponsored tx:
+ *   `send_earn`      — 1 pt per $1 sent (any outbound transfer)
+ *   `save_earn`      — 3 pts per $1 supplied to a yield venue
+ *   `roundup_save`   — round-up spare-change auto-deposit landed
+ *   `withdraw_earn`  — informational; no points (so we still get a row
+ *                       for the activity feed without inflating balance)
+ *   `goal_deposit`   — explicit deposit to a named savings goal
+ *   `redeemed`       — points spent on a redemption (negative delta)
+ *
+ * Referral / engagement kinds (original, unchanged):
+ *   `referral_signup`, `referral_first_send`, `volume_milestone`,
+ *   `first_send`, `first_claim`, `streak`
+ */
 export type RewardsEventKind =
   | "referral_signup"
   | "referral_first_send"
   | "volume_milestone"
   | "first_send"
   | "first_claim"
-  | "streak";
+  | "streak"
+  | "send_earn"
+  | "save_earn"
+  | "roundup_save"
+  | "withdraw_earn"
+  | "goal_deposit"
+  | "redeemed";
 
 export type RewardsEvent = {
   id: number;

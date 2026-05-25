@@ -5,6 +5,9 @@ import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { sui, COIN_TYPES, USDSUI_DECIMALS } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
+import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
+import { getRoundupConfig } from "@/lib/rewards/roundup";
+import { appendNaviSupply } from "@/lib/navi-supply";
 
 export const runtime = "nodejs";
 
@@ -80,21 +83,118 @@ export async function POST(req: Request) {
     const tx = new Transaction();
     tx.setSender(user.sui_address);
 
-    // Onara's sponsor policy requires every PTB to contain at least
-    // one MoveCall (so vanilla coin transfers via splitCoins +
-    // transferObjects get rejected). The cheapest no-op MoveCall on
-    // Sui is `0x2::clock::timestamp_ms` — reads the Clock object's
-    // current timestamp, drops the u64 return. Costs nothing in
-    // chain state, satisfies the policy.
+    if (asset === "USDsui") {
+      // Wrap the send in a Payment Kit `processRegistryPayment` call.
+      // PK pulls USDsui from the sender via `coinWithBalance` (Address
+      // Balance compatible) and transfers to the receiver in a single
+      // MoveCall, while minting a PaymentRecord under the `talise`
+      // global registry with a typed memo in the nonce. Three wins
+      // vs the old `coinWithBalance + transferObjects` form:
+      //   1. The PK call IS a MoveCall, so we no longer need the
+      //      `0x2::clock::timestamp_ms` no-op shim to satisfy Onara's
+      //      "≥1 MoveCall" sponsor policy.
+      //   2. Every Talise send is provably part of the platform —
+      //      Suiscan shows the PK call as the tx kind, and indexers
+      //      can recover the kind ("send"), sender, receiver, and
+      //      timestamp from the nonce alone.
+      //   3. Audit narrative: receipts queryable by digest →
+      //      PaymentRecord. Important for the hackathon's security
+      //      sponsors (OpenZeppelin / OtterSec).
+      const { nonce } = appendPaymentKitReceipt(tx, {
+        kind: "send",
+        sender: user.sui_address,
+        receiver: to,
+        amountUsdsui: amountNum,
+      });
+
+      // Round-up & Save (Phase 2 v2 — real on-chain auto-supply).
+      // If the user has toggled round-up on, we append a NAVI supply
+      // for `amount × percentage / 100` USDsui to the SAME PTB so the
+      // send + the save land atomically in one user-signed tx. No
+      // delegation key needed — the user signs once for both legs.
+      // If the supply leg fails on chain (insufficient balance after
+      // the send), the WHOLE tx fails — the user sees a clean error
+      // rather than a half-applied state.
+      let roundupUsd = 0;
+      try {
+        const cfg = await getRoundupConfig(userId);
+        // Diagnostic — surfaces in the dev log so we can tell at a
+        // glance whether the toggle was read correctly + what the
+        // computed amount worked out to. Critical for debugging
+        // "I turned it on but nothing happened" reports.
+        console.log(
+          `[send/prepare] roundup config: enabled=${cfg.enabled} pct=${cfg.percentage}`
+        );
+        if (cfg.enabled && cfg.percentage > 0) {
+          const computed = (amountNum * cfg.percentage) / 100;
+          // Floor at "any positive on-chain integer" rather than a
+          // dollar threshold. A user sending ₦50 at 2% gets ₦1 of
+          // round-up = $0.0007 USDsui = 700 micro-USDsui, which is
+          // a perfectly valid on-chain supply (NAVI accepts any
+          // positive amount). Earlier revision used a $0.01 floor
+          // that silently swallowed every small-NGN test — exactly
+          // the case the user reported.
+          const cappedUsd = Math.min(computed, amountNum);
+          const microUnits = Math.round(cappedUsd * 1e6);
+          if (microUnits > 0) {
+            roundupUsd = cappedUsd;
+            await appendNaviSupply(tx, user.sui_address, roundupUsd);
+            // Tag the supply leg with a Payment Kit marker so the
+            // activity classifier + rewards engine recognize it as
+            // a round-up (not a manual invest). Same digest, second
+            // PaymentRecord under the talise registry.
+            appendPaymentKitReceipt(tx, {
+              kind: "invest",
+              sender: user.sui_address,
+              refs: { venue: "navi" },
+            });
+            console.log(
+              `[send/prepare] roundup APPENDED: $${roundupUsd.toFixed(6)} USDsui (${microUnits} micro-units)`
+            );
+          } else {
+            console.log(
+              `[send/prepare] roundup skipped: computed $${computed.toFixed(8)} rounds to 0 micro-units`
+            );
+          }
+        }
+      } catch (err) {
+        // Defensive — a round-up build failure must NOT block the
+        // send. If we can't compose the supply leg (NAVI SDK init
+        // failure, etc.), fall back to a send-only PTB.
+        console.warn(
+          "[send/prepare] round-up append failed, falling back to send-only:",
+          (err as Error).message
+        );
+        roundupUsd = 0;
+      }
+
+      const kind = await tx.build({
+        client: sui() as never,
+        onlyTransactionKind: true,
+      });
+
+      return NextResponse.json({
+        transactionKindB64: toBase64(kind),
+        asset,
+        amount: amountNum,
+        to,
+        receiptNonce: nonce,
+        // Server-blessed round-up amount, in USDsui. iOS forwards
+        // this to /api/zk/sponsor-execute as `meta.roundupUsd` so
+        // the rewards engine credits both legs (send points + 5
+        // pts/$1 for the round-up). 0 when round-up didn't fire.
+        roundupUsd,
+      });
+    }
+
+    // SUI transfers can't use Payment Kit (the registry is USDsui-only
+    // — coinType is fixed at registry creation time). Keep the existing
+    // clock-MoveCall + split + transfer path for raw SUI sends.
     tx.moveCall({
       target: "0x2::clock::timestamp_ms",
       arguments: [tx.object("0x6")],
     });
-
-    // coinWithBalance handles both Coin<T> objects AND the new
-    // Address Balance form (May 2026 gasless stablecoins). useGasCoin:
-    // false guarantees we never reach for tx.gas (sponsor-owned).
-    const coinType = asset === "SUI" ? COIN_TYPES.SUI : USDSUI_TYPE;
+    const coinType = COIN_TYPES.SUI;
     const out = tx.add(
       coinWithBalance({ type: coinType, balance: onchain, useGasCoin: false })
     );

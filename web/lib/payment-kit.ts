@@ -66,7 +66,7 @@ export function namespaceObjectId(): string {
 
 let _client: PaymentKitClient | null = null;
 
-function paymentKitClient(): PaymentKitClient {
+export function paymentKitClient(): PaymentKitClient {
   if (_client) return _client;
   // SuiJsonRpcClient implements ClientWithCoreApi (it exposes `.core` and
   // `.network`), which is what PaymentKitClient needs.
