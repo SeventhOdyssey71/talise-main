@@ -1,41 +1,177 @@
-import { createClient, type Client } from "@libsql/client";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import postgres, { type Sql } from "postgres";
 
-let _client: Client | null = null;
 /**
- * Promise singleton so concurrent callers share the same migration run.
- * Without this, two simultaneous DB hits on a cold process would each
- * try to apply ALTER TABLE statements — harmless (they're idempotent)
- * but wasteful and noisy.
+ * Talise database layer — Postgres.
+ *
+ * The application historically used libsql; this module preserves the
+ * libsql-style API (`db().execute({sql, args})`, `db().batch([...], "write")`)
+ * so the rest of the codebase didn't need to change during the migration.
+ * Internally everything runs against Postgres via the `postgres` driver.
+ *
+ *   • `?` placeholders are auto-rewritten to `$1, $2, ...` at execute time
+ *   • `execute()` returns `{ rows, rowsAffected }` — the shape callers expect
+ *   • `batch()` runs the array of statements inside a single transaction
+ *
+ * Connection details come from `DATABASE_URL` (a standard
+ * `postgres://USER:PASS@HOST:PORT/DB` URL). `DATABASE_AUTH_TOKEN` is ignored
+ * for Postgres deployments; we keep the variable name in place so the libsql
+ * fallback path can still be flipped on for local dev if needed later.
  */
+
+// ───────────────────────────────────────────────────────────────────
+// Adapter — libsql-shaped API on top of postgres.js
+
+type ExecuteArg = string | { sql: string; args?: ReadonlyArray<unknown> };
+
+type ExecuteResult = {
+  rows: Array<Record<string, unknown>>;
+  rowsAffected: number;
+};
+
+type BatchStmt = { sql: string; args?: ReadonlyArray<unknown> };
+
+interface DbAdapter {
+  execute(arg: ExecuteArg): Promise<ExecuteResult>;
+  batch(stmts: ReadonlyArray<BatchStmt>, mode?: "read" | "write"): Promise<ExecuteResult[]>;
+}
+
+let _sql: Sql | null = null;
+let _adapter: DbAdapter | null = null;
 let _schemaReadyP: Promise<void> | null = null;
 
-function ensureLocalDir(url: string) {
-  if (url.startsWith("file:")) {
-    const path = url.replace(/^file:/, "");
-    try {
-      mkdirSync(dirname(path), { recursive: true });
-    } catch {}
+function getSql(): Sql {
+  if (_sql) return _sql;
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. Expected a Postgres connection string like " +
+        "`postgres://user:pass@host:port/db`."
+    );
   }
+  _sql = postgres(url, {
+    // pxxl's Postgres exposes a public TLS-enabled endpoint; allow self-signed
+    // certs since we don't pin the CA. The connection is still encrypted.
+    ssl: url.includes("sslmode=disable") ? false : { rejectUnauthorized: false },
+    // Modest pool — keep headroom for parallel requests without hammering the
+    // ~1G memory pxxl box. Adjust if function concurrency rises.
+    max: 8,
+    idle_timeout: 30,
+    connect_timeout: 10,
+    // Don't transform — keep snake_case column names exactly as queried.
+    transform: { undefined: null },
+  });
+  return _sql;
 }
 
-export function db(): Client {
-  if (_client) return _client;
-  const url = process.env.DATABASE_URL || "file:./.data/talise.db";
-  ensureLocalDir(url);
-  _client = createClient({
-    url,
-    authToken: process.env.DATABASE_AUTH_TOKEN,
-  });
-  return _client;
+/**
+ * Rewrite libsql-style `?` placeholders into `$1, $2, ...`. Quoted strings and
+ * line/block comments are skipped so a literal `?` inside a string doesn't get
+ * mistaken for a placeholder.
+ */
+function rewritePlaceholders(sql: string): string {
+  let out = "";
+  let i = 0;
+  let n = 1;
+  while (i < sql.length) {
+    const ch = sql[i];
+    // Single-quoted string — skip until the closing quote (handle doubled '').
+    if (ch === "'") {
+      out += ch;
+      i++;
+      while (i < sql.length) {
+        out += sql[i];
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") { out += sql[++i]; i++; continue; }
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    // Double-quoted identifier — skip until closing.
+    if (ch === '"') {
+      out += ch;
+      i++;
+      while (i < sql.length && sql[i] !== '"') { out += sql[i++]; }
+      if (i < sql.length) { out += sql[i++]; }
+      continue;
+    }
+    // Line comment.
+    if (ch === "-" && sql[i + 1] === "-") {
+      while (i < sql.length && sql[i] !== "\n") { out += sql[i++]; }
+      continue;
+    }
+    // Block comment.
+    if (ch === "/" && sql[i + 1] === "*") {
+      out += sql[i++]; out += sql[i++];
+      while (i < sql.length && !(sql[i] === "*" && sql[i + 1] === "/")) {
+        out += sql[i++];
+      }
+      if (i < sql.length) { out += sql[i++]; out += sql[i++]; }
+      continue;
+    }
+    if (ch === "?") {
+      out += `$${n++}`;
+      i++;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
 }
+
+function buildAdapter(): DbAdapter {
+  if (_adapter) return _adapter;
+  const sql = getSql();
+
+  const runOn = async (
+    runner: Sql,
+    arg: ExecuteArg
+  ): Promise<ExecuteResult> => {
+    const raw = typeof arg === "string" ? arg : arg.sql;
+    const args = typeof arg === "string" ? [] : (arg.args ?? []);
+    const rewritten = rewritePlaceholders(raw);
+    // `postgres`'s `unsafe()` accepts a placeholder string + values array,
+    // which is exactly what the libsql-style API gives us.
+    // postgres.js's `unsafe()` types its parameter array as `ParameterOrJSON[]`;
+    // libsql's adapter accepts `unknown[]`. The cast bridges the two.
+    const result = await runner.unsafe(rewritten, args as never[]);
+    const rows = Array.isArray(result) ? (result as Array<Record<string, unknown>>) : [];
+    const rowsAffected =
+      (result as unknown as { count?: number }).count ?? rows.length;
+    return { rows, rowsAffected };
+  };
+
+  _adapter = {
+    execute: (arg) => runOn(sql, arg),
+    batch: async (stmts, _mode) => {
+      void _mode;
+      // libsql's batch is implicitly transactional. Mirror that with
+      // postgres.js's transaction helper.
+      return sql.begin(async (tx) => {
+        const out: ExecuteResult[] = [];
+        for (const s of stmts) {
+          out.push(await runOn(tx as unknown as Sql, s));
+        }
+        return out;
+      });
+    },
+  };
+  return _adapter;
+}
+
+export function db(): DbAdapter {
+  return buildAdapter();
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Schema migrations — Postgres flavor
 
 export function ensureSchema(): Promise<void> {
   if (_schemaReadyP) return _schemaReadyP;
   _schemaReadyP = doEnsureSchema().catch((err) => {
-    // Reset so a subsequent caller can retry — a transient connectivity
-    // hiccup shouldn't poison the singleton forever.
     _schemaReadyP = null;
     throw err;
   });
@@ -44,150 +180,127 @@ export function ensureSchema(): Promise<void> {
 
 async function doEnsureSchema(): Promise<void> {
   const c = db();
-  await c.batch(
-    [
-      `CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        google_sub TEXT UNIQUE NOT NULL,
-        email TEXT NOT NULL,
-        name TEXT,
-        picture TEXT,
-        sui_address TEXT UNIQUE NOT NULL,
-        salt TEXT NOT NULL,
-        country TEXT,
-        created_at INTEGER NOT NULL,
-        last_seen_at INTEGER NOT NULL,
-        notified_at INTEGER,
-        account_type TEXT,
-        business_name TEXT,
-        business_handle TEXT UNIQUE,
-        business_industry TEXT,
-        talise_username TEXT UNIQUE
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`,
-      `CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at)`,
-      `CREATE TABLE IF NOT EXISTS tx_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        digest TEXT UNIQUE NOT NULL,
-        kind TEXT NOT NULL,
-        amount TEXT,
-        asset TEXT,
-        recipient TEXT,
-        memo TEXT,
-        receipt_object_id TEXT,
-        created_at INTEGER NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_tx_user ON tx_history(user_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_tx_created ON tx_history(created_at DESC)`,
-      `CREATE TABLE IF NOT EXISTS invoices (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        business_user_id INTEGER NOT NULL,
-        slug TEXT UNIQUE NOT NULL,
-        amount_usdc TEXT NOT NULL,
-        reference TEXT,
-        customer_email TEXT,
-        status TEXT NOT NULL DEFAULT 'open',
-        created_at INTEGER NOT NULL,
-        paid_at INTEGER,
-        paid_digest TEXT,
-        paid_by_address TEXT,
-        FOREIGN KEY(business_user_id) REFERENCES users(id)
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_invoice_biz ON invoices(business_user_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_invoice_slug ON invoices(slug)`,
-      `CREATE TABLE IF NOT EXISTS rewards_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        kind TEXT NOT NULL,
-        points INTEGER NOT NULL,
-        metadata TEXT,
-        created_at INTEGER NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_rewards_user ON rewards_events(user_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_rewards_created ON rewards_events(created_at DESC)`,
-      // Phase 3 — Savings Goals. Named buckets the user can deposit
-      // into; each goal's `current_usd` is incremented on a sponsored
-      // NAVI supply tagged with the goal id in its PK memo refs.
-      `CREATE TABLE IF NOT EXISTS savings_goals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        target_usd REAL NOT NULL,
-        current_usd REAL NOT NULL DEFAULT 0,
-        deadline_ms INTEGER,
-        color TEXT,
-        created_at INTEGER NOT NULL,
-        archived INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_goals_user ON savings_goals(user_id, archived)`,
-      // Phase 4 — Redemptions ledger. Every spend of points against
-      // the catalogue mints a row here + a `redeemed` rewards_event
-      // row (negative points delta). Status: pending → fulfilled |
-      // expired | refunded.
-      `CREATE TABLE IF NOT EXISTS redemptions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        sku TEXT NOT NULL,
-        points_spent INTEGER NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        metadata TEXT,
-        created_at INTEGER NOT NULL,
-        fulfilled_at INTEGER,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_redemptions_user ON redemptions(user_id, created_at DESC)`,
-    ],
-    "write"
-  );
+  const tables: string[] = [
+    `CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      google_sub TEXT UNIQUE NOT NULL,
+      email TEXT NOT NULL,
+      name TEXT,
+      picture TEXT,
+      sui_address TEXT UNIQUE NOT NULL,
+      salt TEXT NOT NULL,
+      country TEXT,
+      created_at BIGINT NOT NULL,
+      last_seen_at BIGINT NOT NULL,
+      notified_at BIGINT,
+      account_type TEXT,
+      business_name TEXT,
+      business_handle TEXT UNIQUE,
+      business_industry TEXT,
+      talise_username TEXT UNIQUE
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`,
+    `CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at)`,
+    `CREATE TABLE IF NOT EXISTS tx_history (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      digest TEXT UNIQUE NOT NULL,
+      kind TEXT NOT NULL,
+      amount TEXT,
+      asset TEXT,
+      recipient TEXT,
+      memo TEXT,
+      receipt_object_id TEXT,
+      created_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_tx_user ON tx_history(user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_tx_created ON tx_history(created_at DESC)`,
+    `CREATE TABLE IF NOT EXISTS invoices (
+      id SERIAL PRIMARY KEY,
+      business_user_id INTEGER NOT NULL REFERENCES users(id),
+      slug TEXT UNIQUE NOT NULL,
+      amount_usdc TEXT NOT NULL,
+      reference TEXT,
+      customer_email TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at BIGINT NOT NULL,
+      paid_at BIGINT,
+      paid_digest TEXT,
+      paid_by_address TEXT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_invoice_biz ON invoices(business_user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_invoice_slug ON invoices(slug)`,
+    `CREATE TABLE IF NOT EXISTS rewards_events (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      kind TEXT NOT NULL,
+      points INTEGER NOT NULL,
+      metadata TEXT,
+      created_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_rewards_user ON rewards_events(user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_rewards_created ON rewards_events(created_at DESC)`,
+    `CREATE TABLE IF NOT EXISTS savings_goals (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      name TEXT NOT NULL,
+      target_usd DOUBLE PRECISION NOT NULL,
+      current_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+      deadline_ms BIGINT,
+      color TEXT,
+      created_at BIGINT NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_goals_user ON savings_goals(user_id, archived)`,
+    `CREATE TABLE IF NOT EXISTS redemptions (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      sku TEXT NOT NULL,
+      points_spent INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      metadata TEXT,
+      created_at BIGINT NOT NULL,
+      fulfilled_at BIGINT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_redemptions_user ON redemptions(user_id, created_at DESC)`,
+  ];
+  for (const stmt of tables) {
+    await c.execute(stmt);
+  }
 
-  // Idempotent migrations for older DBs.
+  // Idempotent column additions for older deployments. Postgres lacks the
+  // `IF NOT EXISTS` clause on `ADD COLUMN` until 9.6+, but pxxl runs 16 so
+  // we can rely on it. Keeps the migration narrative readable.
   for (const sql of [
-    "ALTER TABLE users ADD COLUMN account_type TEXT",
-    "ALTER TABLE users ADD COLUMN business_name TEXT",
-    "ALTER TABLE users ADD COLUMN business_handle TEXT",
-    "ALTER TABLE users ADD COLUMN business_industry TEXT",
-    "ALTER TABLE users ADD COLUMN interests TEXT",
-    "ALTER TABLE users ADD COLUMN notify_on_receive INTEGER",
-    "ALTER TABLE users ADD COLUMN spot_bm_id TEXT",
-    "ALTER TABLE users ADD COLUMN talise_username TEXT",
-    "ALTER TABLE users ADD COLUMN payment_registry_id TEXT",
-    "ALTER TABLE users ADD COLUMN referral_code TEXT",
-    "ALTER TABLE users ADD COLUMN referred_by_user_id INTEGER",
-    "ALTER TABLE users ADD COLUMN referral_count INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN points_total INTEGER DEFAULT 0",
-    // Round-up & Save — opt-in micro-savings hook. When enabled, every
-    // outbound send rounds the dollar amount up to the next integer
-    // (default) or applies a configurable percentage, and the diff
-    // gets sponsored-supplied to NAVI. 0 = off.
-    "ALTER TABLE users ADD COLUMN roundup_enabled INTEGER DEFAULT 0",
-    // 1-10 → percentage of send amount auto-saved (e.g. 2 = 2%).
-    // Defaults to 2 when roundup_enabled flips on.
-    "ALTER TABLE users ADD COLUMN roundup_percentage INTEGER DEFAULT 2",
-    // Lifetime tallies — written by lib/rewards/earn.ts. Used by the
-    // Rewards tab to render "saved this month" / "spent this month"
-    // without scanning the activity feed on every render.
-    "ALTER TABLE users ADD COLUMN lifetime_sent_usd REAL DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN lifetime_saved_usd REAL DEFAULT 0",
-    // Phase 2 — Round-up & Save. Tracks the lifetime auto-swept
-    // round-up amount so the Rewards UI can render "saved X via
-    // round-up" without a GROUP BY over rewards_events.
-    "ALTER TABLE users ADD COLUMN roundup_saved_usd REAL DEFAULT 0",
-    "ALTER TABLE invoices ADD COLUMN receipt_object_id TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_name TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_handle TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_industry TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS interests TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_on_receive INTEGER",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS spot_bm_id TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_username TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_registry_id TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id INTEGER",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_count INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS points_total INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_enabled INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_percentage INTEGER DEFAULT 2",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_sent_usd DOUBLE PRECISION DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_saved_usd DOUBLE PRECISION DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_saved_usd DOUBLE PRECISION DEFAULT 0",
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS receipt_object_id TEXT",
   ]) {
     try {
       await c.execute(sql);
     } catch {
-      /* column already exists */
+      /* idempotent; ignore */
     }
   }
 
-  // Race-safe UNIQUE on talise_username for old DBs that added the column via
-  // ALTER (which can't introduce UNIQUE). Concurrent claim attempts collide
-  // here, which the route maps to a 409.
+  // Unique indexes for columns added via ALTER. `CREATE UNIQUE INDEX IF NOT
+  // EXISTS` is safe to call repeatedly.
   try {
     await c.execute(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_talise_username ON users(talise_username)"
@@ -195,9 +308,6 @@ async function doEnsureSchema(): Promise<void> {
   } catch {
     /* ignore */
   }
-
-  // Race-safe UNIQUE on referral_code — added via ALTER above which can't
-  // introduce UNIQUE. Concurrent ensureReferralCode collisions retry.
   try {
     await c.execute(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)"
@@ -207,11 +317,6 @@ async function doEnsureSchema(): Promise<void> {
   }
 }
 
-/**
- * Lightweight liveness check for the /api/health endpoint and Railway
- * health probes. Runs a trivial query against the DB to confirm both
- * the connection and the schema are usable. Returns { ok, latencyMs }.
- */
 export async function dbHealth(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
   const t0 = Date.now();
   try {
@@ -226,6 +331,9 @@ export async function dbHealth(): Promise<{ ok: boolean; latencyMs: number; erro
     };
   }
 }
+
+// ───────────────────────────────────────────────────────────────────
+// Domain types + query helpers — unchanged from the libsql version
 
 export type AccountType = "personal" | "business";
 
@@ -254,32 +362,12 @@ export type User = {
   referred_by_user_id?: number | null;
   referral_count?: number | null;
   points_total?: number | null;
-  // Phase 1 rewards refresh — see `lib/rewards/earn.ts`.
-  roundup_enabled?: number | null;       // 0/1 boolean stored as int
-  roundup_percentage?: number | null;    // 1-10
+  roundup_enabled?: number | null;
+  roundup_percentage?: number | null;
   lifetime_sent_usd?: number | null;
   lifetime_saved_usd?: number | null;
 };
 
-/**
- * Closed list of event kinds the rewards engine can write. Extended in
- * Phase 1 of the rewards refresh (the original referral-only list is
- * preserved verbatim so historical rows still type-check).
- *
- * Earn-on-action kinds — written by `lib/rewards/earn.ts` after every
- * successful sponsored tx:
- *   `send_earn`      — 1 pt per $1 sent (any outbound transfer)
- *   `save_earn`      — 3 pts per $1 supplied to a yield venue
- *   `roundup_save`   — round-up spare-change auto-deposit landed
- *   `withdraw_earn`  — informational; no points (so we still get a row
- *                       for the activity feed without inflating balance)
- *   `goal_deposit`   — explicit deposit to a named savings goal
- *   `redeemed`       — points spent on a redemption (negative delta)
- *
- * Referral / engagement kinds (original, unchanged):
- *   `referral_signup`, `referral_first_send`, `volume_milestone`,
- *   `first_send`, `first_claim`, `streak`
- */
 export type RewardsEventKind =
   | "referral_signup"
   | "referral_first_send"
@@ -303,12 +391,10 @@ export type RewardsEvent = {
   created_at: number;
 };
 
-/** Has the user finished business onboarding? Handle is the gate. */
 export function hasBusiness(user: User): boolean {
   return !!user.business_handle;
 }
 
-/** Just swap which context the user is currently in. */
 export async function switchActiveContext(
   userId: number,
   to: AccountType
@@ -320,7 +406,6 @@ export async function switchActiveContext(
   });
 }
 
-/** Add a business profile to an existing user and switch to business mode. */
 export async function addBusinessProfile(
   userId: number,
   input: {
@@ -437,7 +522,6 @@ export async function upsertUser(input: {
       args: [input.googleSub],
     });
     const u = row.rows[0] as unknown as User;
-    // Backfill referral_code for legacy users.
     await ensureReferralCode(u.id, input.name ?? input.email);
     const refreshed = await c.execute({
       sql: "SELECT * FROM users WHERE id = ? LIMIT 1",
@@ -476,11 +560,6 @@ export async function upsertUser(input: {
   return { user: refreshed.rows[0] as unknown as User, isNew: true };
 }
 
-/**
- * Realign a user's on-chain identity when the salt source changes (e.g.
- * migrating an existing row to Shinami-managed salts). Address + salt move
- * together — a stale pair leaves the account unsignable.
- */
 export async function realignAddress(
   userId: number,
   suiAddress: string,
@@ -556,12 +635,6 @@ export async function updateUserProfile(
   });
 }
 
-/**
- * Persist the Sui Payment Kit `PaymentRegistry` object id for a merchant.
- * Called once per merchant at handle-creation time (or lazily on the first
- * paid invoice). The registry object is shared on-chain — only the id
- * needs to live in our DB so subsequent invoice payments can target it.
- */
 export async function setPaymentRegistry(
   userId: number,
   objectId: string
@@ -646,7 +719,12 @@ export async function recordTx(input: {
       ],
     });
   } catch (e) {
-    if (!String((e as Error).message).includes("UNIQUE")) throw e;
+    const msg = String((e as Error).message);
+    // Postgres reports duplicate key violations as "duplicate key value violates
+    // unique constraint"; libsql said "UNIQUE constraint failed". Swallow both.
+    if (!msg.includes("UNIQUE") && !msg.toLowerCase().includes("duplicate key")) {
+      throw e;
+    }
   }
 }
 
@@ -727,7 +805,6 @@ export async function markInvoicePaid(
 }
 
 function invoiceSlug(): string {
-  // 8-char alphanum (lower) — collision risk is fine for this scale
   return Math.random().toString(36).slice(2, 6) +
     Math.random().toString(36).slice(2, 6);
 }
@@ -743,10 +820,8 @@ export async function userTxs(userId: number, limit = 20): Promise<TxRow[]> {
 
 // --- Referrals + Rewards ---------------------------------------------------
 
-// 8-character codes: uppercase letters + digits, no ambiguous (O, 0, I, 1, L).
 const REFERRAL_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
-/** Strict format check used by client + server. */
 export const REFERRAL_CODE_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/;
 
 function pickFromAlphabet(): string {
@@ -754,11 +829,6 @@ function pickFromAlphabet(): string {
   return REFERRAL_ALPHABET[idx];
 }
 
-/**
- * Generate an 8-char referral code. Optionally seeded from a username/name
- * so it feels personal (e.g. `sele` → `SELE` + 4 random chars). Any chars
- * in the seed that aren't in the alphabet are dropped.
- */
 export function generateReferralCode(seed?: string | null): string {
   let prefix = "";
   if (seed) {
@@ -776,10 +846,6 @@ export function generateReferralCode(seed?: string | null): string {
   return code;
 }
 
-/**
- * Give an existing user a referral code if they don't have one. Race-safe:
- * the UNIQUE index on `referral_code` will reject collisions, and we retry.
- */
 export async function ensureReferralCode(
   userId: number,
   seed?: string | null
@@ -801,7 +867,6 @@ export async function ensureReferralCode(
         args: [code, userId],
       });
       if (r.rowsAffected && r.rowsAffected > 0) return code;
-      // Already populated by a concurrent writer — re-read.
       const r2 = await c.execute({
         sql: "SELECT referral_code FROM users WHERE id = ? LIMIT 1",
         args: [userId],
@@ -809,8 +874,8 @@ export async function ensureReferralCode(
       const v = r2.rows[0]?.referral_code;
       if (typeof v === "string" && v.length === 8) return v;
     } catch (e) {
-      if (!String((e as Error).message).toUpperCase().includes("UNIQUE")) throw e;
-      // Collision — loop and try a fresh code.
+      const msg = String((e as Error).message).toUpperCase();
+      if (!msg.includes("UNIQUE") && !msg.includes("DUPLICATE KEY")) throw e;
     }
   }
   throw new Error("could not allocate a referral code after 12 attempts");
@@ -827,10 +892,6 @@ export async function userByReferralCode(code: string): Promise<User | null> {
   return (r.rows[0] as unknown as User) ?? null;
 }
 
-/**
- * Insert a rewards_events row and bump the user's denormalized points_total
- * in the same write so reads stay consistent.
- */
 export async function recordRewardsEvent(
   userId: number,
   kind: RewardsEventKind,
@@ -863,14 +924,6 @@ export async function recordRewardsEvent(
   );
 }
 
-/**
- * Attribute a new user to an inviter. No-op when:
- *  - the new user already has an inviter
- *  - the code is invalid or unknown
- *  - the code belongs to the same user (self-referral)
- *
- * Awards `referrerPoints` to the inviter and `refereePoints` to the new user.
- */
 export async function attributeReferral(
   newUserId: number,
   inviterCode: string,
@@ -915,7 +968,6 @@ export async function getRewardsSummary(userId: number): Promise<{
 }> {
   await ensureSchema();
   const c = db();
-  // Make sure a code exists. Cheap when it already does.
   const code = await ensureReferralCode(userId);
 
   const r = await c.execute({

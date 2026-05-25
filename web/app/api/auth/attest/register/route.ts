@@ -19,12 +19,11 @@ async function ensureAttestSchema() {
   await db().execute(`
     CREATE TABLE IF NOT EXISTS app_attest_keys (
       key_id TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id),
       attestation_blob TEXT NOT NULL,
       counter INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      revoked INTEGER NOT NULL DEFAULT 0,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      created_at BIGINT NOT NULL,
+      revoked INTEGER NOT NULL DEFAULT 0
     )
   `);
 }
@@ -51,9 +50,14 @@ export async function POST(req: Request) {
 
   await ensureAttestSchema();
   await db().execute({
-    sql: `INSERT OR REPLACE INTO app_attest_keys
+    sql: `INSERT INTO app_attest_keys
             (key_id, user_id, attestation_blob, counter, created_at)
-          VALUES (?, ?, ?, 0, ?)`,
+          VALUES (?, ?, ?, 0, ?)
+          ON CONFLICT (key_id) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            attestation_blob = EXCLUDED.attestation_blob,
+            counter = 0,
+            created_at = EXCLUDED.created_at`,
     args: [body.keyId, userId, body.attestation, Date.now()],
   });
   return NextResponse.json({ ok: true });
