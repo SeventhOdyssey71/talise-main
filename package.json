@@ -5,6 +5,11 @@
   "engines": {
     "node": ">=22"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp"
+    ]
+  },
   "scripts": {
     "build": "pnpm --filter talise-web build",
     "start": "pnpm --filter talise-web start",
