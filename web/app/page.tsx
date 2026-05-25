@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { SignInButton } from "@/components/SignInButton";
 import { userById } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
@@ -93,45 +94,87 @@ function TopBar() {
 
 function Hero({ err }: { err?: string }) {
   return (
-    <section className="pt-20 pb-24 text-center md:pt-28">
-      <div className="mx-auto flex items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
-        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
-        new — live on Sui mainnet
-      </div>
+    <section className="pt-16 pb-20 md:pt-20">
+      {/*
+       * Two-column hero: copy + CTA on the left, real iPhone screenshot
+       * on the right. Stacks vertically on mobile where the column is
+       * narrow enough that side-by-side would crush the screenshot.
+       */}
+      <div className="grid items-center gap-12 md:grid-cols-[1.05fr_1fr] md:gap-10 lg:gap-16">
+        {/* ── Left column: eyebrow + headline + copy + CTA ───────── */}
+        <div className="text-left">
+          <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
+            new — live on Sui mainnet
+          </div>
 
-      <h1 className="mx-auto mt-6 max-w-[820px] text-[clamp(40px,7vw,72px)] font-medium leading-[1.04] tracking-[-0.02em] text-[var(--color-fg)]">
-        Send money across the globe.{" "}
-        <span
-          className="text-[var(--color-accent)]"
-          style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
-        >
-          For free.
-        </span>
-      </h1>
+          <h1 className="mt-6 text-[clamp(40px,6vw,68px)] font-medium leading-[1.03] tracking-[-0.02em] text-[var(--color-fg)]">
+            Send money across the globe.{" "}
+            <span
+              className="text-[var(--color-accent)]"
+              style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
+            >
+              For free.
+            </span>
+          </h1>
 
-      <p className="mx-auto mt-6 max-w-[560px] text-[15px] leading-[1.55] text-[var(--color-fg-muted)]">
-        Talise moves naira, shillings, cedis, and rand across borders in
-        seconds — at a fraction of what Wise, Western Union, or Remitly
-        charge. Sign in with Google. No app, no agent, no queue.
-      </p>
+          <p className="mt-6 max-w-[520px] text-[15px] leading-[1.55] text-[var(--color-fg-muted)]">
+            Talise moves naira, shillings, cedis, and rand across borders in
+            seconds — at a fraction of what Wise, Western Union, or Remitly
+            charge. Sign in with Google. No app, no agent, no queue.
+          </p>
 
-      <div id="cta" className="mx-auto mt-9 max-w-[340px]">
-        <SignInButton variant="primary" label="Continue with Google" />
-        <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-          <span>no app to install</span>
-          <span>·</span>
-          <span>arrives in seconds</span>
+          <div id="cta" className="mt-9 max-w-[340px]">
+            <SignInButton variant="primary" label="Continue with Google" />
+            <div className="mt-3 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
+              <span>no app to install</span>
+              <span>·</span>
+              <span>arrives in seconds</span>
+            </div>
+          </div>
+
+          {err && <ErrorBanner err={err} />}
         </div>
-      </div>
 
-      {err && <ErrorBanner err={err} />}
-
-      <div className="mx-auto mt-16 max-w-[860px]">
-        <PhonePreview />
+        {/* ── Right column: actual app screenshot ────────────────── */}
+        <PhoneShot />
       </div>
 
       <StatRow />
     </section>
+  );
+}
+
+/**
+ * Real iPhone Pro screenshot of the Home tab, framed in a soft accent
+ * glow so it visually anchors the right side of the hero. No HTML mock —
+ * just the actual app so the visual matches the product 1:1.
+ */
+function PhoneShot() {
+  return (
+    <div className="relative mx-auto w-full max-w-[360px] md:max-w-[400px]">
+      {/* soft green wash behind the phone, matches iOS TopGlow */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 blur-3xl"
+        style={{
+          background:
+            "radial-gradient(60% 50% at 50% 35%, color-mix(in srgb, var(--color-accent) 35%, transparent), transparent 70%)",
+        }}
+      />
+      <Image
+        src="/app-home-preview.png"
+        alt="Talise iOS app — Home screen showing balance and recent activity"
+        width={1206}
+        height={2622}
+        priority
+        className="w-full h-auto rounded-[40px]"
+        style={{
+          boxShadow:
+            "0 30px 80px -20px rgba(0,0,0,0.7), 0 2px 6px rgba(0,0,0,0.4)",
+        }}
+      />
+    </div>
   );
 }
 
@@ -329,122 +372,6 @@ function ErrorBanner({ err }: { err: string }) {
         sign-in error ·{" "}
       </span>
       {err}
-    </div>
-  );
-}
-
-function PhonePreview() {
-  return (
-    <div className="relative mx-auto w-full max-w-[360px]">
-      <div className="talise-glass rounded-[36px] px-5 py-7">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-              Balance
-            </div>
-            <div
-              className="mt-1 text-[40px] font-medium tracking-tight"
-              style={{ fontVariantNumeric: "tabular-nums" }}
-            >
-              ₦332,580
-            </div>
-            <div className="mt-1 flex items-center gap-2 font-mono text-[11px]">
-              <span className="text-[var(--color-fg-muted)]">205.30 USDsui</span>
-              <span className="text-[var(--color-fg-dim)]">·</span>
-              <span className="text-[var(--color-accent)]">Earn up to 11%</span>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <ActionButton glyph="plus" />
-            <ActionButton glyph="send" />
-          </div>
-        </div>
-
-        <div className="mt-6 space-y-2">
-          <ActivityPill
-            tint="#c95a4a"
-            label="Sent + saved"
-            time="just now"
-            amount="− ₦52"
-            sub="+ ₦2 saved"
-          />
-          <ActivityPill
-            tint="#4fb35e"
-            label="Received from chiamaka@talise"
-            time="2 hr ago"
-            amount="+ ₦1,050,000"
-          />
-          <ActivityPill
-            tint="#79d96c"
-            label="Invested in Navi"
-            time="yesterday"
-            amount="− $40.00"
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ActivityPill({
-  tint,
-  label,
-  time,
-  amount,
-  sub,
-}: {
-  tint: string;
-  label: string;
-  time: string;
-  amount: string;
-  sub?: string;
-}) {
-  return (
-    <div className="talise-glass flex items-center gap-3 rounded-2xl px-4 py-3 text-left">
-      <span
-        aria-hidden
-        className="block h-7 w-7 rounded-full"
-        style={{ background: `color-mix(in srgb, ${tint} 32%, transparent)` }}
-      />
-      <div className="flex-1 min-w-0">
-        <div className="text-[12px] text-[var(--color-fg)] truncate">{label}</div>
-        <div className="mt-0.5 font-mono text-[9px] text-[var(--color-fg-dim)]">
-          {time}
-        </div>
-      </div>
-      <div className="text-right">
-        <div
-          className="text-[13px]"
-          style={{ fontVariantNumeric: "tabular-nums" }}
-        >
-          {amount}
-        </div>
-        {sub && (
-          <div
-            className="mt-0.5 font-mono text-[9px] text-[var(--color-accent)]"
-            style={{ fontVariantNumeric: "tabular-nums" }}
-          >
-            {sub}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ActionButton({ glyph }: { glyph: "plus" | "send" }) {
-  return (
-    <div className="grid h-10 w-10 place-items-center rounded-2xl bg-[var(--color-surface-2)] text-[var(--color-fg)]">
-      {glyph === "plus" ? (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      ) : (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M22 2 11 13" />
-          <path d="M22 2 15 22l-4-9-9-4z" />
-        </svg>
-      )}
     </div>
   );
 }
