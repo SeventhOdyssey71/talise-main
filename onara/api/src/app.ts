@@ -12,6 +12,7 @@ import pRetry from 'p-retry'
 import { loadPolicies, validateSponsoredTxPayload } from './policy'
 import { executeTransaction, type OnStatus, type SponsorEvent } from './execution'
 import { writeAnalytics } from './analytics'
+import autoSwapApp from './autoSwap'
 import sponsorPoliciesConfig from '../policies'
 
 interface AnalyticsEngineDataset {
@@ -169,6 +170,9 @@ app.get('/status', async (c) => {
 app.get('/policies', (c) => {
   return c.json(sponsorPoliciesConfig)
 })
+
+// ─── Auto-swap (Path C executor) ──────────────────────────────────────────────
+app.route('/auto-swap', autoSwapApp)
 
 // ─── Transaction status lookup ────────────────────────────────────────────────
 
