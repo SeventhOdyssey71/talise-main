@@ -323,6 +323,14 @@ async function doEnsureSchema(): Promise<void> {
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_sent_usd DOUBLE PRECISION DEFAULT 0",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_saved_usd DOUBLE PRECISION DEFAULT 0",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_saved_usd DOUBLE PRECISION DEFAULT 0",
+    // TaliseVault + AutoSwap Path-C columns. `talise_vault_id` is the
+    // user's shared-object vault id, set after they sign the
+    // `vault::create()` tx via `/api/vault/record`. The repointed flag
+    // tracks whether their `@talise` SuiNS subname target has been
+    // moved from their plain wallet address to the vault id — a
+    // separate (heavier) on-chain step that happens lazily.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_id TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_subname_repointed INTEGER DEFAULT 0",
     "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS receipt_object_id TEXT",
   ]) {
     try {
@@ -444,7 +452,50 @@ export type User = {
   roundup_percentage?: number | null;
   lifetime_sent_usd?: number | null;
   lifetime_saved_usd?: number | null;
+  talise_vault_id?: string | null;
+  talise_vault_subname_repointed?: number | null;
 };
+
+/**
+ * Set the user's `talise_vault_id`. Called from `/api/vault/record` after
+ * the user-signed `vault::create()` tx confirms on chain.
+ *
+ * Idempotent: a second call with the same vault id is a no-op. A second
+ * call with a *different* id throws — we expect exactly one vault per
+ * user. Callers can pass `{ force: true }` to bypass that check during
+ * v1 mainnet migration (re-pointing legacy users to a fresh vault).
+ */
+export async function setTaliseVaultId(
+  userId: number,
+  vaultId: string,
+  opts: { force?: boolean } = {}
+): Promise<void> {
+  await ensureSchema();
+  const c = db();
+  const cur = await c.execute({
+    sql: "SELECT talise_vault_id FROM users WHERE id = ? LIMIT 1",
+    args: [userId],
+  });
+  const existing = cur.rows[0]?.talise_vault_id as string | null | undefined;
+  if (existing && existing !== vaultId && !opts.force) {
+    throw new Error(
+      `user ${userId} already has talise_vault_id=${existing}; refusing to overwrite without force`
+    );
+  }
+  await c.execute({
+    sql: "UPDATE users SET talise_vault_id = ? WHERE id = ?",
+    args: [vaultId, userId],
+  });
+}
+
+/** Mark the user's SuiNS subname as having been repointed to the vault. */
+export async function markVaultSubnameRepointed(userId: number): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: "UPDATE users SET talise_vault_subname_repointed = 1 WHERE id = ?",
+    args: [userId],
+  });
+}
 
 export type RewardsEventKind =
   | "referral_signup"
