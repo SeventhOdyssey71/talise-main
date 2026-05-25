@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowRight01FreeIcons } from "@hugeicons/core-free-icons";
 import { triggerOauthSignIn } from "@/lib/zkclient";
 import { SigninPreloader } from "./SigninPreloader";
 
@@ -69,19 +67,6 @@ export function SignInButton({
       >
         {variant !== "ghost" && stage === "idle" && <GoogleMark />}
         {display}
-        {variant !== "ghost" && stage === "idle" && (
-          <span
-            aria-hidden
-            className="inline-flex transition group-hover:translate-x-0.5"
-          >
-            <HugeiconsIcon
-              icon={ArrowRight01FreeIcons}
-              size={16}
-              strokeWidth={2}
-              color="currentColor"
-            />
-          </span>
-        )}
       </button>
       {err && (
         <p className="mt-2 text-[12px] text-[var(--color-fg)]">! {err}</p>
