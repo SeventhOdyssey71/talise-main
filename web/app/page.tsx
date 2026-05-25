@@ -49,7 +49,7 @@ export default async function Landing({
 
       <TopBar />
 
-      <main className="relative z-10 mx-auto w-full max-w-[1320px] px-6 pb-32 md:px-10">
+      <main className="relative z-10 mx-auto w-full px-6 pb-32 md:px-12 lg:px-16">
         <Hero err={params.err} />
         <FeatureGrid />
         <PersonaStories />
@@ -66,7 +66,7 @@ export default async function Landing({
 
 function TopBar() {
   return (
-    <header className="relative z-10 mx-auto flex w-full max-w-[1320px] items-center justify-between px-6 py-5 md:px-10">
+    <header className="relative z-10 mx-auto flex w-full items-center justify-between px-6 py-5 md:px-12 lg:px-16">
       <Link
         href="/"
         className="flex items-center gap-2 text-[15px] tracking-tight text-[var(--color-fg)]"
@@ -98,12 +98,12 @@ function Hero({ err }: { err?: string }) {
       {/* Eyebrow */}
       <div className="mx-auto flex items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
         <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
-        new — live on Sui mainnet
+        new, live on Sui mainnet
       </div>
 
-      {/* Centered headline — bigger, fills the page. Italic accent on
-          "For free." picks up the Instrument Serif from layout fonts. */}
-      <h1 className="mx-auto mt-6 max-w-[1000px] text-[clamp(44px,7.5vw,88px)] font-medium leading-[1.02] tracking-[-0.025em] text-[var(--color-fg)]">
+      {/* Centered headline. Italic accent on "For free." picks up
+          Instrument Serif from the layout fonts. */}
+      <h1 className="mx-auto mt-6 max-w-[1100px] text-[clamp(44px,7.5vw,88px)] font-medium leading-[1.02] tracking-[-0.025em] text-[var(--color-fg)]">
         Send money across the globe.{" "}
         <span
           className="text-[var(--color-accent)]"
@@ -113,19 +113,27 @@ function Hero({ err }: { err?: string }) {
         </span>
       </h1>
 
-      <p className="mx-auto mt-6 max-w-[620px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
+      <p className="mx-auto mt-6 max-w-[640px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
         Talise moves naira, shillings, cedis, and rand across borders in
-        seconds — at a fraction of what Wise, Western Union, or Remitly
+        seconds, at a fraction of what Wise, Western Union, or Remitly
         charge. Sign in with Google. No app, no agent, no queue.
       </p>
 
-      <div id="cta" className="mx-auto mt-9 max-w-[360px]">
-        <SignInButton variant="primary" label="Continue with Google" />
-        <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-          <span>no app to install</span>
-          <span>·</span>
-          <span>arrives in seconds</span>
+      {/* Dual CTAs: web sign-in (Google) + mobile download (App Store).
+          On small screens they stack; on sm+ they sit side by side. */}
+      <div
+        id="cta"
+        className="mx-auto mt-9 flex w-full max-w-[600px] flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-center"
+      >
+        <div className="flex-1">
+          <SignInButton variant="primary" label="Sign Up with Google" />
         </div>
+        <AppStoreButton />
+      </div>
+      <div className="mt-4 flex items-center justify-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
+        <span>no app to install</span>
+        <span>·</span>
+        <span>arrives in seconds</span>
       </div>
 
       {err && <ErrorBanner err={err} />}
@@ -138,6 +146,43 @@ function Hero({ err }: { err?: string }) {
 
       <StatRow />
     </section>
+  );
+}
+
+/**
+ * Apple App Store download badge, styled to live next to the Google sign-in
+ * button without looking like a mismatched pair. Same height, same pill
+ * radius, but inverted color (black surface, white text + Apple glyph) so
+ * the two CTAs read as a clear "web vs native" choice.
+ *
+ * `href="#"` for now — wire to the real App Store URL once Talise is
+ * approved for distribution.
+ */
+function AppStoreButton() {
+  return (
+    <a
+      href="#"
+      className="group inline-flex flex-1 items-center justify-center gap-3 rounded-md bg-[#0a0a0a] px-5 py-3.5 text-[var(--color-fg)] ring-1 ring-[var(--color-line)] transition hover:bg-[var(--color-surface)]"
+      aria-label="Download Talise on the App Store"
+    >
+      <AppleGlyph />
+      <span className="flex flex-col items-start leading-tight">
+        <span className="text-[9px] uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+          Download on the
+        </span>
+        <span className="text-[15px] font-medium text-[var(--color-fg)]">
+          App Store
+        </span>
+      </span>
+    </a>
+  );
+}
+
+function AppleGlyph() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+    </svg>
   );
 }
 
@@ -155,7 +200,7 @@ function PhoneCollage() {
       />
       <Image
         src="/talise-app-collage.png"
-        alt="Talise iOS app — Earn + Home screens shown side by side"
+        alt="Talise iOS app: Earn and Home screens shown side by side"
         width={2208}
         height={1242}
         priority
@@ -177,14 +222,14 @@ function FeatureGrid() {
       eyebrow: "01 / send",
       title: "Across borders, in seconds.",
       body:
-        "Send to a phone, a username, or a wallet. Naira, cedis, shillings, rand — we settle in USDsui and land in the receiver's local currency, faster than any traditional rail.",
+        "Send to a phone, a username, or a wallet. Naira, cedis, shillings, rand. We settle in USDsui and land in the receiver's local currency, faster than any traditional rail.",
       glyph: "send",
     },
     {
       eyebrow: "02 / earn",
       title: "Idle money should compound.",
       body:
-        "Move USDsui into NAVI lending in one tap. Watch real-time yield. Withdraw anytime. No lockups, no jargon — just a balance that quietly grows.",
+        "Move USDsui into NAVI lending in one tap. Watch real-time yield. Withdraw anytime. No lockups, no jargon. Just a balance that quietly grows.",
       glyph: "leaf",
     },
     {
@@ -253,7 +298,7 @@ function PersonaStories() {
       </h2>
       <p className="mt-4 max-w-[560px] text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
         Every month, millions of Africans abroad send a piece of their salary
-        home. Talise is for the person sending it — and the family waiting on
+        home. Talise is for the person sending it, and the family waiting on
         it.
       </p>
 
@@ -262,8 +307,8 @@ function PersonaStories() {
           name="Chiamaka"
           eyebrow="London → Lagos · NHS Nurse, sending home"
           chip="£500 → ₦1,050,000"
-          before="Sends £500 home every month. Western Union takes around £32 in fees plus a poor exchange rate — roughly £45 lost per transfer."
-          after="With Talise, the fee on £500 is near zero. She saves about £40 a month — £480 a year — and her mum gets the cash in under 5 seconds."
+          before="Sends £500 home every month. Western Union takes around £32 in fees plus a poor exchange rate, roughly £45 lost per transfer."
+          after="With Talise, the fee on £500 is near zero. She saves about £40 a month, £480 a year, and her mum gets the cash in under 5 seconds."
         />
         <PersonaCard
           name="Mama Adaeze"
@@ -291,7 +336,7 @@ function FinalCta() {
       </h2>
       <p className="mx-auto mt-5 max-w-[480px] text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
         Sign in with Google. Pick who you're sending to. We'll handle the rest
-        — including the cost of the first transfer.
+        including the cost of the first transfer.
       </p>
       <div className="mx-auto mt-8 max-w-[340px]">
         <SignInButton variant="primary" label="Continue with Google" />
@@ -310,7 +355,7 @@ function SiteFooter() {
             <span>talise</span>
           </div>
           <p className="mt-3 max-w-[220px] text-[12px] leading-[1.55] text-[var(--color-fg-muted)]">
-            Talise — money home, in seconds.
+            Talise. Money home, in seconds.
           </p>
         </div>
         <FooterCol
