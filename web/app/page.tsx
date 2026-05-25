@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import type { ReactNode } from "react";
 import { SignInButton } from "@/components/SignInButton";
 import { userById } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
@@ -859,21 +860,24 @@ function PersonaStories() {
 function FinalCta() {
   return (
     <section className="mt-32 text-center">
-      <h2 className="mx-auto max-w-[640px] text-[clamp(32px,5vw,52px)] font-medium leading-[1.08] tracking-[-0.015em]">
-        Send your first £100 home.{" "}
+      <h2 className="mx-auto max-w-[760px] text-[clamp(34px,5.5vw,60px)] font-medium leading-[1.05] tracking-[-0.02em]">
+        Send. Save. Earn.{" "}
         <span
           className="text-[var(--color-accent)]"
           style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
         >
-          We'll cover the fee.
+          Always free.
         </span>
       </h2>
-      <p className="mx-auto mt-5 max-w-[480px] text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
-        Sign in with Google. Pick who you're sending to. We'll handle the rest
-        including the cost of the first transfer.
+      <p className="mx-auto mt-5 max-w-[540px] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
+        Talise covers the network fee on every transfer. No first-transfer
+        gimmick. No fine print. Free, every single time.
       </p>
-      <div className="mx-auto mt-8 max-w-[340px]">
-        <SignInButton variant="primary" label="Continue with Google" />
+      <div className="mx-auto mt-9 flex w-full max-w-[520px] flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
+        <div className="flex flex-1">
+          <SignInButton variant="primary" label="Sign Up with Google" />
+        </div>
+        <AppStoreButton />
       </div>
     </section>
   );
@@ -882,47 +886,142 @@ function FinalCta() {
 function SiteFooter() {
   return (
     <footer className="relative z-10 border-t border-[var(--color-line)] bg-[var(--color-bg)]">
-      <div className="mx-auto grid w-full max-w-[1100px] gap-10 px-6 py-14 md:grid-cols-4">
-        <div>
-          <div className="flex items-center gap-2 text-[15px] tracking-tight">
-            <Diamond />
-            <span>talise</span>
+      <div className="mx-auto w-full max-w-[1440px] px-6 py-20 md:px-12 lg:px-16">
+        {/* Top: branding column + 4-column link grid */}
+        <div className="grid gap-14 lg:grid-cols-[1.3fr_2.5fr]">
+          {/* ── Branding block ─────────────────────────────────────── */}
+          <div>
+            <Link href="/" className="flex items-center gap-2 text-[20px] tracking-tight text-[var(--color-fg)]">
+              <Diamond />
+              <span>talise</span>
+            </Link>
+            <p className="mt-5 max-w-[300px] text-[14px] leading-[1.6] text-[var(--color-fg-muted)]">
+              Money home, in seconds. Built for the diaspora on Sui mainnet.
+              USDsui-native, zkLogin-signed, sponsored gas on every transfer.
+            </p>
+            <SocialRow />
+            <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
+              live on sui mainnet
+            </div>
           </div>
-          <p className="mt-3 max-w-[220px] text-[12px] leading-[1.55] text-[var(--color-fg-muted)]">
-            Talise. Money home, in seconds.
-          </p>
+
+          {/* ── 4-column links ─────────────────────────────────────── */}
+          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+            <FooterCol
+              title="Product"
+              links={[
+                ["How it works", "#how"],
+                ["Who it's for", "#who"],
+                ["Sign in", "#cta"],
+                ["Download iOS", "#cta"],
+              ]}
+            />
+            <FooterCol
+              title="Corridors"
+              links={[
+                ["UK → Nigeria", "#"],
+                ["UK → Kenya", "#"],
+                ["UK → Ghana", "#"],
+                ["UK → South Africa", "#"],
+                ["US → Nigeria", "#"],
+              ]}
+            />
+            <FooterCol
+              title="Company"
+              links={[
+                ["About", "#"],
+                ["Blog", "#"],
+                ["Careers", "#"],
+                ["Press", "#"],
+              ]}
+            />
+            <FooterCol
+              title="Trust"
+              links={[
+                ["Privacy policy", "#"],
+                ["Terms of use", "#"],
+                ["Security", "#"],
+                ["hello@talise.io", "mailto:hello@talise.io"],
+              ]}
+            />
+          </div>
         </div>
-        <FooterCol
-          title="Product"
-          links={[
-            ["How it works", "#how"],
-            ["Who it's for", "#who"],
-            ["Sign in", "#cta"],
-          ]}
-        />
-        <FooterCol
-          title="Corridors"
-          links={[
-            ["UK → Nigeria", "#"],
-            ["UK → Kenya", "#"],
-            ["UK → Ghana", "#"],
-            ["UK → South Africa", "#"],
-          ]}
-        />
-        <FooterCol
-          title="Trust"
-          links={[
-            ["Privacy policy", "#"],
-            ["Terms of use", "#"],
-            ["hello@talise.io", "mailto:hello@talise.io"],
-          ]}
-        />
+
+        {/* Oversized wordmark — design accent so the footer doesn't fade
+            out into nothing. Uses currentColor with low opacity so it
+            reads as a watermark rather than a CTA. */}
+        <div
+          aria-hidden
+          className="mt-16 select-none overflow-hidden whitespace-nowrap text-[clamp(80px,18vw,260px)] font-medium leading-[0.85] tracking-[-0.04em] text-[var(--color-fg)] opacity-[0.04]"
+        >
+          talise.
+        </div>
       </div>
-      <div className="mx-auto flex w-full max-w-[1100px] flex-wrap items-center justify-between gap-3 border-t border-[var(--color-line)] px-6 py-5 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-        <div>© {new Date().getFullYear()} talise</div>
-        <div>built on sui · usdsui native · zklogin</div>
+
+      {/* Bottom strip — copyright, stack badges, network info */}
+      <div className="border-t border-[var(--color-line)]">
+        <div className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center justify-between gap-3 px-6 py-5 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)] md:px-12 lg:px-16">
+          <div>© {new Date().getFullYear()} talise. all rights reserved.</div>
+          <div className="flex items-center gap-3">
+            <span>built on sui</span>
+            <span>·</span>
+            <span>usdsui native</span>
+            <span>·</span>
+            <span>zklogin</span>
+          </div>
+        </div>
       </div>
     </footer>
+  );
+}
+
+/** Compact social row in the footer's branding block. */
+function SocialRow() {
+  const socials: Array<{ href: string; label: string; icon: ReactNode }> = [
+    {
+      href: "https://x.com/talise_io",
+      label: "Talise on X",
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+        </svg>
+      ),
+    },
+    {
+      href: "https://github.com/SeventhOdyssey71",
+      label: "Talise on GitHub",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.69-3.88-1.54-3.88-1.54-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.34.95.1-.75.4-1.26.72-1.55-2.55-.29-5.24-1.27-5.24-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.17.91-.25 1.89-.38 2.86-.39.97 0 1.95.13 2.86.39 2.18-1.48 3.14-1.17 3.14-1.17.62 1.58.23 2.75.11 3.04.73.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.37-5.25 5.66.41.36.78 1.06.78 2.14v3.18c0 .31.21.68.79.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z" />
+        </svg>
+      ),
+    },
+    {
+      href: "https://discord.gg/talise",
+      label: "Talise on Discord",
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.07.07 0 0 0-.075.036c-.21.375-.444.864-.608 1.25a18.25 18.25 0 0 0-5.487 0 12.51 12.51 0 0 0-.617-1.25.077.077 0 0 0-.075-.036A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.893.077.077 0 0 0-.04.106c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.183 0-2.157-1.086-2.157-2.42 0-1.333.955-2.419 2.157-2.419 1.212 0 2.176 1.095 2.157 2.42 0 1.333-.955 2.419-2.157 2.419zm7.975 0c-1.183 0-2.157-1.086-2.157-2.42 0-1.333.955-2.419 2.157-2.419 1.212 0 2.176 1.095 2.157 2.42 0 1.333-.945 2.419-2.157 2.419z" />
+        </svg>
+      ),
+    },
+  ];
+  return (
+    <div className="mt-6 flex items-center gap-2">
+      {socials.map((s) => (
+        <a
+          key={s.label}
+          href={s.href}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label={s.label}
+          className="grid h-9 w-9 place-items-center rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-fg-muted)] transition hover:border-[var(--color-accent)] hover:text-[var(--color-fg)]"
+        >
+          {s.icon}
+        </a>
+      ))}
+    </div>
   );
 }
 
