@@ -9,6 +9,21 @@ struct TaliseApp: App {
 
     init() {
         Self.registerFonts()
+        #if DEBUG
+        // Cross-check our pure-Swift BLAKE2b-256 against @noble/hashes
+        // vectors at launch. A mismatch on any vector means the iOS
+        // digest is wrong → sponsor-execute will reject the signature
+        // with "Invalid signature was given to the function". Logged
+        // (not asserted) so the app still launches and a developer
+        // can see exactly which vector diverged.
+        let failures = Blake2b.runSelfTest()
+        if failures.isEmpty {
+            print("[zk] Blake2b self-test: OK")
+        } else {
+            print("[zk] Blake2b self-test FAILED — signing will reject on chain:")
+            for f in failures { print("    \(f)") }
+        }
+        #endif
     }
 
     var body: some Scene {

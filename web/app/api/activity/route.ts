@@ -46,6 +46,10 @@ export async function GET(req: Request) {
         amountSui: e.amountSui,
         counterparty: e.counterparty,
         counterpartyName: e.counterpartyName,
+        venue: e.venue,
+        // Compound spend+save flag — when set, iOS renders the row as
+        // "Sent + saved" with both amounts. Null on non-compound rows.
+        roundupUsdsui: e.roundupUsdsui,
       })),
     });
   } catch (err) {

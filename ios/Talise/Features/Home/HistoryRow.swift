@@ -18,10 +18,17 @@ struct HistoryRow: View {
         Button(action: onTap) {
             HStack(spacing: 14) {
                 ZStack {
-                    Circle().fill(TaliseColor.surface2).frame(width: 32, height: 32)
+                    // Tinted directional badge — dusty red for Sent,
+                    // mossy green for Received, accent for Invest. The
+                    // bg is the tint at ~32% over the page bg, the
+                    // arrow is the tint at full saturation so it
+                    // reads as a colored glyph on a colored disc.
+                    Circle()
+                        .fill(badgeBgColor)
+                        .frame(width: 32, height: 32)
                     Image(systemName: iconName)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(TaliseColor.fg)
+                        .foregroundStyle(badgeFgColor)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -65,37 +72,82 @@ struct HistoryRow: View {
     private enum Category {
         case sent
         case received
-        case neutral   // Invest, Claim Reward, anything else — no tint
+        case invest
+        case withdraw
+        case neutral
     }
 
-    /// Today we only have the chain-derived direction (sent / received).
-    /// Adding Invest / Claim Reward categories will require server-side
-    /// classification (detect NAVI supply, rewards claim, etc.); until
-    /// then those map to `neutral` once they land. For now the chain
-    /// view yields just Sent/Received, so this is a 1:1 mapping.
+    /// Server-side `direction` field carries the classification. Plain
+    /// transfers ride the chain-derived sent/received; yield venue
+    /// txs (DeepBook supply, NAVI lending) come back as
+    /// `invest`/`withdraw` and get their own icon + tint.
     private var category: Category {
-        entry.isReceived ? .received : .sent
+        switch entry.direction {
+        case "received": return .received
+        case "invest":   return .invest
+        case "withdraw": return .withdraw
+        case "sent":     return .sent
+        default:         return .neutral
+        }
     }
 
     private var tintColor: Color {
         switch category {
         case .sent:     return Color(hex: 0xC95A4A)
         case .received: return Color(hex: 0x4FB35E)
+        // Invest + withdraw share the Talise green accent — they're
+        // yield motion, not money lost / gained from another wallet.
+        case .invest:   return TaliseColor.accent
+        case .withdraw: return Color(hex: 0x4FB35E)
         case .neutral:  return .clear
+        }
+    }
+
+    /// Circular badge fill (the disc behind the arrow). A 32% wash of
+    /// the directional color over the page background reads as
+    /// "muted dusty red / forest green" without competing with the
+    /// row's content text.
+    private var badgeBgColor: Color {
+        switch category {
+        case .sent:     return Color(hex: 0xC95A4A).opacity(0.32)
+        case .received: return Color(hex: 0x4FB35E).opacity(0.32)
+        case .invest:   return TaliseColor.accent.opacity(0.22)
+        case .withdraw: return Color(hex: 0x4FB35E).opacity(0.32)
+        case .neutral:  return TaliseColor.surface2
+        }
+    }
+
+    /// Arrow color inside the badge. Sits at full saturation against
+    /// the muted disc, matching the design ref where the glyph is
+    /// noticeably brighter than its background.
+    private var badgeFgColor: Color {
+        switch category {
+        case .sent:     return Color(hex: 0xF0A99E)
+        case .received: return Color(hex: 0xA9DFB3)
+        case .invest:   return TaliseColor.accent
+        case .withdraw: return Color(hex: 0xA9DFB3)
+        case .neutral:  return TaliseColor.fg
         }
     }
 
     private var tintAlpha: Double {
         switch category {
-        case .sent, .received: return 0.18  // press-only, so slightly punchier
-        case .neutral:         return 0
+        case .sent, .received, .invest, .withdraw: return 0.18
+        case .neutral:                              return 0
         }
     }
 
+    /// SF Symbol used in the circular badge. Invest uses the leaf
+    /// (matches the Invest tab bar icon, so the connection between
+    /// "the tab I supplied from" and "this row" is visual not just
+    /// textual). Withdraw mirrors with the leaf inverted via
+    /// arrow.down-on-leaf — see invest case below.
     private var iconName: String {
         switch category {
         case .sent:     return "arrow.up.right"
         case .received: return "arrow.down.left"
+        case .invest:   return "leaf.fill"
+        case .withdraw: return "leaf"
         case .neutral:  return "circle"
         }
     }
@@ -104,6 +156,16 @@ struct HistoryRow: View {
         switch category {
         case .sent:     return "Sent"
         case .received: return "Received"
+        case .invest:
+            if let v = entry.venue, !v.isEmpty {
+                return "Invested in \(displayVenueName(v))"
+            }
+            return "Invested"
+        case .withdraw:
+            if let v = entry.venue, !v.isEmpty {
+                return "Withdrew from \(displayVenueName(v))"
+            }
+            return "Withdrew"
         case .neutral:  return "Activity"
         }
     }
@@ -116,7 +178,10 @@ struct HistoryRow: View {
     }
 
     private var amountFormatted: String {
-        let prefix = entry.isReceived ? "+" : "-"
+        // Invest = wallet → pool (debit, "-"); Withdraw = pool → wallet
+        // (credit, "+"). Plain transfers use direction directly.
+        let isInflow = entry.isReceived || entry.isWithdraw
+        let prefix = isInflow ? "+" : "-"
         if let usd = entry.amountUsdsui {
             return prefix + TaliseFormat.local2(Swift.abs(usd))
         }

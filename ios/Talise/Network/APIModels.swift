@@ -139,6 +139,13 @@ struct SendBuildRequest: Codable {
 
 struct BuildKindResponse: Codable {
     let transactionKindB64: String
+    /// Server-blessed round-up amount in USDsui when a Send PTB
+    /// includes a compound NAVI supply leg (Phase 2 v2). 0 / nil when
+    /// the user has round-up disabled or the send was too small to
+    /// trigger a sweep. iOS forwards this to `/api/zk/sponsor-execute`
+    /// as `meta.roundupUsd` so the rewards engine credits the
+    /// round-up points + bumps the savings tally.
+    let roundupUsd: Double?
 }
 
 struct SupplyBuildRequest: Codable {
@@ -275,7 +282,12 @@ struct RoundupConfig: Codable {
 
 struct PointRates: Codable {
     let send: Int
-    let save: Int
+    /// Points per $1 supplied to a yield venue. Server's `EarnTrigger`
+    /// uses `"invest"` as the trigger name (matches the activity feed's
+    /// `direction: "invest"`), so the JSON key is `invest` not `save`.
+    /// Earlier revision used `save` and silently fell through to the
+    /// iOS hardcoded fallback (3) on decode — fixed.
+    let invest: Int
     let withdraw: Int
     let roundup: Int
     let goal: Int

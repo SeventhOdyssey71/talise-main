@@ -69,10 +69,28 @@ try {
 console.log("minting registry…");
 
 const tx = new Transaction();
-// create_registry returns RegistryAdminCap which MUST be transferred or
-// kept alive (UnusedValueWithoutDrop otherwise). We send it to the
-// operator wallet so we can later call setConfig / withdrawFromRegistry.
-const adminCap = tx.add(pk.calls.createRegistry({ registryName: REGISTRY_NAME }));
+// `payment_kit::create_registry` returns a TUPLE — `(PaymentRegistry,
+// RegistryAdminCap)` — verified from the on-chain Move source. Earlier
+// revisions of this script transferred a single value and aborted with
+// `CommandArgumentError InvalidResultArity { result_idx: 0 }` because:
+//   (a) the PaymentRegistry at index 0 was never shared / consumed →
+//       UnusedValueWithoutDrop,
+//   (b) the AdminCap at index 1 was incorrectly addressed as index 0.
+//
+// Correct sequence:
+//   1. Destructure the tuple via index.
+//   2. Share the PaymentRegistry so anyone can write PaymentRecord
+//      dynamic fields under it (payments from arbitrary senders).
+//      `payment_kit::share(registry)` wraps `transfer::share_object`.
+//   3. Transfer the AdminCap to the operator for future admin ops
+//      (setConfig, withdrawFromRegistry).
+const created = tx.add(pk.calls.createRegistry({ registryName: REGISTRY_NAME }));
+const registryHandle = created[0];
+const adminCap = created[1];
+tx.moveCall({
+  target: "@mysten/payment-kit::payment_kit::share",
+  arguments: [registryHandle],
+});
 tx.transferObjects([adminCap], operatorAddr);
 tx.setSender(operatorAddr);
 

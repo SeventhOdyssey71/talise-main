@@ -182,3 +182,85 @@ export async function callDeepSeek(messages: AiMessage[]): Promise<string> {
   if (!content) throw new Error("DeepSeek returned no content");
   return content;
 }
+
+/**
+ * Streaming variant. Yields text chunks as they arrive over the OpenAI-
+ * compatible SSE stream the 0G proxy emits. Used by /api/chat/stream
+ * (the iOS chat tab path) — the web /api/chat keeps using the Vercel
+ * AI SDK's UI-message-stream format via streamText.
+ *
+ * Yields delta text only — caller is responsible for buffering /
+ * framing it back to the client. Throws on missing config or upstream
+ * non-2xx so the route can emit a graceful error event.
+ */
+export async function* streamDeepSeek(
+  messages: AiMessage[],
+  signal?: AbortSignal
+): AsyncGenerator<string, void, void> {
+  const url = process.env.ZG_DEEPSEEK_V4_PROVIDER_URL;
+  const key = process.env.ZG_DEEPSEEK_V4_API_KEY;
+  if (!url || !key) {
+    throw new Error("DeepSeek not configured (ZG_DEEPSEEK_V4_PROVIDER_URL / ZG_DEEPSEEK_V4_API_KEY missing)");
+  }
+
+  const res = await fetch(
+    `${url.replace(/\/$/, "").replace(/\/chat\/completions\/?$/, "")}/chat/completions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        messages,
+        stream: true,
+        temperature: 0.4,
+        max_tokens: 1200,
+      }),
+      signal,
+    }
+  );
+
+  if (!res.ok || !res.body) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`DeepSeek HTTP ${res.status}: ${t.slice(0, 200)}`);
+  }
+
+  // OpenAI-compatible SSE: lines like `data: {...}\n` and a terminating
+  // `data: [DONE]`. We decode the byte stream, buffer across reads
+  // until we see a `\n\n` event boundary, then parse `data:` payloads.
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // Process every complete event in the buffer; keep the trailing
+    // partial one for the next loop.
+    let idx;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const evt = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      // Each event can have multiple `data:` lines; concat per spec.
+      const datas: string[] = [];
+      for (const line of evt.split("\n")) {
+        const trim = line.startsWith("data:") ? line.slice(5).trimStart() : "";
+        if (trim) datas.push(trim);
+      }
+      const payload = datas.join("\n");
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const j = JSON.parse(payload) as {
+          choices?: Array<{ delta?: { content?: string } }>;
+        };
+        const delta = j.choices?.[0]?.delta?.content;
+        if (delta) yield delta;
+      } catch {
+        // Malformed chunk — skip, don't blow up the stream.
+      }
+    }
+  }
+}

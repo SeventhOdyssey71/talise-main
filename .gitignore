@@ -35,6 +35,10 @@ prover/key/
 *.swp
 *.swo
 
+# ── Local agent / MCP config ──────────────────────────────────────────
+.claude/
+.mcp.json
+
 # ── Logs ──────────────────────────────────────────────────────────────
 *.log
 npm-debug.log*

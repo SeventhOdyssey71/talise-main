@@ -172,9 +172,36 @@ final class ZkLoginCoordinator {
     ///   POST /api/zk/sponsor-execute  { bytesB64, ephemeralPubKeyB64,
     ///                                   maxEpoch, randomness, userSignature,
     ///                                   cachedProof? }       → { digest, ... }
+    /// Rewards-accounting metadata. Optional; when set, the server
+    /// credits points for the settled tx after Onara confirms
+    /// broadcast. The kind/amount come from the iOS call site that
+    /// already knows what action it's submitting — Send passes
+    /// `("send", amountUsd)`, EarnView passes `("invest", amountUsd)`,
+    /// withdraw passes `("withdraw", 0)`, etc.
+    struct RewardsMeta {
+        let kind: String      // "send" | "invest" | "withdraw" | "roundup" | "goal"
+        let amountUsd: Double
+        let venue: String?
+        /// Phase 2 v2 — when a Send PTB includes a compound NAVI supply
+        /// leg for round-up auto-save, this is the round-up amount in
+        /// USDsui (server-blessed, returned from /api/send/prepare).
+        /// Server credits the round-up points + bumps the savings
+        /// tally separately from the send leg. Nil for sends without
+        /// round-up enabled or for non-send kinds.
+        let roundupUsd: Double?
+
+        init(kind: String, amountUsd: Double, venue: String? = nil, roundupUsd: Double? = nil) {
+            self.kind = kind
+            self.amountUsd = amountUsd
+            self.venue = venue
+            self.roundupUsd = roundupUsd
+        }
+    }
+
     func signAndSubmit(
         transactionKindB64: String,
-        intent: String
+        intent: String,
+        rewards: RewardsMeta? = nil
     ) async throws -> SignedSubmission {
         guard let maxEpoch = ProofCache.shared.maxEpoch,
               let jwtRandomness = ProofCache.shared.jwtRandomness else {
@@ -191,18 +218,37 @@ final class ZkLoginCoordinator {
             throw CoordinatorError.sponsorFailed("malformed sponsor response")
         }
 
-        // 2. Sign Sui intent message with ephemeral Ed25519.
+        // 2. Sign the Sui transaction digest with ephemeral Ed25519.
+        //    Sui's protocol (matches keypair.signTransaction in @mysten/sui):
+        //      digest = blake2b256([0,0,0] || tx_bytes)
+        //      sig    = ed25519_sign(ephemeralSK, digest)
+        //    Ed25519 itself does an internal SHA-512 round; the BLAKE2b
+        //    here is Sui's outer commitment to (intent, tx). Signing the
+        //    raw intent message — as iOS used to — produces a signature
+        //    the validator rejects with "Invalid signature was given to
+        //    the function".
         let intentMessage = Data([0, 0, 0]) + txBytesData
+        let digest = Blake2b.hash256(intentMessage)
         let key = try EphemeralKeyStore.shared.loadOrCreate()
-        let rawSig = try key.signature(for: intentMessage)
+        let rawSig = try key.signature(for: digest)
         let pubKey = key.publicKey.rawRepresentation
         let pubKeyB64 = pubKey.base64EncodedString()
         // Sui SerializedSignature: 0x00 flag (Ed25519) + sig + pubkey
         let userSig = (Data([0x00]) + rawSig + pubKey).base64EncodedString()
+        #if DEBUG
+        // One-line diagnostic. Compare against the server-computed digest
+        // (lib/zksigner or @mysten/sui's signTransaction) to confirm iOS
+        // BLAKE2b agrees byte-for-byte with @noble.
+        let digestHex = digest.map { String(format: "%02x", $0) }.joined()
+        let txLen = txBytesData.count
+        print("[zk] sign — txBytes=\(txLen)B digest=\(digestHex) pk=\(pubKeyB64)")
+        #endif
 
         // 3. Hand to /sponsor-execute. Backend assembles zkLoginSignature
         //    (proof + ephemeral sig + jwt metadata), POSTs to Onara,
-        //    returns the digest.
+        //    returns the digest. The optional `meta` block carries the
+        //    rewards-accounting hint so the server can credit points
+        //    for the settled tx after broadcast.
         var executeBody: [String: Any] = [
             "bytesB64": bytesB64,
             "ephemeralPubKeyB64": pubKeyB64,
@@ -210,6 +256,21 @@ final class ZkLoginCoordinator {
             "randomness": jwtRandomness,
             "userSignature": userSig,
         ]
+        if let r = rewards {
+            var metaDict: [String: Any] = [
+                "kind": r.kind,
+                "amountUsd": r.amountUsd,
+            ]
+            if let v = r.venue { metaDict["venue"] = v }
+            // Forward the server-blessed round-up amount so sponsor-
+            // execute can credit the second leg's points + bump the
+            // savings tally. Server validates this against its own
+            // recompute (the user can't inflate by lying here — at
+            // worst they earn 0 round-up points if the server reads
+            // their config as disabled).
+            if let ru = r.roundupUsd, ru > 0 { metaDict["roundupUsd"] = ru }
+            executeBody["meta"] = metaDict
+        }
         // Only forward a CACHED proof if its shape still looks like
         // what Shinami emits. Older builds wrote a stringified-JSON
         // form into the cache (AnyCodable round-trip bug); sending

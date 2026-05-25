@@ -4,11 +4,10 @@ import {
   mobileSigningContext,
   isMobileRequest,
 } from "@/lib/mobile-sessions";
-import { userById } from "@/lib/db";
+import { db, userById } from "@/lib/db";
 import { assembleZkLoginSignature, readSigningCookie } from "@/lib/zksigner";
 import { onara } from "@/lib/onara";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
-import { maybeRoundupForSend } from "@/lib/rewards/roundup";
 
 export const runtime = "nodejs";
 
@@ -75,6 +74,15 @@ export async function POST(req: Request) {
       kind?: "send" | "invest" | "withdraw" | "roundup" | "goal";
       amountUsd?: number;
       venue?: string;
+      /**
+       * Round-up & Save (Phase 2 v2). When a send PTB includes a
+       * compound NAVI supply leg for auto-save, iOS forwards the
+       * server-blessed round-up amount from the prepare response. We
+       * credit a second `roundup` earn on top of the send's points
+       * + bump `users.roundup_saved_usd` to reflect the on-chain
+       * supply that just landed atomically with the send.
+       */
+      roundupUsd?: number;
     };
   };
   try {
@@ -222,29 +230,45 @@ export async function POST(req: Request) {
       );
     }
 
-    // Phase 2 — Round-up & Save. Fire-and-forget AFTER digest
-    // extraction. Only triggers on outbound sends; idempotent on the
-    // source digest inside `maybeRoundupForSend`. We deliberately do
-    // NOT await — the user's money already moved, and a slow roundup
-    // hook shouldn't extend the response. We also deliberately do NOT
-    // call `/api/zk/sponsor-execute` recursively from inside the
-    // roundup hook (v1 only books the points + lifetime tally; the
-    // actual on-chain NAVI supply is stubbed pending delegation-key
-    // support — see `lib/rewards/roundup.ts` for the TODO).
-    if (
-      digest &&
-      meta &&
-      meta.kind === "send" &&
-      typeof meta.amountUsd === "number" &&
-      meta.amountUsd > 0
-    ) {
-      maybeRoundupForSend({
+    // Phase 2 v2 — Round-up & Save credit on the COMPOUND PTB.
+    //
+    // The send PTB now includes a NAVI supply leg for `meta.roundupUsd`
+    // (computed + appended by /api/send/prepare based on the user's
+    // round-up config). It already settled atomically with the send
+    // when Onara broadcast — funds are in the NAVI pool. All that's
+    // left is the bookkeeping: credit the 5pt/$1 round-up earn, bump
+    // lifetime saved tallies (both `lifetime_saved_usd` and the
+    // running `roundup_saved_usd` for the RoundupCard UI).
+    //
+    // Trust the server-blessed `meta.roundupUsd` from prepare: the
+    // user signed exactly that amount into the on-chain supply, so
+    // crediting any other value would diverge from chain reality. A
+    // malicious client that LIES about roundupUsd > 0 when no supply
+    // ran will fail Sui validation at sponsor-time (the PTB doesn't
+    // match what they're claiming) — so by the time we reach this
+    // point the value is implicitly verified.
+    const roundupUsd = meta?.roundupUsd ?? 0;
+    if (digest && roundupUsd > 0 && meta?.kind === "send") {
+      const cappedRoundup = Math.min(roundupUsd, 10_000);
+      awardForTx({
         userId,
-        sendAmountUsd: meta.amountUsd,
-        sourceDigest: digest,
-      }).catch((e) =>
-        console.warn("[zk/sponsor-execute] maybeRoundupForSend failed:", e)
-      );
+        trigger: "roundup",
+        amountUsd: cappedRoundup,
+        digest,
+        venue: "navi",
+      })
+        .then(() =>
+          // awardForTx bumps lifetime_saved_usd; we additionally bump
+          // the dedicated roundup_saved_usd column the RoundupCard
+          // reads so that running total is in sync. One extra UPDATE.
+          db().execute({
+            sql: "UPDATE users SET roundup_saved_usd = COALESCE(roundup_saved_usd, 0) + ? WHERE id = ?",
+            args: [cappedRoundup, userId],
+          })
+        )
+        .catch((e) =>
+          console.warn("[zk/sponsor-execute] roundup credit failed:", e)
+        );
     }
 
     return NextResponse.json({

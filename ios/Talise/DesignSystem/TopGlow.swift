@@ -1,39 +1,61 @@
 import SwiftUI
 
-/// Subtle dark-blue atmospheric wash that sits at the top of each
-/// authenticated tab. Reads as a faint "horizon glow" against the pure
-/// black background — not a hard color band.
+/// Forest-green atmospheric wash that sits at the very top of each
+/// authenticated tab. Reads as a tight "horizon glow" against the pure
+/// black background — focused at the status-bar edge, fully transparent
+/// well before reaching the content's first interactive element.
 ///
-/// Implementation: two stacked radial gradients with low alpha + a
-/// blur. The deep one anchors the hue; the lighter overlay catches
-/// SwiftUI's depth shading at the top edge.
+/// Earlier revision used a blue hue + a wide 320pt band, which spilled
+/// through to the History rows and competed with the green Earn accent.
+/// Switched to a hue that's a desaturated derivative of `TaliseColor.accent`
+/// (the same Talise green used on "Earn up to 11%", venue badges, and
+/// invest-row tints) so the page background hints at brand color
+/// without polluting the surface.
 struct TopGlow: View {
     var body: some View {
+        // Center pushed well above the top edge (UnitPoint y: -0.6) so
+        // only the lower arc of the radial is visible — that arc is
+        // wide and gently curved across the full screen width, instead
+        // of looking like a small spotlight in the middle. Combined
+        // with a large endRadius this produces a "horizon wash" effect:
+        // green at the very top edge, smoothly fading to pure black
+        // by the time you reach mid-screen.
         ZStack(alignment: .top) {
-            // Wide, very-low-alpha base wash.
+            // Wide base wash. The big radius (600) is what makes the
+            // glow span corner-to-corner; the off-screen center is
+            // what flattens it into a gentle band rather than a circle.
             RadialGradient(
                 colors: [
-                    Color(red: 0.16, green: 0.22, blue: 0.42).opacity(0.30),
-                    Color(red: 0.16, green: 0.22, blue: 0.42).opacity(0.08),
+                    Color(red: 0.16, green: 0.42, blue: 0.26).opacity(0.65),
+                    Color(red: 0.12, green: 0.30, blue: 0.20).opacity(0.30),
+                    Color(red: 0.08, green: 0.18, blue: 0.13).opacity(0.10),
                     .clear,
                 ],
-                center: .init(x: 0.5, y: 0.0),
-                startRadius: 20,
-                endRadius: 380
+                center: .init(x: 0.5, y: -0.6),
+                startRadius: 0,
+                endRadius: 600
             )
-            // Cooler top-edge highlight to hint at light coming in.
+            // Brighter accent right under the notch — tighter radius,
+            // higher saturation. This keeps a clear "lit" point at the
+            // very top so the wash has structure instead of feeling
+            // like flat tint.
             RadialGradient(
                 colors: [
-                    Color(red: 0.40, green: 0.55, blue: 0.95).opacity(0.18),
+                    Color(red: 0.36, green: 0.66, blue: 0.42).opacity(0.42),
+                    Color(red: 0.36, green: 0.66, blue: 0.42).opacity(0.16),
                     .clear,
                 ],
                 center: .init(x: 0.5, y: 0.0),
                 startRadius: 0,
-                endRadius: 200
+                endRadius: 320
             )
         }
-        .blur(radius: 28)
-        .frame(height: 320)
+        .blur(radius: 24)
+        // Taller band — the wash needs room to decay to clear before
+        // the History rows. With the new wide radii, 360pt gives the
+        // gradient enough vertical real estate to spread without
+        // bleeding into the activity list.
+        .frame(height: 360)
         .frame(maxWidth: .infinity, alignment: .top)
         .allowsHitTesting(false)
     }
