@@ -5,6 +5,11 @@
   "engines": {
     "node": ">=22"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp"
+    ]
+  },
   "scripts": {
     "dev": "next dev --turbopack -p 3000",
     "build": "next build",
