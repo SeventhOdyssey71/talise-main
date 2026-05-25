@@ -71,16 +71,66 @@ signature.
 
 ## Tests
 
-`tests/auto_swap_tests.move` covers:
+The Move package is covered by **42 unit tests** split across four test
+files; coverage is **100.00 %** as reported by `sui move coverage summary`:
 
-- Enable then disable round trip (cap mint + burn).
-- Validate rejects amount > cap.
-- Validate rejects non-admin sender.
-- Validate rejects paused cap.
-- Deposit + withdraw round trip.
-- Non-owner can't withdraw.
+| Module             | Coverage |
+| ------------------ | -------- |
+| `talise::auto_swap`| 100.00 % |
+| `talise::vault`    | 100.00 % |
+| `talise::send`     | 100.00 % |
+| `talise::receipt`  | 100.00 % |
 
-Run: `cd move/talise && sui move test`.
+`tests/auto_swap_tests.move` (consent + bounds surface):
+
+- Enable → disable round trip (cap mint + burn).
+- Rando cannot enable against another user's vault (audit-flagged hole).
+- `validate_for_swap` rejects amount > cap, non-admin, paused, expired.
+- `validate_for_swap` happy path with non-zero (future) expiry — covers
+  the `now_ms <= expires_at_ms` true branch.
+- Pause → resume round trip; rando cannot pause / resume / disable /
+  update_bounds someone else's cap.
+- `update_bounds` happy path + rejects `max_per_swap == 0`.
+- `enable_auto_swap` rejects `max_per_swap == 0` (the `E_INVALID_MAX`
+  branch in `mint_cap`).
+- `cap_vault` / `cap_owner` / `cap_max` / `cap_expiry` / `cap_paused`
+  accessors, plus `admin` and `total_validations` on the registry.
+- Deposit + withdraw round trip; non-owner can't withdraw.
+
+`tests/vault_tests.move` (custody invariants + hot-potato pair):
+
+- `auto_swap_extract` + `auto_swap_deposit` round trip (the hot potato);
+  covers the inner `contains`-vs-`add` branch in `auto_swap_deposit`
+  and the `remove + destroy_zero` branch when a balance entry is drained.
+- `auto_swap_deposit` zero-output branch (`destroy_zero`).
+- `auto_swap_extract` E_WRONG_VAULT (cap pointing at vault A used on B).
+- `auto_swap_extract` E_ZERO_AMOUNT / E_TYPE_NOT_HELD / E_INSUFFICIENT_BALANCE.
+- `auto_swap_deposit` E_WRONG_VAULT (ticket from vault A deposited into B).
+- `withdraw_and_send` end-to-end.
+- `withdraw` E_ZERO_AMOUNT / E_TYPE_NOT_HELD / E_INSUFFICIENT_BALANCE.
+- `withdraw` clears the bag entry when the balance is drained.
+- `deposit` rejects zero coin; `deposit_balance` zero-amount short-circuit
+  (`destroy_zero`) is reachable through the `#[test_only]`
+  `test_deposit_balance` shim.
+- `balance_of<T>` for an unheld type returns 0.
+- `type_string<T>()` returns a non-empty canonical name.
+- `owner` / `deposits_total` / `auto_swaps_total` accessors.
+
+`tests/send_tests.move` (atomic-send entry):
+
+- Happy path (transfers + mints receipt).
+- Rejects zero amount.
+- Rejects memo > 80 bytes.
+
+`tests/receipt_tests.move` (display + mint):
+
+- `init` registers `Publisher` + `Display<PaymentReceipt>` against
+  the publisher address (the receipt OTW path).
+- `mint` populates every field and the public accessors read them
+  back unchanged.
+
+Run: `cd move/talise && sui move test` (or `sui move test --coverage`
+followed by `sui move coverage summary` to reproduce the table above).
 
 ## What's NOT in this folder yet (the remaining work)
 
