@@ -11,10 +11,19 @@
 ///   balances the user explicitly authorized it to touch, capped per
 ///   swap and per coin type.
 ///
-/// This module does NOT touch any Coin/Balance — it only models the
-/// consent + bounds. The actual swap PTB is composed off-chain by the
-/// worker and validated against this cap inside the swap entry of
-/// `talise::vault` (where the balances live).
+/// Audit notes (v2, post-review):
+///   • Cap minting moved to `talise::vault::enable_auto_swap`, which has
+///     `&TaliseVault` in scope and asserts `vault.owner == ctx.sender()`.
+///     Closes the "mint a cap pointing at someone else's vault" hole.
+///   • `validate_for_swap` is now `public(package)` and derives `sender`
+///     from `&TxContext` internally — callers can't spoof it.
+///   • Hot-potato: `auto_swap_extract` returns a no-ability `SwapTicket`
+///     alongside the extracted balance (defined in `talise::vault`).
+///     `auto_swap_deposit` is the only consumer; the PTB will not
+///     type-check unless deposit runs in the same tx.
+///   • `disable`/`pause`/`resume`/`update_bounds` now assert
+///     `ctx.sender() == cap.owner` — the cap is transferable (`store`),
+///     but only the original owner can mutate its state.
 module talise::auto_swap;
 
 use sui::event;
@@ -27,7 +36,7 @@ const E_CAP_EXPIRED: u64 = 101;
 const E_AMOUNT_EXCEEDS_CAP: u64 = 102;
 const E_WRONG_ADMIN: u64 = 103;
 const E_INVALID_MAX: u64 = 104;
-const E_INVALID_EXPIRY: u64 = 105;
+const E_NOT_OWNER: u64 = 106;
 
 // ───────────────────────────────────────────────────────────────────
 // Objects
@@ -38,9 +47,8 @@ const E_INVALID_EXPIRY: u64 = 105;
 /// (rotation requires a `AdminCap`-gated path which we leave for v2).
 public struct AutoSwapRegistry has key {
     id: UID,
-    /// Address that may call `validate_for_swap` as `tx.sender`. This
-    /// is the Onara-side worker address. Funded with SUI for gas (or,
-    /// in practice, every swap PTB is gas-sponsored by Onara).
+    /// Address that may execute auto-swaps. Compared to `tx_context::sender()`
+    /// inside `validate_for_swap`. This is the Onara-side worker address.
     admin: address,
     /// Monotonic counter for telemetry / SLA reporting. Bumped by
     /// `validate_for_swap`. Not load-bearing for any security check.
@@ -64,12 +72,15 @@ public struct AdminCap has key, store { id: UID }
 public struct AutoSwapCap<phantom T> has key, store {
     id: UID,
     /// Vault that this cap authorises the worker to drain `T` from.
-    /// Hardwired at mint time; no way to retarget the cap to a different
-    /// vault, so a leaked cap can only ever move funds within the
-    /// original user's vault.
+    /// Hardwired at mint time by `vault::enable_auto_swap`, which
+    /// asserts the minter owns the vault. A leaked cap cannot be
+    /// re-targeted, and the original mint cannot point at someone
+    /// else's vault.
     vault_id: ID,
-    /// Soft owner — informational only (vault_id is the load-bearing
-    /// binding). Useful for off-chain indexers.
+    /// The address that minted this cap. The cap has `store` so it can
+    /// be transferred — but mutate-/burn-ops in this module check
+    /// `ctx.sender() == cap.owner` so a transferred cap is "read-only"
+    /// to the new holder.
     owner: address,
     /// Hard cap on the source amount the worker may swap in one call,
     /// expressed in `T`'s native decimals. Defense in depth: even with
@@ -135,23 +146,22 @@ fun init(ctx: &mut TxContext) {
 }
 
 // ───────────────────────────────────────────────────────────────────
-// User-facing entry points (the consent surface)
+// Cap construction — package-private, only `talise::vault` calls this
+// (after it has asserted vault.owner == ctx.sender()).
 
-/// Enable auto-swap for source coin type `T`. Mints an `AutoSwapCap<T>`
-/// hardwired to the user's vault, transfers it to the user.
-///
-/// Failure modes:
-///   • `max_per_swap == 0` → rejected (would be a no-op cap)
-///   • `expires_at_ms` in the past (non-zero) → rejected
-public entry fun enable<T>(
+/// Mint an `AutoSwapCap<T>` for `owner`, bound to `vault_id`. The
+/// vault-ownership check is the caller's responsibility — that's the
+/// reason this is `public(package)` and `vault::enable_auto_swap` is
+/// the only call site.
+public(package) fun mint_cap<T>(
     vault_id: ID,
+    owner: address,
     max_per_swap: u64,
     expires_at_ms: u64,
     ctx: &mut TxContext,
-) {
+): AutoSwapCap<T> {
     assert!(max_per_swap > 0, E_INVALID_MAX);
 
-    let owner = ctx.sender();
     let cap = AutoSwapCap<T> {
         id: object::new(ctx),
         vault_id,
@@ -161,21 +171,25 @@ public entry fun enable<T>(
         paused: false,
     };
 
-    let cap_id = object::id(&cap);
     event::emit(AutoSwapEnabled {
         owner,
         vault_id,
-        cap_id,
+        cap_id: object::id(&cap),
         coin_type: std::type_name::with_defining_ids<T>().into_string().into_bytes(),
         max_per_swap,
         expires_at_ms,
     });
 
-    transfer::public_transfer(cap, owner);
+    cap
 }
 
+// ───────────────────────────────────────────────────────────────────
+// User-facing entry points (the consent surface)
+
 /// Permanently disable auto-swap for `T`. Burns the cap.
+/// Caller must be `cap.owner`.
 public entry fun disable<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
+    assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
     let AutoSwapCap { id, vault_id: _, owner, max_per_swap: _, expires_at_ms: _, paused: _ } = cap;
     event::emit(AutoSwapDisabled {
         owner,
@@ -183,13 +197,12 @@ public entry fun disable<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
         coin_type: std::type_name::with_defining_ids<T>().into_string().into_bytes(),
     });
     id.delete();
-    // `owner` is preserved in the event but we don't need it past that.
-    let _ = owner;
-    let _ = ctx;
 }
 
 /// Temporarily pause auto-swap (worker validation fails until resumed).
-public entry fun pause<T>(cap: &mut AutoSwapCap<T>, _ctx: &TxContext) {
+/// Caller must be `cap.owner`.
+public entry fun pause<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
+    assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
     cap.paused = true;
     event::emit(AutoSwapPaused {
         owner: cap.owner,
@@ -198,8 +211,9 @@ public entry fun pause<T>(cap: &mut AutoSwapCap<T>, _ctx: &TxContext) {
     });
 }
 
-/// Resume after a pause.
-public entry fun resume<T>(cap: &mut AutoSwapCap<T>, _ctx: &TxContext) {
+/// Resume after a pause. Caller must be `cap.owner`.
+public entry fun resume<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
+    assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
     cap.paused = false;
     event::emit(AutoSwapPaused {
         owner: cap.owner,
@@ -208,13 +222,16 @@ public entry fun resume<T>(cap: &mut AutoSwapCap<T>, _ctx: &TxContext) {
     });
 }
 
-/// Update bounds without re-minting. Both fields are user-controlled.
+/// Update bounds without re-minting. Caller must be `cap.owner`.
+/// Note: v1 lets the owner raise limits freely. v2 should clamp
+/// to `original_max` (see AUTOSWAP.md hardening list).
 public entry fun update_bounds<T>(
     cap: &mut AutoSwapCap<T>,
     max_per_swap: u64,
     expires_at_ms: u64,
-    _ctx: &TxContext,
+    ctx: &TxContext,
 ) {
+    assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
     assert!(max_per_swap > 0, E_INVALID_MAX);
     cap.max_per_swap = max_per_swap;
     cap.expires_at_ms = expires_at_ms;
@@ -227,16 +244,17 @@ public entry fun update_bounds<T>(
 /// either passes (all assertions hold, registry counter bumps, event
 /// emits) or aborts the entire PTB.
 ///
-/// This function is `public` so the vault module can invoke it; it is
-/// NOT `entry`, so off-chain callers can't call it directly to bump
-/// the counter without an accompanying swap.
-public fun validate_for_swap<T>(
+/// `public(package)` so off-chain callers can't bump the counter
+/// without going through `vault::auto_swap_extract`. Sender derived
+/// from `&TxContext` — caller cannot spoof.
+public(package) fun validate_for_swap<T>(
     registry: &mut AutoSwapRegistry,
     cap: &AutoSwapCap<T>,
     amount: u64,
     now_ms: u64,
-    sender: address,
+    ctx: &TxContext,
 ) {
+    let sender = ctx.sender();
     assert!(sender == registry.admin, E_WRONG_ADMIN);
     assert!(!cap.paused, E_CAP_PAUSED);
     if (cap.expires_at_ms != 0) {
@@ -275,3 +293,14 @@ public fun cap_paused<T>(cap: &AutoSwapCap<T>): bool { cap.paused }
 
 #[test_only]
 public fun test_init(ctx: &mut TxContext) { init(ctx) }
+
+#[test_only]
+public fun test_validate_for_swap<T>(
+    registry: &mut AutoSwapRegistry,
+    cap: &AutoSwapCap<T>,
+    amount: u64,
+    now_ms: u64,
+    ctx: &TxContext,
+) {
+    validate_for_swap<T>(registry, cap, amount, now_ms, ctx)
+}
