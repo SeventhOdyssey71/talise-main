@@ -1,96 +1,115 @@
 # Talise
 
-**Send money home. Instantly. Almost free.**
+Consumer cross-border payments for African diaspora corridors, settled on Sui in seconds for a fraction of legacy remittance cost.
 
-A consumer payments app for African corridors built on Sui — diaspora workers send money to family in seconds at a fraction of what Western Union charges. Recipients see their own currency (₦, KSh, GH₵, R) the whole way through. Sui is invisible underneath.
+## What it does
 
-Built with audit-grade rigor — see [THREAT_MODEL.md](THREAT_MODEL.md) for the full security posture.
+<!-- screenshots: drop hero gif at docs/media/hero.gif and app collage at web/public/talise-app-collage.png -->
 
-## How it works
+- Sign in with Google. No seed phrase, no wallet install — zkLogin derives the Sui address.
+- Send money to `name@talise`. The recipient sees Naira, Cedi, Shillings, or Rand the entire way.
+- Any inbound coin (SUI, USDC, USDT) auto-converts to USDsui on receive and lands in the user's wallet.
+- Operator-sponsored gas. The user pays zero in SUI to transact.
+- Save / swap / borrow against USDsui via NAVI and Cetus, exposed as one verb in the app.
 
-| Layer | What | Tech |
-|---|---|---|
-| Sign-in | Google → Sui address, no seed phrase, no wallet install | zkLogin via [Shinami](https://shinami.com) |
-| Gas | User pays 0. Operator-funded sponsor wallet covers every tx. | [Onara](https://github.com/unconfirmedlabs/onara) gas station |
-| Money primitive | One canonical stable: **USDsui**. Any inbound coin auto-converts on receive. | Cetus aggregator (20+ DEXs) via [@t2000/sdk](https://www.npmjs.com/package/@t2000/sdk) |
-| Username | `sele@talise` → user's Sui address. Subnames under `talise.sui`. | SuiNS (DB-backed today, on-chain swap ready) |
-| Payment Intent | Multi-leg atomic PTBs — single signature, all-or-nothing settlement. | Sui Programmable Transaction Blocks |
-| Display | Local currency primary (₦), USD secondary, USDsui invisible. | Hardcoded FX snapshot (live feed TBD) |
+## The stack
 
-## Repo layout
+```
+Talise/
+├── move/        Sui Move package — vault, payment-record receipt, auto-swap caps
+├── web/         Next.js 15 App Router — auth, claim, send, receive, earn
+├── ios/         SwiftUI client — zkLogin, App Attest, native receipts (parallel track)
+├── onara/       Cloudflare Workers gas station + SDK — signs as sponsor, never as user
+├── prover/      Self-hosted zkLogin prover compose (alt to Shinami)
+├── zklogin/     OAuth bridge utilities for ephemeral key + nonce binding
+├── docs/        Pitch, demo script, performance notes
+└── research/    Brief, competitive notes
+```
 
-| Folder | Contents |
-|---|---|
-| `web/` | Next.js 15 app — landing, dashboards, claim, send, receive, auto-convert |
-| `onara/` | Vendored gas-station server (Cloudflare Workers + Hono) and SDK |
-| `move/` | Sui Move package (receipt, send, atomic send-with-receipt) |
-| `ios/` | Earlier SwiftUI port — currently inactive while web ships |
-| `prover/` | Self-hosted zkLogin prover compose file (alternative to Shinami) |
-| `docs/` | Architecture, pitch, demo, asset universe |
-| `research/` | Brief, competitive notes |
+## Run it locally
 
-## Quick start
-
+### Move
 ```bash
-# 1. Web app
+cd move/talise
+sui move build
+sui move test
+```
+
+### Web
+```bash
 cd web
 pnpm install
-cp .env.example .env.local      # fill in real values
-pnpm dev                         # http://localhost:3000
+cp .env.example .env.local        # fill DATABASE_URL, GOOGLE_CLIENT_ID, SHINAMI_API_KEY, SESSION_SECRET, SUI_FULLNODE_URL
+pnpm dev                          # http://localhost:3000
+pnpm build && pnpm start          # production mode
+```
 
-# 2. Gas sponsor (separate terminal)
+Required env: `DATABASE_URL`, `SESSION_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SHINAMI_API_KEY`, `ONARA_URL`, `SUI_FULLNODE_URL`, `TALISE_AUTOSWAP_PACKAGE_ID`, `TALISE_AUTOSWAP_PACKAGE_LATEST`, `TALISE_AUTOSWAP_REGISTRY_ID`. See `web/.env.example`.
+
+### iOS
+```bash
+cd ios
+brew install xcodegen
+xcodegen generate
+open Talise.xcodeproj           # build with Xcode 16+
+```
+
+### Onara (gas sponsor)
+```bash
 cd onara/api
-cp .dev.vars.example .dev.vars   # fill SUI_MNEMONIC, fund the address with mainnet SUI
 bun install
+cp .dev.vars.example .dev.vars  # set SUI_MNEMONIC for the sponsor wallet; fund the derived address
 bun run dev                      # http://localhost:8787
 ```
 
-Sign in with Google. Claim `yourname@talise` at `/claim`. Send money at `/send`.
+## Production deploys
 
-## What's wired on mainnet
+| Layer | Endpoint |
+|-------|----------|
+| Web | Vercel — `talise.app` |
+| Onara gas station | Cloudflare Worker — `https://api.onara.app` |
+| Sui RPC | Mainnet fullnode via Shinami |
+| zkLogin prover | Shinami managed (self-host fallback in `prover/`) |
 
-- zkLogin auth + proofs via Shinami
-- Sponsored transactions via Onara
-- Save/swap/borrow via [@t2000/sdk](https://www.npmjs.com/package/@t2000/sdk) → NAVI lending + Cetus aggregator
-- USDsui as the canonical stable, auto-convert on receive
-- Username send + claim (DB-backed; SuiNS swap path documented)
+Mainnet Move package ids (autoswap v1 → v4, registry, vault types) are tabulated in [`move/talise/AUTOSWAP.md`](move/talise/AUTOSWAP.md#version-history--migration). That document is the source of truth for `TALISE_AUTOSWAP_PACKAGE_ID` (type-tag root) vs `TALISE_AUTOSWAP_PACKAGE_LATEST` (entry-call target).
 
-## Strategy
+## Hackathon alignment
 
-See [STRATEGY.md](STRATEGY.md) for the consumer wedge, market sizing, and the seven killer use cases (cross-border remittance, dollar savings, Ajo/Chama on-chain, etc.).
+Sui Overflow 2026 — DeFi & Payments track. Track-by-track judging breakdown, scoring rationale, and demo script are in [`HACKATHON.md`](HACKATHON.md) (companion doc).
 
-## Key docs
+## Architecture
 
-- [STRATEGY.md](STRATEGY.md) — consumer positioning + use cases
-- [BRIEF.md](BRIEF.md) — Sui Overflow DeFi & Payments problem statement
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Move modules + system map
-- [WEB_ARCHITECTURE.md](WEB_ARCHITECTURE.md) — web app structure
-- [THREAT_MODEL.md](THREAT_MODEL.md) — trust boundaries, abuse vectors, key rotation, sponsor policy posture
-- [docs/PITCH.md](docs/PITCH.md) — pitch deck + 90-second pitch
-- [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — demo shot list
+```
+              ┌──────────────────────────────────────────┐
+              │                Mobile / Web              │
+              │      zkLogin sign-in · ephemeral key     │
+              └───────────────┬──────────────────────────┘
+                              │ user-signed PTB (zkLogin sig)
+                              │
+         ┌────────────────────┴────────────────────┐
+         │           Onara gas station             │
+         │  (Cloudflare Worker, sponsor keypair)   │
+         │  policy gate → adds gas signature       │
+         └────────────────────┬────────────────────┘
+                              │ fully-signed tx
+                              ▼
+              ┌──────────────────────────────────────────┐
+              │                  Sui mainnet             │
+              │                                          │
+              │   TaliseVault (shared, per-user)         │
+              │      ├─ receive_and_deposit<T>           │
+              │      ├─ auto_swap_extract<Source> ──┐    │
+              │      └─ auto_swap_deposit_to_owner  │    │
+              │                                     ▼    │
+              │            Cetus aggregator → USDsui     │
+              │                       │                  │
+              │      PaymentRecord ◄──┴── send_with_     │
+              │      (durable receipt)    receipt PTB    │
+              └──────────────────────────────────────────┘
+```
 
-## Security
-
-Talise handles user funds. The full posture is documented in
-[THREAT_MODEL.md](THREAT_MODEL.md) — trust boundaries, asset inventory, an
-abuse-vector matrix with code references, cryptography choices + provenance,
-key rotation policy, and the Onara sponsor policy that gates every
-transaction. The document is grounded in the codebase rather than written
-aspirationally: every mitigation cites the file and lines that enforce it,
-and gaps (TLS pinning leaf hashes, server-side App Attest cert-chain
-verification, sponsor-policy target tightening) are surfaced explicitly with
-links into the roadmap.
-
-Highlights:
-
-- zkLogin + Poseidon-bound JWT nonces — `(ephemeralPubKey, maxEpoch, jwtRandomness)` is recovered from the server-side mobile session, never trusted from the client, so a swapped ephemeral key cannot reuse the JWT.
-- App Attest assertions on every API call, payload-hash committed.
-- Sponsor (Onara) signs only as gas owner; user side requires the zkLogin signature.
-- Sui Payment Kit `PaymentRecord` is the durable on-chain receipt; `(nonce, amount, receiver, coinType)` uniqueness blocks replay.
-- Pure-Swift BLAKE2b-256 with known-answer tests cross-checked against `@noble/hashes`.
-
-Responsible disclosure: please open a private GitHub security advisory or email security@talise.io.
+Full system map: [`ARCHITECTURE.md`](ARCHITECTURE.md). Auto-swap deep-dive: [`move/talise/AUTOSWAP.md`](move/talise/AUTOSWAP.md). Web internals: [`WEB_ARCHITECTURE.md`](WEB_ARCHITECTURE.md). Threat model and audit findings: [`THREAT_MODEL.md`](THREAT_MODEL.md), [`SECURITY.md`](SECURITY.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
