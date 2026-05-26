@@ -442,6 +442,14 @@ struct HomeView: View {
             group.addTask { await loadSweepPreview() }
             group.addTask { await loadVaultPresence() }
             group.addTask { await loadWalletCoinBalances() }
+            // Pull-to-refresh / manual reload triggers an instant
+            // sweep so any pending @handle deposit is reflected in
+            // the next loadBalance / loadActivity pass. The cron is
+            // 60s-bound; this collapses that to "as fast as the chain
+            // confirms." Fire-and-forget — never blocks the UI.
+            if force {
+                group.addTask { await VaultAPI.sweepNow() }
+            }
         }
     }
 
