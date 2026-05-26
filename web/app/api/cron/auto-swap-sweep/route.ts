@@ -623,6 +623,48 @@ async function callOnaraReceiveFromAccumulator(args: {
   }
 }
 
+/**
+ * POST `/receive-from-accumulator-to-owner` — v6+ direct-to-wallet path.
+ * Drains an accumulator slot for type T and `public_transfer`s the
+ * resulting Coin<T> straight to `vault.owner` in one tx, skipping the
+ * bag entirely. Used for the dest type (USDsui) so USDsui sent to
+ * @handle lands in the user's wallet on the next cron tick rather than
+ * waiting for an unrelated swap to flush it.
+ */
+async function callOnaraReceiveFromAccumulatorToOwner(args: {
+  onaraUrl: string;
+  packageId: string;
+  vaultId: string;
+  coinType: string;
+  amount: bigint;
+}): Promise<SwapResult> {
+  try {
+    const r = await fetch(
+      `${args.onaraUrl.replace(/\/+$/, "")}/receive-from-accumulator-to-owner`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vaultId: args.vaultId,
+          coinType: args.coinType,
+          amount: args.amount.toString(),
+          packageId: args.packageId,
+        }),
+      }
+    );
+    const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!r.ok || body.ok === false) {
+      return {
+        ok: false,
+        error: typeof body.error === "string" ? body.error : `HTTP ${r.status}`,
+      };
+    }
+    return { ok: true, digest: String(body.digest ?? "") };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 async function callOnaraReceiveAndDeposit(args: {
   onaraUrl: string;
   packageId: string;
@@ -868,13 +910,25 @@ export async function GET(req: Request) {
             summary.claim_skipped_no_cap++;
             continue;
           }
-          const res = await callOnaraReceiveFromAccumulator({
-            onaraUrl,
-            packageId: packageIdLatest,
-            vaultId: u.talise_vault_id,
-            coinType: ab.coinType,
-            amount: ab.amount,
-          });
+          // v6: USDsui (dest type) skips the bag entirely and goes
+          // straight to vault.owner via receive_from_accumulator_to_owner.
+          // Saves the 2-tick wait where the old path needed an unrelated
+          // swap to flush the bag's USDsui leftover.
+          const res = isUsdsuiDest
+            ? await callOnaraReceiveFromAccumulatorToOwner({
+                onaraUrl,
+                packageId: packageIdLatest,
+                vaultId: u.talise_vault_id,
+                coinType: ab.coinType,
+                amount: ab.amount,
+              })
+            : await callOnaraReceiveFromAccumulator({
+                onaraUrl,
+                packageId: packageIdLatest,
+                vaultId: u.talise_vault_id,
+                coinType: ab.coinType,
+                amount: ab.amount,
+              });
           if (res.ok) {
             summary.claimed++;
             summary.details.push({
@@ -885,9 +939,15 @@ export async function GET(req: Request) {
               digest: res.digest,
               step: "claim",
             });
-            console.log(
-              `[auto-swap-sweep] user=${u.id} claimed ${ab.amount.toString()} of ${ab.coinType} digest=${res.digest}`
-            );
+            if (isUsdsuiDest) {
+              console.log(
+                `[auto-swap-sweep] user=${u.id} usdsui-direct-to-wallet ${ab.amount.toString()} digest=${res.digest}`
+              );
+            } else {
+              console.log(
+                `[auto-swap-sweep] user=${u.id} claimed ${ab.amount.toString()} of ${ab.coinType} digest=${res.digest}`
+              );
+            }
           } else {
             summary.claim_failed++;
             summary.details.push({

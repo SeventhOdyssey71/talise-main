@@ -15,6 +15,8 @@ import { writeAnalytics } from './analytics'
 import autoSwapApp from './autoSwap'
 import receiveAndDepositApp from './receiveAndDeposit'
 import receiveFromAccumulatorApp from './receiveFromAccumulator'
+import receiveFromAccumulatorToOwnerApp from './receiveFromAccumulatorToOwner'
+import walletSweepApp from './walletSweep'
 import sponsorPoliciesConfig from '../policies'
 
 interface AnalyticsEngineDataset {
@@ -186,6 +188,17 @@ app.route('/receive-and-deposit', receiveAndDepositApp)
 // mainnet the accumulator is the dominant path for transfer-to-shared-
 // object-address, so this is what the cron uses for fresh deposits.
 app.route('/receive-from-accumulator', receiveFromAccumulatorApp)
+
+// v6+ companion: same accumulator claim, but routes the proceeds
+// straight to `vault.owner` instead of folding into the bag. Used by
+// the cron for the USDsui (dest type) direct-to-wallet path.
+app.route('/receive-from-accumulator-to-owner', receiveFromAccumulatorToOwnerApp)
+
+// Wallet sweep: builds a single PTB that converts every non-USDsui coin
+// in the owner's plain wallet into USDsui via the Cetus aggregator. The
+// owner signs (zkLogin), Onara provides gas via /sponsor. See
+// walletSweep.ts for the per-leg Cetus aggregator integration.
+app.route('/wallet-sweep', walletSweepApp)
 
 // ─── Transaction status lookup ────────────────────────────────────────────────
 
