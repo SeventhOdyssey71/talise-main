@@ -121,7 +121,9 @@ struct InsightsSection: View {
             insights = try await APIClient.shared.get("/api/rewards/insights")
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            if !APIError.isCancellation(error) {
+                self.error = error.localizedDescription
+            }
         }
     }
 }

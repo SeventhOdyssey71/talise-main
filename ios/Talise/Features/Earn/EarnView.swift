@@ -380,7 +380,11 @@ struct EarnView: View {
         do {
             comparison = try await APIClient.shared.get("/api/yield/comparison")
         } catch {
-            self.error = error.localizedDescription
+            // Refresh-during-refresh cancels show up as URLErrorCancelled;
+            // those aren't real failures and shouldn't clobber the banner.
+            if !APIError.isCancellation(error) {
+                self.error = error.localizedDescription
+            }
         }
     }
 
