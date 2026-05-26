@@ -31,6 +31,10 @@ export async function GET() {
     const r = await fetch("https://open.er-api.com/v6/latest/USD", {
       // Cache header so Next.js's data cache also remembers this.
       next: { revalidate: 3600 },
+      // Hard deadline so a hung upstream can't stall the route. ECB feed is
+      // typically <500ms; 4s is comfortable headroom without holding a
+      // serverless function open.
+      signal: AbortSignal.timeout(4000),
     });
     if (!r.ok) throw new Error(`upstream ${r.status}`);
     const data = await r.json();
@@ -51,11 +55,12 @@ export async function GET() {
   } catch (err) {
     // Soft-fail with USD-only so the UI never wedges on a missing
     // exchange rate. iOS picker falls back to "$" display.
+    console.warn(`[api/fx] upstream fetch failed: ${(err as Error).message}`);
     return NextResponse.json({
       base: "USD",
       asOf: new Date().toISOString(),
       rates: { USD: 1 },
-      error: (err as Error).message,
+      error: "fx upstream unavailable",
     });
   }
 }

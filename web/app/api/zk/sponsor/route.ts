@@ -100,7 +100,11 @@ export async function POST(req: Request) {
     );
     return NextResponse.json({ bytes: toBase64(bytes) });
   } catch (err) {
+    // Forward the upstream message so iOS can surface the real failure
+    // reason (Onara denials, build-time abort codes), but also log
+    // server-side with the userId for traceability.
     const msg = (err as Error).message ?? "sponsor failed";
+    console.warn(`[zk/sponsor] user=${userId} failed: ${msg}`);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

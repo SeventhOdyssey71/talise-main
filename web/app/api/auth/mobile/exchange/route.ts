@@ -96,8 +96,16 @@ export async function POST(req: Request) {
       suiAddress = existing?.sui_address ?? deriveSuiAddress(body.idToken, salt);
     }
   } catch (err) {
+    // Don't surface raw Shinami / SDK error strings — they sometimes
+    // include the API key prefix or internal endpoint URLs. Log the
+    // full message server-side and return a generic 500 to the caller.
+    console.error(
+      `[mobile/exchange] wallet setup failed for sub=${claims.sub}: ${
+        (err as Error).message
+      }`
+    );
     return NextResponse.json(
-      { error: "wallet setup failed: " + (err as Error).message },
+      { error: "wallet setup failed" },
       { status: 500 }
     );
   }

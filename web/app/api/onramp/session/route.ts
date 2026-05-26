@@ -73,6 +73,9 @@ export async function POST(req: Request) {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: form.toString(),
+      // Hard deadline — Stripe is normally <1s but we never want a hung
+      // socket to hold a serverless function open.
+      signal: AbortSignal.timeout(8000),
     });
   } catch (e) {
     return NextResponse.json(

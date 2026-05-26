@@ -15,8 +15,9 @@ export async function GET() {
     const state = await suiJsonRpc().getLatestSuiSystemState();
     return NextResponse.json({ epoch: state.epoch });
   } catch (err) {
+    console.warn(`[api/sui/epoch] RPC failed: ${(err as Error).message}`);
     return NextResponse.json(
-      { error: (err as Error).message },
+      { error: "could not read current Sui epoch" },
       { status: 502 }
     );
   }

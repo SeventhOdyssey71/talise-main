@@ -41,8 +41,11 @@ export async function GET(req: Request) {
     const goals = await listGoals(userId);
     return NextResponse.json({ goals: goals.map(toWire) });
   } catch (err) {
+    console.warn(
+      `[rewards/goals] user=${userId} failed: ${(err as Error).message}`
+    );
     return NextResponse.json(
-      { error: (err as Error).message },
+      { error: "could not process goals request" },
       { status: 500 }
     );
   }
@@ -101,8 +104,11 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ goal: toWire(goal) });
   } catch (err) {
+    console.warn(
+      `[rewards/goals] user=${userId} failed: ${(err as Error).message}`
+    );
     return NextResponse.json(
-      { error: (err as Error).message },
+      { error: "could not process goals request" },
       { status: 500 }
     );
   }
