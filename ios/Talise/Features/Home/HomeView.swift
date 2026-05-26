@@ -411,7 +411,7 @@ struct HomeView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(TaliseColor.line, lineWidth: 1)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
         .redacted(reason: .placeholder)
         .opacity(0.6)

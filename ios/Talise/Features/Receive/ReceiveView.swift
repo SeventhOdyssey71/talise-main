@@ -131,7 +131,7 @@ struct ReceiveView: View {
         } else {
             ZStack {
                 Capsule().fill(.ultraThinMaterial)
-                Capsule().fill(TaliseColor.glassTint)
+                Capsule().fill(Color.black.opacity(0.45))
             }
         }
     }
@@ -144,9 +144,9 @@ struct ReceiveView: View {
             Capsule().strokeBorder(
                 LinearGradient(
                     colors: [
-                        TaliseColor.strokeSpecularTop,
-                        TaliseColor.strokeSpecularMid,
-                        TaliseColor.strokeSpecularBottom,
+                        Color.white.opacity(0.22),
+                        Color.white.opacity(0.04),
+                        Color.white.opacity(0.10),
                     ],
                     startPoint: .top,
                     endPoint: .bottom
