@@ -72,3 +72,5 @@ ios/Talise.xcodeproj/project.xcworkspace/xcuserdata/
 
 # XcodeGen regenerates the .xcodeproj from project.yml; don't track it.
 ios/*.xcodeproj/
+.vercel
+.env.vercel

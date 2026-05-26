@@ -53,7 +53,12 @@ type State = {
   caps: Cap[];
 };
 
-const CACHE_TTL_MS = 10_000;
+// 15s in-process cache. Vault balance + caps are not transactionally
+// critical — when a user just supplied / withdrew, AutoSwapSettings
+// invalidates by re-fetching after the optimistic write, and the
+// resulting GraphQL hit refills this cache. Bumped from 10s because
+// EarnView appears once per session and the 5s saving is meaningful.
+const CACHE_TTL_MS = 15_000;
 const cache = new Map<number, { at: number; state: State }>();
 
 /** Extract the bag UID from the vault Move struct's `contents.json`. */
@@ -132,7 +137,12 @@ export async function GET(req: Request) {
   // Cache hit — short-circuit before hitting the chain.
   const cached = cache.get(userId);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
-    return NextResponse.json(cached.state);
+    return NextResponse.json(cached.state, {
+      headers: {
+        "Cache-Control":
+          "private, max-age=0, s-maxage=10, stale-while-revalidate=30",
+      },
+    });
   }
 
   let packageId: string;
@@ -286,5 +296,10 @@ export async function GET(req: Request) {
 
   const state: State = { vault, caps };
   cache.set(userId, { at: Date.now(), state });
-  return NextResponse.json(state);
+  return NextResponse.json(state, {
+    headers: {
+      "Cache-Control":
+        "private, max-age=0, s-maxage=10, stale-while-revalidate=30",
+    },
+  });
 }
