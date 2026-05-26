@@ -105,8 +105,7 @@ struct HistoryView: View {
             Capsule().fill(TaliseColor.line).frame(width: 70, height: 12)
         }
         .padding(14)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .taliseGlass(cornerRadius: 18)
         .redacted(reason: .placeholder)
         .opacity(0.5)
     }

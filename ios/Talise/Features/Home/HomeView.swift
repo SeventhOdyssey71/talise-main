@@ -195,8 +195,7 @@ struct HomeView: View {
                 .foregroundStyle(TaliseColor.fg)
                 .rotationEffect(.degrees(degrees))
                 .frame(width: 40, height: 40)
-                .background(TaliseColor.surface2)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .taliseGlass(cornerRadius: 10)
         }
         .buttonStyle(.plain)
     }
@@ -557,12 +556,11 @@ struct HomeView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(TaliseColor.surface)
-            )
+            .taliseGlass(cornerRadius: 18)
+            // Keep the soft accent ring so the sweep CTA still reads as
+            // a green-tinted nudge against the neutral-glass siblings.
             .overlay(
-                RoundedRectangle(cornerRadius: 18)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(TaliseColor.accent.opacity(0.18), lineWidth: 1)
             )
         }
@@ -684,8 +682,7 @@ struct ContactsSheet: View {
             Spacer()
         }
         .padding(14)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .taliseGlass(cornerRadius: 16)
         .redacted(reason: .placeholder)
         .opacity(0.5)
     }
@@ -747,8 +744,7 @@ struct ContactsSheet: View {
                     .foregroundStyle(TaliseColor.fgDim)
             }
             .padding(14)
-            .background(TaliseColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .taliseGlass(cornerRadius: 16)
         }
         .buttonStyle(.plain)
     }

@@ -69,8 +69,7 @@ struct ReceiveView: View {
         }
         .padding(.vertical, 28)
         .frame(maxWidth: .infinity)
-        .background(TaliseColor.usernameCard)
-        .clipShape(RoundedRectangle(cornerRadius: 25))
+        .taliseGlass(cornerRadius: 25)
     }
 
     private var actions: some View {
@@ -113,8 +112,47 @@ struct ReceiveView: View {
             .foregroundStyle(primary ? TaliseColor.bg : TaliseColor.fg)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
-            .background(primary ? TaliseColor.fg : TaliseColor.surface2)
+            .background(secondaryGlassBackground(primary: primary))
+            .overlay(secondaryGlassStroke(primary: primary))
             .clipShape(Capsule())
+            .shadow(color: Color.black.opacity(primary ? 0 : 0.35), radius: 12, x: 0, y: 6)
+        }
+    }
+
+    /// Background swap for the secondary (Copy address) pill: keep the
+    /// primary Share pill flat-white (it's the high-affordance action),
+    /// but render the secondary pill as a liquid-glass capsule —
+    /// ultraThinMaterial + dark tint, so it sits on the page background
+    /// the same way the bottom nav pill does.
+    @ViewBuilder
+    private func secondaryGlassBackground(primary: Bool) -> some View {
+        if primary {
+            Capsule().fill(TaliseColor.fg)
+        } else {
+            ZStack {
+                Capsule().fill(.ultraThinMaterial)
+                Capsule().fill(Color.black.opacity(0.45))
+            }
+        }
+    }
+
+    /// Top specular hairline for the secondary pill — same gradient
+    /// recipe as TaliseGlassCard. Nothing on the primary (white) pill.
+    @ViewBuilder
+    private func secondaryGlassStroke(primary: Bool) -> some View {
+        if !primary {
+            Capsule().strokeBorder(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.22),
+                        Color.white.opacity(0.04),
+                        Color.white.opacity(0.10),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 1
+            )
         }
     }
 

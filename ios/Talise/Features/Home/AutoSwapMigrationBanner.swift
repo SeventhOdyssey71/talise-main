@@ -88,12 +88,12 @@ struct AutoSwapMigrationBanner: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(TaliseColor.surface)
-            )
+            .taliseGlass(cornerRadius: 18)
+            // Layered accent ring on top of the glass strokes so the
+            // migration banner reads as the green-tinted nudge it always
+            // has — same accent halo over the new material backdrop.
             .overlay(
-                RoundedRectangle(cornerRadius: 18)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(
                         TaliseColor.accent.opacity(0.28),
                         lineWidth: 1

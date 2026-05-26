@@ -188,8 +188,7 @@ struct TxReceiptView: View {
             row(label: "Digest", value: shortDigest, mono: true)
         }
         .padding(.vertical, 4)
-        .background(TaliseColor.usernameCard)
-        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .taliseGlass(cornerRadius: 22)
     }
 
     private func row(label: String, value: String, mono: Bool = false) -> some View {
@@ -253,8 +252,31 @@ struct TxReceiptView: View {
                 .foregroundStyle(TaliseColor.fg)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
-                .background(TaliseColor.surface2)
+                // Inline liquid-glass capsule — same recipe as the bottom
+                // nav pill: ultraThinMaterial + dark tint + top specular
+                // hairline + soft drop shadow.
+                .background(
+                    ZStack {
+                        Capsule().fill(.ultraThinMaterial)
+                        Capsule().fill(Color.black.opacity(0.45))
+                    }
+                )
+                .overlay(
+                    Capsule().strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.22),
+                                Color.white.opacity(0.04),
+                                Color.white.opacity(0.10),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+                )
                 .clipShape(Capsule())
+                .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 6)
             }
             .buttonStyle(.plain)
         }
