@@ -122,19 +122,17 @@ function Hero({ err }: { err?: string }) {
           On small screens they stack; on sm+ they sit side by side. */}
       <div
         id="cta"
-        className="motion-cta mx-auto mt-9 flex w-full max-w-[520px] flex-col items-stretch gap-3 sm:flex-row sm:justify-center"
+        className="motion-cta mx-auto mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center"
       >
-        <div className="flex flex-1">
-          {/* Talise is in private beta — every Get started/Sign up CTA
-              routes to the waitlist, not Google sign-in. When we
-              flip the doors open this swaps back to SignInButton. */}
-          <Link
-            href="/waitlist"
-            className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-[15px] font-medium text-black transition-opacity hover:opacity-90"
-          >
-            Join waitlist
-          </Link>
-        </div>
+        {/* Talise is in private beta — every Get started/Sign up CTA
+            routes to the waitlist, not Google sign-in. When we
+            flip the doors open this swaps back to SignInButton. */}
+        <Link
+          href="/waitlist"
+          className="inline-flex items-center justify-center rounded-full bg-white px-7 py-2.5 text-[14px] font-medium text-black transition-opacity hover:opacity-90"
+        >
+          Join waitlist
+        </Link>
         <AppStoreButton />
       </div>
       <div className="motion-tagline mt-4 flex items-center justify-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
@@ -166,22 +164,26 @@ function Hero({ err }: { err?: string }) {
  * approved for distribution.
  */
 function AppStoreButton() {
+  // iOS is still in private beta / pending App Store review, so this is
+  // a non-interactive placeholder. Rendered as a <div role="img"> so
+  // assistive tech doesn't announce it as a clickable button. Matches
+  // the height of the Join-waitlist pill so the two read as a pair.
   return (
-    <a
-      href="#"
-      className="group inline-flex h-[54px] flex-1 items-center justify-center gap-3 rounded-2xl bg-[#0a0a0a] px-5 text-[var(--color-fg)] ring-1 ring-[var(--color-line)] transition hover:bg-[var(--color-surface)]"
-      aria-label="Download Talise on the App Store"
+    <div
+      role="img"
+      aria-label="iOS app coming soon"
+      className="inline-flex items-center justify-center gap-2 rounded-full bg-white/[0.04] px-5 py-2.5 text-[var(--color-fg-muted)] ring-1 ring-[var(--color-line)] cursor-not-allowed select-none"
     >
       <AppleGlyph />
       <span className="flex flex-col items-start leading-[1.05]">
-        <span className="text-[8px] uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
-          Download on the
+        <span className="text-[8px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
+          iOS
         </span>
-        <span className="text-[14px] font-medium text-[var(--color-fg)]">
-          App Store
+        <span className="text-[13px] font-medium text-[var(--color-fg-muted)]">
+          Coming soon
         </span>
       </span>
-    </a>
+    </div>
   );
 }
 
