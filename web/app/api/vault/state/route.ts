@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { vaultPackageIds, VaultNotDeployedError } from "@/lib/vault";
+import { suiJsonRpc } from "@/lib/sui";
 import {
   gql,
   VAULT_AND_CAPS_QUERY,
@@ -137,6 +138,110 @@ function extractCapInnerType(repr: string): string | null {
   return repr.slice(lt + 1, gt);
 }
 
+/// Hard cap on AutoSwapEnabled events walked when looking up shared
+/// caps. The GraphQL `owner.objects` query can't see shared objects
+/// (they have no AddressOwner), so we mirror the cron's event-walk
+/// approach: descend recent `AutoSwapEnabled` events, filter by owner,
+/// then `getObject` each cap to verify ownership state + freshness.
+const MAX_EVENTS_SCAN = 100;
+
+type SharedCapRow = {
+  id: string;
+  sourceType: string;
+  maxPerSwap: string;
+  expiresAtMs: string;
+  paused: boolean;
+};
+
+/**
+ * Find every Shared `AutoSwapCap<T>` minted by `owner` via the v3
+ * `enable_auto_swap` path. The cron uses the same shape — keeping the
+ * UI in sync means a freshly-minted shared cap shows up as "Active"
+ * on the AutoSwapSettings row instead of staying on the Enable button.
+ *
+ * Returns only caps whose on-chain owner is currently Shared. Burned
+ * or transferred-out caps are skipped silently. Paused-but-shared caps
+ * are returned (caller renders the paused-state UI).
+ */
+async function readSharedCapsForOwner(
+  packageId: string,
+  owner: string
+): Promise<SharedCapRow[]> {
+  const client = suiJsonRpc();
+  const out: SharedCapRow[] = [];
+  const seen = new Set<string>();
+
+  let cursor: unknown = null;
+  let scanned = 0;
+  while (scanned < MAX_EVENTS_SCAN) {
+    const page = await (
+      client as unknown as {
+        queryEvents: (a: {
+          query: { MoveEventType: string };
+          cursor?: unknown;
+          limit?: number;
+          order?: "ascending" | "descending";
+        }) => Promise<{
+          data: Array<{ parsedJson?: { cap_id?: string; owner?: string } }>;
+          nextCursor: unknown;
+          hasNextPage: boolean;
+        }>;
+      }
+    ).queryEvents({
+      query: { MoveEventType: `${packageId}::auto_swap::AutoSwapEnabled` },
+      cursor,
+      limit: 50,
+      order: "descending",
+    });
+    for (const ev of page.data ?? []) {
+      scanned++;
+      const p = ev.parsedJson ?? {};
+      if (p.owner !== owner) continue;
+      const capId = p.cap_id;
+      if (!capId || seen.has(capId)) continue;
+      seen.add(capId);
+
+      try {
+        const obj = await client.getObject({
+          id: capId,
+          options: { showOwner: true, showType: true, showContent: true },
+        });
+        const d = obj.data;
+        if (!d) continue;
+        // Only surface SHARED caps here. Address-owned caps are surfaced
+        // via the GraphQL path below (with needsMigration: true).
+        const isShared = Boolean(
+          (d.owner as unknown as { Shared?: unknown })?.Shared
+        );
+        if (!isShared) continue;
+
+        const t = d.type;
+        if (!t || !t.startsWith(`${packageId}::auto_swap::AutoSwapCap<`)) continue;
+        const inner = extractCapInnerType(t);
+        if (!inner) continue;
+
+        const content = d.content;
+        if (!content || content.dataType !== "moveObject") continue;
+        const fields = extractCapFields(
+          (content as unknown as { fields: unknown }).fields
+        );
+        out.push({
+          id: capId,
+          sourceType: inner,
+          maxPerSwap: fields.max_per_swap,
+          expiresAtMs: fields.expires_at_ms,
+          paused: fields.paused,
+        });
+      } catch {
+        // Burned, schema-skewed, or transient RPC error — skip silently.
+      }
+    }
+    if (!page.hasNextPage) break;
+    cursor = page.nextCursor;
+  }
+  return out;
+}
+
 export async function GET(req: Request) {
   const userId = await readEntryIdFromRequest(req);
   if (!userId) {
@@ -159,8 +264,9 @@ export async function GET(req: Request) {
   }
 
   let packageId: string;
+  let packageIdLatest: string;
   try {
-    ({ packageId } = vaultPackageIds());
+    ({ packageId, packageIdLatest } = vaultPackageIds());
   } catch (err) {
     if (err instanceof VaultNotDeployedError) {
       return NextResponse.json(
@@ -310,6 +416,46 @@ export async function GET(req: Request) {
       }
     }
   }
+
+  // ──────────────────────────────────────────────────────────────
+  // 4. Shared caps (v3) — invisible to the owner-objects GraphQL query
+  // because they have no AddressOwner. Walk recent AutoSwapEnabled
+  // events filtered by owner, getObject each, keep only those still
+  // Shared. needsMigration: false — these are the v3 path.
+  //
+  // De-dupe against the address-owned set in case a cap appears in both
+  // (e.g. mid-migration race). Shared wins so the UI doesn't surface
+  // a "migrate this" CTA on an already-migrated cap.
+  try {
+    const sharedCaps = await readSharedCapsForOwner(packageId, user.sui_address);
+    const haveIds = new Set(caps.map((c) => c.id));
+    // Drop address-owned duplicates of caps that have since been
+    // promoted to shared.
+    const sharedIds = new Set(sharedCaps.map((c) => c.id));
+    for (let i = caps.length - 1; i >= 0; i--) {
+      if (sharedIds.has(caps[i].id)) caps.splice(i, 1);
+    }
+    for (const sc of sharedCaps) {
+      if (haveIds.has(sc.id)) continue;
+      caps.push({
+        id: sc.id,
+        sourceType: sc.sourceType,
+        maxPerSwap: sc.maxPerSwap,
+        expiresAtMs: sc.expiresAtMs,
+        paused: sc.paused,
+        needsMigration: false,
+      });
+    }
+  } catch (err) {
+    console.warn(
+      `[vault/state] shared-cap event scan failed: ${(err as Error).message}`
+    );
+    // Non-fatal — user-owned caps still surface above.
+  }
+  // packageIdLatest is read above so the lint stays happy when the
+  // v3 codepath ships independently; we don't need it here yet beyond
+  // signaling the v3-aware mode is wired.
+  void packageIdLatest;
 
   const state: State = { vault, caps };
   cache.set(userId, { at: Date.now(), state });
