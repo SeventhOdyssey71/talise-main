@@ -9,6 +9,7 @@ import { findTaliseSubnameForOwner } from "./suins-lookup";
 import { formatHandle } from "./handle";
 import { globalRegistryId, namespaceObjectId } from "./payment-kit";
 import { parsePaymentKitNonce, type ParsedTaliseMemo } from "./intents/wrap-payment-kit";
+import { batchCoinMetadata } from "./sui-graphql";
 
 /**
  * On-chain activity feed.
@@ -94,43 +95,44 @@ export type ActivityEntry = {
 };
 
 /**
- * Per-process coin-info cache. CoinMetadata reads cost an RPC round-
- * trip per type; caching is critical because we hit the same set of
- * type ids over and over (every activity refresh re-classifies every
- * recent tx). The map outlives a single request handler since
- * `lib/activity.ts` is loaded once per Node process.
+ * Per-process coin-info cache. CoinMetadata reads used to cost one RPC
+ * round-trip per type; we now batch them via Sui GraphQL (one POST returns
+ * every requested type via aliases). The cache still lives at module scope
+ * so repeated refreshes of the activity feed avoid re-fetching even the
+ * GraphQL batch.
  */
 const coinInfoCache = new Map<string, { symbol: string; decimals: number }>();
 
-async function getCoinInfo(
-  client: SuiJsonRpcClient,
-  coinType: string
-): Promise<{ symbol: string; decimals: number }> {
-  const cached = coinInfoCache.get(coinType);
-  if (cached) return cached;
-  try {
-    // Sui RPC: `suix_getCoinMetadata` (typed in the SDK).
-    const md = await (
-      client as unknown as {
-        getCoinMetadata: (
-          a: { coinType: string }
-        ) => Promise<{ symbol?: string; decimals?: number } | null>;
-      }
-    ).getCoinMetadata({ coinType });
-    if (md && (md.symbol || typeof md.decimals === "number")) {
-      const info = {
-        symbol: md.symbol || coinSymbolFromType(coinType),
-        decimals: typeof md.decimals === "number" ? md.decimals : 9,
-      };
-      coinInfoCache.set(coinType, info);
-      return info;
-    }
-  } catch {
-    /* fall through to type-string fallback */
+/**
+ * Resolve metadata for a set of coin types in one GraphQL hit, populating
+ * the per-process cache. Already-cached types are skipped before the
+ * network call — for steady-state refreshes this becomes a no-op.
+ *
+ * Falls back to a type-string symbol + 9 decimals on any error, matching
+ * the legacy per-call behaviour.
+ */
+async function primeCoinInfo(coinTypes: string[]): Promise<void> {
+  const missing = Array.from(
+    new Set(coinTypes.filter((t) => t && !coinInfoCache.has(t)))
+  );
+  if (missing.length === 0) return;
+  const batch = await batchCoinMetadata(missing);
+  for (const t of missing) {
+    const m = batch.get(t);
+    coinInfoCache.set(
+      t,
+      m ?? { symbol: coinSymbolFromType(t), decimals: 9 }
+    );
   }
-  const info = { symbol: coinSymbolFromType(coinType), decimals: 9 };
-  coinInfoCache.set(coinType, info);
-  return info;
+}
+
+function lookupCoinInfo(coinType: string): { symbol: string; decimals: number } {
+  return (
+    coinInfoCache.get(coinType) ?? {
+      symbol: coinSymbolFromType(coinType),
+      decimals: 9,
+    }
+  );
 }
 
 /** Last `::Name` segment of a Move type, uppercased. `WAL`, `USDC`. */
@@ -655,6 +657,29 @@ export async function getRecentActivity(
     if (tx.digest && !byDigest.has(tx.digest)) byDigest.set(tx.digest, tx);
   }
 
+  // Pre-pass: collect every non-USDsui/non-SUI coin type that any candidate
+  // tx moved on the user's address, then issue ONE GraphQL batch lookup for
+  // their CoinMetadata. The main classification loop downstream then reads
+  // from `coinInfoCache` synchronously via `lookupCoinInfo`. Collapses N
+  // per-coin `suix_getCoinMetadata` RPCs into one round-trip.
+  {
+    const allOtherCoinTypes = new Set<string>();
+    for (const tx of byDigest.values()) {
+      if (tx.effects?.status?.status !== "success") continue;
+      for (const b of tx.balanceChanges ?? []) {
+        if (!b.coinType) continue;
+        if (b.coinType === USDSUI_TYPE) continue;
+        if (b.coinType === "0x2::sui::SUI") continue;
+        const owner = (ownerOf(b) ?? "").toLowerCase();
+        if (owner !== address.toLowerCase()) continue;
+        allOtherCoinTypes.add(b.coinType);
+      }
+    }
+    if (allOtherCoinTypes.size > 0) {
+      await primeCoinInfo(Array.from(allOtherCoinTypes));
+    }
+  }
+
   const entries: ActivityEntry[] = [];
   for (const tx of byDigest.values()) {
     if (tx.effects?.status?.status !== "success") continue;
@@ -774,7 +799,7 @@ export async function getRecentActivity(
     let otherCoin: ActivityEntry["otherCoin"] = null;
     if (dominantOther && entryAmountUsdsui === null && mySui === 0) {
       const [coinType, rawDelta] = dominantOther;
-      const info = await getCoinInfo(client(), coinType);
+      const info = lookupCoinInfo(coinType);
       const absDelta = rawDelta < 0n ? -rawDelta : rawDelta;
       otherCoin = {
         coinType,
