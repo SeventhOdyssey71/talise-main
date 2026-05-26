@@ -109,12 +109,7 @@ private struct GoalCard: View {
         }
         .padding(14)
         .frame(width: 168, height: 148, alignment: .topLeading)
-        .background(TaliseColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(TaliseColor.accent.opacity(0.14), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .taliseGlass(cornerRadius: 18, tint: TaliseColor.accent)
     }
 }
 
@@ -242,19 +237,10 @@ private struct GoalActionSheet: View {
                     .font(TaliseFont.heading(18, weight: .medium))
                     .foregroundStyle(TaliseColor.fg)
                     .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(TaliseColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                Button {
+                    .taliseGlass(cornerRadius: 14)
+                LiquidGlassPill(title: busy ? "..." : "Deposit", tint: TaliseColor.accent) {
                     Task { await runDeposit() }
-                } label: {
-                    Text(busy ? "..." : "Deposit")
-                        .font(TaliseFont.heading(13, weight: .medium))
-                        .foregroundStyle(TaliseColor.bg)
-                        .padding(.horizontal, 16).padding(.vertical, 10)
-                        .background(TaliseColor.accent)
-                        .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
                 .disabled(busy || !canDeposit)
             }
             Text("Tracking only — funds sit in your NAVI position. Each $1 earns 4 points.")
@@ -270,15 +256,13 @@ private struct GoalActionSheet: View {
                 .font(TaliseFont.body(14, weight: .light))
                 .foregroundStyle(TaliseColor.fg)
                 .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(TaliseColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .taliseGlass(cornerRadius: 14)
             TextField("Target", text: $editTargetText)
                 .keyboardType(.decimalPad)
                 .font(TaliseFont.body(14, weight: .light))
                 .foregroundStyle(TaliseColor.fg)
                 .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(TaliseColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .taliseGlass(cornerRadius: 14)
             Button {
                 Task { await runEdit() }
             } label: {
@@ -287,8 +271,7 @@ private struct GoalActionSheet: View {
                     .foregroundStyle(TaliseColor.fg)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(TaliseColor.surface2)
-                    .clipShape(Capsule())
+                    .taliseGlass(cornerRadius: 22)
             }
             .buttonStyle(.plain)
             .disabled(busy)
@@ -398,27 +381,21 @@ private struct NewGoalSheet: View {
                         .font(TaliseFont.body(14, weight: .light))
                         .foregroundStyle(TaliseColor.fg)
                         .padding(.horizontal, 14).padding(.vertical, 12)
-                        .background(TaliseColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .taliseGlass(cornerRadius: 14)
                     TextField("Target amount (USD)", text: $targetText)
                         .keyboardType(.decimalPad)
                         .font(TaliseFont.body(14, weight: .light))
                         .foregroundStyle(TaliseColor.fg)
                         .padding(.horizontal, 14).padding(.vertical, 12)
-                        .background(TaliseColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                    Button {
+                        .taliseGlass(cornerRadius: 14)
+                    LiquidGlassButton(
+                        title: busy ? "..." : "Create goal",
+                        tint: TaliseColor.accent,
+                        size: .lg,
+                        loading: busy
+                    ) {
                         Task { await create() }
-                    } label: {
-                        Text(busy ? "..." : "Create goal")
-                            .font(TaliseFont.heading(14, weight: .medium))
-                            .foregroundStyle(TaliseColor.bg)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(TaliseColor.accent)
-                            .clipShape(Capsule())
                     }
-                    .buttonStyle(.plain)
                     .disabled(busy || !canCreate)
 
                     if let error {

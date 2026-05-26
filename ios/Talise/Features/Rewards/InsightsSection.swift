@@ -71,8 +71,7 @@ struct InsightsSection: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .taliseGlass(cornerRadius: 18)
     }
 
     // MARK: - Counterparties strip
@@ -84,13 +83,11 @@ struct InsightsSection: View {
                 ForEach(Array(list.enumerated()), id: \.element.id) { idx, cp in
                     counterpartyRow(cp)
                     if idx < list.count - 1 {
-                        Rectangle().fill(Color.white.opacity(0.05))
-                            .frame(height: 1).padding(.horizontal, 14)
+                        LiquidGlassDivider(inset: 14)
                     }
                 }
             }
-            .background(TaliseColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .taliseGlass(cornerRadius: 18)
         } else if !loading {
             Text("No counterparties yet this month.")
                 .font(TaliseFont.mono(10, weight: .light))

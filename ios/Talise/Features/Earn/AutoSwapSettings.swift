@@ -117,10 +117,10 @@ struct AutoSwapSettings: View {
             }
 
             if hasVault, let v = state?.vault {
-                Divider().background(Color.white.opacity(0.06))
+                LiquidGlassDivider()
                 vaultBalanceRows(v)
                 if needsRepoint {
-                    Divider().background(Color.white.opacity(0.06))
+                    LiquidGlassDivider()
                     repointWarning
                 }
             } else if !loading {
@@ -288,23 +288,13 @@ struct AutoSwapSettings: View {
                     .foregroundStyle(TaliseColor.fgDim)
             }
             Spacer()
-            Button {
+            LiquidGlassPill(title: "Enable", tint: TaliseColor.accent) {
                 enableTarget = source
-            } label: {
-                Text("Enable")
-                    .font(TaliseFont.heading(13, weight: .medium))
-                    .foregroundStyle(TaliseColor.accent)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .overlay(
-                        Capsule().stroke(TaliseColor.accent.opacity(0.5), lineWidth: 1)
-                    )
             }
-            .buttonStyle(.plain)
             .disabled(!hasVault)
         }
         .padding(14)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .taliseGlass(cornerRadius: 18)
     }
 
     /// Row for a coin with an active `AutoSwapCap`. Shows the cap
@@ -361,10 +351,13 @@ struct AutoSwapSettings: View {
                     .foregroundStyle(TaliseColor.fgMuted)
             }
 
-            Divider().background(Color.white.opacity(0.06))
+            LiquidGlassDivider()
 
             HStack(spacing: 10) {
-                Button {
+                LiquidGlassPill(
+                    title: cap.paused ? "Resume" : "Pause",
+                    icon: cap.paused ? "play.fill" : "pause.fill"
+                ) {
                     Task {
                         if cap.paused {
                             await mutate(cap: cap, action: .resume)
@@ -372,25 +365,14 @@ struct AutoSwapSettings: View {
                             await mutate(cap: cap, action: .pause)
                         }
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        if isPending {
-                            ProgressView().controlSize(.mini).tint(TaliseColor.fg)
-                        } else {
-                            Image(systemName: cap.paused ? "play.fill" : "pause.fill")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        Text(cap.paused ? "Resume" : "Pause")
-                            .font(TaliseFont.heading(13, weight: .medium))
-                    }
-                    .foregroundStyle(TaliseColor.fg)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(TaliseColor.surface2)
-                    .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
                 .disabled(isPending)
 
+                // Destructive — keep red glyph + red text on top of a
+                // danger-tinted glass capsule. LiquidGlassPill bakes in
+                // white foreground, which would erase the destructive
+                // affordance, so we use the danger-tinted glass
+                // directly with a Button.
                 Button {
                     Task { await mutate(cap: cap, action: .disable) }
                 } label: {
@@ -402,6 +384,12 @@ struct AutoSwapSettings: View {
                     }
                     .foregroundStyle(TaliseColor.danger)
                     .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(
+                        Capsule().fill(.ultraThinMaterial)
+                    )
+                    .background(
+                        Capsule().fill(TaliseColor.danger.opacity(0.12))
+                    )
                     .overlay(
                         Capsule().stroke(TaliseColor.danger.opacity(0.45), lineWidth: 1)
                     )
@@ -414,13 +402,12 @@ struct AutoSwapSettings: View {
             .opacity(needsMigration ? 0.55 : 1.0)
 
             if needsMigration {
-                Divider().background(Color.white.opacity(0.06))
+                LiquidGlassDivider()
                 migrateCapCTA(cap: cap)
             }
         }
         .padding(14)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .taliseGlass(cornerRadius: 18)
     }
 
     // MARK: - Migration
@@ -475,8 +462,7 @@ struct AutoSwapSettings: View {
             .disabled(migratingAll)
         }
         .padding(14)
-        .background(TaliseColor.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .taliseGlass(cornerRadius: 16, tint: TaliseColor.accent)
     }
 
     /// Per-row migrate CTA shown beneath enabled rows whose cap is still
@@ -594,8 +580,7 @@ struct AutoSwapSettings: View {
             Spacer()
         }
         .padding(14)
-        .background(TaliseColor.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .taliseGlass(cornerRadius: 16, tint: TaliseColor.accent)
     }
 
     // MARK: - Data

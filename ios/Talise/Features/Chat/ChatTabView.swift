@@ -138,19 +138,25 @@ struct ChatTabView: View {
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 14)
-            .background(bubbleBackground(for: msg.role))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .modifier(BubbleBackground(role: msg.role))
             if msg.role == .assistant { Spacer(minLength: 36) }
         }
     }
 
-    private func bubbleBackground(for role: ChatMessage.Role) -> some View {
-        Group {
+    /// User bubbles keep their accent-green fill (brand voice, "your turn");
+    /// assistant bubbles get the Liquid Glass treatment so they participate
+    /// in the rest of the app's depth language instead of reading as flat
+    /// gray plates against the page.
+    private struct BubbleBackground: ViewModifier {
+        let role: ChatMessage.Role
+        func body(content: Content) -> some View {
             switch role {
             case .user:
-                TaliseColor.accent
+                content
+                    .background(TaliseColor.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             case .assistant:
-                TaliseColor.surface
+                content.taliseGlass(cornerRadius: 18)
             }
         }
     }
@@ -161,23 +167,10 @@ struct ChatTabView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(Self.suggested, id: \.self) { prompt in
-                    Button {
+                    LiquidGlassPill(title: prompt) {
                         vm.fillPrompt(prompt)
                         inputFocused = true
-                    } label: {
-                        Text(prompt)
-                            .font(TaliseFont.body(13, weight: .regular))
-                            .foregroundStyle(TaliseColor.fg)
-                            .padding(.vertical, 9)
-                            .padding(.horizontal, 14)
-                            .background(
-                                Capsule().fill(TaliseColor.surface)
-                            )
-                            .overlay(
-                                Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
-                            )
                     }
-                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 6)

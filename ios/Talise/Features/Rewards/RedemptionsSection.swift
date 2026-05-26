@@ -105,17 +105,7 @@ struct RedemptionsSection: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
-        .background(TaliseColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(
-                    affordable
-                        ? TaliseColor.accent.opacity(0.12)
-                        : Color.white.opacity(0.04),
-                    lineWidth: 1
-                )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .taliseGlass(cornerRadius: 18, tint: affordable ? TaliseColor.accent : nil)
         .opacity(affordable ? 1.0 : 0.62)
     }
 
@@ -123,23 +113,14 @@ struct RedemptionsSection: View {
     private func redeemButton(_ item: RedeemSKU, affordable: Bool) -> some View {
         let busy = redeemingSku == item.sku
         if affordable {
-            Button {
+            LiquidGlassButton(
+                title: busy ? "Redeeming…" : "Redeem",
+                tint: TaliseColor.accent,
+                size: .sm,
+                loading: busy
+            ) {
                 confirming = item
-            } label: {
-                HStack(spacing: 6) {
-                    if busy {
-                        ProgressView().controlSize(.mini).tint(TaliseColor.bg)
-                    }
-                    Text(busy ? "Redeeming…" : "Redeem")
-                        .font(TaliseFont.heading(12, weight: .medium))
-                }
-                .foregroundStyle(TaliseColor.bg)
-                .frame(maxWidth: .infinity)
-                .frame(height: 36)
-                .background(TaliseColor.fg)
-                .clipShape(Capsule())
             }
-            .buttonStyle(.plain)
             .disabled(busy)
         } else {
             let needed = max(0, item.pointsCost - pointsTotal)
@@ -150,8 +131,7 @@ struct RedemptionsSection: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: 36)
-            .background(TaliseColor.surface2)
-            .clipShape(Capsule())
+            .taliseGlass(cornerRadius: 18)
         }
     }
 
@@ -170,8 +150,7 @@ struct RedemptionsSection: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .taliseGlass(cornerRadius: 22)
     }
 
     // MARK: - Confirm sheet
@@ -205,23 +184,17 @@ struct RedemptionsSection: View {
                 }
             }
             .padding(16)
-            .background(TaliseColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .taliseGlass(cornerRadius: 16)
 
             Spacer()
 
-            Button {
+            LiquidGlassButton(
+                title: redeemingSku == sku.sku ? "Redeeming…" : "Confirm redemption",
+                size: .lg,
+                loading: redeemingSku == sku.sku
+            ) {
                 Task { await redeem(sku) }
-            } label: {
-                Text(redeemingSku == sku.sku ? "Redeeming…" : "Confirm redemption")
-                    .font(TaliseFont.heading(14, weight: .medium))
-                    .foregroundStyle(TaliseColor.bg)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(TaliseColor.fg)
-                    .clipShape(Capsule())
             }
-            .buttonStyle(.plain)
             .disabled(redeemingSku == sku.sku)
 
             Button {
@@ -236,7 +209,7 @@ struct RedemptionsSection: View {
             .buttonStyle(.plain)
         }
         .padding(20)
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .liquidGlassSheet(accent: TaliseColor.accent)
     }
 
     // MARK: - Network

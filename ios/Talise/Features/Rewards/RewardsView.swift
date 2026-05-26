@@ -105,8 +105,7 @@ struct RewardsView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .taliseGlass(cornerRadius: 22)
     }
 
     /// "850 points to Silver" + a filled progress bar. The bar always
@@ -183,8 +182,7 @@ struct RewardsView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .taliseGlass(cornerRadius: 22)
     }
 
     // MARK: - Earn rules card
@@ -229,8 +227,7 @@ struct RewardsView: View {
                 )
             }
             .padding(.vertical, 4)
-            .background(TaliseColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .taliseGlass(cornerRadius: 22)
         }
     }
 
@@ -269,9 +266,7 @@ struct RewardsView: View {
     }
 
     private var earnRuleDivider: some View {
-        Rectangle().fill(Color.white.opacity(0.05))
-            .frame(height: 1)
-            .padding(.horizontal, 14)
+        LiquidGlassDivider(inset: 14)
     }
 
     // MARK: - Referral card
@@ -286,47 +281,25 @@ struct RewardsView: View {
                         .font(TaliseFont.mono(15, weight: .light))
                         .foregroundStyle(TaliseColor.fg)
                     Spacer()
-                    Button {
+                    LiquidGlassPill(title: "Copy", icon: "doc.on.doc") {
                         UIPasteboard.general.string = "https://talise.io/r/\(code)"
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "doc.on.doc")
-                                .font(.system(size: 11, weight: .medium))
-                            Text("Copy")
-                                .font(TaliseFont.heading(12, weight: .medium))
-                        }
-                        .foregroundStyle(TaliseColor.fg)
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(TaliseColor.surface2)
-                        .clipShape(Capsule())
                     }
-                    .buttonStyle(.plain)
                 }
                 if (summary?.referralCount ?? 0) > 0 {
                     Text("\(summary?.referralCount ?? 0) friends joined with your code")
                         .font(TaliseFont.mono(11, weight: .light))
                         .foregroundStyle(TaliseColor.accent)
                 }
-                Button {
+                LiquidGlassButton(
+                    title: "Share Talise",
+                    icon: "square.and.arrow.up",
+                    size: .lg
+                ) {
                     share(text: "Join me on Talise: https://talise.io/r/\(code)")
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 13, weight: .medium))
-                        Text("Share Talise")
-                            .font(TaliseFont.heading(14, weight: .medium))
-                    }
-                    .foregroundStyle(TaliseColor.bg)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(TaliseColor.fg)
-                    .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
             }
             .padding(18)
-            .background(TaliseColor.usernameCard)
-            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .taliseGlass(cornerRadius: 22)
         }
     }
 

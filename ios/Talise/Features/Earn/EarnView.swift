@@ -122,8 +122,7 @@ struct EarnView: View {
             Capsule().fill(TaliseColor.line).frame(width: 60, height: 14)
         }
         .padding(16)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .taliseGlass(cornerRadius: 20)
         .redacted(reason: .placeholder)
         .opacity(0.5)
     }
@@ -139,8 +138,7 @@ struct EarnView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .taliseGlass(cornerRadius: 20)
     }
 
     private func venueCard(_ v: YieldVenue, best: Bool) -> some View {
@@ -199,12 +197,13 @@ struct EarnView: View {
                                      : TaliseColor.fgDim)
             }
             .padding(16)
-            .background(TaliseColor.surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(best ? TaliseColor.accent.opacity(0.4) : Color.clear, lineWidth: 1)
+            .taliseGlass(
+                cornerRadius: 20,
+                // Tinted glass on the BEST venue gives it the same
+                // accent-green identity as the previous accent border
+                // without an extra stroke layer.
+                tint: best ? TaliseColor.accent : nil
             )
-            .clipShape(RoundedRectangle(cornerRadius: 20))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -236,34 +235,24 @@ struct EarnView: View {
                     .foregroundStyle(TaliseColor.fgMuted)
             }
             .padding(14)
-            .background(TaliseColor.usernameCard)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .taliseGlass(cornerRadius: 16)
 
             if let projection = earningsProjection {
                 projectionBand(projection)
             }
 
-            Button(action: { Task { await supply() } }) {
-                HStack(spacing: 10) {
-                    if supplying {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .tint(TaliseColor.bg)
-                    }
-                    Text(supplying ? "Supplying…" : supplyLabel)
-                        .font(TaliseFont.heading(15, weight: .medium))
-                }
-                .foregroundStyle(TaliseColor.bg)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(canSupply ? TaliseColor.fg : TaliseColor.fg.opacity(0.35))
-                .clipShape(Capsule())
+            LiquidGlassButton(
+                title: supplying ? "Supplying…" : supplyLabel,
+                tint: TaliseColor.accent,
+                size: .lg,
+                loading: supplying
+            ) {
+                Task { await supply() }
             }
             .disabled(!canSupply)
         }
         .padding(20)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 25))
+        .taliseGlass(cornerRadius: 25)
     }
 
     private var canSupply: Bool {
@@ -323,8 +312,7 @@ struct EarnView: View {
                 projectionRow(label: "Year",  value: p.year, accent: true)
             }
             .padding(.vertical, 4)
-            .background(TaliseColor.usernameCard)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .taliseGlass(cornerRadius: 16)
         }
         .transition(.opacity.combined(with: .move(edge: .top)))
         .animation(.easeInOut(duration: 0.18), value: amount)
@@ -348,10 +336,7 @@ struct EarnView: View {
     }
 
     private var projectionRowDivider: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.05))
-            .frame(height: 1)
-            .padding(.horizontal, 12)
+        LiquidGlassDivider(inset: 12)
     }
 
     private func formatProjection(_ v: Double) -> String {
@@ -384,8 +369,7 @@ struct EarnView: View {
             Spacer()
         }
         .padding(14)
-        .background(TaliseColor.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .taliseGlass(cornerRadius: 16, tint: TaliseColor.accent)
     }
 
     // MARK: - Data
@@ -541,12 +525,11 @@ private struct WithdrawSheet: View {
             }
             actionBar
         }
-        // Plain black background — the TopGlow belongs only on root
-        // tab screens. A modal sheet inheriting that wash made the
-        // sheet's content compete with the home page bleeding through
-        // behind, and the green hue clashed with the WithdrawSheet's
-        // own accent-green action button + position card.
-        .background(TaliseColor.bg.ignoresSafeArea())
+        // Liquid Glass sheet treatment — the material backdrop +
+        // accent top wash mirrors what the rest of the app does for
+        // modals (see Profile, Send). Replaces the plain-black
+        // ignore-safe-area background that read as a flat plate.
+        .liquidGlassSheet(accent: TaliseColor.accent)
         // Large-only detent so the sheet opens with the position card,
         // withdraw-amount input, and both action buttons visible
         // without an extra drag. The `.medium` option made the sheet
@@ -593,8 +576,7 @@ private struct WithdrawSheet: View {
             )
         }
         .padding(.vertical, 4)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .taliseGlass(cornerRadius: 20)
     }
 
     private func row(label: String, value: String, accent: Bool = false) -> some View {
@@ -615,10 +597,7 @@ private struct WithdrawSheet: View {
     }
 
     private var rowDivider: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.05))
-            .frame(height: 1)
-            .padding(.horizontal, 14)
+        LiquidGlassDivider(inset: 14)
     }
 
     private var partialField: some View {
@@ -640,64 +619,48 @@ private struct WithdrawSheet: View {
                     .foregroundStyle(TaliseColor.fg)
                     .tint(TaliseColor.accent)
                 Spacer()
-                Button {
+                LiquidGlassPill(title: "MAX", tint: TaliseColor.accent, compact: true) {
                     // Convert the on-chain supplied USDsui balance to
                     // the user's display currency so MAX fills the
                     // field in the units they're typing in.
                     let (localMax, _) = CurrencySettings.shared.convert(usd: supplied)
                     partial = String(format: "%.2f", localMax)
-                } label: {
-                    Text("MAX")
-                        .font(TaliseFont.mono(10, weight: .light))
-                        .padding(.horizontal, 10).padding(.vertical, 4)
-                        .background(TaliseColor.accent.opacity(0.18))
-                        .foregroundStyle(TaliseColor.accent)
-                        .clipShape(Capsule())
                 }
                 Text(currency.code)
                     .font(TaliseFont.heading(13, weight: .medium))
                     .foregroundStyle(TaliseColor.fgMuted)
             }
             .padding(14)
-            .background(TaliseColor.usernameCard)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .taliseGlass(cornerRadius: 16)
         }
     }
 
     private var actionBar: some View {
         VStack(spacing: 10) {
-            Button(action: { Task { await withdraw(all: false) } }) {
-                HStack(spacing: 10) {
-                    if withdrawing { ProgressView().tint(TaliseColor.bg) }
-                    Text(withdrawing
-                         ? "Working…"
-                         : "Withdraw \(partial.isEmpty ? "" : "\(CurrencySettings.shared.current.symbol)\(partial)")")
-                        .font(TaliseFont.heading(15, weight: .medium))
-                }
-                .foregroundStyle(TaliseColor.bg)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(canWithdrawPartial ? TaliseColor.fg : TaliseColor.fg.opacity(0.35))
-                .clipShape(Capsule())
+            LiquidGlassButton(
+                title: withdrawing
+                    ? "Working…"
+                    : "Withdraw \(partial.isEmpty ? "" : "\(CurrencySettings.shared.current.symbol)\(partial)")",
+                tint: TaliseColor.accent,
+                size: .lg,
+                loading: withdrawing
+            ) {
+                Task { await withdraw(all: false) }
             }
             .disabled(!canWithdrawPartial)
 
-            Button(action: { Task { await withdraw(all: true) } }) {
-                Text("Withdraw all + rewards")
-                    .font(TaliseFont.heading(14, weight: .medium))
-                    .foregroundStyle(TaliseColor.accent)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .overlay(
-                        Capsule().stroke(TaliseColor.accent.opacity(0.5), lineWidth: 1)
-                    )
+            LiquidGlassButton(
+                title: "Withdraw all + rewards",
+                tint: nil,
+                size: .md
+            ) {
+                Task { await withdraw(all: true) }
             }
             .disabled(withdrawing || supplied <= 0)
         }
         .padding(.horizontal, 24)
         .padding(.top, 12)
         .padding(.bottom, 32)
-        .background(TaliseColor.bg)
     }
 
     private func successBanner(_ digest: String) -> some View {
@@ -713,8 +676,7 @@ private struct WithdrawSheet: View {
             Spacer()
         }
         .padding(14)
-        .background(TaliseColor.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .taliseGlass(cornerRadius: 16, tint: TaliseColor.accent)
     }
 
     private func withdraw(all: Bool) async {
