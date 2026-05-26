@@ -107,12 +107,22 @@ function canonicalizeTypeTag(t: string): string {
 // Chain reads
 
 type VaultBalance = { coinType: string; amount: bigint };
+/**
+ * `capVersion` discriminates between the v1 lineage (`AutoSwapCap<T>` —
+ * may be address-owned or shared depending on the era it was minted in)
+ * and the v7 lineage (`AutoSwapCapV2<T>`, always shared, with throttle
+ * fields + registry-pause + dest-allowlist gating).
+ */
 type ActiveCap = {
   id: string;
   sourceType: string;
   maxPerSwap: bigint;
   expiresAtMs: bigint;
   paused: boolean;
+  /** Object inner type — v1 `AutoSwapCap` vs v7 `AutoSwapCapV2`. */
+  capVersion: "v1" | "v2";
+  /** Vault id pulled out of the cap's `vault_id` field. v2 only. */
+  vaultId?: string;
 };
 
 /** Outcome of a single cap discovery pass. */
@@ -274,6 +284,100 @@ function decodeCapObject(
       maxPerSwap,
       expiresAtMs,
       paused: false,
+      capVersion: "v1",
+    },
+  };
+}
+
+/**
+ * v7 counterpart to `decodeCapObject`. Decodes an `AutoSwapCapV2<T>`
+ * shared object into an `ActiveCap` and applies the v7-specific skip
+ * filters: per-cap pause, expiry, zero `max_per_swap`, and daily-budget
+ * exhaustion (`used_today >= max_per_day` after accounting for an
+ * out-of-window `day_reset_at_ms`).
+ *
+ * V2 caps are minted directly as Shared via `enable_auto_swap_v2`. A v2
+ * cap that surfaces as `AddressOwner` would indicate a chain anomaly —
+ * we still defensively skip and count it under `userOwnedSkipped` for
+ * parity with the v1 path.
+ */
+function decodeCapV2Object(
+  raw: {
+    data?: {
+      objectId?: string;
+      type?: string | null;
+      owner?: unknown;
+      content?: { dataType?: string; fields?: unknown } | null;
+    } | null;
+  },
+  capTypePrefix: string,
+  now: bigint
+): { cap?: ActiveCap; userOwned?: boolean; invalid?: boolean } {
+  const data = raw.data;
+  if (!data) return { invalid: true };
+  const t = data.type ?? "";
+  if (!t.startsWith(capTypePrefix)) return { invalid: true };
+  const inner = t.slice(capTypePrefix.length, -1);
+
+  const c = data.content;
+  if (!c || c.dataType !== "moveObject") return { invalid: true };
+  const fields = (c as { fields?: {
+    max_per_swap?: string | number;
+    max_per_day?: string | number;
+    used_today?: string | number;
+    day_reset_at_ms?: string | number;
+    expires_at_ms?: string | number;
+    paused?: boolean;
+    vault_id?: string;
+  } }).fields ?? {};
+  const paused = Boolean(fields.paused);
+  const maxPerSwap = BigInt(String(fields.max_per_swap ?? "0"));
+  const maxPerDay = BigInt(String(fields.max_per_day ?? "0"));
+  const usedToday = BigInt(String(fields.used_today ?? "0"));
+  const dayResetAtMs = BigInt(String(fields.day_reset_at_ms ?? "0"));
+  const expiresAtMs = BigInt(String(fields.expires_at_ms ?? "0"));
+  const vaultId = typeof fields.vault_id === "string" ? fields.vault_id : undefined;
+
+  if (paused) return { invalid: true };
+  if (expiresAtMs !== 0n && expiresAtMs < now) return { invalid: true };
+  if (maxPerSwap === 0n) return { invalid: true };
+
+  // Daily-budget pre-check. The on-chain `validate_for_swap_v2` resets
+  // `used_today` to 0 when `now >= day_reset_at_ms`, so a stale cap whose
+  // reset window has already elapsed should NOT be filtered out here —
+  // it'll be effectively zeroed at extract time. Only treat the cap as
+  // over-budget when we're still inside the current window AND used_today
+  // is already at the ceiling. Skipping over-budget caps avoids the
+  // wasted Onara round-trip + Cetus quote that would only abort
+  // E_DAILY_BUDGET_EXCEEDED.
+  const stillInsideDay = dayResetAtMs > now;
+  if (stillInsideDay && usedToday >= maxPerDay) return { invalid: true };
+
+  // Owner inspection — v2 caps are always Shared. Anything else is a
+  // chain anomaly we don't try to sweep.
+  const owner = data.owner;
+  const isShared =
+    typeof owner === "object" &&
+    owner !== null &&
+    "Shared" in (owner as Record<string, unknown>);
+  const isAddressOwned =
+    typeof owner === "object" &&
+    owner !== null &&
+    "AddressOwner" in (owner as Record<string, unknown>);
+
+  if (isAddressOwned && !isShared) {
+    return { userOwned: true };
+  }
+
+  return {
+    cap: {
+      id: String(data.objectId ?? ""),
+      sourceType: canonicalizeTypeTag(inner),
+      maxPerSwap,
+      expiresAtMs,
+      paused: false,
+      capVersion: "v2",
+      vaultId,
     },
   };
 }
@@ -411,6 +515,129 @@ async function readActiveCaps(
     return readActiveCapsViaEvents(packageId, owner);
   }
   return readActiveCapsLegacy(packageId, owner);
+}
+
+/**
+ * v7 cap discovery. Walks two event streams to enumerate every
+ * `AutoSwapCapV2<T>` the user controls:
+ *
+ *  1. `CapUpgradedToV2` — emitted by `auto_swap::upgrade_cap_to_v2`
+ *     when a user signs the v1→v2 migration. `new_cap_id` field
+ *     points at the freshly-shared v2 cap.
+ *  2. `AutoSwapEnabled` — emitted by BOTH v1 `mint_cap` and v7
+ *     `new_cap_v2`. We can't tell them apart from the event payload
+ *     (the schema is identical), so we walk it, resolve every cap
+ *     id, and only keep objects whose type is `AutoSwapCapV2<...>`.
+ *     Cheap because `AutoSwapEnabled` events emitted from v7 onward
+ *     all back v2 caps, and the v1 caps that share the event surface
+ *     fall out as a type-mismatch in `decodeCapV2Object`.
+ *
+ * Both walks use the ORIGINAL `packageId` for the event-type prefix —
+ * Sui keeps event Move type tags pinned to the original publish id
+ * across upgrades. Cap objects are likewise typed against the
+ * original `packageId` (type tags use original-id), so the prefix
+ * `${packageId}::auto_swap::AutoSwapCapV2<` matches every cap minted
+ * by any version of the package.
+ */
+async function readActiveCapsV2(
+  packageId: string,
+  owner: string
+): Promise<CapsReadResult> {
+  const client = suiJsonRpc();
+  const capV2TypePrefix = `${packageId}::auto_swap::AutoSwapCapV2<`;
+  const now = BigInt(Date.now());
+  const seenOwner = owner.toLowerCase();
+
+  // Collect candidate cap ids from both event surfaces. De-dup via Set
+  // since the same cap can show up in both (e.g. a v2 cap minted via
+  // upgrade then re-paused/resumed — the resume re-emits AutoSwapEnabled
+  // on v2 too, depending on path).
+  const seenCapIds = new Set<string>();
+
+  // Walk event stream `eventType`, filtering rows by `match(row)`. The
+  // `extractCapId` callback pulls the cap id field out of the row's
+  // parsedJson — different events name it differently (`new_cap_id`
+  // vs `cap_id`).
+  const walkEvents = async (
+    eventType: string,
+    extractCapId: (pj: Record<string, unknown> | null | undefined) => string | undefined,
+    match: (pj: Record<string, unknown> | null | undefined) => boolean,
+  ) => {
+    let walked = 0;
+    let cursor: { txDigest: string; eventSeq: string } | null | undefined = null;
+    while (walked < MAX_EVENTS_PER_TICK) {
+      const remaining = MAX_EVENTS_PER_TICK - walked;
+      const page = await client.queryEvents({
+        query: { MoveEventType: eventType },
+        cursor: cursor ?? null,
+        limit: Math.min(50, remaining),
+        order: "descending",
+      });
+      for (const ev of page.data ?? []) {
+        walked++;
+        const pj = ev.parsedJson as Record<string, unknown> | null | undefined;
+        if (!match(pj)) continue;
+        const capId = extractCapId(pj);
+        if (!capId) continue;
+        seenCapIds.add(capId);
+      }
+      if (!page.hasNextPage || !page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+  };
+
+  // Stream 1: CapUpgradedToV2 (v1→v2 migration emits this).
+  await walkEvents(
+    `${packageId}::auto_swap::CapUpgradedToV2`,
+    (pj) => (pj?.new_cap_id as string | undefined) ?? undefined,
+    (pj) => {
+      const o = (pj?.owner as string | undefined) ?? "";
+      return o.toLowerCase() === seenOwner;
+    },
+  );
+
+  // Stream 2: AutoSwapEnabled (v7 `new_cap_v2` also emits this; we'll
+  // filter to v2 by checking the resolved object's type prefix below).
+  await walkEvents(
+    `${packageId}::auto_swap::AutoSwapEnabled`,
+    (pj) => (pj?.cap_id as string | undefined) ?? undefined,
+    (pj) => {
+      const o = (pj?.owner as string | undefined) ?? "";
+      return o.toLowerCase() === seenOwner;
+    },
+  );
+
+  if (seenCapIds.size === 0) {
+    return { caps: [], userOwnedSkipped: 0, skippedInvalid: 0 };
+  }
+
+  // Resolve each candidate. `decodeCapV2Object` returns `invalid` when
+  // the object's type doesn't start with the v2 prefix — that's how v1
+  // caps emitting `AutoSwapEnabled` fall out without polluting the v2
+  // counter.
+  const caps: ActiveCap[] = [];
+  let userOwnedSkipped = 0;
+  let skippedInvalid = 0;
+  for (const id of seenCapIds) {
+    try {
+      const obj = await client.getObject({
+        id,
+        options: { showOwner: true, showType: true, showContent: true },
+      });
+      const decoded = decodeCapV2Object(
+        obj as { data?: typeof obj.data },
+        capV2TypePrefix,
+        now,
+      );
+      if (decoded.cap) caps.push(decoded.cap);
+      else if (decoded.userOwned) userOwnedSkipped++;
+      else if (decoded.invalid) skippedInvalid++;
+    } catch {
+      // Cap may have been burned / unreadable.
+      skippedInvalid++;
+    }
+  }
+  return { caps, userOwnedSkipped, skippedInvalid };
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -711,6 +938,16 @@ async function callOnaraSwap(args: {
   packageId: string;
   packageIdLatest: string;
   registryId: string;
+  /// v7 registry id. Only consumed by the v2 path on Onara; the v1
+  /// branch ignores it. Always sent so Onara doesn't have to special-
+  /// case payload shape per version.
+  registryV2Id: string;
+  /// Selects the Move target Onara dispatches into: "v1" calls the
+  /// legacy `auto_swap_extract` + `auto_swap_deposit_to_owner` pair;
+  /// "v2" calls `auto_swap_extract_v2` + `auto_swap_deposit_to_owner_v2`
+  /// (which pass `&AutoSwapRegistryV2` and enforce the v7 pause /
+  /// allowlist / throttle gates).
+  capVersion: "v1" | "v2";
   vaultId: string;
   capId: string;
   sourceType: string;
@@ -731,6 +968,8 @@ async function callOnaraSwap(args: {
         // v4+ auto_swap_deposit_to_owner only exists in the latest pkg.
         packageIdLatest: args.packageIdLatest,
         registryId: args.registryId,
+        registryV2Id: args.registryV2Id,
+        capVersion: args.capVersion,
       }),
     });
     const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
@@ -757,9 +996,11 @@ export async function GET(req: Request) {
   let packageId: string;
   let packageIdLatest: string;
   let registryId: string;
+  let registryV2Id: string;
   let usdsuiType: string;
   try {
-    ({ packageId, packageIdLatest, registryId, usdsuiType } = vaultPackageIds());
+    ({ packageId, packageIdLatest, registryId, registryV2Id, usdsuiType } =
+      vaultPackageIds());
     // Canonicalize so equality checks against bag keys (which arrive
     // from Move's `type_name::get<T>()` already in canonical form) line
     // up without leading-zero/0x discrepancies.
@@ -836,6 +1077,21 @@ export async function GET(req: Request) {
     caps_user_owned_skipped: 0,
     /** Caps skipped because paused / expired / zero max / burned. */
     caps_skipped_invalid: 0,
+    /**
+     * v7 `AutoSwapCapV2` instances usable this tick. The cron sweeps
+     * ONLY these — every v7 swap engages the registry pause check,
+     * dest allowlist, and per-cap daily throttle.
+     */
+    caps_v2: 0,
+    /**
+     * Legacy v1 `AutoSwapCap` instances surfaced this tick but
+     * intentionally NOT swept. Tracks how many users still need to
+     * sign the iOS migration banner. Drops to zero once everyone
+     * has upgraded.
+     */
+    caps_v1_pending_migration: 0,
+    /** v2 caps that successfully swept this tick. */
+    swept_v2: 0,
     details: [] as Array<{
       userId: number;
       vault: string;
@@ -850,24 +1106,33 @@ export async function GET(req: Request) {
   for (const u of users) {
     summary.scanned++;
     try {
-      // Active-cap set first — we need it to filter the address-owned
-      // coin sweep AND to drive the balance-bag sweep below. One read,
-      // reused twice. On v3 deploys (packageIdLatest !== packageId)
-      // this walks `AutoSwapEnabled` events and resolves shared caps;
-      // on pre-v3 it falls back to `getOwnedObjects(owner)`.
-      const capsResult = await readActiveCaps(
-        packageId,
-        packageIdLatest,
-        u.sui_address
-      );
-      const caps = capsResult.caps;
-      summary.caps_shared += caps.length;
-      summary.caps_user_owned_skipped += capsResult.userOwnedSkipped;
-      summary.caps_skipped_invalid += capsResult.skippedInvalid;
+      // Active-cap discovery. We run BOTH passes so we can:
+      //   • drive the swap loop off v2-only caps (the v7 hardened path)
+      //   • surface a `caps_v1_pending_migration` counter so we can
+      //     watch the iOS migration banner drain over time
+      //
+      // v1 caps surface as `caps_v1_pending_migration` and are NEVER
+      // swept on the v7 cron path — they're the user's responsibility
+      // to upgrade via `upgrade_cap_to_v2`.
+      const [capsResultV1, capsResultV2] = await Promise.all([
+        readActiveCaps(packageId, packageIdLatest, u.sui_address),
+        readActiveCapsV2(packageId, u.sui_address),
+      ]);
+      summary.caps_shared += capsResultV1.caps.length;
+      summary.caps_user_owned_skipped += capsResultV1.userOwnedSkipped;
+      summary.caps_skipped_invalid +=
+        capsResultV1.skippedInvalid + capsResultV2.skippedInvalid;
+      summary.caps_v1_pending_migration += capsResultV1.caps.length;
+      summary.caps_v2 += capsResultV2.caps.length;
 
-      // Index caps by source type for O(1) match-up.
+      // ONLY v2 caps drive the per-user sweep. Index by source type.
+      // O(1) match-up against the vault's balance bag.
+      const caps = capsResultV2.caps;
       const capByType = new Map<string, ActiveCap>();
       for (const c of caps) capByType.set(c.sourceType, c);
+      console.log(
+        `[auto-swap-sweep] user=${u.id} caps_v2: shared=${capsResultV2.caps.length} caps_v1_pending_migration=${capsResultV1.caps.length}`
+      );
 
       // ─── Step 1: claim address-owned coins into the vault bag ─────
       //
@@ -994,6 +1259,10 @@ export async function GET(req: Request) {
           packageId,
           packageIdLatest,
           registryId,
+          // v7 dispatch: Onara branches on `capVersion` and consumes
+          // `registryV2Id` as `&mut AutoSwapRegistryV2` in the PTB.
+          registryV2Id,
+          capVersion: cap.capVersion,
           vaultId: u.talise_vault_id,
           capId: cap.id,
           sourceType: b.coinType,
@@ -1003,6 +1272,7 @@ export async function GET(req: Request) {
 
         if (res.ok) {
           summary.swept++;
+          if (cap.capVersion === "v2") summary.swept_v2++;
           summary.details.push({
             userId: u.id,
             vault: u.talise_vault_id,
@@ -1050,6 +1320,14 @@ export async function GET(req: Request) {
     `[auto-swap-sweep] caps: shared=${summary.caps_shared} ` +
       `user_owned=${summary.caps_user_owned_skipped} ` +
       `skipped_invalid=${summary.caps_skipped_invalid}`
+  );
+  // v7 visibility line — counts the v2 caps actually swept this tick
+  // alongside the v1 caps still pending migration so we can watch
+  // both numbers move in opposite directions over time.
+  console.log(
+    `[auto-swap-sweep] caps_v2: shared=${summary.caps_v2} ` +
+      `caps_v1_pending_migration=${summary.caps_v1_pending_migration} ` +
+      `swept_v2=${summary.swept_v2}`
   );
 
   return NextResponse.json({ ok: true, ...summary });
