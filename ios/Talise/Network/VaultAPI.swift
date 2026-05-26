@@ -141,6 +141,25 @@ enum VaultAPI {
         )
     }
 
+    /// `POST /api/vault/migrate-cap` — prepares the PTB that calls
+    /// `vault::share_existing_cap<T>(cap)` against the LATEST package id.
+    /// Promotes a v2-era user-owned `AutoSwapCap<T>` to a shared object
+    /// so the Onara cron worker can reference it.
+    ///
+    /// Owner-only on the Move side (`ctx.sender() == cap.owner`) — the
+    /// PTB will abort with `E_NOT_OWNER` for any other signer. The
+    /// resulting bytes go through the same sign + sponsor-execute path
+    /// as pause/resume/disable.
+    static func migrateCap(
+        capId: String,
+        sourceType: String
+    ) async throws -> VaultCreatePrepareResponse {
+        try await APIClient.shared.post(
+            "/api/vault/migrate-cap",
+            body: VaultCapMutationRequest(capId: capId, sourceType: sourceType)
+        )
+    }
+
     /// `GET /api/vault/state` — returns the user's vault (or nil if
     /// they haven't created one yet) plus every active cap. Drives the
     /// `AutoSwapSettings` view's whole render pass.

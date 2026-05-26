@@ -645,6 +645,18 @@ struct AutoSwapCapDTO: Codable, Identifiable, Hashable {
     /// where a cap existed.
     let expiresAtMs: String
     let paused: Bool
+    /// True when this cap is a v2-era user-owned mint that needs to be
+    /// promoted to a shared object (via `vault::share_existing_cap<T>`)
+    /// before the Onara cron worker can reference it. Optional so older
+    /// server builds that pre-date the v3 migration field decode without
+    /// erroring — older deploys will leave this nil and the UI treats
+    /// nil as "no migration needed".
+    let needsMigration: Bool?
+
+    /// Convenience — flatten the optional so view code can branch on a
+    /// simple Bool. `nil → false` mirrors the "old server, no banner"
+    /// semantics described above.
+    var requiresMigration: Bool { needsMigration ?? false }
 
     /// Parse the raw expiry string for callers that want a number.
     /// Returns 0 (= no expiry) if the wire value is malformed.

@@ -240,6 +240,32 @@ export function buildResumeAutoSwapTx(
 }
 
 /**
+ * `vault::share_existing_cap<T>(cap)` — promotes a v2-era user-owned
+ * `AutoSwapCap<T>` to a shared object so the Onara cron worker can
+ * reference it. Move asserts `ctx.sender() == cap.owner` (the recorded
+ * owner field, not just the runtime AddressOwner) so a transferred cap
+ * is rejected before sharing.
+ *
+ * Targets `packageIdLatest` — the entry was added in v3, so callers
+ * referencing the original `packageId` would 404 the symbol.
+ */
+export function buildShareExistingCapTx(
+  sender: string,
+  capId: string,
+  sourceType: string
+): Transaction {
+  const { packageIdLatest } = vaultPackageIds();
+  const tx = new Transaction();
+  tx.setSender(sender);
+  tx.moveCall({
+    target: `${packageIdLatest}::vault::share_existing_cap`,
+    typeArguments: [sourceType],
+    arguments: [tx.object(capId)],
+  });
+  return tx;
+}
+
+/**
  * `auto_swap::disable<T>(cap)` — consumes the cap (takes by value),
  * burning it permanently. The user must re-mint a new cap (via
  * `enable<T>`) to opt back in.

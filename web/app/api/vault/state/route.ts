@@ -47,6 +47,19 @@ type Cap = {
   maxPerSwap: string;
   expiresAtMs: string;
   paused: boolean;
+  /**
+   * True when the cap is still user-owned (v2-era mint) and needs to be
+   * promoted to a shared object via `vault::share_existing_cap<T>` before
+   * the Onara cron worker can reference it. The owner-objects GraphQL
+   * filter we use below only returns address-owned objects by definition,
+   * so every cap we surface here is user-owned. After v3 migration, caps
+   * become shared and stop appearing in this list (a separate discovery
+   * path is needed for those — out of scope for the migration flow).
+   *
+   * Key is camelCase to match every other field on this DTO; iOS uses
+   * a plain JSONDecoder (no snake_case conversion).
+   */
+  needsMigration: boolean;
 };
 type State = {
   vault: { id: string; balances: Balance[] } | null;
@@ -257,6 +270,10 @@ export async function GET(req: Request) {
           maxPerSwap: fields.max_per_swap,
           expiresAtMs: fields.expires_at_ms,
           paused: fields.paused,
+          // The owner-objects GraphQL filter returns ONLY address-owned
+          // objects — by construction every cap here is user-owned and
+          // therefore needs the v3 share_existing_cap promotion.
+          needsMigration: true,
         });
       }
     };
