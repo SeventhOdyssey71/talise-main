@@ -8,6 +8,22 @@ enum APIError: Error, LocalizedError {
     case noSession
     case pinningFailed
     case invalidResponse
+    /// The underlying URLSession task was cancelled (NSURLErrorCancelled
+    /// / -999). Almost always means SwiftUI tore down a prior `.task`
+    /// while a refresh kicked off a fresh one. NOT a real failure —
+    /// call sites should silently no-op via `APIError.isCancellation`.
+    case cancelled
+
+    /// True when `error` represents a transport-level cancellation —
+    /// either Swift's `CancellationError`, NSURLErrorCancelled, or our
+    /// own `.cancelled` case. Centralized so every call site can use
+    /// the same predicate instead of re-implementing the NSError dance.
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if case APIError.cancelled = error { return true }
+        let ns = error as NSError
+        return ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
+    }
 
     var errorDescription: String? {
         switch self {
@@ -40,6 +56,8 @@ enum APIError: Error, LocalizedError {
             return "Server identity could not be verified."
         case .invalidResponse:
             return "Unexpected response from server."
+        case .cancelled:
+            return "Request was cancelled."
         }
     }
 
