@@ -54,7 +54,7 @@ export type ActivityEntry = {
    * `invest` and `withdraw` are direction-neutral (no counterparty
    * address), but iOS still wants a stable label for the History row.
    */
-  direction: "sent" | "received" | "invest" | "withdraw";
+  direction: "sent" | "received" | "invest" | "withdraw" | "swap";
   /** Net amount the user's address moved, in human units. Positive = received. */
   amountUsdsui: number | null;
   amountSui: number | null;
@@ -766,12 +766,38 @@ export async function getRecentActivity(
         venue = venueClass.venue;
         cpForRow = null;
       } else {
-        // C. plain transfer. Direction follows the dominant signed
-        // movement: USDsui first, then SUI, then any other coin we
-        // tracked. This is what makes WAL / USDC / etc. receives
-        // show up as "Received" rows even though we don't have a USD
-        // value for them.
-        if (myUsdsui !== 0 || mySui !== 0) {
+        // C. plain transfer (or swap). Detect swap first: when the
+        // tx moves two different coins for the user in OPPOSITE
+        // directions, it's almost certainly a DEX swap — the
+        // legacy Convert-banner sweep, a direct Cetus call, the
+        // vault's auto-swap PTB, etc. We surface this as a single
+        // "swap" row with BOTH amounts visible instead of
+        // mis-labeling it "Sent ₦X" using whichever leg's USD
+        // value happens to be larger.
+        //
+        // Detection rules (any one triggers swap):
+        //   • USDsui ↑ AND SUI ↓ in same tx, or vice versa
+        //   • USDsui ↑ AND a non-USDsui non-SUI coin ↓ (or vice versa)
+        //   • SUI ↑ AND a non-SUI non-USDsui coin ↓ (or vice versa)
+        const hasOppositeUsdsuiSui =
+          (myUsdsui > 0 && mySui < 0) ||
+          (myUsdsui < 0 && mySui > 0);
+        const hasOppositeUsdsuiOther =
+          dominantOther !== null &&
+          ((myUsdsui > 0 && dominantOther[1] < 0n) ||
+            (myUsdsui < 0 && dominantOther[1] > 0n));
+        const hasOppositeSuiOther =
+          dominantOther !== null &&
+          ((mySui > 0 && dominantOther[1] < 0n) ||
+            (mySui < 0 && dominantOther[1] > 0n));
+        if (
+          hasOppositeUsdsuiSui ||
+          hasOppositeUsdsuiOther ||
+          hasOppositeSuiOther
+        ) {
+          direction = "swap";
+          cpForRow = null;
+        } else if (myUsdsui !== 0 || mySui !== 0) {
           direction = myUsdsui < 0 || mySui < 0 ? "sent" : "received";
         } else if (dominantOther) {
           direction = dominantOther[1] < 0n ? "sent" : "received";
