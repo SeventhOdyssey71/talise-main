@@ -37,13 +37,51 @@ enum VaultAPI {
     /// `POST /api/vault/record` — server-side persistence step that
     /// runs after the on-chain vault creation tx is confirmed. The
     /// backend resolves the vault id from the digest's object-changes
-    /// and writes it onto the user row so future state reads can
-    /// short-circuit the SuiNS lookup.
-    static func record(vaultId: String, digest: String) async throws {
-        struct OK: Decodable { let ok: Bool }
-        let _: OK = try await APIClient.shared.post(
+    /// and writes it onto the user row.
+    ///
+    /// Returns the optional `repoint` PTB. When non-nil, the user's
+    /// `*.talise.sui` subname currently targets an address that ISN'T
+    /// the new vault — caller MUST sign + sponsor-execute the PTB
+    /// otherwise sends to `name@talise` keep landing in the wrong
+    /// address and auto-swap never sees the deposits. Earlier this
+    /// method decoded only `{ ok: Bool }` and silently discarded the
+    /// repoint payload, leaving every migrated user with a stranded
+    /// subname target.
+    static func record(vaultId: String, digest: String) async throws -> VaultRecordResponse {
+        try await APIClient.shared.post(
             "/api/vault/record",
             body: VaultRecordRequest(vaultId: vaultId, digest: digest)
+        )
+    }
+
+    /// `POST /api/vault/migrate-bundle` — two-stage migration helper.
+    /// Stage `"create-vault"` returns the same PTB as `/api/vault/create`;
+    /// stage `"repoint"` returns the SuiNS `set_target_address` PTB
+    /// the user must sign so `name@talise` resolves to their vault.
+    /// 503s when the package isn't deployed; 200 + `bytesB64: nil` when
+    /// the stage is a no-op (e.g. already-repointed or no subname).
+    static func migrateBundle(stage: String) async throws -> MigrateBundleResponse {
+        try await APIClient.shared.post(
+            "/api/vault/migrate-bundle",
+            body: MigrateBundleRequest(stage: stage)
+        )
+    }
+
+    /// `POST /api/vault/migrate-confirm` — books a migration stage's
+    /// digest server-side. Pair with `migrateBundle` after the user
+    /// signs each returned PTB. `vaultId` only required for the
+    /// `create-vault` stage.
+    static func migrateConfirm(
+        stage: String,
+        digest: String,
+        vaultId: String? = nil
+    ) async throws {
+        struct OK: Decodable { let ok: Bool }
+        let _: OK = try await APIClient.shared.post(
+            "/api/vault/migrate-confirm",
+            body: MigrateConfirmRequest(
+                stage: stage, vaultId: vaultId, digest: digest
+            )
         )
     }
 

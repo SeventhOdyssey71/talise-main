@@ -587,6 +587,53 @@ struct VaultMigrationSubname: Codable, Hashable {
 /// a given `sourceType` is what "auto-swap enabled" means — the
 /// `AutoSwapSettings` list reads this array and renders the matching
 /// row as toggled-on.
+/// Body for `POST /api/vault/migrate-bundle`. `stage` is either
+/// `"create-vault"` or `"repoint"`.
+struct MigrateBundleRequest: Codable {
+    let stage: String
+}
+
+/// Response from `POST /api/vault/migrate-bundle`. `bytesB64` /
+/// `sender` are nil when the stage is a no-op (already done, or no
+/// subname to repoint). Caller short-circuits when `bytesB64 == nil`.
+struct MigrateBundleResponse: Codable {
+    let ok: Bool
+    let stage: String
+    let bytesB64: String?
+    let sender: String?
+    let note: String?
+}
+
+/// Body for `POST /api/vault/migrate-confirm`. `vaultId` is required
+/// only for the `create-vault` stage.
+struct MigrateConfirmRequest: Codable {
+    let stage: String
+    let vaultId: String?
+    let digest: String
+}
+
+/// Response from `POST /api/vault/record`. Carries the optional
+/// SuiNS repoint PTB — when set, the caller MUST sign + execute it
+/// so `name@talise` actually routes to the new vault.
+struct VaultRecordResponse: Codable {
+    let ok: Bool
+    let vaultId: String?
+    let repoint: VaultRepointPayload?
+}
+
+/// One PTB-build-result describing how to repoint a `*.talise.sui`
+/// subname at the user's new vault address. `bytesB64` goes to
+/// `ZkLoginCoordinator.signAndSubmit`; the rest of the fields are
+/// just informational so the UI can confirm what's about to change.
+struct VaultRepointPayload: Codable {
+    let bytesB64: String
+    let sender: String
+    let nftId: String
+    let fullName: String
+    let currentTarget: String?
+    let newTarget: String
+}
+
 struct AutoSwapCapDTO: Codable, Identifiable, Hashable {
     let id: String
     let sourceType: String
