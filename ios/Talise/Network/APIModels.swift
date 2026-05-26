@@ -123,8 +123,8 @@ struct ActivityEntryDTO: Codable, Identifiable {
     /// Set when the user received or sent a non-USDsui / non-SUI coin
     /// (WAL, USDC, USDT, …). `amount` is the raw u64 as a String —
     /// formatted client-side using `decimals` so we don't lose
-    /// precision on the wire. Pre-existing iOS builds parsing older
-    /// responses tolerate the missing field (optional).
+    /// precision on the wire. Optional so older API responses that
+    /// pre-date this field decode without a custom init(from:).
     let otherCoin: ActivityOtherCoin?
 
     var id: String { digest }

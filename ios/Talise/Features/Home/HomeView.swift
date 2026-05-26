@@ -464,7 +464,12 @@ struct HomeView: View {
             amountSui: nil,
             counterparty: ev.counterparty,
             counterpartyName: ev.counterpartyName,
-            venue: ev.venue
+            venue: ev.venue,
+            // Optimistic stub for sent / invest / withdraw / send-leg
+            // of a compound tx — none of those move non-USDsui coins,
+            // so `otherCoin` is always nil here. The real entry from
+            // /api/activity will replace this stub on next refresh.
+            otherCoin: nil
         )
         activity = [synthetic] + activity.filter { $0.digest != ev.digest }
 
