@@ -1,32 +1,59 @@
 import SwiftUI
 
-/// Dark-mode palette. Sourced directly from Figma node 42-1819
-/// (Home design). The web product is still light mode — when we add a
-/// shared design system across both platforms we'll thread these through
-/// `@Environment(\.colorScheme)`; for now iOS is dark by spec.
+/// Talise color tokens. Now sourced from `Assets.xcassets/Colors/*.colorset`
+/// with light + dark appearances baked into each asset, so colors swap
+/// automatically when the user (or system) flips appearance. The
+/// app-wide theme override lives in `@AppStorage("preferredColorScheme")`
+/// and is applied at the AppRoot via `.preferredColorScheme(...)`.
+///
+/// Property names match the pre-asset palette so callers keep compiling.
 enum TaliseColor {
-    static let bg = Color(hex: 0x000000)                          // page background
-    static let surface = Color(hex: 0x252525)                     // activity card
-    static let surface2 = Color(hex: 0x3E3E3E)                    // small action buttons (+/send)
-    static let surfaceGlass = Color.white.opacity(0.08)           // username card + nav pill
-    static let surfaceGlassStrong = Color.white.opacity(0.14)     // active nav pill
-    static let usernameCard = Color(hex: 0x504F4F).opacity(0.2)   // username card fill (matches Figma rgba(80,79,79,0.2))
-    static let fg = Color(hex: 0xFFFFFF)                          // primary text
-    static let fgSubtle = Color(hex: 0xFAFAFA)                    // jude@talise text
-    static let fgMuted = Color(hex: 0xB5B5B5)
-    static let fgDim = Color(hex: 0x636363)
-    static let line = Color.white.opacity(0.08)
-    static let accent = Color(hex: 0x79D96C)                      // "Earn up to 11%" green
-    static let accentSoft = Color(hex: 0x2A2A2A)
-    static let live = Color(hex: 0x79D96C)
-    static let success = Color(hex: 0x79D96C)
-    static let warmGold = Color(hex: 0xC08A3E)
-    static let danger = Color(hex: 0xA05A3E)
+    static let bg = Color("BgPrimary")                          // page background
+    static let surface = Color("Surface")                       // activity card
+    static let surface2 = Color("Surface2")                     // small action buttons (+/send)
+    static let surfaceGlass = Color("SurfaceGlass")             // username card + nav pill
+    static let surfaceGlassStrong = Color("SurfaceGlassStrong") // active nav pill
+    static let usernameCard = Color("UsernameCard")             // username card fill
+    static let fg = Color("FgPrimary")                          // primary text
+    static let fgSubtle = Color("FgSubtle")                     // jude@talise text
+    static let fgMuted = Color("FgMuted")
+    static let fgDim = Color("FgDim")
+    static let line = Color("Line")
+    static let accent = Color("Accent")                         // brand green
+    static let accentSoft = Color("AccentSoft")
+    static let live = Color("Live")
+    static let success = Color("Success")
+    static let warmGold = Color("WarmGold")
+    static let danger = Color("Danger")
 
-    // Activity row badge backgrounds (extracted from the Figma Ellipse fills).
-    static let badgeSent = Color(hex: 0x6C3A38).opacity(0.5)      // muted red
-    static let badgeReceived = Color(hex: 0x355F40).opacity(0.5)  // muted green
-    static let badgeNeutral = Color(hex: 0x4A4A4A).opacity(0.6)   // claim/invest
+    // Activity row badge backgrounds.
+    static let badgeSent = Color("BadgeSent")
+    static let badgeReceived = Color("BadgeReceived")
+    static let badgeNeutral = Color("BadgeNeutral")
+
+    // --- Liquid Glass support tokens ---
+    //
+    // These weren't in the pre-asset palette because the glass recipes
+    // hard-coded `Color.white.opacity(...)` and `Color.black.opacity(...)`.
+    // In light mode those white-on-white strokes / black-on-white tints
+    // read wrong, so we route them through assets with mode-specific values.
+
+    /// Top stop of the specular highlight gradient on glass surfaces.
+    /// Dark mode: white@~0.24. Light mode: black@~0.12.
+    static let strokeSpecularTop = Color("StrokeSpecularTop")
+    /// Middle stop — dimmest part of the specular gradient.
+    static let strokeSpecularMid = Color("StrokeSpecularMid")
+    /// Bottom stop — small return-bright at the lower edge.
+    static let strokeSpecularBottom = Color("StrokeSpecularBottom")
+    /// Tint that sits on top of `.ultraThinMaterial` to pull it into
+    /// the right luminosity bucket. Dark mode: black@0.42; light: white@0.55.
+    static let glassTint = Color("GlassTint")
+    /// Slightly heavier variant used for full-screen sheets.
+    static let glassTintSheet = Color("GlassTintSheet")
+    /// Press-pulse overlay color for `LiquidGlassPressStyle`. Dark: white@0.08; light: black@0.08.
+    static let pressPulse = Color("PressPulse")
+    /// Sign-out destructive foreground / fill base (Profile).
+    static let signOutFg = Color("SignOutFg")
 }
 
 enum TaliseSpacing {

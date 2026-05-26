@@ -210,7 +210,7 @@ struct TxReceiptView: View {
     }
 
     private var divider: some View {
-        Rectangle().fill(Color.white.opacity(0.05))
+        Rectangle().fill(TaliseColor.line)
             .frame(height: 1).padding(.horizontal, 14)
     }
 
@@ -258,16 +258,16 @@ struct TxReceiptView: View {
                 .background(
                     ZStack {
                         Capsule().fill(.ultraThinMaterial)
-                        Capsule().fill(Color.black.opacity(0.45))
+                        Capsule().fill(TaliseColor.glassTint)
                     }
                 )
                 .overlay(
                     Capsule().strokeBorder(
                         LinearGradient(
                             colors: [
-                                Color.white.opacity(0.22),
-                                Color.white.opacity(0.04),
-                                Color.white.opacity(0.10),
+                                TaliseColor.strokeSpecularTop,
+                                TaliseColor.strokeSpecularMid,
+                                TaliseColor.strokeSpecularBottom,
                             ],
                             startPoint: .top,
                             endPoint: .bottom
