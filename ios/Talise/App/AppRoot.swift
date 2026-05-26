@@ -4,10 +4,6 @@ import SwiftUI
 /// authenticated tab bar depending on `AppSession.phase`.
 struct AppRoot: View {
     @Environment(AppSession.self) private var session
-    /// User-facing appearance override. "system" defers to the device
-    /// setting; "light" / "dark" force the corresponding `ColorScheme`.
-    /// Bound to the Appearance picker in Profile → Preferences.
-    @AppStorage("preferredColorScheme") private var preferredColorScheme: String = "system"
 
     var body: some View {
         Group {
@@ -27,19 +23,8 @@ struct AppRoot: View {
                 LaunchView()
             }
         }
-        .preferredColorScheme(resolvedColorScheme)
+        .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.2), value: phaseKey)
-    }
-
-    /// Maps the stored preference to an optional `ColorScheme`. Returning
-    /// `nil` from `.preferredColorScheme` lets the system decide, which is
-    /// exactly what "system" means.
-    private var resolvedColorScheme: ColorScheme? {
-        switch preferredColorScheme {
-        case "light": return .light
-        case "dark":  return .dark
-        default:      return nil
-        }
     }
 
     private var phaseKey: String {
@@ -176,21 +161,20 @@ private struct BottomNavPill: View {
                 // System glass blur — captures whatever sits behind the
                 // pill (the activity card, the page bg).
                 Capsule().fill(.ultraThinMaterial)
-                // Mode-aware tint pulls the material into the right
-                // luminosity bucket (black-ish in dark, white-ish in light).
-                Capsule().fill(TaliseColor.glassTintSheet)
+                // Dark tint pulls it into dark-mode territory. Without
+                // this, .ultraThinMaterial reads too light.
+                Capsule().fill(Color.black.opacity(0.45))
             }
         )
         .overlay(
-            // Top specular highlight — thin hairline. Asset-driven so the
-            // gradient resolves to black-opacity stops in light mode.
+            // Top specular highlight — thin white hairline.
             Capsule()
                 .strokeBorder(
                     LinearGradient(
                         colors: [
-                            TaliseColor.strokeSpecularTop,
-                            TaliseColor.strokeSpecularMid,
-                            TaliseColor.strokeSpecularBottom,
+                            Color.white.opacity(0.22),
+                            Color.white.opacity(0.04),
+                            Color.white.opacity(0.10),
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -231,13 +215,13 @@ private struct BottomNavPill: View {
         if isActive {
             ZStack {
                 Capsule().fill(.ultraThinMaterial)
-                Capsule().fill(TaliseColor.surfaceGlassStrong)
+                Capsule().fill(Color.white.opacity(0.10))
                 Capsule()
                     .strokeBorder(
                         LinearGradient(
                             colors: [
-                                TaliseColor.strokeSpecularTop,
-                                TaliseColor.strokeSpecularMid,
+                                Color.white.opacity(0.35),
+                                Color.white.opacity(0.05),
                             ],
                             startPoint: .top,
                             endPoint: .bottom

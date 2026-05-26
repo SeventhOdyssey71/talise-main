@@ -288,7 +288,7 @@ private struct HistoryRowButtonStyle: ButtonStyle {
             .background(
                 ZStack {
                     shape.fill(.ultraThinMaterial)
-                    shape.fill(TaliseColor.glassTint)
+                    shape.fill(Color.black.opacity(0.35))
                     shape.fill(tintColor.opacity(alpha))
                 }
             )
@@ -296,9 +296,9 @@ private struct HistoryRowButtonStyle: ButtonStyle {
                 shape.strokeBorder(
                     LinearGradient(
                         colors: [
-                            TaliseColor.strokeSpecularTop,
-                            TaliseColor.strokeSpecularMid,
-                            TaliseColor.strokeSpecularBottom,
+                            Color.white.opacity(0.16),
+                            Color.white.opacity(0.04),
+                            Color.white.opacity(0.08),
                         ],
                         startPoint: .top,
                         endPoint: .bottom

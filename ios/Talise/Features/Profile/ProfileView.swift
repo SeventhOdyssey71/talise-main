@@ -26,10 +26,6 @@ struct ProfileView: View {
     /// True while the auto-swap settings sheet is up. Driven by the
     /// Preferences row that opens `AutoSwapSettings`.
     @State private var showAutoSwap = false
-    /// User-facing appearance override. Mirrors the same `@AppStorage`
-    /// key read at `AppRoot` so the picker drives the whole app's
-    /// `.preferredColorScheme(...)` without any extra plumbing.
-    @AppStorage("preferredColorScheme") private var preferredColorScheme: String = "system"
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -38,7 +34,6 @@ struct ProfileView: View {
                 statsStrip
                 walletSection
                 preferencesSection
-                appearanceSection
                 helpSection
                 signOutButton
                 versionFooter
@@ -117,9 +112,9 @@ struct ProfileView: View {
                     Circle().strokeBorder(
                         LinearGradient(
                             colors: [
-                                TaliseColor.strokeSpecularTop,
-                                TaliseColor.strokeSpecularMid,
-                                TaliseColor.strokeSpecularBottom,
+                                Color.white.opacity(0.24),
+                                Color.white.opacity(0.04),
+                                Color.white.opacity(0.10),
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -143,8 +138,8 @@ struct ProfileView: View {
         ZStack {
             // 1. System glass blur
             Circle().fill(.ultraThinMaterial)
-            // 2. Mode-aware tint — pulls material into the right luminosity
-            Circle().fill(TaliseColor.glassTint)
+            // 2. Dark tint — pulls material into dark mode
+            Circle().fill(Color.black.opacity(0.42))
             Text(initials)
                 .font(TaliseFont.heading(32, weight: .medium))
                 .foregroundStyle(TaliseColor.fg)
@@ -155,9 +150,9 @@ struct ProfileView: View {
             Circle().strokeBorder(
                 LinearGradient(
                     colors: [
-                        TaliseColor.strokeSpecularTop,
-                        TaliseColor.strokeSpecularMid,
-                        TaliseColor.strokeSpecularBottom,
+                        Color.white.opacity(0.24),
+                        Color.white.opacity(0.04),
+                        Color.white.opacity(0.10),
                     ],
                     startPoint: .top,
                     endPoint: .bottom
@@ -389,16 +384,16 @@ struct ProfileView: View {
                 .background(
                     ZStack {
                         Capsule().fill(.ultraThinMaterial)
-                        Capsule().fill(TaliseColor.glassTint)
+                        Capsule().fill(Color.black.opacity(0.40))
                     }
                 )
                 .overlay(
                     Capsule().strokeBorder(
                         LinearGradient(
                             colors: [
-                                TaliseColor.strokeSpecularTop,
-                                TaliseColor.strokeSpecularMid,
-                                TaliseColor.strokeSpecularBottom,
+                                Color.white.opacity(0.22),
+                                Color.white.opacity(0.04),
+                                Color.white.opacity(0.10),
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -460,36 +455,6 @@ struct ProfileView: View {
         .padding(.vertical, 14)
     }
 
-    // MARK: - Appearance section
-    //
-    // Sits between Preferences and Help. A segmented Picker for the three
-    // canonical options — System / Light / Dark — bound to the same
-    // `@AppStorage("preferredColorScheme")` key that AppRoot reads, so the
-    // whole app flips appearance the instant the user touches a segment.
-
-    private var appearanceSection: some View {
-        section(title: "Appearance") {
-            VStack(spacing: 0) {
-                HStack(alignment: .center) {
-                    rowLabel(
-                        title: "Theme",
-                        subtitle: "Match system, or force light / dark."
-                    )
-                    Spacer(minLength: 12)
-                    Picker("Theme", selection: $preferredColorScheme) {
-                        Text("System").tag("system")
-                        Text("Light").tag("light")
-                        Text("Dark").tag("dark")
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 190)
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
-            }
-        }
-    }
-
     // MARK: - Help section
 
     private var helpSection: some View {
@@ -544,13 +509,13 @@ struct ProfileView: View {
                 Text("Sign out")
                     .font(TaliseFont.heading(15, weight: .medium))
             }
-            .foregroundStyle(TaliseColor.signOutFg)
+            .foregroundStyle(Color(hex: 0xE08D8A))
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(TaliseColor.signOutFg.opacity(0.10))
+            .background(Color(hex: 0xE08D8A).opacity(0.10))
             .overlay(
                 Capsule()
-                    .stroke(TaliseColor.signOutFg.opacity(0.25), lineWidth: 1)
+                    .stroke(Color(hex: 0xE08D8A).opacity(0.25), lineWidth: 1)
             )
             .clipShape(Capsule())
         }

@@ -125,10 +125,8 @@ struct TaliseGlassCard: ViewModifier {
                 ZStack {
                     // 1. System material — the actual blur backdrop.
                     shape.fill(.ultraThinMaterial)
-                    // 2. Mode-aware tint — black ~0.42 in dark, white ~0.55 in
-                    //    light. Without this the material reads too neutral
-                    //    against either pure-black or pure-white pages.
-                    shape.fill(TaliseColor.glassTint)
+                    // 2. Dark tint — pulls the material into dark mode.
+                    shape.fill(Color.black.opacity(0.42))
                     // 3. Optional directional tint — gives Sent / Received /
                     //    Earn cards their accent without losing glass-ness.
                     if let tint {
@@ -148,14 +146,12 @@ struct TaliseGlassCard: ViewModifier {
             .overlay(
                 // 4. Specular highlight — bright on top, dim in the middle,
                 //    slight return at the bottom for the "glass slab" feel.
-                //    Asset-driven so it flips to a black-opacity gradient in
-                //    light mode (white-on-white would be invisible).
                 shape.strokeBorder(
                     LinearGradient(
                         colors: [
-                            TaliseColor.strokeSpecularTop,
-                            TaliseColor.strokeSpecularMid,
-                            TaliseColor.strokeSpecularBottom,
+                            Color.white.opacity(0.24),
+                            Color.white.opacity(0.04),
+                            Color.white.opacity(0.10),
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -200,7 +196,7 @@ struct LiquidGlassPressStyle: ButtonStyle {
         configuration.label
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(TaliseColor.pressPulse.opacity(configuration.isPressed ? 1.0 : 0.0))
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.06 : 0.0))
                     .allowsHitTesting(false)
             )
             .scaleEffect(configuration.isPressed ? 0.985 : 1.0)

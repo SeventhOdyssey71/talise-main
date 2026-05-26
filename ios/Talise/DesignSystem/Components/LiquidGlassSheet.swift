@@ -24,7 +24,7 @@ struct LiquidGlassSheet: ViewModifier {
             .background(
                 ZStack(alignment: .top) {
                     Rectangle().fill(.ultraThinMaterial)
-                    Rectangle().fill(TaliseColor.glassTintSheet)
+                    Rectangle().fill(Color.black.opacity(0.45))
                     if let accent {
                         // Soft top wash — gives the sheet its own horizon
                         // glow without TopGlow's full strength.
@@ -50,8 +50,8 @@ struct LiquidGlassSheet: ViewModifier {
                     .fill(
                         LinearGradient(
                             colors: [
-                                TaliseColor.strokeSpecularTop,
-                                Color.clear,
+                                Color.white.opacity(0.18),
+                                Color.white.opacity(0.0),
                             ],
                             startPoint: .top,
                             endPoint: .bottom

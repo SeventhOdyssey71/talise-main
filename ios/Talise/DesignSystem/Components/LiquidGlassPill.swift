@@ -33,7 +33,7 @@ struct LiquidGlassPill: View {
             .background(
                 ZStack {
                     Capsule().fill(.ultraThinMaterial)
-                    Capsule().fill(TaliseColor.glassTint)
+                    Capsule().fill(Color.black.opacity(0.40))
                     if let tint {
                         Capsule().fill(
                             LinearGradient(
@@ -49,9 +49,9 @@ struct LiquidGlassPill: View {
                 Capsule().strokeBorder(
                     LinearGradient(
                         colors: [
-                            TaliseColor.strokeSpecularTop,
-                            TaliseColor.strokeSpecularMid,
-                            TaliseColor.strokeSpecularBottom,
+                            Color.white.opacity(0.22),
+                            Color.white.opacity(0.04),
+                            Color.white.opacity(0.10),
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -73,7 +73,7 @@ private struct LiquidGlassPillPressStyle: ButtonStyle {
         configuration.label
             .overlay(
                 Capsule()
-                    .fill(TaliseColor.pressPulse.opacity(configuration.isPressed ? 1.0 : 0.0))
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.08 : 0.0))
                     .allowsHitTesting(false)
             )
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
