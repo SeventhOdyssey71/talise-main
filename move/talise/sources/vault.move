@@ -135,6 +135,15 @@ public entry fun create(ctx: &mut TxContext) {
 /// happens here, with `&TaliseVault` in scope, which closes the audit-
 /// flagged hole where a user could mint a cap targeting someone else's
 /// vault id.
+///
+/// CAP IS SHARED, not user-owned, because the cron-driven auto-swap is
+/// signed by the Onara admin keypair — Sui requires the PTB signer to
+/// own every owned-object argument, so a user-owned cap means the worker
+/// could never actually pass `&cap` into `vault::auto_swap_extract`.
+/// Sharing the cap lets any signer reference it; the `validate_for_swap`
+/// assert (`sender == registry.admin`) keeps abuse impossible, and the
+/// per-op `ctx.sender() == cap.owner` checks in pause/resume/disable
+/// keep the user as the only party who can revoke or pause.
 public entry fun enable_auto_swap<T>(
     vault: &TaliseVault,
     max_per_swap: u64,
@@ -151,7 +160,21 @@ public entry fun enable_auto_swap<T>(
         ctx,
     );
 
-    transfer::public_transfer(cap, vault.owner);
+    transfer::public_share_object(cap);
+}
+
+/// One-shot migration for v2-era caps that were minted user-owned
+/// before the cron auth model was fully designed. Caller must own the
+/// cap (Sui enforces this at the runtime layer — passing a cap you
+/// don't own is rejected by the validator) and be its recorded
+/// `cap.owner` (the inner assert defends against transferred caps).
+///
+/// After this call the cap behaves identically to a freshly-enabled
+/// v3 cap: shared object, worker can reference it, user retains the
+/// owner-gated pause/resume/disable controls.
+public entry fun share_existing_cap<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
+    assert!(ctx.sender() == auto_swap::cap_owner(&cap), E_NOT_OWNER);
+    transfer::public_share_object(cap);
 }
 
 // ───────────────────────────────────────────────────────────────────
