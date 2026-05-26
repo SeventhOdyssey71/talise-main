@@ -24,12 +24,21 @@ const ACTIVITY_CACHE_TTL_MS = 5_000;
 
 function cachedActivity(
   address: string,
-  limit: number
+  limit: number,
+  vaultId: string | null
 ): Promise<ActivityEntry[]> {
+  // Vault id is part of the cache key so users mid-flight (vault just
+  // recorded after the first activity load) get a fresh scan instead
+  // of a stale wallet-only render.
+  const vaultKey = vaultId ? vaultId.toLowerCase() : "novault";
   return memoTtl(
-    `activity:${address.toLowerCase()}:${limit}`,
+    `activity:${address.toLowerCase()}:${limit}:${vaultKey}`,
     ACTIVITY_CACHE_TTL_MS,
-    () => getRecentActivity(address, limit, { includeNonTalise: true })
+    () =>
+      getRecentActivity(address, limit, {
+        includeNonTalise: true,
+        vaultId,
+      })
   );
 }
 
@@ -61,7 +70,11 @@ export async function GET(req: Request) {
     // Mobile feed shows every USDsui/SUI movement, not just Talise
     // payment-kit txs — users want to see incoming funding from any
     // wallet, not a curated subset.
-    const entries = await cachedActivity(user.sui_address, limit);
+    const entries = await cachedActivity(
+      user.sui_address,
+      limit,
+      user.talise_vault_id ?? null
+    );
     return NextResponse.json(
       {
         entries: entries.map((e) => ({

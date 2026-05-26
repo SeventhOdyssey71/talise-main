@@ -10,6 +10,7 @@ import { formatHandle } from "./handle";
 import { globalRegistryId, namespaceObjectId } from "./payment-kit";
 import { parsePaymentKitNonce, type ParsedTaliseMemo } from "./intents/wrap-payment-kit";
 import { batchCoinMetadata } from "./sui-graphql";
+import { vaultPackageIds, VaultNotDeployedError } from "./vault";
 
 /**
  * On-chain activity feed.
@@ -54,7 +55,7 @@ export type ActivityEntry = {
    * `invest` and `withdraw` are direction-neutral (no counterparty
    * address), but iOS still wants a stable label for the History row.
    */
-  direction: "sent" | "received" | "invest" | "withdraw" | "swap";
+  direction: "sent" | "received" | "invest" | "withdraw" | "swap" | "autoswap";
   /** Net amount the user's address moved, in human units. Positive = received. */
   amountUsdsui: number | null;
   amountSui: number | null;
@@ -586,17 +587,308 @@ function memoToClassification(
 }
 
 /**
+ * Walk the `talise::vault::VaultDeposit` and `talise::vault::VaultAutoSwap`
+ * event streams (most-recent first) and return the deposits/auto-swaps
+ * for `vaultId` as `ActivityEntry` rows.
+ *
+ * Why this exists: the wallet-side `queryTransactionBlocks` feed only
+ * surfaces transactions touching the user's address. Once a user has
+ * pointed their @handle at their vault, payments TO the handle land
+ * as coins owned by the vault object id (NOT the user's address) —
+ * invisible to the wallet feed. Same for the cron-driven auto-swap:
+ * the Onara admin signs the tx, the vault id moves, the user is
+ * nowhere in the balanceChanges.
+ *
+ * Event discovery:
+ *   • Query each MoveEventType filter (`vault::VaultDeposit`,
+ *     `vault::VaultAutoSwap`) descending, page-bounded so a long-lived
+ *     package doesn't blow our render budget.
+ *   • Filter `parsedJson.vault_id == vaultId` to keep only this user's
+ *     events (the package emits these across every user).
+ *   • Translate parsedJson into the `ActivityEntry` shape iOS already
+ *     understands — `direction: "received"` for deposits, `"autoswap"`
+ *     for swaps. HistoryRow already maps both correctly.
+ */
+async function getVaultEventActivity(
+  vaultId: string,
+  limit: number,
+  packageId: string
+): Promise<ActivityEntry[]> {
+  type RawEventPage<P> = {
+    data: Array<{
+      id?: { txDigest?: string; eventSeq?: string };
+      timestampMs?: string;
+      parsedJson?: P;
+    }>;
+    nextCursor: unknown;
+    hasNextPage: boolean;
+  };
+  type DepositJson = {
+    vault_id?: string;
+    coin_type?: string | number[];
+    amount?: string | number;
+    from?: string;
+  };
+  type AutoSwapJson = {
+    vault_id?: string;
+    from_type?: string | number[];
+    to_type?: string | number[];
+    from_amount?: string | number;
+    to_amount?: string | number;
+    ts_ms?: string | number;
+  };
+
+  const c = client() as unknown as {
+    queryEvents: <P>(a: {
+      query: { MoveEventType: string };
+      cursor?: unknown;
+      limit?: number;
+      order?: "ascending" | "descending";
+    }) => Promise<RawEventPage<P>>;
+  };
+
+  const vaultNormalized = vaultId.toLowerCase();
+
+  // We scan a bounded recent window — fetching ~limit * 4 events per
+  // type matches the wallet-feed over-fetch. The package is shared
+  // across every user so the per-vault hit rate is sparse; cap at 100
+  // events scanned per type to keep the cron budget intact.
+  const FETCH_LIMIT = Math.max(limit * 4, 50);
+  const MAX_SCAN = 200;
+
+  /**
+   * `vector<u8>` move arg arrives over JSON-RPC as either a UTF-8
+   * encoded string or a number[] (the wire format varies between
+   * fullnode versions). Decode both to a plain string.
+   */
+  function decodeBytes(v: string | number[] | undefined): string {
+    if (!v) return "";
+    if (typeof v === "string") return v;
+    try {
+      return Buffer.from(v).toString("utf8");
+    } catch {
+      return "";
+    }
+  }
+
+  function toBigInt(v: string | number | undefined): bigint {
+    if (v === undefined) return 0n;
+    try {
+      return typeof v === "bigint" ? v : BigInt(v);
+    } catch {
+      return 0n;
+    }
+  }
+
+  async function walk<P>(
+    moveEventType: string,
+    accept: (p: P) => boolean
+  ): Promise<Array<{ digest: string; timestampMs: number; parsedJson: P }>> {
+    const out: Array<{ digest: string; timestampMs: number; parsedJson: P }> = [];
+    let cursor: unknown = null;
+    let scanned = 0;
+    while (scanned < MAX_SCAN) {
+      const page: RawEventPage<P> = await c.queryEvents<P>({
+        query: { MoveEventType: moveEventType },
+        cursor,
+        limit: Math.min(FETCH_LIMIT, MAX_SCAN - scanned),
+        order: "descending",
+      });
+      for (const ev of page.data ?? []) {
+        scanned++;
+        if (!ev.parsedJson) continue;
+        if (!accept(ev.parsedJson)) continue;
+        const digest = ev.id?.txDigest;
+        if (!digest) continue;
+        out.push({
+          digest,
+          timestampMs: Number(ev.timestampMs ?? 0),
+          parsedJson: ev.parsedJson,
+        });
+      }
+      if (!page.hasNextPage || !page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    return out;
+  }
+
+  let deposits: Array<{
+    digest: string;
+    timestampMs: number;
+    parsedJson: DepositJson;
+  }> = [];
+  let autoSwaps: Array<{
+    digest: string;
+    timestampMs: number;
+    parsedJson: AutoSwapJson;
+  }> = [];
+  try {
+    [deposits, autoSwaps] = await Promise.all([
+      walk<DepositJson>(`${packageId}::vault::VaultDeposit`, (p) =>
+        (p.vault_id ?? "").toLowerCase() === vaultNormalized
+      ),
+      walk<AutoSwapJson>(`${packageId}::vault::VaultAutoSwap`, (p) =>
+        (p.vault_id ?? "").toLowerCase() === vaultNormalized
+      ),
+    ]);
+  } catch {
+    return [];
+  }
+
+  // Resolve coin metadata for every non-USDsui/non-SUI coin that any
+  // event references, in one GraphQL hit (`primeCoinInfo`'s cache is
+  // shared with the wallet pass downstream).
+  const otherTypes = new Set<string>();
+  for (const d of deposits) {
+    const t = decodeBytes(d.parsedJson.coin_type);
+    if (t && t !== USDSUI_TYPE && t !== "0x2::sui::SUI") otherTypes.add(t);
+  }
+  for (const s of autoSwaps) {
+    const f = decodeBytes(s.parsedJson.from_type);
+    const to = decodeBytes(s.parsedJson.to_type);
+    for (const t of [f, to]) {
+      if (t && t !== USDSUI_TYPE && t !== "0x2::sui::SUI") otherTypes.add(t);
+    }
+  }
+  if (otherTypes.size > 0) {
+    await primeCoinInfo(Array.from(otherTypes));
+  }
+
+  const entries: ActivityEntry[] = [];
+
+  for (const d of deposits) {
+    const p = d.parsedJson;
+    const coinType = decodeBytes(p.coin_type);
+    const rawAmount = toBigInt(p.amount);
+    if (rawAmount === 0n || !coinType) continue;
+
+    let amountUsdsui: number | null = null;
+    let amountSui: number | null = null;
+    let otherCoin: ActivityEntry["otherCoin"] = null;
+    if (coinType === USDSUI_TYPE) {
+      amountUsdsui = Number(rawAmount) / 1e6;
+    } else if (coinType === "0x2::sui::SUI") {
+      amountSui = Number(rawAmount) / 1e9;
+    } else {
+      const info = lookupCoinInfo(coinType);
+      otherCoin = {
+        coinType,
+        symbol: info.symbol,
+        amount: rawAmount.toString(),
+        decimals: info.decimals,
+      };
+    }
+
+    entries.push({
+      digest: d.digest,
+      timestampMs: d.timestampMs,
+      direction: "received",
+      amountUsdsui,
+      amountSui,
+      counterparty: p.from ?? null,
+      counterpartyName: null,
+      // `venue: "@handle"` is a marker that the row is a vault-side
+      // inbound transfer — HistoryRow already special-cases this so
+      // the title reads "Received via @handle" instead of "Received".
+      venue: "@handle",
+      roundupUsdsui: null,
+      otherCoin,
+    });
+  }
+
+  for (const s of autoSwaps) {
+    const p = s.parsedJson;
+    const fromType = decodeBytes(p.from_type);
+    const toType = decodeBytes(p.to_type);
+    const fromAmount = toBigInt(p.from_amount);
+    const toAmount = toBigInt(p.to_amount);
+    if (fromAmount === 0n && toAmount === 0n) continue;
+
+    // Compose the row so HistoryRow's "Swapped X → Y" path picks up
+    // both legs. The source side fills `amountSui` (when it's SUI)
+    // or `otherCoin` (anything else); the destination fills
+    // `amountUsdsui` when the swap landed in USDsui, else `otherCoin`
+    // — but the auto_swap path only ever produces USDsui today so
+    // the common case is `(SUI|other) → USDsui`.
+    let amountUsdsui: number | null = null;
+    let amountSui: number | null = null;
+    let otherCoin: ActivityEntry["otherCoin"] = null;
+    let venue: string | null = null;
+
+    if (fromType === "0x2::sui::SUI") {
+      amountSui = Number(fromAmount) / 1e9;
+    } else if (fromType && fromType !== USDSUI_TYPE) {
+      const info = lookupCoinInfo(fromType);
+      otherCoin = {
+        coinType: fromType,
+        symbol: info.symbol,
+        amount: fromAmount.toString(),
+        decimals: info.decimals,
+      };
+      // `venue` is the source coin symbol — HistoryRow renders
+      // "Auto-swapped <SYMBOL>" when both legs aren't separately
+      // formatted (rare, but the fallback exists in the iOS code).
+      venue = info.symbol;
+    } else if (fromType === USDSUI_TYPE) {
+      // Reverse swap (USDsui → SUI / other) — populate the USDsui
+      // leg with the FROM amount so the composer renders correctly.
+      amountUsdsui = Number(fromAmount) / 1e6;
+    }
+
+    if (toType === USDSUI_TYPE) {
+      // Common case: USDsui is the destination. Overwrite any
+      // amountUsdsui set above (the auto_swap module never emits
+      // USDsui → USDsui so this branch + the from-USDsui branch
+      // are mutually exclusive in practice).
+      amountUsdsui = Number(toAmount) / 1e6;
+    } else if (toType === "0x2::sui::SUI" && amountSui === null) {
+      amountSui = Number(toAmount) / 1e9;
+    } else if (toType && toType !== USDSUI_TYPE && otherCoin === null) {
+      const info = lookupCoinInfo(toType);
+      otherCoin = {
+        coinType: toType,
+        symbol: info.symbol,
+        amount: toAmount.toString(),
+        decimals: info.decimals,
+      };
+    }
+
+    entries.push({
+      digest: s.digest,
+      timestampMs: s.timestampMs,
+      direction: "autoswap",
+      amountUsdsui,
+      amountSui,
+      counterparty: null,
+      counterpartyName: null,
+      venue,
+      roundupUsdsui: null,
+      otherCoin,
+    });
+  }
+
+  return entries;
+}
+
+/**
  * `includeNonTalise: true` shows every successful USDsui / SUI movement
  * the address has been involved in, regardless of whether the tx flowed
  * through Talise's payment-kit registry. Used by the iOS /api/activity
  * feed (users want to see "money I received" — they don't care about
  * which kit was used). The web feeds keep the curated default so the
  * Talise UI stays branded.
+ *
+ * `vaultId` opt: when set, we additionally walk the
+ * `talise::vault::VaultDeposit` + `VaultAutoSwap` event streams for that
+ * vault and merge the resulting rows into the wallet-side feed. Without
+ * it, vault-side activity (auto-swap conversions, inbound payments to
+ * @handle that land directly on the vault) would be invisible — the
+ * wallet's tx history only sees txs touching the user's address.
  */
 export async function getRecentActivity(
   address: string,
   limit = 12,
-  opts: { includeNonTalise?: boolean } = {}
+  opts: { includeNonTalise?: boolean; vaultId?: string | null } = {}
 ): Promise<ActivityEntry[]> {
   const c = client();
   const options = {
@@ -849,9 +1141,65 @@ export async function getRecentActivity(
     });
   }
 
-  // Sort newest first, slice to limit.
+  // Merge in vault-side events (deposits to the vault + auto-swap
+  // conversions). These are emitted by the `talise::vault` Move module
+  // and never appear in the user's wallet tx history — without this
+  // pass the user can't see "money I received via @handle" nor the
+  // cron-driven SUI→USDsui auto-swap.
+  if (opts.vaultId) {
+    try {
+      const { packageId } = vaultPackageIds();
+      const vaultEntries = await getVaultEventActivity(
+        opts.vaultId,
+        limit,
+        packageId
+      );
+      for (const ve of vaultEntries) entries.push(ve);
+    } catch (err) {
+      if (!(err instanceof VaultNotDeployedError)) {
+        // Soft-fail: vault module deployed but the event walk hiccuped.
+        // Keep the wallet-side rows rather than failing the whole feed.
+        console.warn(
+          `[activity] vault-event walk failed: ${(err as Error).message}`
+        );
+      }
+    }
+  }
+
+  // Sort newest first, then dedupe by digest. A single auto-swap tx
+  // emits the `VaultAutoSwap` event AND moves coins on chain — if the
+  // user's address is anywhere in the balanceChanges (e.g. fee rebate)
+  // the same digest could appear on both the wallet-side and
+  // vault-side pass. Vault rows win because their direction
+  // ("autoswap"/"received via @handle") is more specific than the
+  // generic wallet classification.
   entries.sort((a, b) => b.timestampMs - a.timestampMs);
-  const limited = entries.slice(0, limit);
+  const seenDigests = new Set<string>();
+  const merged: ActivityEntry[] = [];
+  // Two-pass dedupe so a vault entry seen LATER in the sorted list (e.g.
+  // identical timestampMs but stable sort kept the wallet row first)
+  // still wins. Vault rows have direction "autoswap" or venue "@handle",
+  // wallet duplicates of the same digest will not — so when we see a
+  // duplicate digest, prefer the vault-flavored one.
+  const vaultishFlavor = (e: ActivityEntry): boolean =>
+    e.direction === "autoswap" || e.venue === "@handle";
+  const byDigestPick = new Map<string, ActivityEntry>();
+  for (const e of entries) {
+    const prev = byDigestPick.get(e.digest);
+    if (!prev) {
+      byDigestPick.set(e.digest, e);
+    } else if (vaultishFlavor(e) && !vaultishFlavor(prev)) {
+      byDigestPick.set(e.digest, e);
+    }
+  }
+  for (const e of entries) {
+    if (seenDigests.has(e.digest)) continue;
+    const winner = byDigestPick.get(e.digest);
+    if (!winner) continue;
+    seenDigests.add(e.digest);
+    merged.push(winner);
+  }
+  const limited = merged.slice(0, limit);
 
   // Reverse-resolve unique counterparties to talise handles. One RPC per
   // unique address; cache within this render so we don't hit the same
