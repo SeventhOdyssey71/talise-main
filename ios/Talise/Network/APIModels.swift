@@ -534,6 +534,16 @@ struct VaultCapMutationRequest: Codable {
     let sourceType: String
 }
 
+/// Body for `POST /api/vault/withdraw`. Pulls `amount` units of
+/// `Balance<coinType>` out of the user's vault and transfers the
+/// resulting `Coin<T>` to their wallet. `amount` is the raw u64 in
+/// the coin's native decimals — kept as a String over the wire so
+/// USDsui values approaching `2^53` micro-units don't lose precision.
+struct VaultWithdrawRequest: Codable {
+    let coinType: String
+    let amount: String
+}
+
 /// Response from `GET /api/vault/state` — the user's vault contents
 /// (if any) plus every active `AutoSwapCap` they own. Drives the
 /// `AutoSwapSettings` row list.

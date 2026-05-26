@@ -42,6 +42,10 @@ struct AutoSwapSettings: View {
     /// every user-owned cap. Disables both the banner CTA and the per-
     /// row CTAs to avoid double-fire.
     @State private var migratingAll = false
+    /// True while the one-tap "Enable all coins" PTB is in flight. Drives
+    /// the inline default-caps banner — when set we swap the CTA copy
+    /// for a spinner so the user knows the round-trip is alive.
+    @State private var enablingDefaults = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -52,6 +56,9 @@ struct AutoSwapSettings: View {
                 }
                 vaultStatusCard
                 if hasVault {
+                    if missingDefaultCaps {
+                        enableDefaultsBanner
+                    }
                     coinList
                 }
                 if let error {
@@ -408,6 +415,91 @@ struct AutoSwapSettings: View {
         }
         .padding(14)
         .taliseGlass(cornerRadius: 18)
+    }
+
+    // MARK: - Default caps (one-tap enable for SUI + USDC + USDT)
+
+    /// True when the user has a vault but is missing an active (non-paused
+    /// or paused — either counts as "exists") cap for any of the default
+    /// source coins. Drives the one-tap "Enable all coins" banner — we
+    /// want auto-swap to cover every coin a sender might use to pay this
+    /// user, otherwise inbound USDC/USDT/SUI strands at the vault.
+    ///
+    /// Migration-pending caps still count as present here — they need a
+    /// separate migrate action surfaced by the per-row CTA, and conflating
+    /// the two banners would clutter the page.
+    private var missingDefaultCaps: Bool {
+        guard let caps = state?.caps else { return false }
+        let owned = Set(caps.map { $0.sourceType })
+        for source in AutoSwapSourceCoin.allCases where !owned.contains(source.rawValue) {
+            return true
+        }
+        return false
+    }
+
+    /// Inline banner shown beneath the vault status card when one or more
+    /// of the default source coins (SUI / USDC / USDT) doesn't yet have a
+    /// cap. One tap mints all three via the
+    /// `/api/vault/enable-default-caps` PTB — three MoveCalls in one
+    /// transaction so the user signs once.
+    private var enableDefaultsBanner: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TaliseColor.accent)
+                Text("Cover every coin")
+                    .font(TaliseFont.heading(13, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+            }
+            Text("Enable auto-swap for SUI, USDC, and USDT in one tap. Senders can pay you in any of them and we'll convert to USDsui automatically.")
+                .font(TaliseFont.body(12, weight: .light))
+                .foregroundStyle(TaliseColor.fgDim)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: { Task { await enableDefaultCaps() } }) {
+                HStack(spacing: 8) {
+                    if enablingDefaults {
+                        ProgressView().controlSize(.mini).tint(TaliseColor.bg)
+                    }
+                    Text(enablingDefaults ? "Enabling…" : "Enable all coins")
+                        .font(TaliseFont.heading(13, weight: .medium))
+                }
+                .foregroundStyle(TaliseColor.bg)
+                .frame(maxWidth: .infinity)
+                .frame(height: 42)
+                .background(enablingDefaults
+                            ? TaliseColor.accent.opacity(0.5)
+                            : TaliseColor.accent)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .disabled(enablingDefaults)
+        }
+        .padding(14)
+        .taliseGlass(cornerRadius: 16, tint: TaliseColor.accent)
+    }
+
+    /// Build → sign → sponsor-execute → refetch the one-tap default-caps
+    /// PTB. After it settles, `load()` repopulates `state.caps` so the
+    /// banner disappears and the SUI / USDC / USDT rows flip to Active.
+    private func enableDefaultCaps() async {
+        if enablingDefaults { return }
+        enablingDefaults = true
+        error = nil
+        success = nil
+        defer { enablingDefaults = false }
+        do {
+            let built = try await VaultAPI.enableDefaultCaps()
+            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                transactionKindB64: built.bytesB64,
+                intent: "Enable auto-swap for SUI, USDC, USDT",
+                rewards: nil
+            )
+            success = result.digest
+            await load()
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     // MARK: - Migration
