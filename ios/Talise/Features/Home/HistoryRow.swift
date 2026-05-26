@@ -90,6 +90,14 @@ struct HistoryRow: View {
         case "invest":   return .invest
         case "withdraw": return .withdraw
         case "autoswap": return .autoswap
+        // DEX swaps (the legacy Convert banner, manual Cetus calls,
+        // anything where the user moved one coin in and a different
+        // one out in the same tx) share the auto-swap visual
+        // language — green leaf, accent tint — because the user
+        // doesn't care which path moved the funds; what matters is
+        // "I converted X into Y." Auto-swap and manual swap render
+        // identically.
+        case "swap":     return .autoswap
         case "sent":     return .sent
         default:         return .neutral
         }
@@ -187,11 +195,18 @@ struct HistoryRow: View {
             }
             return "Withdrew"
         case .autoswap:
-            // For auto-swap rows the server emits the source coin via
-            // `venue` (re-purposed — it's the field that already
-            // carries Move-call provenance for invest/withdraw). The
-            // amountFormatted handles the "0.5 SUI → $1.20 USDsui"
-            // composition; the title is the prefix.
+            // Two flavors share this case:
+            //   • direction == "autoswap" → the vault's cron-driven
+            //     swap (sub-second auto-conversion). Server emits the
+            //     source coin via `venue`.
+            //   • direction == "swap" → any DEX swap touching the
+            //     user's wallet (legacy Convert banner, direct Cetus
+            //     call, etc.). For these we render "Swapped X → Y"
+            //     using the SUI / otherCoin / USDsui legs we have.
+            //
+            // Title is just the verb; `amountFormatted` does the
+            // "X → Y" composition.
+            if entry.direction == "swap" { return "Swapped" }
             if let v = entry.venue, !v.isEmpty {
                 return "Auto-swapped \(v.uppercased())"
             }
@@ -208,19 +223,36 @@ struct HistoryRow: View {
     }
 
     private var amountFormatted: String {
-        // Auto-swap is net-neutral economically — the vault swapped
-        // one coin for another. We surface the USDsui output amount
-        // unsigned (no +/-) so the row reads as a transformation
-        // rather than a debit/credit. The title already tells the
-        // user what got converted.
+        // Auto-swap & manual swap are net-neutral economically — one
+        // coin in, a different coin out. We render BOTH legs of the
+        // transformation ("0.1 SUI → ₦139.59") so the row reads as
+        // a conversion rather than a debit/credit. The title already
+        // tells the user what category they're looking at.
         if category == .autoswap {
-            if let usd = entry.amountUsdsui {
-                return "→ " + TaliseFormat.local2(Swift.abs(usd))
+            // Build the leg strings independently so we can compose
+            // "from → to" no matter which fields the server populated:
+            //   • SUI ↔ USDsui swap: amountSui + amountUsdsui
+            //   • USDC/WAL/etc → USDsui: otherCoin + amountUsdsui
+            //   • USDsui → SUI (rare): amountUsdsui + amountSui
+            var legs: [String] = []
+            if let sui = entry.amountSui, sui > 0 {
+                legs.append(String(format: "%.4f SUI", sui))
             }
-            if let sui = entry.amountSui {
-                return String(format: "→ %.4f SUI", Swift.abs(sui))
+            if let other = entry.otherCoin {
+                legs.append("\(other.displayAmount) \(other.symbol)")
             }
-            return "→ —"
+            if let usd = entry.amountUsdsui, usd > 0 {
+                legs.append(TaliseFormat.local2(usd))
+            }
+            switch legs.count {
+            case 0: return "→ —"
+            case 1: return "→ \(legs[0])"
+            default:
+                // Always end on USDsui when present — that's the
+                // canonical Talise unit, and the "destination" the
+                // user opted into when they enabled auto-swap.
+                return "\(legs[0]) → \(legs[1])"
+            }
         }
         // Invest = wallet → pool (debit, "-"); Withdraw = pool → wallet
         // (credit, "+"). Plain transfers use direction directly.
