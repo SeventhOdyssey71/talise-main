@@ -644,6 +644,46 @@ struct VaultRepointPayload: Codable {
     let newTarget: String
 }
 
+/// One row in `GET /api/wallet/balances` — one coin type held in the
+/// user's PLAIN wallet (not the vault). `amount` is the raw u64 as a
+/// string for BigInt safety. Used by the "Convert all to USDsui" sweep
+/// CTA to enumerate what's eligible.
+struct WalletCoinBalance: Codable, Hashable {
+    let coinType: String
+    let amount: String
+    let isUsdsui: Bool
+
+    /// Raw amount as a Double for ergonomic dust-filtering. Loses
+    /// precision past ~2^53 native units, which doesn't matter for the
+    /// dust threshold check.
+    var amountDouble: Double {
+        Double(amount) ?? 0
+    }
+}
+
+struct WalletBalancesResponse: Codable {
+    let address: String
+    let balances: [WalletCoinBalance]
+}
+
+/// Body for `POST /api/wallet/sweep`. One leg per coin the user wants
+/// converted to USDsui. `amount` is the raw u64 in the coin's native
+/// decimals, kept as a String over the wire so values approaching `2^53`
+/// don't lose precision.
+struct WalletSweepRequest: Codable {
+    let coins: [WalletSweepCoin]
+}
+
+struct WalletSweepCoin: Codable {
+    let coinType: String
+    let amount: String
+}
+
+/// Response from `POST /api/wallet/sweep`. Same shape as the vault PTB
+/// endpoints — `bytesB64` flows straight into
+/// `ZkLoginCoordinator.signAndSubmit`.
+typealias WalletSweepResponse = VaultCreatePrepareResponse
+
 struct AutoSwapCapDTO: Codable, Identifiable, Hashable {
     let id: String
     let sourceType: String

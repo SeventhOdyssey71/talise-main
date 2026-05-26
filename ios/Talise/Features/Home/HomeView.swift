@@ -22,6 +22,14 @@ struct HomeView: View {
     /// when there's nothing to withdraw.
     @State private var vaultHasFunds: Bool = false
     @State private var vaultWithdrawSheetVisible = false
+    /// Plain-wallet (non-vault) balances broken out per coin type.
+    /// Drives the "Convert all to USDsui" action button — we only paint
+    /// the CTA when there is at least one non-USDsui leg above the dust
+    /// threshold to convert.
+    @State private var walletCoinBalances: [WalletCoinBalance] = []
+    @State private var walletSweepAlertVisible = false
+    @State private var walletSweepAlertMessage = ""
+    @State private var walletSweeping = false
     private let apyHeadline: Double = 0.11
 
     var body: some View {
@@ -62,6 +70,12 @@ struct HomeView: View {
             Button("Convert") { Task { await executeSweep() } }
         } message: {
             Text(sweepAlertMessage)
+        }
+        .alert("Convert all to USDsui", isPresented: $walletSweepAlertVisible) {
+            Button("Cancel", role: .cancel) {}
+            Button("Convert") { Task { await executeWalletSweep() } }
+        } message: {
+            Text(walletSweepAlertMessage)
         }
         .sheet(item: $receiptEntry) { entry in
             TxReceiptView(entry: entry)
@@ -166,6 +180,17 @@ struct HomeView: View {
             }
             Spacer()
             HStack(spacing: 8) {
+                // "Convert all to USDsui" — one-tap sweep of every non-
+                // USDsui coin in the plain wallet through Cetus. Only
+                // painted when we have at least one swappable leg above
+                // dust; otherwise it's hidden so the row doesn't show a
+                // button that would no-op on tap.
+                if walletSweepEligible {
+                    actionButton(systemName: "arrow.left.arrow.right") {
+                        walletSweepAlertMessage = walletSweepConfirmationMessage()
+                        walletSweepAlertVisible = true
+                    }
+                }
                 actionButton(systemName: "plus") {
                     Task { await openOnramp() }
                 }
@@ -416,6 +441,7 @@ struct HomeView: View {
             group.addTask { await loadActivity() }
             group.addTask { await loadSweepPreview() }
             group.addTask { await loadVaultPresence() }
+            group.addTask { await loadWalletCoinBalances() }
         }
     }
 
@@ -675,6 +701,102 @@ struct HomeView: View {
         } catch {
             sweepAlertMessage = error.localizedDescription
             sweepAlertVisible = true
+        }
+    }
+
+    // MARK: - Wallet sweep (multi-coin "Convert all to USDsui")
+
+    /// Dust threshold per leg, in raw u64 native units. Coins with less
+    /// than this in their native decimals get filtered out so the sweep
+    /// doesn't try to swap 0.0001 USDC ($0.0001) and bloat the PTB. The
+    /// figure here approximates "$0.01-ish in any common decimals layout
+    /// (6 / 9 / 9)" — server-side validation is the final arbiter; this
+    /// is just a UX gate.
+    private static let walletSweepDust: Double = 10_000
+
+    /// Legs that will actually go into the sweep — everything non-USDsui
+    /// with above-dust raw balance. Stable order so the confirmation
+    /// message reads the same on repeat opens.
+    private var walletSweepLegs: [WalletCoinBalance] {
+        walletCoinBalances
+            .filter { !$0.isUsdsui && $0.amountDouble > Self.walletSweepDust }
+            .sorted(by: { $0.coinType < $1.coinType })
+    }
+
+    private var walletSweepEligible: Bool {
+        !walletSweepLegs.isEmpty && !walletSweeping
+    }
+
+    /// Short symbol shown in the confirmation alert — we don't have a
+    /// metadata service wired into Home yet, so we derive a best-effort
+    /// label from the type tag's final `::Name` segment (e.g. `SUI`,
+    /// `WAL`, `USDC`). Falls back to a truncated package id otherwise.
+    private func walletSweepLegSymbol(_ b: WalletCoinBalance) -> String {
+        let parts = b.coinType.split(separator: ":").map(String.init)
+        // "0x...::module::Name" → "Name"
+        if let last = parts.last, !last.isEmpty {
+            return last.uppercased()
+        }
+        return String(b.coinType.suffix(6))
+    }
+
+    private func walletSweepConfirmationMessage() -> String {
+        let legs = walletSweepLegs
+        if legs.isEmpty {
+            return "Nothing eligible to convert right now."
+        }
+        let pretty = legs.prefix(4).map(walletSweepLegSymbol).joined(separator: " + ")
+        let more = legs.count > 4 ? " (+\(legs.count - 4) more)" : ""
+        return "Will convert: \(pretty)\(more) → USDsui via Cetus. Onara pays the gas."
+    }
+
+    private func loadWalletCoinBalances() async {
+        do {
+            let resp = try await WalletAPI.balances()
+            walletCoinBalances = resp.balances
+        } catch {
+            // Silent fallback — losing the enumeration only hides the
+            // sweep CTA, doesn't break the home screen.
+            if !APIError.isCancellation(error) {
+                walletCoinBalances = []
+            }
+        }
+    }
+
+    private func executeWalletSweep() async {
+        let legs = walletSweepLegs
+        guard !legs.isEmpty else { return }
+        walletSweeping = true
+        defer { walletSweeping = false }
+
+        do {
+            // 1. Build the sweep payload from the legs we already
+            //    enumerated — server is the final arbiter on validity
+            //    (Cetus route existence, etc.), but pre-filtering here
+            //    keeps the request small.
+            let coins = legs.map {
+                WalletSweepCoin(coinType: $0.coinType, amount: $0.amount)
+            }
+            let built = try await WalletAPI.sweep(coins: coins)
+
+            // 2. Same sign+sponsor pipeline as every other PTB. Onara
+            //    wraps these transaction-kind bytes into sponsored
+            //    TransactionData, the ephemeral key signs the intent,
+            //    /api/zk/sponsor-execute broadcasts.
+            let intent = "Convert wallet to USDsui (\(legs.count) coin\(legs.count == 1 ? "" : "s"))"
+            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                transactionKindB64: built.bytesB64,
+                intent: intent
+            )
+            walletSweepAlertMessage = "Converted to USDsui · digest \(result.digest.prefix(10))…"
+            walletSweepAlertVisible = true
+            await loadAll(force: true)
+        } catch APIError.status(_, let msg) {
+            walletSweepAlertMessage = msg ?? "Conversion couldn't be built right now."
+            walletSweepAlertVisible = true
+        } catch {
+            walletSweepAlertMessage = error.localizedDescription
+            walletSweepAlertVisible = true
         }
     }
 }
