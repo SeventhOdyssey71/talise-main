@@ -438,39 +438,60 @@ type OwnedCoin = {
 
 /** List `Coin<T>` objects address-owned by `vaultId`. */
 async function readVaultOwnedCoins(vaultId: string): Promise<OwnedCoin[]> {
+  // Use suix_getAllBalances → suix_getCoins(per coinType) instead of
+  // suix_getOwnedObjects. Reason: when an `AddressOwner` is the address
+  // of a SHARED object (e.g. the vault), the indexer's owner-objects
+  // table returns empty even though the coins exist and show up in
+  // getAllBalances / getCoins. This is the path coins-sent-to-@handle
+  // take, so we MUST use the alternate discovery here.
   const client = suiJsonRpc();
   const out: OwnedCoin[] = [];
-  let cursor: string | null | undefined = null;
-  do {
-    const page = await client.getOwnedObjects({
-      owner: vaultId,
-      options: { showType: true, showContent: true },
-      cursor,
-    });
-    for (const item of page.data ?? []) {
-      const t = item.data?.type;
-      if (!t) continue;
-      const m = COIN_TYPE_RE.exec(t);
-      if (!m) continue;
-      const innerType = m[1];
-      const c = item.data?.content;
-      if (!c || c.dataType !== "moveObject") continue;
-      const fields = (
-        c as unknown as {
-          fields?: { balance?: string | number };
-        }
-      ).fields ?? {};
-      let balance = 0n;
-      try {
-        balance = BigInt(String(fields.balance ?? "0"));
-      } catch {
-        balance = 0n;
-      }
-      const coinObjectId = item.data!.objectId;
-      out.push({ coinObjectId, innerType: canonicalizeTypeTag(innerType), balance });
+  const balances = await (
+    client as unknown as {
+      getAllBalances: (a: { owner: string }) => Promise<
+        Array<{ coinType: string; totalBalance: string }>
+      >;
     }
-    cursor = page.hasNextPage ? page.nextCursor : null;
-  } while (cursor);
+  ).getAllBalances({ owner: vaultId });
+
+  for (const b of balances ?? []) {
+    if (!b.coinType) continue;
+    if (BigInt(b.totalBalance ?? "0") === 0n) continue;
+    // Page through every Coin<T> object of this type at the vault
+    // address. Typically 1–2 objects per type for a fresh handle.
+    let cursor: string | null | undefined = null;
+    do {
+      const page = await (
+        client as unknown as {
+          getCoins: (a: {
+            owner: string;
+            coinType: string;
+            cursor?: string | null;
+            limit?: number;
+          }) => Promise<{
+            data: Array<{ coinObjectId: string; balance: string }>;
+            nextCursor: string | null;
+            hasNextPage: boolean;
+          }>;
+        }
+      ).getCoins({ owner: vaultId, coinType: b.coinType, cursor, limit: 50 });
+      for (const c of page.data ?? []) {
+        let bal = 0n;
+        try {
+          bal = BigInt(c.balance ?? "0");
+        } catch {
+          bal = 0n;
+        }
+        if (bal === 0n) continue;
+        out.push({
+          coinObjectId: c.coinObjectId,
+          innerType: canonicalizeTypeTag(b.coinType),
+          balance: bal,
+        });
+      }
+      cursor = page.hasNextPage ? page.nextCursor : null;
+    } while (cursor);
+  }
   return out;
 }
 
@@ -702,10 +723,17 @@ export async function GET(req: Request) {
         const ownedCoins = await readVaultOwnedCoins(u.talise_vault_id);
         for (const oc of ownedCoins) {
           if (oc.balance === 0n) continue;
-          if (!capByType.has(oc.innerType)) {
-            // No cap → we can't auto-swap it, so don't pay gas to
-            // pull it into the bag. (It'll get claimed once the user
-            // enables a cap for that type.)
+          // Claim if (a) we have a cap for this type (it'll be swapped
+          // on the same tick) OR (b) it's USDsui directly — USDsui has
+          // no cap by design (it's the destination, not a source), but
+          // we still want to receive it so the v4
+          // `auto_swap_deposit_to_owner` drain flushes it to the user's
+          // wallet on the next swap tick. Without this special case,
+          // USDsui sent to @handle would sit address-owned at the vault
+          // forever.
+          const isUsdsuiDest = oc.innerType === usdsuiType;
+          if (!capByType.has(oc.innerType) && !isUsdsuiDest) {
+            // No cap and not the dest type → can't move it forward.
             summary.claim_skipped_no_cap++;
             continue;
           }
