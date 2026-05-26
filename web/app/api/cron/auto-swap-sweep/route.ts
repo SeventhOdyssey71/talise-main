@@ -434,48 +434,62 @@ type OwnedCoin = {
   coinObjectId: string;
   innerType: string;
   balance: bigint;
+  /// version + digest are required to construct a `Receiving<Coin<T>>`
+  /// PTB input — without them the SDK can't tell which version of the
+  /// coin to consume, and `vault::receive_and_deposit` rejects the
+  /// build with "Object not found".
+  version: string;
+  digest: string;
 };
 
 /** List `Coin<T>` objects address-owned by `vaultId`. */
 async function readVaultOwnedCoins(vaultId: string): Promise<OwnedCoin[]> {
-  // Use suix_getAllBalances → suix_getCoins(per coinType) instead of
-  // suix_getOwnedObjects. Reason: when an `AddressOwner` is the address
-  // of a SHARED object (e.g. the vault), the indexer's owner-objects
-  // table returns empty even though the coins exist and show up in
-  // getAllBalances / getCoins. This is the path coins-sent-to-@handle
-  // take, so we MUST use the alternate discovery here.
-  const client = suiJsonRpc();
+  // Discovery via direct JSON-RPC fetch — the SDK's getAllBalances/getCoins
+  // returned empty for shared-object addresses in production despite raw
+  // suix_getAllBalances + suix_getCoins working against the same URL.
+  // Likely an SDK normalization issue with the vault's 64-char address
+  // not matching the SDK's internal canonicalization. Going around it.
+  const url = "https://fullnode.mainnet.sui.io:443";
+  const rpc = async (method: string, params: unknown[]) => {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) throw new Error(`${method} → HTTP ${r.status}`);
+    const body = (await r.json()) as { result?: unknown; error?: { message: string } };
+    if (body.error) throw new Error(`${method} → ${body.error.message}`);
+    return body.result;
+  };
+
   const out: OwnedCoin[] = [];
-  const balances = await (
-    client as unknown as {
-      getAllBalances: (a: { owner: string }) => Promise<
-        Array<{ coinType: string; totalBalance: string }>
-      >;
-    }
-  ).getAllBalances({ owner: vaultId });
+  const balances = (await rpc("suix_getAllBalances", [vaultId])) as Array<{
+    coinType: string;
+    totalBalance: string;
+  }>;
 
   for (const b of balances ?? []) {
     if (!b.coinType) continue;
     if (BigInt(b.totalBalance ?? "0") === 0n) continue;
-    // Page through every Coin<T> object of this type at the vault
-    // address. Typically 1–2 objects per type for a fresh handle.
-    let cursor: string | null | undefined = null;
+    let cursor: string | null = null;
     do {
-      const page = await (
-        client as unknown as {
-          getCoins: (a: {
-            owner: string;
-            coinType: string;
-            cursor?: string | null;
-            limit?: number;
-          }) => Promise<{
-            data: Array<{ coinObjectId: string; balance: string }>;
-            nextCursor: string | null;
-            hasNextPage: boolean;
-          }>;
-        }
-      ).getCoins({ owner: vaultId, coinType: b.coinType, cursor, limit: 50 });
-      for (const c of page.data ?? []) {
+      const page = (await rpc("suix_getCoins", [
+        vaultId,
+        b.coinType,
+        cursor,
+        50,
+      ])) as {
+        data: Array<{ coinObjectId: string; balance: string }>;
+        nextCursor: string | null;
+        hasNextPage: boolean;
+      };
+      for (const c of page.data as unknown as Array<{
+        coinObjectId: string;
+        balance: string;
+        version: string;
+        digest: string;
+      }>) {
         let bal = 0n;
         try {
           bal = BigInt(c.balance ?? "0");
@@ -487,6 +501,8 @@ async function readVaultOwnedCoins(vaultId: string): Promise<OwnedCoin[]> {
           coinObjectId: c.coinObjectId,
           innerType: canonicalizeTypeTag(b.coinType),
           balance: bal,
+          version: c.version,
+          digest: c.digest,
         });
       }
       cursor = page.hasNextPage ? page.nextCursor : null;
@@ -515,6 +531,8 @@ async function callOnaraReceiveAndDeposit(args: {
   packageId: string;
   vaultId: string;
   coinObjectId: string;
+  coinVersion: string;
+  coinDigest: string;
   coinType: string;
 }): Promise<SwapResult> {
   try {
@@ -526,6 +544,11 @@ async function callOnaraReceiveAndDeposit(args: {
         body: JSON.stringify({
           vaultId: args.vaultId,
           coinObjectId: args.coinObjectId,
+          // (id, version, digest) is the full Receiving ref the Move
+          // function needs — the SDK can't auto-resolve for address-
+          // owned-by-shared-object coins.
+          coinVersion: args.coinVersion,
+          coinDigest: args.coinDigest,
           coinType: args.coinType,
           packageId: args.packageId,
         }),
@@ -721,6 +744,12 @@ export async function GET(req: Request) {
       // — either way we fall through to the balance sweep below).
       try {
         const ownedCoins = await readVaultOwnedCoins(u.talise_vault_id);
+        console.log(
+          `[auto-swap-sweep] user=${u.id} owned-coins-found=${ownedCoins.length}` +
+            (ownedCoins[0]
+              ? ` first={type:${ownedCoins[0].innerType.slice(0, 40)}...,bal:${ownedCoins[0].balance.toString()}}`
+              : "")
+        );
         for (const oc of ownedCoins) {
           if (oc.balance === 0n) continue;
           // Claim if (a) we have a cap for this type (it'll be swapped
@@ -742,6 +771,8 @@ export async function GET(req: Request) {
             packageId: packageIdLatest,
             vaultId: u.talise_vault_id,
             coinObjectId: oc.coinObjectId,
+            coinVersion: oc.version,
+            coinDigest: oc.digest,
             coinType: oc.innerType,
           });
           if (res.ok) {
