@@ -13,7 +13,9 @@ struct AutoSwapSettings: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var state: VaultStateResponse?
+    @State private var migration: VaultMigrationStatus?
     @State private var loading = true
+    @State private var syncingSubname = false
     /// Per-row in-flight cap mutation (pause/resume/disable). Keyed by
     /// `capId` so two simultaneous rows can't share the spinner.
     @State private var pendingCapId: String?
@@ -101,6 +103,10 @@ struct AutoSwapSettings: View {
             if hasVault, let v = state?.vault {
                 Divider().background(Color.white.opacity(0.06))
                 vaultBalanceRows(v)
+                if needsRepoint {
+                    Divider().background(Color.white.opacity(0.06))
+                    repointWarning
+                }
             } else if !loading {
                 // Pre-vault state — explain what creating one does and
                 // offer the single CTA. Keeps the surface mostly empty
@@ -115,6 +121,39 @@ struct AutoSwapSettings: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .taliseGlass(cornerRadius: 22)
+    }
+
+    /// Inline warning + one-tap recovery for vaults whose @talise
+    /// subname still targets an old address (typical for users who
+    /// migrated through an earlier broken version of the create-vault
+    /// flow that dropped the repoint PTB silently). Without this leg,
+    /// every send to `name@talise` lands at the stale address and
+    /// auto-swap never picks it up.
+    private var repointWarning: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TaliseColor.accent)
+                Text("Subname not pointing here")
+                    .font(TaliseFont.heading(13, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+            }
+            Text("Sends to your @talise handle still go to your old address. One tap to repoint them at the vault.")
+                .font(TaliseFont.body(12, weight: .light))
+                .foregroundStyle(TaliseColor.fgDim)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: { Task { await syncSubname() } }) {
+                Text(syncingSubname ? "Repointing…" : "Sync subname")
+                    .font(TaliseFont.heading(13, weight: .medium))
+                    .foregroundStyle(TaliseColor.bg)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
+                    .background(TaliseColor.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .disabled(syncingSubname)
+        }
     }
 
     private var vaultStatusTitle: String {
@@ -377,7 +416,57 @@ struct AutoSwapSettings: View {
         loading = true
         defer { loading = false }
         do {
-            state = try await VaultAPI.getState()
+            // Run state + migration-status in parallel so the page
+            // renders the vault card + the "subname not pointing at
+            // your vault" warning in one network round-trip.
+            async let s = VaultAPI.getState()
+            async let m = VaultAPI.migrationStatus()
+            state = try await s
+            // migration-status 503s gracefully when the package isn't
+            // deployed; treat any failure here as "no banner".
+            migration = (try? await m)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Whether the user's `@talise` subname still targets an address
+    /// other than the vault. Drives the inline "Sync subname" CTA
+    /// in the vault status card — without this, sends to
+    /// `name@talise` keep landing in the user's pre-vault address
+    /// and auto-swap never sees the deposits.
+    private var needsRepoint: Bool {
+        migration?.reason == "subname-not-repointed"
+    }
+
+    /// Stage-B repoint: server hands back the SuiNS `set_target_address`
+    /// PTB → we sign + sponsor-execute → confirm with the digest. Used
+    /// for migrating users whose vault was created before this fix
+    /// landed (vault recorded, subname stranded on an old address).
+    private func syncSubname() async {
+        if syncingSubname { return }
+        syncingSubname = true
+        error = nil
+        defer { syncingSubname = false }
+        do {
+            let bundle = try await VaultAPI.migrateBundle(stage: "repoint")
+            guard let bytes = bundle.bytesB64 else {
+                // No-op: server says nothing to repoint (already
+                // correct, or no subname). Refetch to clear the CTA.
+                await load()
+                return
+            }
+            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                transactionKindB64: bytes,
+                intent: "Point @talise → vault",
+                rewards: nil
+            )
+            try await VaultAPI.migrateConfirm(
+                stage: "repoint",
+                digest: result.digest
+            )
+            success = result.digest
+            await load()
         } catch {
             self.error = error.localizedDescription
         }
@@ -406,7 +495,26 @@ struct AutoSwapSettings: View {
             // object-changes. We pass an empty placeholder so the
             // contract still matches; the server treats empty as
             // "derive it".
-            try await VaultAPI.record(vaultId: "", digest: result.digest)
+            let recorded = try await VaultAPI.record(
+                vaultId: "",
+                digest: result.digest
+            )
+
+            // SuiNS repoint stage. When the user already had a Talise
+            // subname (the common case for migrating users), the
+            // backend hands back a second PTB that re-targets the
+            // subname at the new vault id. Without this leg, every
+            // send to `name@talise` keeps landing in the user's
+            // pre-vault address — auto-swap never sees the deposits.
+            // Skip silently when `repoint == nil` (user with no
+            // subname yet, or already-correct target).
+            if let repoint = recorded.repoint {
+                let _ = try await ZkLoginCoordinator.shared.signAndSubmit(
+                    transactionKindB64: repoint.bytesB64,
+                    intent: "Point \(repoint.fullName) → vault",
+                    rewards: nil
+                )
+            }
             await load()
         } catch {
             self.error = error.localizedDescription
