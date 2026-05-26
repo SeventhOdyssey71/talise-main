@@ -3,7 +3,9 @@ import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
 import { SignInButton } from "@/components/SignInButton";
-import { LandingMotion } from "@/components/LandingMotion";
+// LandingMotion removed — page is short enough now (Hero + FeatureGrid
+// + FinalCta) that the GSAP scroll-trigger layer is more distraction
+// than affordance.
 import { userById } from "@/lib/db";
 import { readSessionEntryId } from "@/lib/session";
 
@@ -47,7 +49,6 @@ export default async function Landing({
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[var(--color-bg)] text-[var(--color-fg)]">
-      <LandingMotion />
       <div className="talise-top-glow" aria-hidden />
 
       <TopBar />
@@ -55,8 +56,6 @@ export default async function Landing({
       <main className="relative z-10 mx-auto w-full max-w-[1440px] px-6 pb-32 md:px-12 lg:px-16">
         <Hero err={params.err} />
         <FeatureGrid />
-        <DeepFeatures />
-        <PersonaStories />
         <FinalCta />
       </main>
 
@@ -78,14 +77,9 @@ function TopBar() {
         <Diamond />
         <span>talise</span>
       </Link>
-      <nav className="hidden items-center gap-7 text-[13px] text-[var(--color-fg-muted)] md:flex">
-        <a href="#how" className="transition hover:text-[var(--color-fg)]">
-          How it works
-        </a>
-        <a href="#who" className="transition hover:text-[var(--color-fg)]">
-          Who it's for
-        </a>
-      </nav>
+      {/* Nav links removed — the page is short enough that #how / #who
+          anchor scrolls add noise rather than helping. The hero CTA is
+          the only thing we want users to do. */}
       <Link
         href="#cta"
         className="rounded-full bg-[var(--color-surface-2)] px-4 py-2 text-[13px] text-[var(--color-fg)] transition hover:bg-[var(--color-surface)]"
@@ -131,7 +125,15 @@ function Hero({ err }: { err?: string }) {
         className="motion-cta mx-auto mt-9 flex w-full max-w-[520px] flex-col items-stretch gap-3 sm:flex-row sm:justify-center"
       >
         <div className="flex flex-1">
-          <SignInButton variant="primary" label="Sign Up with Google" />
+          {/* Talise is in private beta — every Get started/Sign up CTA
+              routes to the waitlist, not Google sign-in. When we
+              flip the doors open this swaps back to SignInButton. */}
+          <Link
+            href="/waitlist"
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-[15px] font-medium text-black transition-opacity hover:opacity-90"
+          >
+            Join waitlist
+          </Link>
         </div>
         <AppStoreButton />
       </div>
@@ -893,7 +895,15 @@ function FinalCta() {
       </p>
       <div className="mx-auto mt-9 flex w-full max-w-[520px] flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
         <div className="flex flex-1">
-          <SignInButton variant="primary" label="Sign Up with Google" />
+          {/* Talise is in private beta — every Get started/Sign up CTA
+              routes to the waitlist, not Google sign-in. When we
+              flip the doors open this swaps back to SignInButton. */}
+          <Link
+            href="/waitlist"
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-[15px] font-medium text-black transition-opacity hover:opacity-90"
+          >
+            Join waitlist
+          </Link>
         </div>
         <AppStoreButton />
       </div>
