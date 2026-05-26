@@ -16,6 +16,12 @@ struct HomeView: View {
     @State private var sweeping = false
     @State private var receiptEntry: ActivityEntryDTO?
     @State private var historySheetVisible = false
+    /// True when the user's `TaliseVault` is holding non-zero balances —
+    /// drives the "Move to wallet" pill next to the +/paperplane row.
+    /// Read on appear via `/api/vault/state` so we don't paint the CTA
+    /// when there's nothing to withdraw.
+    @State private var vaultHasFunds: Bool = false
+    @State private var vaultWithdrawSheetVisible = false
     private let apyHeadline: Double = 0.11
 
     var body: some View {
@@ -66,6 +72,19 @@ struct HomeView: View {
             HistoryView()
                 .presentationDetents([.large])
                 .presentationBackground(TaliseColor.bg)
+        }
+        .sheet(isPresented: $vaultWithdrawSheetVisible) {
+            VaultWithdrawSheet(onWithdrew: {
+                // After a successful vault withdraw the spendable
+                // wallet just grew; refresh balances + activity and
+                // re-poll the vault so the pill disappears if it's
+                // now drained.
+                Task {
+                    await loadAll(force: true)
+                    await loadVaultPresence()
+                }
+            })
+            .presentationBackground(TaliseColor.bg)
         }
     }
 
@@ -149,6 +168,16 @@ struct HomeView: View {
             HStack(spacing: 8) {
                 actionButton(systemName: "plus") {
                     Task { await openOnramp() }
+                }
+                // "Move to wallet" — only painted when the user has
+                // something to pull out of the vault. Auto-swap drops
+                // USDsui into the vault; this pill is the way to spend
+                // that money. Tray-arrow-up reads as "lift out of
+                // container" in the SF Symbol library.
+                if vaultHasFunds {
+                    actionButton(systemName: "tray.and.arrow.up.fill") {
+                        vaultWithdrawSheetVisible = true
+                    }
                 }
                 // SF Symbol `paperplane` (outlined, not `.fill`) ships at
                 // the canonical ~45° upper-right angle that reads as
@@ -386,6 +415,26 @@ struct HomeView: View {
             group.addTask { await loadBalance() }
             group.addTask { await loadActivity() }
             group.addTask { await loadSweepPreview() }
+            group.addTask { await loadVaultPresence() }
+        }
+    }
+
+    /// Lightweight `/api/vault/state` ping that just sets the boolean
+    /// driving the "Move to wallet" pill. We don't decode balances here
+    /// — `VaultWithdrawSheet` owns the full state read when the sheet
+    /// opens. Failure (incl. 503 when the package isn't deployed) is
+    /// silent: the pill stays hidden.
+    private func loadVaultPresence() async {
+        do {
+            let s: VaultStateResponse = try await VaultAPI.getState()
+            let hasFunds = (s.vault?.balances ?? []).contains(where: {
+                (UInt64($0.amount) ?? 0) > 0
+            })
+            vaultHasFunds = hasFunds
+        } catch {
+            if !APIError.isCancellation(error) {
+                vaultHasFunds = false
+            }
         }
     }
 

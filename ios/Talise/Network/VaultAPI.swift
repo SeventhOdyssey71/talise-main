@@ -104,6 +104,26 @@ enum VaultAPI {
         )
     }
 
+    /// `POST /api/vault/enable-default-caps` — one-tap PTB that mints
+    /// `AutoSwapCap<T>` for SUI / USDC / USDT in a single transaction.
+    /// Used right after vault creation (and on later visits if any of the
+    /// three defaults is missing) so the cron worker has caps for every
+    /// common deposit coin without the user signing three separate times
+    /// through the per-coin `enableAutoSwap` flow.
+    ///
+    /// Server defaults (see `web/lib/vault.ts::DEFAULT_AUTO_SWAP_CAPS`):
+    ///   • max_per_swap = 1e10 raw in each coin's native decimals
+    ///     (≈ 10 SUI / 10k USDC / 10k USDT)
+    ///   • expires_at_ms = 0 (never expires)
+    /// The user can later tighten any bound via the Settings sliders.
+    static func enableDefaultCaps() async throws -> VaultCreatePrepareResponse {
+        struct EmptyBody: Encodable {}
+        return try await APIClient.shared.post(
+            "/api/vault/enable-default-caps",
+            body: EmptyBody()
+        )
+    }
+
     /// `POST /api/vault/pause` — builds the PTB that flips the cap's
     /// `paused` flag to `true`. Doesn't burn the cap; resume flips it
     /// back. Use disable() when the user wants to revoke entirely.
@@ -165,6 +185,26 @@ enum VaultAPI {
     /// `AutoSwapSettings` view's whole render pass.
     static func getState() async throws -> VaultStateResponse {
         try await APIClient.shared.get("/api/vault/state")
+    }
+
+    /// `POST /api/vault/withdraw` — prepares the PTB that calls
+    /// `talise::vault::withdraw_and_send<T>(&mut vault, amount, sender)`,
+    /// moving `amount` (raw u64 in native decimals, sent as a string)
+    /// of the user's vault-held `Balance<T>` into a coin transferred to
+    /// the user's wallet. Used by `VaultWithdrawSheet` after the user
+    /// taps "Move to wallet".
+    ///
+    /// The Move entry asserts `ctx.sender() == vault.owner`, so the
+    /// signer MUST be the vault owner (zkLogin ephemeral key signs the
+    /// resulting bytes via `ZkLoginCoordinator.signAndSubmit`).
+    static func withdrawFromVault(
+        coinType: String,
+        amount: String
+    ) async throws -> VaultCreatePrepareResponse {
+        try await APIClient.shared.post(
+            "/api/vault/withdraw",
+            body: VaultWithdrawRequest(coinType: coinType, amount: amount)
+        )
     }
 }
 

@@ -171,6 +171,86 @@ export function buildEnableAutoSwapTx(
 }
 
 /**
+ * Default source coins minted at vault setup so the auto-swap cron has a
+ * cap for every common deposit type without the user signing three times.
+ *
+ * `maxPerSwap` is the on-chain u64 in the coin's native decimals. We pick
+ * conservative-but-generous demo defaults rather than fetch live prices
+ * here — the route building this PTB needs to be cheap and deterministic,
+ * and the user can later tighten any bound via `auto_swap::update_bounds`:
+ *
+ *   • SUI  (9d) — 1e10 raw  = 10 SUI   (≈ $20 at $2/SUI; covers any
+ *                                       reasonable single transfer)
+ *   • USDC (6d) — 1e10 raw  = 10_000 USDC
+ *   • USDT (6d) — 1e10 raw  = 10_000 USDT
+ *
+ * Both stables get the same large headroom — the cap is a per-swap ceiling,
+ * not a daily total, so 10k USD covers any consumer-tier inbound transfer
+ * the cron is likely to sweep before a human notices and tightens it.
+ *
+ * `expiresAtMs = 0` is the never-expires sentinel enforced by the Move
+ * `enable_auto_swap` entry — same semantic the manual Enable flow uses
+ * when the user picks "no expiry".
+ */
+export const DEFAULT_AUTO_SWAP_CAPS: ReadonlyArray<{
+  sourceType: string;
+  maxPerSwap: bigint;
+  expiresAtMs: bigint;
+}> = [
+  { sourceType: "0x2::sui::SUI", maxPerSwap: 10_000_000_000n, expiresAtMs: 0n },
+  {
+    sourceType:
+      "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
+    maxPerSwap: 10_000_000_000n,
+    expiresAtMs: 0n,
+  },
+  {
+    sourceType:
+      "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN",
+    maxPerSwap: 10_000_000_000n,
+    expiresAtMs: 0n,
+  },
+];
+
+/**
+ * Build a single PTB that mints `AutoSwapCap<T>` for every entry in
+ * `DEFAULT_AUTO_SWAP_CAPS` (or the supplied subset) against the user's
+ * existing shared vault. Three `enable_auto_swap` MoveCalls in one tx —
+ * the user signs once, the cron sees caps for SUI / USDC / USDT, and any
+ * subsequent inbound transfer of any of those coins gets swept on the
+ * next pass instead of stranding at the vault address.
+ *
+ * Targets `packageIdLatest` for the same reason `buildEnableAutoSwapTx`
+ * does — v3's entry shares the cap; v1/v2 transfers it to the owner and
+ * the cron can't reference it.
+ */
+export function buildEnableDefaultCapsTx(
+  sender: string,
+  vaultId: string,
+  sources: ReadonlyArray<{
+    sourceType: string;
+    maxPerSwap: bigint | number;
+    expiresAtMs: bigint | number;
+  }> = DEFAULT_AUTO_SWAP_CAPS
+): Transaction {
+  const { packageIdLatest } = vaultPackageIds();
+  const tx = new Transaction();
+  tx.setSender(sender);
+  for (const src of sources) {
+    tx.moveCall({
+      target: `${packageIdLatest}::vault::enable_auto_swap`,
+      typeArguments: [src.sourceType],
+      arguments: [
+        tx.object(vaultId),
+        tx.pure.u64(BigInt(src.maxPerSwap)),
+        tx.pure.u64(BigInt(src.expiresAtMs)),
+      ],
+    });
+  }
+  return tx;
+}
+
+/**
  * Build a PTB that re-targets a `*.talise.sui` SuiNS subname NFT at a
  * new address (typically the user's vault id). The signer MUST be the
  * current owner of the subname NFT — Talise's operator key cannot do
@@ -201,6 +281,42 @@ export function buildRepointSubnameTx(
     nft: nftId,
     address: newTarget,
     isSubname: true,
+  });
+  return tx;
+}
+
+/**
+ * `talise::vault::withdraw_and_send<T>(&mut vault, amount, recipient)` —
+ * pulls `amount` units of `Balance<T>` out of the shared vault's bag and
+ * transfers the resulting `Coin<T>` to `recipient` (the user's wallet).
+ *
+ * Move asserts (all on `talise::vault`):
+ *   • `ctx.sender() == vault.owner` (E_NOT_OWNER)
+ *   • `amount > 0` (E_ZERO_AMOUNT)
+ *   • bag holds the requested type (E_TYPE_NOT_HELD)
+ *   • bag balance ≥ amount (E_INSUFFICIENT_BALANCE)
+ *
+ * Targets `packageIdLatest` — the entry symbol is stable across the v2→v3
+ * chain but pinning to latest keeps the call forward-compatible with any
+ * future tweak. `amount` is the raw u64 in the coin's native decimals.
+ */
+export function buildWithdrawFromVaultTx(
+  sender: string,
+  vaultId: string,
+  coinType: string,
+  amount: bigint
+): Transaction {
+  const { packageIdLatest } = vaultPackageIds();
+  const tx = new Transaction();
+  tx.setSender(sender);
+  tx.moveCall({
+    target: `${packageIdLatest}::vault::withdraw_and_send`,
+    typeArguments: [coinType],
+    arguments: [
+      tx.object(vaultId),
+      tx.pure.u64(amount),
+      tx.pure.address(sender),
+    ],
   });
   return tx;
 }
