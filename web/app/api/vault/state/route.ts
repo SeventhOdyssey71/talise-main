@@ -61,6 +61,16 @@ type Cap = {
    * a plain JSONDecoder (no snake_case conversion).
    */
   needsMigration: boolean;
+  /**
+   * True when the cap is a v1 `AutoSwapCap<T>` (lacks the v7 per-day
+   * throttle) and the user should run `vault::upgrade_cap_to_v2<T>` to
+   * promote it to a `AutoSwapCapV2<T>`. After v7 lands the cron only
+   * sweeps v2 caps — v1 caps still execute swaps via the legacy path
+   * during the transition but UI surfaces an Upgrade CTA so the user
+   * opts in to the daily-budget protection. False for v2 caps, which
+   * are the post-upgrade shape and need no further action.
+   */
+  isV1: boolean;
 };
 type State = {
   vault: { id: string; balances: Balance[] } | null;
@@ -151,6 +161,9 @@ type SharedCapRow = {
   maxPerSwap: string;
   expiresAtMs: string;
   paused: boolean;
+  /** v1 `AutoSwapCap<T>` vs v2 `AutoSwapCapV2<T>` — drives the iOS
+   *  Upgrade banner. */
+  isV1: boolean;
 };
 
 /**
@@ -231,6 +244,104 @@ async function readSharedCapsForOwner(
           maxPerSwap: fields.max_per_swap,
           expiresAtMs: fields.expires_at_ms,
           paused: fields.paused,
+          isV1: true,
+        });
+      } catch {
+        // Burned, schema-skewed, or transient RPC error — skip silently.
+      }
+    }
+    if (!page.hasNextPage) break;
+    cursor = page.nextCursor;
+  }
+  return out;
+}
+
+/**
+ * Find every Shared `AutoSwapCapV2<T>` minted by `owner` via the v7
+ * `vault::upgrade_cap_to_v2` migration. Emits `CapUpgradedToV2` —
+ * we walk those (descending) and getObject each `new_cap_id` to
+ * confirm it's still Shared and read its current fields.
+ *
+ * `enable_auto_swap_v2` (if/when added) would emit a different event,
+ * but for the v7 transition window the only path to a v2 cap is the
+ * upgrade entry. New mints get added as a separate walker later.
+ */
+async function readSharedV2CapsForOwner(
+  packageId: string,
+  owner: string
+): Promise<SharedCapRow[]> {
+  const client = suiJsonRpc();
+  const out: SharedCapRow[] = [];
+  const seen = new Set<string>();
+
+  let cursor: unknown = null;
+  let scanned = 0;
+  while (scanned < MAX_EVENTS_SCAN) {
+    let page: {
+      data: Array<{ parsedJson?: { new_cap_id?: string; owner?: string } }>;
+      nextCursor: unknown;
+      hasNextPage: boolean;
+    };
+    try {
+      page = await (
+        client as unknown as {
+          queryEvents: (a: {
+            query: { MoveEventType: string };
+            cursor?: unknown;
+            limit?: number;
+            order?: "ascending" | "descending";
+          }) => Promise<typeof page>;
+        }
+      ).queryEvents({
+        query: { MoveEventType: `${packageId}::auto_swap::CapUpgradedToV2` },
+        cursor,
+        limit: 50,
+        order: "descending",
+      });
+    } catch {
+      // Pre-v7 deploys won't have the event type registered. Bail.
+      break;
+    }
+
+    for (const ev of page.data ?? []) {
+      scanned++;
+      const p = ev.parsedJson ?? {};
+      if (p.owner !== owner) continue;
+      const capId = p.new_cap_id;
+      if (!capId || seen.has(capId)) continue;
+      seen.add(capId);
+
+      try {
+        const obj = await client.getObject({
+          id: capId,
+          options: { showOwner: true, showType: true, showContent: true },
+        });
+        const d = obj.data;
+        if (!d) continue;
+        const isShared = Boolean(
+          (d.owner as unknown as { Shared?: unknown })?.Shared
+        );
+        if (!isShared) continue;
+
+        const t = d.type;
+        if (!t || !t.startsWith(`${packageId}::auto_swap::AutoSwapCapV2<`)) {
+          continue;
+        }
+        const inner = extractCapInnerType(t);
+        if (!inner) continue;
+
+        const content = d.content;
+        if (!content || content.dataType !== "moveObject") continue;
+        const fields = extractCapFields(
+          (content as unknown as { fields: unknown }).fields
+        );
+        out.push({
+          id: capId,
+          sourceType: inner,
+          maxPerSwap: fields.max_per_swap,
+          expiresAtMs: fields.expires_at_ms,
+          paused: fields.paused,
+          isV1: false,
         });
       } catch {
         // Burned, schema-skewed, or transient RPC error — skip silently.
@@ -278,12 +389,17 @@ export async function GET(req: Request) {
   }
 
   const vaultId = user.talise_vault_id ?? null;
-  // Type prefix accepted by `ObjectFilter.type` — matches every
-  // `AutoSwapCap<T>` instantiation under our package.
-  const capTypePrefix = `${packageId}::auto_swap::AutoSwapCap`;
+  // Sui GraphQL `ObjectFilter.type` matches against the canonical struct
+  // tag. Passing `…::auto_swap::AutoSwapCap` would *not* reliably catch
+  // `AutoSwapCapV2` (different struct name), so we fetch both prefixes
+  // and merge. v1 page also fetches the vault contents in the same hit.
+  const capTypeV1 = `${packageId}::auto_swap::AutoSwapCap`;
+  const capTypeV2 = `${packageId}::auto_swap::AutoSwapCapV2`;
 
   // ──────────────────────────────────────────────────────────────
-  // 1. Single GraphQL hit: vault contents + owned caps.
+  // 1. Single GraphQL hit: vault contents + owned v1 caps. The v2
+  // caps come from a second query just below (couldn't compose into a
+  // single one without bloating the shared query module).
   let vault: State["vault"] = null;
   const caps: Cap[] = [];
 
@@ -293,7 +409,7 @@ export async function GET(req: Request) {
     const data = await gql<GraphQLVaultAndCapsResponse>(VAULT_AND_CAPS_QUERY, {
       vaultId, // may be null — GraphQL accepts a null SuiAddress and skips
       owner: user.sui_address,
-      capType: capTypePrefix,
+      capType: capTypeV1,
       first: 50,
       afterObj: null,
     });
@@ -360,14 +476,27 @@ export async function GET(req: Request) {
   }
 
   // ──────────────────────────────────────────────────────────────
-  // 3. Caps — continue paginating if the first page hit the cursor.
+  // 3. v1 Caps — continue paginating if the first page hit the cursor.
+  // Every cap surfaced here is `AutoSwapCap<T>` (v1, pre-v7 shape).
+  // v1 caps lack a per-day throttle, so we flag `isV1: true` to drive
+  // the iOS "Upgrade to per-day protection" banner. They are also
+  // user-owned (the GraphQL filter only returns AddressOwner), so
+  // `needsMigration: true` still applies for the v2→v3 share step on
+  // legacy deploys — but in practice the v7 upgrade subsumes that
+  // (the v1→v2 entry mints a SHARED cap directly).
   if (initialCapPage) {
-    const pushFromPage = (
+    const pushV1FromPage = (
       page: NonNullable<GraphQLVaultAndCapsResponse["owner"]>
     ) => {
       for (const node of page.objects.nodes ?? []) {
         if (!node.contents) continue;
-        const inner = extractCapInnerType(node.contents.type.repr);
+        const repr = node.contents.type.repr;
+        // Defensive: GraphQL `type:` filter is supposed to scope to the
+        // exact struct name, but if a future SDK change loosens that to
+        // a prefix we'd accidentally pull in `AutoSwapCapV2` here.
+        // Reject anything that isn't the literal v1 struct prefix.
+        if (!repr.startsWith(`${packageId}::auto_swap::AutoSwapCap<`)) continue;
+        const inner = extractCapInnerType(repr);
         if (!inner) continue;
         const fields = extractCapFields(node.contents.json);
         caps.push({
@@ -380,10 +509,11 @@ export async function GET(req: Request) {
           // objects — by construction every cap here is user-owned and
           // therefore needs the v3 share_existing_cap promotion.
           needsMigration: true,
+          isV1: true,
         });
       }
     };
-    pushFromPage(initialCapPage);
+    pushV1FromPage(initialCapPage);
 
     // Rare — typical users own <50 caps. Paginate defensively.
     let cursor: string | null = initialCapPage.objects.pageInfo.hasNextPage
@@ -398,13 +528,13 @@ export async function GET(req: Request) {
             // is a no-op on follow-up pages.
             vaultId: null,
             owner: user.sui_address,
-            capType: capTypePrefix,
+            capType: capTypeV1,
             first: 50,
             afterObj: cursor,
           }
         );
         if (!data.owner) break;
-        pushFromPage(data.owner);
+        pushV1FromPage(data.owner);
         cursor = data.owner.objects.pageInfo.hasNextPage
           ? data.owner.objects.pageInfo.endCursor
           : null;
@@ -415,6 +545,55 @@ export async function GET(req: Request) {
         break;
       }
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // 3b. v2 owned caps. The v7 `upgrade_cap_to_v2` entry shares the
+  // freshly-minted cap, so an AddressOwner-filtered query won't surface
+  // those — but `enable_auto_swap_v2` (future) could mint user-owned
+  // ones, and on testnets we want both flows to render. We still query
+  // the AddressOwner objects for `AutoSwapCapV2<T>` to cover both
+  // shapes; shared v2 caps come in via the event-walk pass below.
+  try {
+    let cursorV2: string | null = null;
+    do {
+      const data: GraphQLVaultAndCapsResponse = await gql<GraphQLVaultAndCapsResponse>(
+        VAULT_AND_CAPS_QUERY,
+        {
+          vaultId: null,
+          owner: user.sui_address,
+          capType: capTypeV2,
+          first: 50,
+          afterObj: cursorV2,
+        }
+      );
+      if (!data.owner) break;
+      for (const node of data.owner.objects.nodes ?? []) {
+        if (!node.contents) continue;
+        const repr = node.contents.type.repr;
+        if (!repr.startsWith(`${packageId}::auto_swap::AutoSwapCapV2<`)) continue;
+        const inner = extractCapInnerType(repr);
+        if (!inner) continue;
+        const fields = extractCapFields(node.contents.json);
+        caps.push({
+          id: node.address,
+          sourceType: inner,
+          maxPerSwap: fields.max_per_swap,
+          expiresAtMs: fields.expires_at_ms,
+          paused: fields.paused,
+          // v2 caps are the post-upgrade shape — no further migration.
+          needsMigration: false,
+          isV1: false,
+        });
+      }
+      cursorV2 = data.owner.objects.pageInfo.hasNextPage
+        ? data.owner.objects.pageInfo.endCursor
+        : null;
+    } while (cursorV2);
+  } catch (err) {
+    console.warn(
+      `[vault/state] GraphQL v2 cap read failed: ${(err as Error).message}`
+    );
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -444,6 +623,7 @@ export async function GET(req: Request) {
         expiresAtMs: sc.expiresAtMs,
         paused: sc.paused,
         needsMigration: false,
+        isV1: sc.isV1,
       });
     }
   } catch (err) {
@@ -452,6 +632,36 @@ export async function GET(req: Request) {
     );
     // Non-fatal — user-owned caps still surface above.
   }
+
+  // ──────────────────────────────────────────────────────────────
+  // 4b. Shared v2 caps — invisible to the AddressOwner GraphQL query.
+  // Walk `CapUpgradedToV2` events filtered by owner, then getObject the
+  // `new_cap_id` and keep only those still Shared. Bails early on
+  // pre-v7 deploys (event type unknown), so this is a no-op there.
+  try {
+    const sharedV2 = await readSharedV2CapsForOwner(packageId, user.sui_address);
+    const haveIds = new Set(caps.map((c) => c.id));
+    // After a successful upgrade the corresponding v1 cap is BURNED on
+    // chain. We don't need explicit de-dupe between v1 and v2 ids —
+    // they're distinct object ids by construction.
+    for (const sc of sharedV2) {
+      if (haveIds.has(sc.id)) continue;
+      caps.push({
+        id: sc.id,
+        sourceType: sc.sourceType,
+        maxPerSwap: sc.maxPerSwap,
+        expiresAtMs: sc.expiresAtMs,
+        paused: sc.paused,
+        needsMigration: false,
+        isV1: false,
+      });
+    }
+  } catch (err) {
+    console.warn(
+      `[vault/state] shared v2-cap event scan failed: ${(err as Error).message}`
+    );
+  }
+
   // packageIdLatest is read above so the lint stays happy when the
   // v3 codepath ships independently; we don't need it here yet beyond
   // signaling the v3-aware mode is wired.
