@@ -63,7 +63,9 @@ struct GoalsSection: View {
             goals = resp.goals
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            if !APIError.isCancellation(error) {
+                self.error = error.localizedDescription
+            }
         }
     }
 }

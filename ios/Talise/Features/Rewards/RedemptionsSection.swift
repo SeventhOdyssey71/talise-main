@@ -224,7 +224,9 @@ struct RedemptionsSection: View {
             items = res.items
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            if !APIError.isCancellation(error) {
+                self.error = error.localizedDescription
+            }
         }
     }
 

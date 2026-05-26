@@ -311,7 +311,11 @@ struct RewardsView: View {
         do {
             summary = try await APIClient.shared.get("/api/referral/summary")
         } catch {
-            self.error = error.localizedDescription
+            // SwiftUI `.task` cancellation on view rebuild is not a real
+            // failure — surface only genuine errors.
+            if !APIError.isCancellation(error) {
+                self.error = error.localizedDescription
+            }
         }
     }
 
