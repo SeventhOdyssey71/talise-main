@@ -2,6 +2,15 @@
 /// Covers the post-audit invariants: enable runs vault-owner check,
 /// validate gates on admin/expired/paused/cap-max, hot-potato
 /// SwapTicket forces deposit, owner-only mutations on the cap.
+///
+/// NOTE (v3+ shared-cap migration): `vault::enable_auto_swap` now
+/// `transfer::public_share_object`s the cap so the worker can reference
+/// it via `&AutoSwapCap<T>` in a PTB the worker signs. Tests take the
+/// cap via `take_shared` (or `take_shared_by_id` when multiple caps
+/// coexist) and return it via `return_shared`. The owner-only mutation
+/// checks (`cap.owner == ctx.sender()`) are still enforced by the
+/// module; tests of "non-owner cannot mutate" simply have RANDO take
+/// the shared cap directly instead of receiving a transferred copy.
 #[test_only]
 module talise::auto_swap_tests;
 
@@ -47,17 +56,19 @@ fun enable_then_disable_round_trip() {
     );
     ts::return_shared(v);
 
-    // Cap should be in USER's wallet now.
+    // Cap is a SHARED object now (v3+). Take it via take_shared.
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
     assert!(auto_swap::cap_owner(&cap) == USER, 1);
     assert!(auto_swap::cap_max(&cap) == 10_000_000_000, 2);
     assert!(!auto_swap::cap_paused(&cap), 3);
 
     auto_swap::disable<SUI>(cap, ts::ctx(&mut scenario));
 
+    // After disable the shared object is deleted — it should no longer
+    // be discoverable as a shared object.
     ts::next_tx(&mut scenario, USER);
-    assert!(!ts::has_most_recent_for_address<AutoSwapCap<SUI>>(USER), 4);
+    assert!(!ts::has_most_recent_shared<AutoSwapCap<SUI>>(), 4);
 
     ts::end(scenario);
 }
@@ -92,7 +103,7 @@ fun validate_rejects_amount_over_cap() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     // Worker tries to swap 1000 against a cap of 100 — should abort.
     ts::next_tx(&mut scenario, WORKER);
@@ -101,7 +112,7 @@ fun validate_rejects_amount_over_cap() {
         &mut registry, &cap, 1000, 0, ts::ctx(&mut scenario),
     );
     ts::return_shared(registry);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -118,7 +129,7 @@ fun validate_rejects_non_admin_sender() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     // RANDO is not the admin — should abort.
     ts::next_tx(&mut scenario, RANDO);
@@ -127,7 +138,7 @@ fun validate_rejects_non_admin_sender() {
         &mut registry, &cap, 100, 0, ts::ctx(&mut scenario),
     );
     ts::return_shared(registry);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -144,7 +155,7 @@ fun validate_rejects_paused_cap() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let mut cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let mut cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
     auto_swap::pause<SUI>(&mut cap, ts::ctx(&mut scenario));
 
     ts::next_tx(&mut scenario, WORKER);
@@ -153,7 +164,7 @@ fun validate_rejects_paused_cap() {
         &mut registry, &cap, 100, 0, ts::ctx(&mut scenario),
     );
     ts::return_shared(registry);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -171,7 +182,7 @@ fun validate_rejects_expired_cap() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     // Worker validates at ms = 2000 (after expiry) — should abort.
     ts::next_tx(&mut scenario, WORKER);
@@ -180,16 +191,15 @@ fun validate_rejects_expired_cap() {
         &mut registry, &cap, 100, 2000, ts::ctx(&mut scenario),
     );
     ts::return_shared(registry);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
 #[test]
 #[expected_failure(abort_code = auto_swap::E_NOT_OWNER)]
 fun rando_cannot_pause_someone_elses_cap() {
-    // Cap has `store` and could be transferred, but mutate-ops should
-    // assert sender == cap.owner. Simulate by having WORKER (with a
-    // fake reference) try to pause USER's cap.
+    // Cap is shared (v3+), so RANDO can reference it via take_shared —
+    // but the inner `assert!(ctx.sender() == cap.owner)` aborts.
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
     setup_user_vault(&mut scenario);
@@ -199,16 +209,11 @@ fun rando_cannot_pause_someone_elses_cap() {
     vault::enable_auto_swap<SUI>(&v, 10_000_000_000, 0, ts::ctx(&mut scenario));
     ts::return_shared(v);
 
-    // USER transfers the cap to RANDO.
-    ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
-    sui::transfer::public_transfer(cap, RANDO);
-
-    // RANDO now holds it but isn't cap.owner — pause should abort.
+    // RANDO takes the shared cap and tries to pause it.
     ts::next_tx(&mut scenario, RANDO);
-    let mut transferred = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
-    auto_swap::pause<SUI>(&mut transferred, ts::ctx(&mut scenario));
-    ts::return_to_address(RANDO, transferred);
+    let mut cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
+    auto_swap::pause<SUI>(&mut cap, ts::ctx(&mut scenario));
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -253,7 +258,7 @@ fun pause_then_resume_round_trip() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let mut cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let mut cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
     auto_swap::pause<SUI>(&mut cap, ts::ctx(&mut scenario));
     assert!(auto_swap::cap_paused(&cap), 0);
 
@@ -269,7 +274,7 @@ fun pause_then_resume_round_trip() {
     assert!(auto_swap::total_validations(&registry) == 1, 2);
     assert!(auto_swap::admin(&registry) == PUBLISHER, 3);
     ts::return_shared(registry);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -285,15 +290,11 @@ fun rando_cannot_resume() {
     vault::enable_auto_swap<SUI>(&v, 10_000, 0, ts::ctx(&mut scenario));
     ts::return_shared(v);
 
-    // USER transfers cap to RANDO, who tries to resume it.
-    ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
-    sui::transfer::public_transfer(cap, RANDO);
-
+    // RANDO takes the shared cap and tries to resume it.
     ts::next_tx(&mut scenario, RANDO);
-    let mut transferred = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
-    auto_swap::resume<SUI>(&mut transferred, ts::ctx(&mut scenario));
-    ts::return_to_address(RANDO, transferred);
+    let mut cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
+    auto_swap::resume<SUI>(&mut cap, ts::ctx(&mut scenario));
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -309,7 +310,7 @@ fun update_bounds_happy_path() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let mut cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let mut cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
     assert!(auto_swap::cap_max(&cap) == 1_000, 0);
     assert!(auto_swap::cap_expiry(&cap) == 0, 1);
 
@@ -317,7 +318,7 @@ fun update_bounds_happy_path() {
     assert!(auto_swap::cap_max(&cap) == 5_555, 2);
     assert!(auto_swap::cap_expiry(&cap) == 9_999_999, 3);
 
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -333,14 +334,11 @@ fun rando_cannot_update_bounds() {
     vault::enable_auto_swap<SUI>(&v, 1_000, 0, ts::ctx(&mut scenario));
     ts::return_shared(v);
 
-    ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
-    sui::transfer::public_transfer(cap, RANDO);
-
+    // RANDO takes the shared cap and tries to update bounds.
     ts::next_tx(&mut scenario, RANDO);
-    let mut transferred = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
-    auto_swap::update_bounds<SUI>(&mut transferred, 9_999, 0, ts::ctx(&mut scenario));
-    ts::return_to_address(RANDO, transferred);
+    let mut cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
+    auto_swap::update_bounds<SUI>(&mut cap, 9_999, 0, ts::ctx(&mut scenario));
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -357,9 +355,9 @@ fun update_bounds_rejects_zero_max() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let mut cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let mut cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
     auto_swap::update_bounds<SUI>(&mut cap, 0, 0, ts::ctx(&mut scenario));
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -391,13 +389,10 @@ fun rando_cannot_disable_someone_elses_cap() {
     vault::enable_auto_swap<SUI>(&v, 1_000, 0, ts::ctx(&mut scenario));
     ts::return_shared(v);
 
-    ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
-    sui::transfer::public_transfer(cap, RANDO);
-
+    // RANDO takes the shared cap and tries to disable it.
     ts::next_tx(&mut scenario, RANDO);
-    let transferred = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
-    auto_swap::disable<SUI>(transferred, ts::ctx(&mut scenario));
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
+    auto_swap::disable<SUI>(cap, ts::ctx(&mut scenario));
     ts::end(scenario);
 }
 
@@ -418,7 +413,7 @@ fun validate_accepts_unexpired_cap_with_future_expiry() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     ts::next_tx(&mut scenario, WORKER);
     let mut registry = ts::take_shared<AutoSwapRegistry>(&scenario);
@@ -428,7 +423,7 @@ fun validate_accepts_unexpired_cap_with_future_expiry() {
     );
     assert!(auto_swap::total_validations(&registry) == 1, 0);
     ts::return_shared(registry);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -445,9 +440,9 @@ fun cap_vault_accessor_returns_correct_id() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
     assert!(auto_swap::cap_vault(&cap) == vid, 0);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
