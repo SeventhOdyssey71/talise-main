@@ -120,11 +120,39 @@ struct ActivityEntryDTO: Codable, Identifiable {
     /// "navi"). Nil for plain transfers. Server populates this from
     /// MoveCall package detection in lib/activity.ts.
     let venue: String?
+    /// Set when the user received or sent a non-USDsui / non-SUI coin
+    /// (WAL, USDC, USDT, …). `amount` is the raw u64 as a String —
+    /// formatted client-side using `decimals` so we don't lose
+    /// precision on the wire. Pre-existing iOS builds parsing older
+    /// responses tolerate the missing field (optional).
+    let otherCoin: ActivityOtherCoin?
 
     var id: String { digest }
     var isReceived: Bool { direction == "received" }
     var isInvest: Bool { direction == "invest" }
     var isWithdraw: Bool { direction == "withdraw" }
+}
+
+struct ActivityOtherCoin: Codable, Hashable {
+    let coinType: String
+    let symbol: String
+    /// Raw u64 string — BigInt-safe over the wire.
+    let amount: String
+    let decimals: Int
+
+    /// Format the raw amount for display, e.g. "10" for 10 WAL with
+    /// 9 decimals. Trims trailing zeros after the decimal point.
+    var displayAmount: String {
+        guard let raw = Double(amount) else { return amount }
+        let scaled = raw / pow(10.0, Double(decimals))
+        if scaled.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(Int64(scaled))
+        }
+        var s = String(format: "%.4f", scaled)
+        while s.hasSuffix("0") { s.removeLast() }
+        if s.hasSuffix(".") { s.removeLast() }
+        return s
+    }
 }
 
 struct ActivityResponse: Codable {

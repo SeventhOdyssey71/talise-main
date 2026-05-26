@@ -166,6 +166,13 @@ struct HistoryRow: View {
     }
 
     private var title: String {
+        // Non-USDsui/non-SUI rows (WAL, USDC, USDT, …) override the
+        // default "Sent"/"Received" so the row clearly shows the coin.
+        if let other = entry.otherCoin {
+            return entry.isReceived
+                ? "Received \(other.symbol)"
+                : "Sent \(other.symbol)"
+        }
         switch category {
         case .sent:     return "Sent"
         case .received: return "Received"
@@ -219,6 +226,12 @@ struct HistoryRow: View {
         // (credit, "+"). Plain transfers use direction directly.
         let isInflow = entry.isReceived || entry.isWithdraw
         let prefix = isInflow ? "+" : "-"
+        // Non-USDsui/non-SUI row: format raw u64 with the coin's
+        // decimals + symbol. We don't compute a USD value because
+        // we don't have a reliable price for arbitrary tokens.
+        if let other = entry.otherCoin {
+            return "\(prefix)\(other.displayAmount) \(other.symbol)"
+        }
         if let usd = entry.amountUsdsui {
             return prefix + TaliseFormat.local2(Swift.abs(usd))
         }
