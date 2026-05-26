@@ -534,6 +534,16 @@ struct VaultCapMutationRequest: Codable {
     let sourceType: String
 }
 
+/// Body for `POST /api/vault/upgrade-cap-v2`. Burns the existing v1
+/// `AutoSwapCap<T>` and mints an equivalent `AutoSwapCapV2<T>` with the
+/// v7 per-day budget throttle. `maxPerDay` is the raw u64 budget in the
+/// source coin's native units, sent as a String for BigInt safety.
+struct VaultUpgradeCapV2Request: Codable {
+    let capId: String
+    let sourceType: String
+    let maxPerDay: String
+}
+
 /// Body for `POST /api/vault/withdraw`. Pulls `amount` units of
 /// `Balance<coinType>` out of the user's vault and transfers the
 /// resulting `Coin<T>` to their wallet. `amount` is the raw u64 in
@@ -702,11 +712,25 @@ struct AutoSwapCapDTO: Codable, Identifiable, Hashable {
     /// erroring — older deploys will leave this nil and the UI treats
     /// nil as "no migration needed".
     let needsMigration: Bool?
+    /// True when this cap is a v1 `AutoSwapCap<T>` (no per-day throttle).
+    /// After the v7 deploy the cron only sweeps `AutoSwapCapV2<T>` caps,
+    /// so we surface an Upgrade CTA for any cap flagged here. The server
+    /// derives this from the cap's on-chain type tag — if it matches
+    /// `…::auto_swap::AutoSwapCap<…>` it's v1; `…::auto_swap::AutoSwapCapV2<…>`
+    /// is v2. Optional so older server builds that pre-date the v7 field
+    /// decode without erroring — nil is interpreted as "v1 unknown,
+    /// don't surface the banner" by `isLegacyV1`.
+    let isV1: Bool?
 
     /// Convenience — flatten the optional so view code can branch on a
     /// simple Bool. `nil → false` mirrors the "old server, no banner"
     /// semantics described above.
     var requiresMigration: Bool { needsMigration ?? false }
+
+    /// True only when the server has explicitly flagged this as a v1
+    /// cap. `nil → false` so old server builds that lack the field
+    /// don't accidentally surface the Upgrade banner.
+    var isLegacyV1: Bool { isV1 ?? false }
 
     /// Parse the raw expiry string for callers that want a number.
     /// Returns 0 (= no expiry) if the wire value is malformed.

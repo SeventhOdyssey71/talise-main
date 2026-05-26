@@ -180,6 +180,32 @@ enum VaultAPI {
         )
     }
 
+    /// `POST /api/vault/upgrade-cap-v2` — prepares the PTB that calls
+    /// `vault::upgrade_cap_to_v2<T>(cap, max_per_day, clock)` against
+    /// the LATEST package id (v7+). Burns the existing v1 `AutoSwapCap<T>`
+    /// and mints an equivalent `AutoSwapCapV2<T>` (shared) with a
+    /// per-day-budget throttle. After v7 lands, the cron only sweeps
+    /// v2 caps — v1 caps require this owner-signed migration.
+    ///
+    /// Owner-only on the Move side (`ctx.sender() == cap.owner`). The
+    /// Move entry also asserts `max_per_day >= max_per_swap`, so the
+    /// caller MUST pass at least the cap's existing per-swap cap; the
+    /// iOS banner sends 10× as a sensible default.
+    static func upgradeCapV2(
+        capId: String,
+        sourceType: String,
+        maxPerDay: String
+    ) async throws -> VaultCreatePrepareResponse {
+        try await APIClient.shared.post(
+            "/api/vault/upgrade-cap-v2",
+            body: VaultUpgradeCapV2Request(
+                capId: capId,
+                sourceType: sourceType,
+                maxPerDay: maxPerDay
+            )
+        )
+    }
+
     /// `GET /api/vault/state` — returns the user's vault (or nil if
     /// they haven't created one yet) plus every active cap. Drives the
     /// `AutoSwapSettings` view's whole render pass.

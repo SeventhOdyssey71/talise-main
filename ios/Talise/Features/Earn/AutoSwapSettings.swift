@@ -42,6 +42,11 @@ struct AutoSwapSettings: View {
     /// every user-owned cap. Disables both the banner CTA and the per-
     /// row CTAs to avoid double-fire.
     @State private var migratingAll = false
+    /// True while the "Upgrade all caps" banner action is iterating
+    /// through every v1 cap to migrate them to v2. Same disabling
+    /// semantics as `migratingAll` — exclusive of all other mutation
+    /// state to keep the PTB queue ordered.
+    @State private var upgradingV2 = false
     /// True while the one-tap "Enable all coins" PTB is in flight. Drives
     /// the inline default-caps banner — when set we swap the CTA copy
     /// for a spinner so the user knows the round-trip is alive.
@@ -73,6 +78,9 @@ struct AutoSwapSettings: View {
                 header
                 if allCapsNeedMigration {
                     migrateAllBanner
+                }
+                if hasV1CapsToUpgrade {
+                    upgradeV2Banner
                 }
                 vaultStatusCard
                 if hasVault {
@@ -663,6 +671,122 @@ struct AutoSwapSettings: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    // MARK: - v1 → v2 upgrade banner (v7 per-day protection)
+
+    /// True when the user has at least one cap the server flagged as v1
+    /// (`isV1 == true`). Drives the "Upgrade to per-day protection"
+    /// banner — separate from `allCapsNeedMigration` because a user may
+    /// have a mix of already-shared v1 caps (post-v3 migrate, pre-v7
+    /// upgrade) and freshly-upgraded v2 caps. Showing both banners at
+    /// once is acceptable: each addresses a different step.
+    private var hasV1CapsToUpgrade: Bool {
+        guard let caps = state?.caps, !caps.isEmpty else { return false }
+        return caps.contains { $0.isLegacyV1 }
+    }
+
+    /// Inline banner shown at the top of the screen when any cap is
+    /// still a v1 `AutoSwapCap<T>`. Tapping the CTA iterates over every
+    /// v1 cap and runs `vault::upgrade_cap_to_v2<T>` on each, using
+    /// `max_per_day = max_per_swap × 10` as the default budget. After
+    /// all succeed, refetch state so the rows flip and the banner
+    /// disappears. Mirrors the visual language of `migrateAllBanner`.
+    private var upgradeV2Banner: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TaliseColor.accent)
+                Text("Upgrade to per-day protection")
+                    .font(TaliseFont.heading(13, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+            }
+            Text("We've added daily-budget protection to auto-swap caps. Tap to upgrade — same settings, stronger security.")
+                .font(TaliseFont.body(12, weight: .light))
+                .foregroundStyle(TaliseColor.fgDim)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: { Task { await upgradeAllV1Caps() } }) {
+                HStack(spacing: 8) {
+                    if upgradingV2 {
+                        ProgressView().controlSize(.mini).tint(TaliseColor.bg)
+                    }
+                    Text(upgradingV2 ? "Upgrading…" : "Upgrade all caps")
+                        .font(TaliseFont.heading(13, weight: .medium))
+                }
+                .foregroundStyle(TaliseColor.bg)
+                .frame(maxWidth: .infinity)
+                .frame(height: 42)
+                .background(upgradingV2
+                            ? TaliseColor.accent.opacity(0.5)
+                            : TaliseColor.accent)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .disabled(upgradingV2 || migratingAll || migratingCapId != nil)
+        }
+        .padding(14)
+        .taliseGlass(cornerRadius: 16, tint: TaliseColor.accent)
+    }
+
+    /// Drive `upgradeCapV2` once per v1 cap. Sequential — the sponsor
+    /// flow queues PTBs from the same owner server-side anyway, so
+    /// keeping the client serial gives clearer error surfacing.
+    ///
+    /// Default `max_per_day` is the cap's existing `max_per_swap` × 10,
+    /// which is well above the Move guard (`max_per_day >= max_per_swap`)
+    /// and matches the SECURITY-V7 defaults (100 SUI / 100 USDC / 100 USDT
+    /// for the freshly-enabled cap shape).
+    private func upgradeAllV1Caps() async {
+        if upgradingV2 { return }
+        upgradingV2 = true
+        error = nil
+        defer { upgradingV2 = false }
+        // Snapshot the v1 caps up front — `load()` mid-loop will mutate
+        // `state.caps` and we want the iteration to stay deterministic.
+        let pending = (state?.caps ?? []).filter { $0.isLegacyV1 }
+        for cap in pending {
+            // Compute max_per_day = max_per_swap × 10 as a BigInt-safe
+            // string. UInt64 handles the multiplication for any realistic
+            // cap value — the Move u64 ceiling is 2^64-1 and 10× a cap
+            // sized in the millions of native units is nowhere near
+            // overflow territory.
+            let maxPerDay: String = {
+                guard let v = UInt64(cap.maxPerSwap) else {
+                    // Fallback: pre-formatted multiplication via Double.
+                    // Should never hit — server returns raw u64 strings.
+                    return String(Int64((cap.maxPerSwapDouble * 10).rounded()))
+                }
+                // Saturating multiply — clamp to u64::MAX rather than
+                // wrap. Same defensive guard the server applies on the
+                // 400 path, so the PTB build won't trip on overflow.
+                let mul = v.multipliedReportingOverflow(by: 10)
+                if mul.overflow {
+                    return String(UInt64.max)
+                }
+                return String(mul.partialValue)
+            }()
+            do {
+                let built = try await VaultAPI.upgradeCapV2(
+                    capId: cap.id,
+                    sourceType: cap.sourceType,
+                    maxPerDay: maxPerDay
+                )
+                let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                    transactionKindB64: built.bytesB64,
+                    intent: "Upgrade auto-swap cap",
+                    rewards: nil
+                )
+                success = result.digest
+            } catch {
+                self.error = error.localizedDescription
+                // Stop on first failure so the user can address the
+                // issue before the loop barrels through the rest.
+                await load()
+                return
+            }
+        }
+        await load()
     }
 
     /// Drive `migrateCap` once per cap in `state.caps` that still needs
