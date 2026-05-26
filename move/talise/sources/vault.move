@@ -392,6 +392,66 @@ public fun auto_swap_deposit<Dest>(
     });
 }
 
+/// Same shape as `auto_swap_deposit`, but routes the swap output
+/// (and any leftover Balance<Dest> sitting in the bag from older bag-
+/// deposits) straight to `vault.owner` as a regular `Coin<Dest>`.
+/// This is the path the cron worker calls in v4+ so users see their
+/// auto-swapped USDsui appear in their plain wallet rather than
+/// accumulating invisibly inside the shared vault.
+///
+/// The "drain existing bag balance" step is the migration-friendly
+/// part: any prior swap output still in `vault.balances` for the same
+/// `Dest` type gets flushed out alongside the new swap output. So the
+/// first tick after v4 deploys clears the historical bag overhang AND
+/// delivers the new swap, in one tx, no separate "sweep" call needed.
+///
+/// Same hot-potato discipline as the bag-deposit variant — the ticket
+/// is consumed here, and `auto_swap_extract` cannot type-check unless
+/// SOME deposit function (either this one or the bag variant) closes
+/// the PTB.
+public fun auto_swap_deposit_to_owner<Dest>(
+    vault: &mut TaliseVault,
+    output: Balance<Dest>,
+    ticket: SwapTicket,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let SwapTicket { vault_id, from_type, from_amount } = ticket;
+    assert!(vault_id == object::id(vault), E_WRONG_VAULT);
+
+    let to_amount = balance::value(&output);
+
+    // Combine swap output with any stale Balance<Dest> in the bag so
+    // pre-v4 leftovers flush out automatically. `bag::remove` returns
+    // the existing balance by value; `balance::join` consumes both.
+    let mut total: Balance<Dest> = output;
+    let key = type_name::with_defining_ids<Dest>().into_string().into_bytes();
+    if (vault.balances.contains(key)) {
+        let stale: Balance<Dest> = vault.balances.remove(key);
+        balance::join(&mut total, stale);
+    };
+
+    if (balance::value(&total) > 0) {
+        let coin_out = coin::from_balance(total, ctx);
+        // owner is whoever the user authenticated as when they created
+        // the vault — the canonical "their wallet" address.
+        transfer::public_transfer(coin_out, vault.owner);
+    } else {
+        balance::destroy_zero(total);
+    };
+
+    vault.auto_swaps_total = vault.auto_swaps_total + 1;
+
+    event::emit(VaultAutoSwap {
+        vault_id: object::id(vault),
+        from_type,
+        to_type: type_name::with_defining_ids<Dest>().into_string().into_bytes(),
+        from_amount,
+        to_amount,
+        ts_ms: clock.timestamp_ms(),
+    });
+}
+
 // ───────────────────────────────────────────────────────────────────
 // Read accessors
 

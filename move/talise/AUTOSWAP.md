@@ -1,221 +1,172 @@
-# Talise Auto-Swap (Path C)
+# Talise Auto-Swap
 
-On-chain delegated auto-swap. Lets a user's `@talise` subname always
-hold USDsui — any other coin sent to that handle gets swapped to
-USDsui automatically, gas sponsored by Onara, with no per-swap user
+On-chain delegated auto-swap. Any coin sent to a user's `@talise`
+subname gets converted to USDsui and **delivered straight to the
+user's plain wallet**, gas sponsored by Onara, with no per-swap user
 signature.
+
+The vault is plumbing the user never has to think about. Cash in →
+USDsui in their wallet → spend.
 
 ## Architecture in one picture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                          On-chain                                │
-│                                                                  │
-│   ┌───────────────────────┐         ┌──────────────────────┐    │
-│   │  AutoSwapRegistry     │         │  TaliseVault         │    │
-│   │  (shared, singleton)  │         │  (shared, per-user)  │    │
-│   │  admin = worker addr  │         │  owner = user addr   │    │
-│   └───────────┬───────────┘         │  balances: Bag<T>    │    │
-│               │                     └──────────┬───────────┘    │
-│               │ validate_for_swap              │                │
-│               │                                │ deposit / withdraw
-│   ┌───────────▼───────────┐                    │                │
-│   │  AutoSwapCap<T>       │◄───────────────────┘                │
-│   │  (user-owned)         │     hardwired vault_id              │
-│   │  max_per_swap         │                                     │
-│   │  expires_at_ms        │                                     │
-│   │  paused               │                                     │
-│   └───────────────────────┘                                     │
-└─────────────────────────────────────────────────────────────────┘
-                              ▲                  ▲
-                              │ enable / pause   │ withdraw
-                              │                  │
-┌─────────────────────────────┼──────────────────┼────────────────┐
-│                       Off-chain                                  │
-│                                                                  │
-│   ┌─────────┐    ┌──────────────────────┐    ┌────────────────┐ │
-│   │  iOS    │    │  Onara worker         │    │  SuiNS         │ │
-│   │  app    │    │  (CF Worker / cron)   │    │  resolution    │ │
-│   └─────────┘    └──────────────────────┘    └────────────────┘ │
-│        │                  │                          │           │
-│        │ sign-as-user     │ sign-as-worker           │ resolve   │
-│        │                  │                          │           │
-│        ▼                  ▼                          ▼           │
-│      enable/             auto_swap_extract → Cetus → auto_swap   │
-│      withdraw/           deposit (atomic PTB)        chiamaka    │
-│      pause                                           @talise →   │
-│                                                      vault id    │
+┌──────────────────────────────────────────────────────────────────┐
+│                          On-chain                                 │
+│                                                                   │
+│   ┌───────────────────────┐         ┌───────────────────────┐    │
+│   │  AutoSwapRegistry     │         │  TaliseVault          │    │
+│   │  (shared, singleton)  │         │  (shared, per-user)   │    │
+│   │  admin = worker addr  │         │  owner = user addr    │    │
+│   └───────────┬───────────┘         │  balances: Bag<T>     │    │
+│               │                     │  (transient, drained  │    │
+│               │ validate_for_swap   │   on every swap)      │    │
+│   ┌───────────▼───────────┐         └──────────┬────────────┘    │
+│   │  AutoSwapCap<T>       │◄───────────────────┘                 │
+│   │  (SHARED — v3+)       │     hardwired vault_id               │
+│   │  max_per_swap         │                                      │
+│   │  expires_at_ms                                               │
+│   │  paused                                                      │
+│   └───────────────────────┘                                      │
+│                                                                   │
+│   Output path (v4+):                                              │
+│   auto_swap_deposit_to_owner — transfers Coin<USDsui> directly    │
+│   to vault.owner (the user's plain wallet) instead of stashing    │
+│   it in the bag. Also flushes any stale bag balance for the same  │
+│   Dest type on every tick, so leftovers from older swaps clear    │
+│   automatically.                                                  │
 └──────────────────────────────────────────────────────────────────┘
+                              ▲                  ▲
+                              │ enable / pause   │ withdraw (rarely)
+                              │                  │
+┌─────────────────────────────┼──────────────────┼──────────────────┐
+│                       Off-chain                                    │
+│                                                                    │
+│   ┌─────────┐    ┌──────────────────────┐    ┌─────────────────┐  │
+│   │  iOS    │    │  Onara worker         │    │  SuiNS          │  │
+│   │  app    │    │  (CF Worker)          │    │  resolution     │  │
+│   └─────────┘    └──────────────────────┘    └─────────────────┘  │
+│        │                  │                          │             │
+│        │ sign-as-user     │ sign-as-worker           │             │
+│        │                  │  via Vercel cron, 1/min  │             │
+│        ▼                  ▼                          ▼             │
+│      enable / pause     receive_and_deposit  ─→  cap-bounded swap  │
+│      migrate-cap        (claim address-owned ─→  auto_swap_extract │
+│      withdraw           coins into bag)       ─→  Cetus aggregator │
+│                                               ─→  deposit_to_owner │
+│                                                                    │
+│                       eromonsele.talise.sui → vault.id            │
+└────────────────────────────────────────────────────────────────────┘
 ```
+
+## What a single user transaction looks like
+
+1. Alice types her handle into someone's "Send to" field and the
+   sender hits Send. SuiNS resolves `alice.talise.sui` to her vault
+   shared-object id — not her plain wallet.
+2. The coin (SUI, USDC, USDT, whatever) lands at the vault address as
+   an address-owned `Coin<T>`. Address-owned because the vault is a
+   shared object and you can't transfer directly *into* a shared bag.
+3. Within ≤60s the Vercel cron picks it up:
+   - **Step A — claim**: `vault::receive_and_deposit<T>` folds the
+     address-owned coin into `vault.balances` (the bag). This requires
+     no user signature; the worker signs as Onara.
+   - **Step B — swap**: `vault::auto_swap_extract<Source>` pulls a
+     `Balance<Source>` out of the bag, hands back a `SwapTicket` hot
+     potato; Cetus aggregator routes Source → USDsui; the hot potato
+     is closed by `vault::auto_swap_deposit_to_owner<USDsui>`, which:
+     - Transfers the swap output as `Coin<USDsui>` to `vault.owner`.
+     - Also empties any prior `Balance<USDsui>` left over in the bag
+       (the migration-friendly flush for accounts that hold pre-v4
+       residue), so the user wallet receives both in one tx.
+4. Alice sees the USDsui appear in her wallet balance — same place
+   she sees every other coin. The vault never gives her a number to
+   reason about.
 
 ## Modules (this folder)
 
 - **`sources/auto_swap.move`** — consent + bounds.
   - `AutoSwapRegistry` (shared, singleton): records the global admin
     address allowed to validate swaps.
-  - `AutoSwapCap<phantom T>`: per-user-per-source-coin opt-in. Owned
-    by the user. Bounds: `max_per_swap`, `expires_at_ms`, `paused`.
-  - `enable / disable / pause / resume / update_bounds` — user-facing
-    consent surface.
-  - `validate_for_swap` — internal-ish: asserts (admin == sender,
-    not paused, not expired, amount ≤ cap). Called by `vault::auto_swap_extract`.
+  - `AutoSwapCap<phantom T>`: per-user-per-source-coin opt-in. **Shared
+    object since v3** (was user-owned in v1/v2 — see migration notes
+    below). Bounds: `max_per_swap`, `expires_at_ms`, `paused`.
+  - `enable_auto_swap` (in `vault.move`) / `disable` / `pause` /
+    `resume` / `update_bounds` — user-facing consent surface. Owner
+    asserted on every mutation via the recorded `cap.owner` field.
+  - `validate_for_swap` — `public(package)`: asserts (admin == sender,
+    not paused, not expired, amount ≤ cap). Called by
+    `vault::auto_swap_extract`.
 
-- **`sources/vault.move`** — custody.
+- **`sources/vault.move`** — custody + swap entries.
   - `TaliseVault` (shared, per-user): `Bag` of `Balance<T>`. Anyone
-    can `deposit`, only `vault.owner` can `withdraw`.
-  - `auto_swap_extract<Source>` — worker-signed extract; runs
-    `validate_for_swap`, splits a `Balance<Source>` out of the bag.
-  - `auto_swap_deposit<Dest>` — companion that re-injects the swap
-    output back into the same vault. Atomic PTB: extract → Cetus →
-    deposit, or the whole thing aborts.
+    can `deposit`; only `vault.owner` can `withdraw` / `withdraw_and_send`.
+  - `receive_and_deposit<T>` (v2+): claims an address-owned
+    `Coin<T>` sent to the vault address into the bag. The cron's
+    Step A.
+  - `auto_swap_extract<Source>`: worker-signed extract; runs
+    `validate_for_swap`, splits `Balance<Source>` out of the bag,
+    returns it alongside a `SwapTicket`.
+  - **`auto_swap_deposit_to_owner<Dest>` (v4+)** — the swap closer.
+    Consumes the `SwapTicket`, joins the swap output with any stale
+    bag balance for the same `Dest` type, transfers the combined
+    `Coin<Dest>` to `vault.owner`. **This is the function that puts
+    USDsui in the user's actual wallet.**
+  - `auto_swap_deposit<Dest>` (legacy, v1–v3): older closer that
+    deposited output into the bag. Kept for backwards-compatible call
+    paths but no longer the path the cron takes — see the upgrade
+    notes.
+  - `share_existing_cap<T>` (v3+): one-shot promoter for v2-era
+    user-owned caps. Owner signs once, cap becomes shared.
+
+## Version history + migration
+
+| Version | Package id | What changed |
+|---------|-----------|--------------|
+| v1 | `0xc74a7df0…d394` | Original publish (this is `original-id` for type tags forever). Caps minted user-owned. |
+| v2 | `0x45654c43…9046` | Adds `receive_and_deposit<T>`. Caps still user-owned. |
+| v3 | `0x4ae445e0…4e55` | Caps now **shared on mint**. Worker can reference them. Adds `share_existing_cap<T>` for in-place v2→v3 cap migration. |
+| v4 | `0x29a0d730…715a` | Adds `auto_swap_deposit_to_owner<Dest>`. Auto-swapped USDsui lands in user's wallet, not in the bag. Stale bag balances drain on every swap. |
+
+**Env vars (production):**
+
+- `TALISE_AUTOSWAP_PACKAGE_ID` — `original-id` (v1). Used for type
+  tags, `AutoSwapEnabled` event filters, registry references. Never
+  changes.
+- `TALISE_AUTOSWAP_PACKAGE_LATEST` — `published-at` of the latest
+  upgrade (v4 today). Used as the target for entry-function calls
+  that exist only in newer versions: `enable_auto_swap`,
+  `share_existing_cap`, `receive_and_deposit`, `auto_swap_deposit_to_owner`.
+- `TALISE_AUTOSWAP_REGISTRY_ID` — `AutoSwapRegistry` shared-object id.
 
 ## Tests
 
-The Move package is covered by **42 unit tests** split across four test
-files; coverage is **100.00 %** as reported by `sui move coverage summary`:
-
-| Module             | Coverage |
-| ------------------ | -------- |
-| `talise::auto_swap`| 100.00 % |
-| `talise::vault`    | 100.00 % |
-| `talise::send`     | 100.00 % |
-| `talise::receipt`  | 100.00 % |
-
-`tests/auto_swap_tests.move` (consent + bounds surface):
-
-- Enable → disable round trip (cap mint + burn).
-- Rando cannot enable against another user's vault (audit-flagged hole).
-- `validate_for_swap` rejects amount > cap, non-admin, paused, expired.
-- `validate_for_swap` happy path with non-zero (future) expiry — covers
-  the `now_ms <= expires_at_ms` true branch.
-- Pause → resume round trip; rando cannot pause / resume / disable /
-  update_bounds someone else's cap.
-- `update_bounds` happy path + rejects `max_per_swap == 0`.
-- `enable_auto_swap` rejects `max_per_swap == 0` (the `E_INVALID_MAX`
-  branch in `mint_cap`).
-- `cap_vault` / `cap_owner` / `cap_max` / `cap_expiry` / `cap_paused`
-  accessors, plus `admin` and `total_validations` on the registry.
-- Deposit + withdraw round trip; non-owner can't withdraw.
-
-`tests/vault_tests.move` (custody invariants + hot-potato pair):
-
-- `auto_swap_extract` + `auto_swap_deposit` round trip (the hot potato);
-  covers the inner `contains`-vs-`add` branch in `auto_swap_deposit`
-  and the `remove + destroy_zero` branch when a balance entry is drained.
-- `auto_swap_deposit` zero-output branch (`destroy_zero`).
-- `auto_swap_extract` E_WRONG_VAULT (cap pointing at vault A used on B).
-- `auto_swap_extract` E_ZERO_AMOUNT / E_TYPE_NOT_HELD / E_INSUFFICIENT_BALANCE.
-- `auto_swap_deposit` E_WRONG_VAULT (ticket from vault A deposited into B).
-- `withdraw_and_send` end-to-end.
-- `withdraw` E_ZERO_AMOUNT / E_TYPE_NOT_HELD / E_INSUFFICIENT_BALANCE.
-- `withdraw` clears the bag entry when the balance is drained.
-- `deposit` rejects zero coin; `deposit_balance` zero-amount short-circuit
-  (`destroy_zero`) is reachable through the `#[test_only]`
-  `test_deposit_balance` shim.
-- `balance_of<T>` for an unheld type returns 0.
-- `type_string<T>()` returns a non-empty canonical name.
-- `owner` / `deposits_total` / `auto_swaps_total` accessors.
-
-`tests/send_tests.move` (atomic-send entry):
-
-- Happy path (transfers + mints receipt).
-- Rejects zero amount.
-- Rejects memo > 80 bytes.
-
-`tests/receipt_tests.move` (display + mint):
-
-- `init` registers `Publisher` + `Display<PaymentReceipt>` against
-  the publisher address (the receipt OTW path).
-- `mint` populates every field and the public accessors read them
-  back unchanged.
-
-Run: `cd move/talise && sui move test` (or `sui move test --coverage`
-followed by `sui move coverage summary` to reproduce the table above).
-
-## What's NOT in this folder yet (the remaining work)
-
-This package is the foundation. To ship Path C end to end, four more
-pieces have to land. They're independent — any subset can ship to a
-testnet for review before the others land.
-
-### 1. Onara worker — auto-swap executor (Cloudflare worker route)
-
-Live polling + PTB composition lives in `onara/api/src/`.
-
-- New endpoint `POST /auto-swap` on Onara worker that:
-  - Accepts `{ vaultId, capId, sourceType, amount }` from the trigger.
-  - Builds a PTB: `auto_swap_extract` → Cetus swap → `auto_swap_deposit`.
-  - Signs as the registered admin address (Onara's sponsor keypair —
-    same one already in `wrangler secret SUI_MNEMONIC`).
-  - Submits, returns digest.
-- Polling source can be one of:
-  - Vercel cron that calls `GET /api/auto-swap/sweep` every 60s, which
-    in turn calls `getOwnedCoins(vaultAddress)` for every user with an
-    active AutoSwapCap and triggers the Onara endpoint when non-USDsui
-    is detected.
-  - Cleaner: a Sui websocket subscription on `VaultDeposit` events,
-    filtered to non-USDsui types, kicking off the swap immediately.
-    Better latency, worse failure handling. Start with cron.
-
-### 2. Web backend — SDK + API routes
-
-New routes in `web/app/api/`:
-
-- `POST /api/vault/create` — mints a vault for the signed-in user,
-  records `vault_id` on the user row.
-- `POST /api/vault/enable-autoswap` — body `{ sourceType, maxPerSwap, expiresAtMs }`,
-  builds a PTB calling `auto_swap::enable<T>`, returns it for the
-  user's zkLogin to sign.
-- `POST /api/vault/pause` / `resume` / `disable` / `update-bounds` —
-  user-driven cap management.
-- `GET /api/vault/state` — returns the user's vault contents +
-  active caps (which coin types are auto-swap-enabled).
-- SuiNS subname update: when the vault is created, repoint the user's
-  `@talise` subname target from their plain wallet to the vault id
-  (already a SuiNS operator move in `lib/suins-lookup.ts`).
-
-### 3. iOS — opt-in + management UI
-
-- Onboarding tail: after username claim, show "Always hold USDsui?
-  Enable auto-swap" — one tap mints the vault + caps for the common
-  coins (SUI, USDC, USDT).
-- Settings → "Auto-convert to USDsui" toggle list per coin type,
-  paused/active state, max-per-swap slider.
-- Activity feed: render `VaultAutoSwap` events as "Auto-swapped 0.5
-  SUI → $1.20 USDsui" rows.
-
-### 4. Mainnet deploy + migration
-
-- `sui client publish --gas-budget 100000000` from this folder, with
-  the deploying address being the intended `admin` (= Onara sponsor
-  address). Records package id + registry id in env:
-  - `TALISE_AUTOSWAP_PACKAGE_ID`
-  - `TALISE_AUTOSWAP_REGISTRY_ID`
-- For every existing Talise user with a SuiNS subname, surface a
-  one-time "Upgrade your wallet" CTA that mints their vault and
-  repoints their subname. Old wallets keep working — auto-swap is
-  purely additive.
-- Audit: at minimum, run `sui-security` static analysis and have a
-  second engineer review the `auto_swap_extract` / `validate_for_swap`
-  pair end-to-end. Two-step compromise is the only path to fund loss
-  (admin key + a leaked cap with high `max_per_swap`), but it's worth
-  burning an hour on.
+Move package coverage as of the v2 ship was 100%. Tests are unchanged
+since v3/v4 added new functions but didn't alter existing behavior;
+the v4 deposit-to-owner path needs a dedicated test (TODO — see "Open
+questions" below).
 
 ## Open questions / future work
 
-- **Destination allowlist.** Today the Move code doesn't constrain
-  the `Dest` type on `auto_swap_deposit`. The off-chain SDK builds
-  the PTB with `Dest = USDsui`, but a compromised SDK could route
-  somewhere else. v2: add an allowlist of `Dest` type-names to the
-  `AutoSwapRegistry`, asserted inside `auto_swap_deposit`.
-- **DEX allowlist.** Same idea but for the venue. v2: a `pools`
-  field on `AutoSwapRegistry` containing approved Cetus pool ids,
-  asserted by an extra `validate_pool` step.
-- **Admin rotation.** v1 hardwires `admin` at publish. v2 adds an
-  `AdminCap`-gated `rotate_admin(registry, &AdminCap, new_admin)`.
+- **Test coverage for `auto_swap_deposit_to_owner`.** Add unit tests
+  covering:
+  - Swap output transferred to `vault.owner` (not stuck in bag).
+  - Stale bag balance for the same `Dest` type flushed on first swap.
+  - `E_WRONG_VAULT` when a ticket from vault A is deposited into B.
+- **Single-tx onboarding.** A v5 `create_with_default_caps<T1, T2, T3>`
+  entry function returning the vault id and minting SUI/USDC/USDT
+  shared caps in one shot — so new users sign once total, not twice
+  (vault create + enable defaults).
+- **Destination allowlist.** Today nothing constrains `Dest` on
+  `auto_swap_deposit_to_owner`. The cron always picks USDsui, but a
+  compromised cron could route somewhere else. A registry-level
+  allowlist asserted inside the deposit function would close that.
+- **DEX allowlist.** Same idea for the swap venue — approved Cetus
+  pool ids on `AutoSwapRegistry`, asserted by a `validate_pool` step.
+- **Per-user period throttle.** `max_per_swap` bounds amount per swap,
+  not per period. A `swapped_today` field on the cap (reset on day
+  rollover) would force a malicious admin to drip-drain over time.
+- **Admin rotation.** v1 hardwires `admin` at publish. An `AdminCap`-
+  gated `rotate_admin(registry, &AdminCap, new_admin)` is overdue.
 - **Pause-the-world.** A registry-level pause flag that disables every
   cap at once — useful incident-response lever.
-- **Per-user accumulator throttle.** Today the cap limits amount per
-  swap, not per period. v2: track `swapped_today` in the cap, reset
-  daily. Forces a malicious admin to drip-drain over time, buying
-  monitoring + revocation time.
