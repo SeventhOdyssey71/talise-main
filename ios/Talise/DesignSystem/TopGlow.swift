@@ -82,32 +82,74 @@ extension View {
 }
 
 /// Reusable "Liquid Glass" treatment matching the Figma's depth spec.
-/// Same recipe as the bottom-nav pill — a `.ultraThinMaterial` blur,
-/// a dark tint to anchor it on a black page, a top→bottom gradient
-/// stroke for the specular highlight, and two layered drop-shadows for
-/// elevation.
 ///
-/// Usage: `.taliseGlass(cornerRadius: 25)` on any container view. The
-/// blur captures whatever sits behind the card (page background,
-/// TopGlow wash), so cards over the TopGlow region read as ambient
-/// glass against the dark blue, not flat black plates.
+/// Layering, outer → inner:
+///   material > dark tint > directional tint (optional) > specular stroke > shadow
+///
+/// - `.ultraThinMaterial` captures whatever sits behind the card (page bg,
+///   TopGlow wash) so cards read as ambient glass, not flat plates.
+/// - Dark tint (~0.42) anchors the material into dark mode — without it
+///   `.ultraThinMaterial` reads too light against pure black.
+/// - Optional `tint` lets directional surfaces (Sent red, Received green,
+///   Earn green) compose naturally by adding a faint colored wash on top
+///   of the dark tint.
+/// - Top-down gradient stroke is the specular highlight — brighter at the
+///   top edge to suggest light hitting curved glass.
+/// - Two stacked shadows (big soft / tight hard) give weight without
+///   bleeding past the edges.
+///
+/// `interactive: true` opts the card into a press-down brighten — used
+/// when the card itself is a button.
+///
+/// Usage:
+///   `.taliseGlass()`                            // 25pt default radius
+///   `.taliseGlass(cornerRadius: 14)`            // smaller card
+///   `.taliseGlass(tint: TaliseColor.accent)`    // directional
+///   `.taliseGlass(interactive: true)`           // pressable
 struct TaliseGlassCard: ViewModifier {
     let cornerRadius: CGFloat
+    let tint: Color?
+    let interactive: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    init(cornerRadius: CGFloat = 25, tint: Color? = nil, interactive: Bool = false) {
+        self.cornerRadius = cornerRadius
+        self.tint = tint
+        self.interactive = interactive
+    }
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         return content
             .background(
                 ZStack {
+                    // 1. System material — the actual blur backdrop.
                     shape.fill(.ultraThinMaterial)
-                    shape.fill(Color.black.opacity(0.45))
+                    // 2. Dark tint — pulls the material into dark mode.
+                    shape.fill(Color.black.opacity(0.42))
+                    // 3. Optional directional tint — gives Sent / Received /
+                    //    Earn cards their accent without losing glass-ness.
+                    if let tint {
+                        shape.fill(
+                            LinearGradient(
+                                colors: [
+                                    tint.opacity(0.22),
+                                    tint.opacity(0.06),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                    }
                 }
             )
             .overlay(
+                // 4. Specular highlight — bright on top, dim in the middle,
+                //    slight return at the bottom for the "glass slab" feel.
                 shape.strokeBorder(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.22),
+                            Color.white.opacity(0.24),
                             Color.white.opacity(0.04),
                             Color.white.opacity(0.10),
                         ],
@@ -118,13 +160,54 @@ struct TaliseGlassCard: ViewModifier {
                 )
             )
             .clipShape(shape)
-            .shadow(color: Color.black.opacity(0.45), radius: 22, x: 0, y: 10)
-            .shadow(color: Color.black.opacity(0.30), radius: 3, x: 0, y: 1)
+            // 5. Two-layer shadow — large soft for depth, small tight for
+            //    the contact-point shadow against the page bg.
+            .shadow(color: Color.black.opacity(0.55), radius: 22, x: 0, y: 10)
+            .shadow(color: Color.black.opacity(0.32), radius: 3, x: 0, y: 1)
+            .opacity(isEnabled ? 1.0 : 0.6)
     }
 }
 
 extension View {
-    func taliseGlass(cornerRadius: CGFloat = 25) -> some View {
-        modifier(TaliseGlassCard(cornerRadius: cornerRadius))
+    /// Apply the Talise Liquid Glass treatment to any container.
+    /// - Parameters:
+    ///   - cornerRadius: Corner radius of the rounded rect. Defaults to 25
+    ///     (matches the large activity / username cards).
+    ///   - tint: Optional directional color overlay (Sent red, Received
+    ///     green, Earn green). When nil the card is neutral glass.
+    ///   - interactive: When true the card slightly brightens on press;
+    ///     attach inside a Button label or use the `.taliseGlassPressable()`
+    ///     style on a Button.
+    func taliseGlass(
+        cornerRadius: CGFloat = 25,
+        tint: Color? = nil,
+        interactive: Bool = false
+    ) -> some View {
+        modifier(TaliseGlassCard(cornerRadius: cornerRadius, tint: tint, interactive: interactive))
+    }
+}
+
+/// Press-down brighten for any glass card used as a button. Applies a
+/// momentary white wash + scale to mimic the liquid-glass "tap pulse".
+struct LiquidGlassPressStyle: ButtonStyle {
+    var cornerRadius: CGFloat = 25
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.06 : 0.0))
+                    .allowsHitTesting(false)
+            )
+            .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+extension View {
+    /// Convenience for wrapping a Button label so it animates on press
+    /// with the Liquid Glass pulse — pair with `.taliseGlass()`.
+    func taliseGlassPressable(cornerRadius: CGFloat = 25) -> some View {
+        buttonStyle(LiquidGlassPressStyle(cornerRadius: cornerRadius))
     }
 }
