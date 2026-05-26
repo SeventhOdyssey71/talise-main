@@ -111,16 +111,16 @@ enum VaultAPI {
     }
 }
 
-/// Common Sui coin type tags surfaced by the settings list. Order is
-/// the same order they're rendered on screen — USDsui sits at the
-/// bottom as the destination users are auto-converting INTO, so
-/// surfacing it as a source is a no-op edge case but kept here for
-/// completeness so the row reads "off / not applicable".
+/// Common Sui coin type tags surfaced by the settings list. Only the
+/// coins users can sensibly opt in for — USDsui is the DESTINATION
+/// (you don't auto-swap USDsui → USDsui), so it's intentionally
+/// absent. The earlier `usdsui` enum case had a placeholder type tag
+/// that backend validation rejected with HTTP 400, surfacing as
+/// "Couldn't read response from server" on the settings view.
 enum AutoSwapSourceCoin: String, CaseIterable, Identifiable {
     case sui    = "0x2::sui::SUI"
     case usdc   = "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
     case usdt   = "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN"
-    case usdsui = "USDSUI_PLACEHOLDER"
 
     var id: String { rawValue }
 
@@ -133,19 +133,16 @@ enum AutoSwapSourceCoin: String, CaseIterable, Identifiable {
         case .sui:    return "SUI"
         case .usdc:   return "USDC"
         case .usdt:   return "USDT"
-        case .usdsui: return "USDsui"
         }
     }
 
     /// SF Symbol for the row icon. Each maps to a quick visual handle
-    /// — SUI gets the droplet, USDC/T the dollar disc, USDsui the leaf
-    /// that matches every other "the destination is yield" surface.
+    /// — SUI gets the droplet, USDC/T the dollar disc.
     var iconName: String {
         switch self {
         case .sui:    return "drop.fill"
         case .usdc:   return "dollarsign.circle.fill"
         case .usdt:   return "dollarsign.circle.fill"
-        case .usdsui: return "leaf.fill"
         }
     }
 }

@@ -13,11 +13,16 @@ enum APIError: Error, LocalizedError {
         switch self {
         case .transport(let e):
             return "Network: \(e.localizedDescription)"
-        case .decode:
-            // Never leak the response body into UI — it might be HTML from
-            // a 404 page or an internal error trace. Surface a short
-            // generic message; the underlying error stays in the case
-            // payload for debug logging if a caller wants it.
+        case .decode(_, let body):
+            // Best-effort hint: if the body is a Talise-shaped JSON
+            // error (`{"error":"…"}`), surface the inner message so
+            // the UI is actually debuggable. Otherwise fall back to a
+            // truncated raw snippet, with HTML and overly-long bodies
+            // suppressed via `safeMessage`. The full `error` + `body`
+            // remain in the case payload for the caller's log.
+            if let hint = Self.safeMessage(body) {
+                return "Couldn't read response: \(hint)"
+            }
             return "Couldn't read response from server."
         case .status(let code, let msg):
             // Same protection here. If the server returned HTML (Next.js

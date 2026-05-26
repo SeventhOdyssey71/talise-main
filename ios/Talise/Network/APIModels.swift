@@ -591,8 +591,19 @@ struct AutoSwapCapDTO: Codable, Identifiable, Hashable {
     let id: String
     let sourceType: String
     let maxPerSwap: String
-    let expiresAtMs: UInt64
+    /// Wire format is u64-as-String for BigInt safety — matches every
+    /// other u64 field on the response. Earlier this was `UInt64`
+    /// which Codable failed to decode (server sent `"0"`, iOS expected
+    /// `0`) → "Couldn't read response from server" on any state read
+    /// where a cap existed.
+    let expiresAtMs: String
     let paused: Bool
+
+    /// Parse the raw expiry string for callers that want a number.
+    /// Returns 0 (= no expiry) if the wire value is malformed.
+    var expiresAtMsValue: UInt64 {
+        UInt64(expiresAtMs) ?? 0
+    }
 
     /// Convenience for the slider display — converts the raw u64 cap
     /// amount to a Double. See `VaultBalance.amountDouble` for the
