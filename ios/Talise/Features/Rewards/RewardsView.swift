@@ -5,7 +5,7 @@ import UIKit
 ///
 /// Phase 1 (this file): tier badge with next-tier progress, lifetime
 /// stats row (sent + saved in the user's display currency), earn-rules
-/// card explaining how points accrue, referral card, recent activity.
+/// card explaining how points accrue, referral card.
 ///
 /// Section anchors for parallel-agent work — DO NOT collapse these
 /// markers; the Phase 2/3/4 agents key off them:
@@ -38,7 +38,6 @@ struct RewardsView: View {
                 // ANCHOR: redeem-section
                 RedemptionsSection(pointsTotal: summary?.pointsTotal ?? 0, onRedeemed: { Task { await load() } })
                 referralCard
-                recentSection
                 if let error {
                     Text(error)
                         .font(TaliseFont.body(12, weight: .light))
@@ -328,77 +327,6 @@ struct RewardsView: View {
             .padding(18)
             .background(TaliseColor.usernameCard)
             .clipShape(RoundedRectangle(cornerRadius: 22))
-        }
-    }
-
-    // MARK: - Recent activity
-
-    @ViewBuilder
-    private var recentSection: some View {
-        if let events = summary?.recentEvents, !events.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                MicroLabel(text: "Recent", color: TaliseColor.fgDim).kerning(1.5)
-                VStack(spacing: 0) {
-                    ForEach(Array(events.enumerated()), id: \.element.id) { idx, event in
-                        eventRow(event)
-                        if idx < events.count - 1 {
-                            Rectangle().fill(Color.white.opacity(0.05))
-                                .frame(height: 1).padding(.horizontal, 12)
-                        }
-                    }
-                }
-                .background(TaliseColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 22))
-            }
-        } else if !loading {
-            VStack(spacing: 6) {
-                Text("No activity yet")
-                    .font(TaliseFont.body(14, weight: .light))
-                    .foregroundStyle(TaliseColor.fg)
-                Text("Send, save, or invite a friend — every action earns points.")
-                    .font(TaliseFont.mono(10, weight: .light))
-                    .foregroundStyle(TaliseColor.fgDim)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
-            .background(TaliseColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 22))
-        }
-    }
-
-    private func eventRow(_ event: RewardsEvent) -> some View {
-        HStack {
-            Text(displayLabelForKind(event.kind))
-                .font(TaliseFont.body(13, weight: .light))
-                .foregroundStyle(TaliseColor.fg)
-            Spacer()
-            Text(event.points >= 0 ? "+\(event.points)" : "\(event.points)")
-                .font(TaliseFont.heading(14, weight: .medium))
-                .foregroundStyle(event.points >= 0 ? TaliseColor.accent : TaliseColor.danger)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-    }
-
-    /// Friendly labels for the rewards_event kinds the server emits.
-    /// Stays in sync with web/lib/rewards-constants.ts EVENT_LABELS.
-    private func displayLabelForKind(_ kind: String) -> String {
-        switch kind {
-        case "send_earn":           return "Send"
-        case "save_earn":           return "Saved to yield"
-        case "roundup_save":        return "Round-up saved"
-        case "withdraw_earn":       return "Withdrew from yield"
-        case "goal_deposit":        return "Added to goal"
-        case "redeemed":            return "Redeemed"
-        case "referral_signup":     return "Friend signed up"
-        case "referral_first_send": return "Friend's first send"
-        case "volume_milestone":    return "Volume milestone"
-        case "first_send":          return "Your first send"
-        case "first_claim":         return "Claimed your handle"
-        case "streak":              return "Daily streak"
-        default:                    return kind.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 

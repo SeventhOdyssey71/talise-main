@@ -90,7 +90,7 @@ struct MainTabView: View {
 
             BottomNavPill(active: $tab)
                 .padding(.horizontal, 24)
-                .padding(.bottom, 20)
+                .padding(.bottom, 6)
                 .blur(radius: anySheetUp ? 14 : 0)
                 .animation(.easeInOut(duration: 0.22), value: anySheetUp)
         }

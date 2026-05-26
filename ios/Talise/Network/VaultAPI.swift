@@ -183,4 +183,29 @@ enum AutoSwapSourceCoin: String, CaseIterable, Identifiable {
         case .usdt:   return "dollarsign.circle.fill"
         }
     }
+
+    /// Native on-chain decimals for this coin. The Move contract stores
+    /// `AutoSwapCap.max_per_swap` as a u64 in the source coin's native
+    /// units (e.g. MIST for SUI), so when the user types a fiat budget
+    /// we must scale by 10^decimals — NOT a fixed 6 — to produce a cap
+    /// that actually permits the swap. Hard-coding 6 here is the bug
+    /// that turned a "₦250 cap" into ~0.000167 SUI on chain.
+    var decimals: Int {
+        switch self {
+        case .sui:    return 9
+        case .usdc:   return 6
+        case .usdt:   return 6
+        }
+    }
+
+    /// Whether this coin is a USD stable (USDC/USDT) — used to short-
+    /// circuit the price lookup when computing the cap. Stables don't
+    /// need an oracle hit; everything else does.
+    var isStable: Bool {
+        switch self {
+        case .sui:    return false
+        case .usdc:   return true
+        case .usdt:   return true
+        }
+    }
 }
