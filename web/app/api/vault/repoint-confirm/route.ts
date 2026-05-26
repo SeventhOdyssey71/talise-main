@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById, markVaultSubnameRepointed } from "@/lib/db";
-import { sui } from "@/lib/sui";
+import { suiJsonRpc } from "@/lib/sui";
 
 export const runtime = "nodejs";
 
@@ -50,7 +50,9 @@ export async function POST(req: Request) {
   }
 
   try {
-    const tx = await sui().getTransactionBlock({
+    // JSON-RPC: `getTransactionBlock` response shape is what this
+    // verifier consumes.
+    const tx = await suiJsonRpc().getTransactionBlock({
       digest,
       options: { showInput: true, showEffects: true },
     });

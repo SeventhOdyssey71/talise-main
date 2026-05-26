@@ -5,7 +5,7 @@ import { sign, redirectUriFromRequest } from "@/lib/auth";
 import { Ed25519PublicKey } from "@mysten/sui/keypairs/ed25519";
 import { fromBase64 } from "@mysten/sui/utils";
 import { generateNonce } from "@mysten/sui/zklogin";
-import { sui } from "@/lib/sui";
+import { suiJsonRpc } from "@/lib/sui";
 
 export const runtime = "nodejs";
 
@@ -67,7 +67,8 @@ export async function GET(req: Request) {
   // requires a real epoch value.
   let maxEpoch: number;
   try {
-    const state = await sui().getLatestSuiSystemState();
+    // `getLatestSuiSystemState` is JSON-RPC only — no gRPC equivalent.
+    const state = await suiJsonRpc().getLatestSuiSystemState();
     maxEpoch = Number(state.epoch) + MAX_EPOCH_HORIZON;
     if (!Number.isFinite(maxEpoch) || maxEpoch <= 0) {
       throw new Error("invalid epoch");

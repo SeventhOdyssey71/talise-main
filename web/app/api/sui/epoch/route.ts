@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sui } from "@/lib/sui";
+import { suiJsonRpc } from "@/lib/sui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   try {
-    const state = await sui().getLatestSuiSystemState();
+    // `getLatestSuiSystemState` is JSON-RPC only — no gRPC equivalent.
+    const state = await suiJsonRpc().getLatestSuiSystemState();
     return NextResponse.json({ epoch: state.epoch });
   } catch (err) {
     return NextResponse.json(
