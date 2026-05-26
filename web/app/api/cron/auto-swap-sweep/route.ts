@@ -526,6 +526,7 @@ async function callOnaraReceiveAndDeposit(args: {
 async function callOnaraSwap(args: {
   onaraUrl: string;
   packageId: string;
+  packageIdLatest: string;
   registryId: string;
   vaultId: string;
   capId: string;
@@ -544,6 +545,8 @@ async function callOnaraSwap(args: {
         destType: args.destType,
         amount: args.amount.toString(),
         packageId: args.packageId,
+        // v4+ auto_swap_deposit_to_owner only exists in the latest pkg.
+        packageIdLatest: args.packageIdLatest,
         registryId: args.registryId,
       }),
     });
@@ -772,6 +775,7 @@ export async function GET(req: Request) {
         const res = await callOnaraSwap({
           onaraUrl,
           packageId,
+          packageIdLatest,
           registryId,
           vaultId: u.talise_vault_id,
           capId: cap.id,

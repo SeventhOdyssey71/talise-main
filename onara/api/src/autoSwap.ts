@@ -107,6 +107,12 @@ const autoSwapBodySchema = z.object({
     .regex(moveTypeRegex, 'destType is not a valid Move type tag'),
   amount: u64String,
   packageId: objectIdField,
+  /// Latest package id (post-upgrade). Required for entry functions
+  /// that only exist in newer versions — e.g. `vault::auto_swap_deposit_to_owner`
+  /// shipped in v4. Falls back to `packageId` so single-version
+  /// callers still build a PTB that dispatches into whatever the
+  /// `packageId` value resolves to on chain.
+  packageIdLatest: objectIdField.optional(),
   registryId: objectIdField,
   pool: objectIdField.optional(),
 })
@@ -245,11 +251,17 @@ async function buildAutoSwapTx(
     aggregator,
   )
 
-  // 3. Deposit the swap output back into the same vault and consume
-  //    the ticket. The Move side asserts `ticket.vault_id == vault.id`
-  //    so funds can't be funneled to a different vault in the same PTB.
+  // 3. Deposit the swap output STRAIGHT TO THE VAULT OWNER (the user's
+  //    plain wallet) instead of into vault.balances, so auto-swapped
+  //    USDsui shows up where the user is looking. The Move side also
+  //    drains any stale Balance<Dest> still sitting in the bag from
+  //    pre-v4 swaps, so the first tick after v4 flushes both at once.
+  //
+  //    Ticket consumption + vault_id assertion are unchanged — this
+  //    is still the hot-potato closer for the PTB.
   tx.moveCall({
-    target: `${req.packageId}::vault::auto_swap_deposit`,
+    // v4-only entry — must dispatch via the latest package id.
+    target: `${req.packageIdLatest ?? req.packageId}::vault::auto_swap_deposit_to_owner`,
     typeArguments: [req.destType],
     arguments: [
       tx.object(req.vaultId),
