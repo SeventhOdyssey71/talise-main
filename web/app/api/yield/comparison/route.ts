@@ -39,7 +39,18 @@ export async function GET(req: Request) {
           pendingRewards: 0,
         }
       : null;
-    return NextResponse.json({ venues, best });
+    return NextResponse.json(
+      { venues, best },
+      {
+        // APYs move slowly — 60s edge cache + 5min SWR cuts the load
+        // on Navi's open API and the on-chain reserve reads when many
+        // mobile clients refresh at once. memoTtl in navi-supply gives
+        // us a second per-process layer.
+        headers: {
+          "Cache-Control": "s-maxage=60, stale-while-revalidate=300",
+        },
+      }
+    );
   } catch (err) {
     // Earn shouldn't 500 the UI just because a venue's RPC is flaky —
     // surface an empty comparison and let the client render "Unavailable".

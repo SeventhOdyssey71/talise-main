@@ -6,8 +6,9 @@ import {
   getJsonRpcFullnodeUrl,
 } from "@mysten/sui/jsonRpc";
 import { NaviAdapter } from "@t2000/sdk";
-import { USDSUI_TYPE } from "./usdsui";
+import { USDSUI_TYPE, isUsdsui } from "./usdsui";
 import { USDSUI_DECIMALS } from "./sui";
+import { memoTtl } from "./perf-cache";
 
 /**
  * NAVI USDsui supply / withdraw — sponsor-friendly PTB builders.
@@ -112,4 +113,56 @@ export async function appendNaviWithdraw(
     NAVI_ASSET
   );
   tx.transferObjects([coin], senderAddress);
+}
+
+/**
+ * Fetch the live USDsui supply APY from NAVI's public open API.
+ *
+ * Why this exists: `@t2000/sdk`'s `getFinancialSummary` returns the
+ * USDC `saveApy` regardless of the actual reserve asset — its
+ * `getRates()` populates `result.USDC.saveApy` but never adds a
+ * USDsui key, then `getFinancialSummary` reads `rates.USDC?.saveApy`
+ * unconditionally. That caused the iOS Earn screen to render
+ * USDC's 5.73% as Navi's USDsui APY when the actual on-portal
+ * USDsui figure is 9.18%.
+ *
+ * `supplyIncentiveApyInfo.apy` is the same number the Navi UI shows
+ * (vaultApr + boostedApr from reward tokens). Returned as a
+ * fraction (0.0918 for 9.18%) so it slots straight into the
+ * existing `YieldVenue.apy` shape.
+ *
+ * 60s TTL keeps the iOS load fast; Navi APYs change on the order of
+ * hours. Returns null on any fetch / parse failure so callers can
+ * fall back to the SDK number (still wrong, but better than 0).
+ */
+const NAVI_POOLS_URL = "https://open-api.naviprotocol.io/api/navi/pools?env=prod";
+
+type NaviPoolRow = {
+  coinType: string;
+  supplyIncentiveApyInfo?: { apy?: string };
+};
+
+async function fetchNaviUsdsuiSupplyApyOnce(): Promise<number | null> {
+  try {
+    const res = await fetch(NAVI_POOLS_URL, {
+      // Don't cache at the fetch layer — memoTtl above handles TTL.
+      cache: "no-store",
+      // Conservative deadline so a slow Navi response doesn't stall
+      // the whole /api/yield/comparison handler.
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: NaviPoolRow[] };
+    const pools = body?.data ?? [];
+    const row = pools.find((p) => p.coinType && isUsdsui("0x" + p.coinType.replace(/^0x/, "")));
+    const apyPct = parseFloat(row?.supplyIncentiveApyInfo?.apy ?? "");
+    if (!Number.isFinite(apyPct) || apyPct < 0 || apyPct > 200) return null;
+    return apyPct / 100;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchNaviUsdsuiSupplyApy(): Promise<number | null> {
+  return memoTtl("navi:usdsui-supply-apy", 60_000, fetchNaviUsdsuiSupplyApyOnce);
 }
