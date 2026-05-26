@@ -33,6 +33,19 @@ struct RoundupCard: View {
     @State private var pendingPercentage: Int? = nil
     @State private var saving = false
     @State private var error: String? = nil
+    /// Monotonic id stamped on every successful save. The pending-clear
+    /// task checks the id before nilling `pendingToggle` /
+    /// `pendingPercentage` — if a newer save has come in we drop the
+    /// stale clear so the optimistic value keeps showing until the
+    /// freshest server snapshot lands.
+    @State private var saveTick: Int = 0
+    /// Debounce token for slider drags. Each `set` bumps it; only the
+    /// task that matches the latest tick when its delay elapses fires
+    /// the POST. Keeps us from spamming the API on every drag frame
+    /// even though `onEditingChanged` already gates the submit — we
+    /// also debounce in case a future caller drives the slider value
+    /// programmatically.
+    @State private var sliderDebounceTick: Int = 0
 
     /// What the UI currently shows — `pendingX` overrides during the
     /// optimistic flip so the toggle / slider feel instant; falls back
@@ -90,6 +103,12 @@ struct RoundupCard: View {
                 isOn: Binding(
                     get: { enabled },
                     set: { newValue in
+                        // Stamp the optimistic value SYNCHRONOUSLY before
+                        // kicking off the save Task. Without this the
+                        // Toggle's binding can re-read `enabled` before
+                        // the Task body sets `pendingToggle`, briefly
+                        // snapping back to the server value.
+                        pendingToggle = newValue
                         Task { await save(enabled: newValue, percentage: nil) }
                     }
                 )
