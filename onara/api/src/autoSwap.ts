@@ -114,6 +114,18 @@ const autoSwapBodySchema = z.object({
   /// `packageId` value resolves to on chain.
   packageIdLatest: objectIdField.optional(),
   registryId: objectIdField,
+  /// v7 hardened registry (`AutoSwapRegistryV2`). Required when
+  /// `capVersion === "v2"` because the v2 Move entries take
+  /// `&mut AutoSwapRegistryV2` as an additional argument that carries
+  /// the pause flag, dest allowlist, worker membership, and per-cap
+  /// throttle bookkeeping. Ignored on the v1 path.
+  registryV2Id: objectIdField.optional(),
+  /// Selects which Move target the PTB dispatches into:
+  ///   "v1" → `vault::auto_swap_extract` + `vault::auto_swap_deposit_to_owner`
+  ///   "v2" → `vault::auto_swap_extract_v2` + `vault::auto_swap_deposit_to_owner_v2`
+  /// Defaults to "v1" for back-compat with any caller that hasn't been
+  /// updated. The cron worker explicitly sends "v2" for every v7 cap.
+  capVersion: z.enum(['v1', 'v2']).default('v1'),
   pool: objectIdField.optional(),
 })
 
@@ -218,6 +230,99 @@ async function buildAutoSwapTx(
   const tx = new Transaction()
   tx.setSender(sender)
 
+  // Latest package id — required for v4+ entries (`auto_swap_deposit_to_owner`)
+  // and v7 entries (`*_v2`). Falls back to `packageId` when the caller
+  // doesn't surface a separate id (back-compat with pre-v4 deploys).
+  const pkgLatest = req.packageIdLatest ?? req.packageId
+
+  // Branch on cap version. The Move v7 v2-suffixed entries take the
+  // `&mut AutoSwapRegistryV2` as an additional first argument (after
+  // the vault), which engages:
+  //   • global pause kill switch
+  //   • worker-role membership check
+  //   • per-cap daily throttle (`used_today` / `max_per_day`)
+  //   • dest allowlist (`assert_dest_allowed<Dest>`)
+  // The v1 path stays untouched for back-compat.
+  if (req.capVersion === 'v2') {
+    if (!req.registryV2Id) {
+      throw new Error(
+        'registryV2Id is required when capVersion === "v2" (v7 hardened path)',
+      )
+    }
+
+    // 1. v7 extract. Move signature:
+    //    auto_swap_extract_v2<Source>(
+    //      &mut TaliseVault,
+    //      &mut AutoSwapRegistryV2,
+    //      &mut AutoSwapCapV2<Source>,
+    //      amount: u64,
+    //      &Clock,
+    //      &TxContext,
+    //    ) -> (Balance<Source>, SwapTicket)
+    //
+    // The SDK auto-resolves the cap argument as Shared (v2 caps are
+    // minted via `transfer::public_share_object` in `enable_auto_swap_v2`).
+    const extractResult = tx.moveCall({
+      target: `${pkgLatest}::vault::auto_swap_extract_v2`,
+      typeArguments: [req.sourceType],
+      arguments: [
+        tx.object(req.vaultId),
+        tx.object(req.registryV2Id),
+        tx.object(req.capId),
+        tx.pure.u64(req.amount),
+        tx.object.clock(),
+      ],
+    })
+    const sourceBalance = extractResult[0]
+    const swapTicket = extractResult[1]
+    if (!sourceBalance || !swapTicket) {
+      throw new Error(
+        'vault::auto_swap_extract_v2 did not return (balance, ticket)',
+      )
+    }
+
+    // 2. Route through Cetus.
+    const swappedBalance = await cetusSwap(
+      tx,
+      sourceBalance,
+      req.sourceType,
+      req.destType,
+      req.pool,
+      req.amount,
+      aggregator,
+    )
+
+    // 3. v7 deposit-to-owner. Move signature:
+    //    auto_swap_deposit_to_owner_v2<Dest>(
+    //      &mut TaliseVault,
+    //      &AutoSwapRegistryV2,
+    //      Balance<Dest>,
+    //      SwapTicket,
+    //      &Clock,
+    //      &mut TxContext,
+    //    )
+    // Note: registry passed by IMMUTABLE reference here (extract took
+    // it `&mut` to bump `total_validations` + `used_today`). The SDK
+    // re-uses the same shared-object input; Move's borrow-checker is
+    // satisfied because the v2 entries take distinct mut/non-mut refs
+    // across the PTB lifetime.
+    tx.moveCall({
+      target: `${pkgLatest}::vault::auto_swap_deposit_to_owner_v2`,
+      typeArguments: [req.destType],
+      arguments: [
+        tx.object(req.vaultId),
+        tx.object(req.registryV2Id),
+        swappedBalance,
+        swapTicket,
+        tx.object.clock(),
+      ],
+    })
+
+    return tx
+  }
+
+  // ── v1 path (unchanged) ───────────────────────────────────────────
+
   // 1. Extract source balance + SwapTicket hot-potato from the vault.
   //    Post-audit, `auto_swap_extract` returns `(Balance<Source>, SwapTicket)`
   //    where SwapTicket has no abilities — it MUST be consumed by
@@ -261,7 +366,7 @@ async function buildAutoSwapTx(
   //    is still the hot-potato closer for the PTB.
   tx.moveCall({
     // v4-only entry — must dispatch via the latest package id.
-    target: `${req.packageIdLatest ?? req.packageId}::vault::auto_swap_deposit_to_owner`,
+    target: `${pkgLatest}::vault::auto_swap_deposit_to_owner`,
     typeArguments: [req.destType],
     arguments: [
       tx.object(req.vaultId),

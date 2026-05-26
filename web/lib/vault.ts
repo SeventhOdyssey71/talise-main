@@ -46,7 +46,26 @@ export type VaultPackageIds = {
    * pre-v2 deploy keeps working.
    */
   packageIdLatest: string;
+  /**
+   * v1 registry (`AutoSwapRegistry`) — the singleton minted at the
+   * original `init`. Still used by the v1 PTB path (`auto_swap_extract`
+   * + `auto_swap_deposit`) and by `enable_auto_swap` event walks. Stays
+   * pinned to its original object id for the lifetime of the package;
+   * never rotated.
+   */
   registryId: string;
+  /**
+   * v7 registry (`AutoSwapRegistryV2`) — the hardened shared object minted
+   * by `bootstrap_v7` post-upgrade. Required by every v2 swap path:
+   * `auto_swap_extract_v2` / `auto_swap_deposit_to_owner_v2`. Carries the
+   * dest-allowlist, registry pause flag, per-cap throttle bookkeeping,
+   * and the worker membership list. Onara dispatches against this when
+   * `capVersion === "v2"`.
+   *
+   * Distinct env var (`TALISE_AUTOSWAP_REGISTRY_V2_ID`) so the v1 id can
+   * stay frozen for v1 cap-event walks while we cut callers over.
+   */
+  registryV2Id: string;
   usdsuiType: string;
 };
 
@@ -70,9 +89,11 @@ export class VaultNotDeployedError extends Error {
 export function vaultPackageIds(): VaultPackageIds {
   const packageId = process.env.TALISE_AUTOSWAP_PACKAGE_ID;
   const registryId = process.env.TALISE_AUTOSWAP_REGISTRY_ID;
+  const registryV2Id = process.env.TALISE_AUTOSWAP_REGISTRY_V2_ID;
   const missing: string[] = [];
   if (!packageId) missing.push("TALISE_AUTOSWAP_PACKAGE_ID");
   if (!registryId) missing.push("TALISE_AUTOSWAP_REGISTRY_ID");
+  if (!registryV2Id) missing.push("TALISE_AUTOSWAP_REGISTRY_V2_ID");
   if (missing.length > 0) throw new VaultNotDeployedError(missing);
   // `TALISE_USDSUI_TYPE` can override the compiled-in constant for testnet
   // / staging deploys where USDsui lives at a different address.
@@ -89,6 +110,7 @@ export function vaultPackageIds(): VaultPackageIds {
     packageId: packageId!,
     packageIdLatest,
     registryId: registryId!,
+    registryV2Id: registryV2Id!,
     usdsuiType,
   };
 }
@@ -377,6 +399,49 @@ export function buildShareExistingCapTx(
     target: `${packageIdLatest}::vault::share_existing_cap`,
     typeArguments: [sourceType],
     arguments: [tx.object(capId)],
+  });
+  return tx;
+}
+
+/**
+ * `vault::upgrade_cap_to_v2<T>(cap, max_per_day, clock)` — burns the
+ * existing v1 `AutoSwapCap<T>` and mints an equivalent
+ * `AutoSwapCapV2<T>` (shared) with the v7 per-day throttle. After v7
+ * lands, the cron only sweeps v2 caps — v1 caps require this owner-
+ * signed migration.
+ *
+ * Move asserts (`talise::auto_swap::upgrade_cap_to_v2`):
+ *   • `ctx.sender() == cap.owner`   (E_NOT_OWNER) — owner-only.
+ *   • `max_per_day > 0`              (E_INVALID_MAX_PER_DAY)
+ *   • `max_per_day >= max_per_swap`  (E_INVALID_MAX_PER_DAY)
+ *
+ * Targets `packageIdLatest` — the entry was added in v7, so calls
+ * pinned to the original `packageId` would 404 the symbol. `maxPerDay`
+ * is a raw u64 in the source coin's native decimals (the caller scales
+ * 10× the existing `max_per_swap`). `clock` is the well-known shared
+ * `0x6` system clock object — used to initialize `day_reset_at_ms`.
+ */
+export function buildUpgradeCapToV2Tx(
+  sender: string,
+  capId: string,
+  sourceType: string,
+  maxPerDay: bigint | number
+): Transaction {
+  const { packageIdLatest } = vaultPackageIds();
+  const tx = new Transaction();
+  tx.setSender(sender);
+  tx.moveCall({
+    target: `${packageIdLatest}::vault::upgrade_cap_to_v2`,
+    typeArguments: [sourceType],
+    arguments: [
+      // v1 cap, consumed by value — Move destructures the old struct
+      // and shares the freshly-minted v2 cap in the same call.
+      tx.object(capId),
+      tx.pure.u64(BigInt(maxPerDay)),
+      // System Clock at 0x6 — used for the v2 cap's initial
+      // `day_reset_at_ms` (now + 24h).
+      tx.object("0x6"),
+    ],
   });
   return tx;
 }
