@@ -130,7 +130,8 @@ USDsui in their wallet → spend.
 | v2 | `0x45654c43…9046` | Adds `receive_and_deposit<T>`. Caps still user-owned. |
 | v3 | `0x4ae445e0…4e55` | Caps now **shared on mint**. Worker can reference them. Adds `share_existing_cap<T>` for in-place v2→v3 cap migration. |
 | v4 | `0x29a0d730…715a` | Adds `auto_swap_deposit_to_owner<Dest>`. Auto-swapped USDsui lands in user's wallet, not in the bag. Stale bag balances drain on every swap. |
-| v5 | `0xd969ca63…f12c6` | Adds `receive_from_accumulator<T>(amount)`. Drains Sui's address-accumulator slot for the vault's UID — current mainnet routes plain `transfer::public_transfer` to a shared-object address through the accumulator (`dynamic_field::Field<accumulator::Key<Balance<T>>>` at `0x000…0acc`), so the v2 `receive_and_deposit` path silently misses fresh deposits. v5 is what the cron uses now. |
+| v5 | `0xd969ca63…f12c6` | Adds `receive_from_accumulator<T>(amount)`. Drains Sui's address-accumulator slot for the vault's UID — current mainnet routes plain `transfer::public_transfer` to a shared-object address through the accumulator (`dynamic_field::Field<accumulator::Key<Balance<T>>>` at `0x000…0acc`), so the v2 `receive_and_deposit` path silently misses fresh deposits. v5 is what the cron uses for non-USDsui types. |
+| v6 | `0x5dd612e4…66cd` | Adds `receive_from_accumulator_to_owner<T>(amount)`. Same accumulator drain as v5, but the proceeds are wrapped as `Coin<T>` and transferred directly to `vault.owner` instead of folding into the bag. Cron special-cases USDsui (the destination type) to use this — `@handle → USDsui → wallet` is now a single-tick path with no bag stopover. |
 
 **Env vars (production):**
 

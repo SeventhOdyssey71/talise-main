@@ -253,6 +253,26 @@ public entry fun receive_from_accumulator<T>(
     deposit_balance(vault, bal, ctx.sender());
 }
 
+/// Companion to receive_from_accumulator for the dest type itself
+/// (USDsui). When the user receives USDsui directly at @handle, we
+/// don't want it sitting in the bag waiting for an unrelated swap to
+/// flush it — pull it from the accumulator and send it straight to
+/// vault.owner.
+///
+/// Permissionless — same trust model as the other claim functions
+/// (only destination is vault.owner, hardwired at vault creation).
+public entry fun receive_from_accumulator_to_owner<T>(
+    vault: &mut TaliseVault,
+    amount: u64,
+    ctx: &mut TxContext,
+) {
+    let withdrawal = balance::withdraw_funds_from_object<T>(&mut vault.id, amount);
+    let bal = balance::redeem_funds(withdrawal);
+    assert!(balance::value(&bal) > 0, E_ZERO_AMOUNT);
+    let coin_out = coin::from_balance(bal, ctx);
+    transfer::public_transfer(coin_out, vault.owner);
+}
+
 public entry fun receive_and_deposit<T>(
     vault: &mut TaliseVault,
     receiving: Receiving<Coin<T>>,
