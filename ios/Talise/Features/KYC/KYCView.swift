@@ -36,16 +36,11 @@ struct KYCView: View {
                             ForEach(countries, id: \.0) { code, name in
                                 row(code: code, name: name)
                                 if code != countries.last?.0 {
-                                    Divider().background(TaliseColor.line)
+                                    LiquidGlassDivider()
                                 }
                             }
                         }
-                        .background(TaliseColor.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: TaliseRadius.lg)
-                                .stroke(TaliseColor.line, lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.lg))
+                        .taliseGlass(cornerRadius: TaliseRadius.lg)
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
@@ -62,9 +57,8 @@ struct KYCView: View {
                             .foregroundStyle(TaliseColor.danger)
                     }
 
-                    TaliseButton(
+                    LiquidGlassButton(
                         title: "Continue",
-                        variant: .primary,
                         size: .lg,
                         loading: submitting
                     ) {
@@ -104,24 +98,33 @@ struct KYCView: View {
         return Button {
             accountType = type
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(TaliseFont.heading(15))
-                    .foregroundStyle(selected ? TaliseColor.bg : TaliseColor.fg)
-                Text(sub)
-                    .font(TaliseFont.body(12))
-                    .foregroundStyle(selected ? TaliseColor.bg.opacity(0.7) : TaliseColor.fgMuted)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(selected ? TaliseColor.fg : TaliseColor.surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: TaliseRadius.md)
-                    .stroke(selected ? TaliseColor.fg : TaliseColor.line, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.md))
+            tileLabel(title: title, sub: sub, selected: selected)
         }
         .buttonStyle(.plain)
+    }
+
+    /// Selected = solid white pill (deliberate picker affordance, keep
+    /// as-is). Unselected = neutral glass — backdrop refresh from the
+    /// previous flat `TaliseColor.surface`.
+    @ViewBuilder
+    private func tileLabel(title: String, sub: String, selected: Bool) -> some View {
+        let content = VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(TaliseFont.heading(15))
+                .foregroundStyle(selected ? TaliseColor.bg : TaliseColor.fg)
+            Text(sub)
+                .font(TaliseFont.body(12))
+                .foregroundStyle(selected ? TaliseColor.bg.opacity(0.7) : TaliseColor.fgMuted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        if selected {
+            content
+                .background(TaliseColor.fg)
+                .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.md))
+        } else {
+            content.taliseGlass(cornerRadius: TaliseRadius.md)
+        }
     }
 
     private func submit() async {

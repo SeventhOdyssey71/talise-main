@@ -57,9 +57,8 @@ struct KycTierPicker: View {
                         )
                     }
 
-                    TaliseButton(
+                    LiquidGlassButton(
                         title: continueTitle,
-                        variant: .primary,
                         size: .lg,
                         action: handleContinue
                     )

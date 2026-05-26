@@ -53,9 +53,9 @@ struct RoundupCard: View {
             header
 
             if enabled {
-                Divider().background(Color.white.opacity(0.06))
+                LiquidGlassDivider()
                 slider
-                Divider().background(Color.white.opacity(0.06))
+                LiquidGlassDivider()
                 savedLine
             }
 

@@ -106,9 +106,9 @@ struct AutoSwapEnableSheet: View {
             }
             actionBar
         }
-        // Plain black background — TopGlow belongs only on root tab
-        // screens. Sheets sit over the (already-blurred) tab content.
-        .background(TaliseColor.bg.ignoresSafeArea())
+        // Liquid Glass sheet treatment — material backdrop + accent
+        // top wash mirrors the rest of the app's modal language.
+        .liquidGlassSheet(accent: TaliseColor.accent)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .task { await loadSourceCoinPrice() }
@@ -181,8 +181,7 @@ struct AutoSwapEnableSheet: View {
                     .foregroundStyle(TaliseColor.fgMuted)
             }
             .padding(14)
-            .background(TaliseColor.usernameCard)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .taliseGlass(cornerRadius: 16)
         }
     }
 
@@ -199,28 +198,19 @@ struct AutoSwapEnableSheet: View {
 
     private var actionBar: some View {
         VStack(spacing: 10) {
-            Button(action: { Task { await enable() } }) {
-                HStack(spacing: 10) {
-                    if submitting {
-                        ProgressView().tint(TaliseColor.bg)
-                    }
-                    Text(submitting
-                         ? "Enabling…"
-                         : "Enable auto-swap")
-                        .font(TaliseFont.heading(15, weight: .medium))
-                }
-                .foregroundStyle(TaliseColor.bg)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(canSubmit ? TaliseColor.fg : TaliseColor.fg.opacity(0.35))
-                .clipShape(Capsule())
+            LiquidGlassButton(
+                title: submitting ? "Enabling…" : "Enable auto-swap",
+                tint: TaliseColor.accent,
+                size: .lg,
+                loading: submitting
+            ) {
+                Task { await enable() }
             }
             .disabled(!canSubmit)
         }
         .padding(.horizontal, 24)
         .padding(.top, 12)
         .padding(.bottom, 32)
-        .background(TaliseColor.bg)
     }
 
     // MARK: - Network

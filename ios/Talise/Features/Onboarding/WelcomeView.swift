@@ -45,9 +45,8 @@ struct WelcomeView: View {
                 }
                 .padding(.bottom, 24)
 
-                TaliseButton(
+                LiquidGlassButton(
                     title: "Get started",
-                    variant: .primary,
                     size: .lg,
                     action: onContinue
                 )

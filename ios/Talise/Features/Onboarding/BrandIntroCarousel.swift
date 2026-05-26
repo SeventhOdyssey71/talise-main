@@ -54,9 +54,8 @@ struct BrandIntroCarousel: View {
                 }
                 .padding(.bottom, 24)
 
-                TaliseButton(
+                LiquidGlassButton(
                     title: "Continue",
-                    variant: .primary,
                     size: .lg,
                     action: handleContinue
                 )
