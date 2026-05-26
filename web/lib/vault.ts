@@ -148,11 +148,17 @@ export function buildEnableAutoSwapTx(
   maxPerSwap: bigint | number,
   expiresAtMs: bigint | number
 ): Transaction {
-  const { packageId } = vaultPackageIds();
+  // Must use the LATEST package id so that v3's `enable_auto_swap` body
+  // (which calls `transfer::public_share_object(cap)` instead of
+  // `transfer::public_transfer(cap, owner)`) runs. The old v1/v2 entry
+  // would mint a user-owned cap, which the cron worker can't reference
+  // when signing as the Onara admin (Sui requires the signer to own every
+  // owned-object argument, and a user-owned cap defeats that).
+  const { packageIdLatest } = vaultPackageIds();
   const tx = new Transaction();
   tx.setSender(sender);
   tx.moveCall({
-    target: `${packageId}::vault::enable_auto_swap`,
+    target: `${packageIdLatest}::vault::enable_auto_swap`,
     typeArguments: [sourceType],
     arguments: [
       // Shared vault object — Move asserts vault.owner == sender inside.
