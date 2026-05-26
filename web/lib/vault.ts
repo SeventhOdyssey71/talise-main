@@ -431,7 +431,11 @@ export function buildUpgradeCapToV2Tx(
   const tx = new Transaction();
   tx.setSender(sender);
   tx.moveCall({
-    target: `${packageIdLatest}::vault::upgrade_cap_to_v2`,
+    // Function lives in the auto_swap module, not vault. Spec text
+    // referred to it under the vault namespace because v7 cap mgmt is
+    // a "vault concern" — but the actual `fun upgrade_cap_to_v2` is
+    // defined in auto_swap.move (next to `new_cap_v2`).
+    target: `${packageIdLatest}::auto_swap::upgrade_cap_to_v2`,
     typeArguments: [sourceType],
     arguments: [
       // v1 cap, consumed by value — Move destructures the old struct
