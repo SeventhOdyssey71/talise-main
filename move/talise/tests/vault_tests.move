@@ -14,12 +14,19 @@
 ///   • `E_TYPE_NOT_HELD` on extract.
 ///   • `E_INSUFFICIENT_BALANCE` on extract.
 ///   • `E_ZERO_AMOUNT` on extract & withdraw.
+///   • `auto_swap_deposit_to_owner` (v4): (a) output routed to
+///     `vault.owner` as a plain `Coin<Dest>`, (b) stale bag balance is
+///     flushed alongside the new output, (c) `E_WRONG_VAULT` rejection.
+///
+/// NOTE (v3+ shared-cap migration): `vault::enable_auto_swap` shares
+/// the cap so the worker can reference it from a worker-signed PTB.
+/// Tests take the cap via `take_shared` and return via `return_shared`.
 #[test_only]
 module talise::vault_tests;
 
 use std::string;
 use sui::clock;
-use sui::coin;
+use sui::coin::{Self, Coin};
 use sui::sui::SUI;
 use sui::test_scenario as ts;
 
@@ -168,7 +175,7 @@ fun auto_swap_extract_then_deposit_round_trip() {
 
     // WORKER (= admin) extracts and deposits in the same scenario tx.
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     ts::next_tx(&mut scenario, WORKER);
     let mut v2 = ts::take_shared<TaliseVault>(&scenario);
@@ -192,7 +199,7 @@ fun auto_swap_extract_then_deposit_round_trip() {
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
     ts::return_shared(v2);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -212,7 +219,7 @@ fun auto_swap_extract_drains_then_remove_branch() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     ts::next_tx(&mut scenario, WORKER);
     let mut v2 = ts::take_shared<TaliseVault>(&scenario);
@@ -229,7 +236,7 @@ fun auto_swap_extract_drains_then_remove_branch() {
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
     ts::return_shared(v2);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -249,7 +256,7 @@ fun auto_swap_deposit_zero_output_destroys_balance() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     ts::next_tx(&mut scenario, WORKER);
     let mut v2 = ts::take_shared<TaliseVault>(&scenario);
@@ -268,7 +275,7 @@ fun auto_swap_deposit_zero_output_destroys_balance() {
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
     ts::return_shared(v2);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -288,7 +295,7 @@ fun auto_swap_deposit_into_existing_dest_uses_join() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     ts::next_tx(&mut scenario, WORKER);
     let mut v2 = ts::take_shared<TaliseVault>(&scenario);
@@ -307,7 +314,7 @@ fun auto_swap_deposit_into_existing_dest_uses_join() {
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
     ts::return_shared(v2);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -334,26 +341,20 @@ fun extract_rejects_cap_for_different_vault() {
     ts::return_shared(v_user);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     // OTHER_USER creates vault B and funds it. We capture the id at
     // creation time by listing shared ids before and after.
     setup_user_vault(&mut scenario, OTHER_USER);
     ts::next_tx(&mut scenario, OTHER_USER);
-    let all_ids = ts::ids_for_address<TaliseVault>(OTHER_USER);
-    // The shared object's "address" record happens at creation; the
-    // simpler route is: try take_shared, and if we got USER's vault,
-    // return it and try again.
-    let _ = all_ids;
     let v_first = ts::take_shared<TaliseVault>(&scenario);
-    let (mut v_other, returned_first) = if (sui::object::id(&v_first) == user_vault_id) {
+    let (mut v_other, _returned_first) = if (sui::object::id(&v_first) == user_vault_id) {
         // Pop USER's vault aside, take the next shared TaliseVault.
         ts::return_shared(v_first);
         (ts::take_shared<TaliseVault>(&scenario), true)
     } else {
         (v_first, false)
     };
-    let _ = returned_first;
     let funded = coin::mint_for_testing<SUI>(50_000, ts::ctx(&mut scenario));
     vault::deposit<SUI>(&mut v_other, funded, ts::ctx(&mut scenario));
 
@@ -373,7 +374,7 @@ fun extract_rejects_cap_for_different_vault() {
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
     ts::return_shared(v_other);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -390,7 +391,7 @@ fun extract_rejects_zero_amount() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     ts::next_tx(&mut scenario, WORKER);
     let mut v2 = ts::take_shared<TaliseVault>(&scenario);
@@ -406,7 +407,7 @@ fun extract_rejects_zero_amount() {
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
     ts::return_shared(v2);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -425,7 +426,7 @@ fun extract_rejects_when_type_not_held() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     ts::next_tx(&mut scenario, WORKER);
     let mut v2 = ts::take_shared<TaliseVault>(&scenario);
@@ -441,7 +442,7 @@ fun extract_rejects_when_type_not_held() {
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
     ts::return_shared(v2);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -460,7 +461,7 @@ fun extract_rejects_insufficient_balance() {
     ts::return_shared(v);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     ts::next_tx(&mut scenario, WORKER);
     let mut v2 = ts::take_shared<TaliseVault>(&scenario);
@@ -477,7 +478,7 @@ fun extract_rejects_insufficient_balance() {
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
     ts::return_shared(v2);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -571,7 +572,7 @@ fun auto_swap_deposit_rejects_ticket_for_different_vault() {
     ts::return_shared(v_a);
 
     ts::next_tx(&mut scenario, USER);
-    let cap = ts::take_from_sender<AutoSwapCap<SUI>>(&scenario);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
 
     // OTHER_USER creates vault B.
     setup_user_vault(&mut scenario, OTHER_USER);
@@ -603,7 +604,7 @@ fun auto_swap_deposit_rejects_ticket_for_different_vault() {
     ts::return_shared(registry);
     ts::return_shared(v_b);
     ts::return_shared(v_a2);
-    ts::return_to_address(USER, cap);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
 
@@ -618,5 +619,203 @@ fun deposit_rejects_zero_coin() {
     let zero_coin = coin::mint_for_testing<SUI>(0, ts::ctx(&mut scenario));
     vault::deposit<SUI>(&mut v, zero_coin, ts::ctx(&mut scenario));
     ts::return_shared(v);
+    ts::end(scenario);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// auto_swap_deposit_to_owner (v4) — new entry the cron worker calls.
+//
+// Verifies:
+//   (a) the swap output is delivered to `vault.owner` as a plain
+//       `Coin<Dest>`, not folded into the vault's bag;
+//   (b) any pre-v4 stale Balance<Dest> sitting in `vault.balances`
+//       gets flushed out alongside the new output in the same tx;
+//   (c) the ticket's `vault_id` is still asserted — passing a ticket
+//       issued against a different vault aborts with E_WRONG_VAULT.
+
+#[test]
+fun auto_swap_deposit_to_owner_routes_output_to_vault_owner() {
+    // (a) Happy path: USER funds the vault, WORKER swaps (simulated as
+    // 1:1 SUI→SUI), and the combined Coin<SUI> should land in USER's
+    // wallet — NOT inside the vault's bag.
+    //
+    // Note: because we simulate the swap as SUI→SUI, the Dest key
+    // collides with the bag entry that holds the post-extract remainder.
+    // The v4 entry deliberately flushes any stale Balance<Dest> from
+    // the bag in the same tx, so the user receives extracted+remainder
+    // = full original balance (1_000_000). That IS the v4 contract;
+    // the SUI→SUI simulation just happens to exercise the flush path
+    // for free. The next test (`…_flushes_stale_bag_balance`) covers
+    // the migration scenario with a distinct stale entry.
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+    setup_user_vault(&mut scenario, USER);
+
+    ts::next_tx(&mut scenario, USER);
+    let mut v = ts::take_shared<TaliseVault>(&scenario);
+    let funded = coin::mint_for_testing<SUI>(1_000_000, ts::ctx(&mut scenario));
+    vault::deposit<SUI>(&mut v, funded, ts::ctx(&mut scenario));
+    vault::enable_auto_swap<SUI>(&v, 500_000, 0, ts::ctx(&mut scenario));
+    ts::return_shared(v);
+
+    ts::next_tx(&mut scenario, USER);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
+
+    ts::next_tx(&mut scenario, WORKER);
+    let mut v2 = ts::take_shared<TaliseVault>(&scenario);
+    let mut registry = ts::take_shared<AutoSwapRegistry>(&scenario);
+    let c = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (extracted, ticket) = vault::auto_swap_extract<SUI>(
+        &mut v2, &mut registry, &cap, 300_000, &c, ts::ctx(&mut scenario),
+    );
+    assert!(vault::balance_of<SUI>(&v2) == 700_000, 0);
+
+    // Route output straight to the user's wallet. With Source==Dest the
+    // v4 flush also drains the 700_000 remainder.
+    vault::auto_swap_deposit_to_owner<SUI>(&mut v2, extracted, ticket, &c, ts::ctx(&mut scenario));
+
+    // Vault bag SUI is empty — output was NOT folded back into the bag,
+    // and the bag entry was flushed by the v4 stale-balance drain.
+    assert!(vault::balance_of<SUI>(&v2) == 0, 1);
+    // Auto-swap counter still bumps so off-chain telemetry stays consistent.
+    assert!(vault::auto_swaps_total(&v2) == 1, 2);
+
+    clock::destroy_for_testing(c);
+    ts::return_shared(registry);
+    ts::return_shared(v2);
+    ts::return_shared(cap);
+
+    // USER should now hold a Coin<SUI> of 1_000_000 in their wallet
+    // (300_000 extracted + 700_000 flushed remainder).
+    ts::next_tx(&mut scenario, USER);
+    let received = ts::take_from_sender<Coin<SUI>>(&scenario);
+    assert!(coin::value(&received) == 1_000_000, 3);
+    coin::burn_for_testing(received);
+
+    ts::end(scenario);
+}
+
+#[test]
+fun auto_swap_deposit_to_owner_flushes_stale_bag_balance() {
+    // (b) Migration path: a pre-v4 swap left a Balance<Dest> in the
+    // vault bag. The first v4 tick should flush that AND deliver the
+    // new swap output to USER in one shot.
+    //
+    // We pre-load the bag with a Balance<SUI> via `test_deposit_balance`
+    // (the internal helper used by both `deposit` and `auto_swap_deposit`),
+    // simulating the bag overhang from older deposit semantics.
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+    setup_user_vault(&mut scenario, USER);
+
+    // Pre-load 200_000 of Balance<SUI> into the bag (the "stale" overhang).
+    ts::next_tx(&mut scenario, USER);
+    let mut v = ts::take_shared<TaliseVault>(&scenario);
+    let stale = sui::coin::mint_for_testing<SUI>(200_000, ts::ctx(&mut scenario));
+    let stale_bal = sui::coin::into_balance(stale);
+    vault::test_deposit_balance<SUI>(&mut v, stale_bal, USER);
+    assert!(vault::balance_of<SUI>(&v) == 200_000, 0);
+
+    // Now fund SUI for extraction (separate logical source pool) and
+    // enable the cap. Because the bag holds a single Balance<SUI>, the
+    // funding `join`s into it — total becomes 200_000 + 1_000_000.
+    let funded = coin::mint_for_testing<SUI>(1_000_000, ts::ctx(&mut scenario));
+    vault::deposit<SUI>(&mut v, funded, ts::ctx(&mut scenario));
+    assert!(vault::balance_of<SUI>(&v) == 1_200_000, 1);
+    vault::enable_auto_swap<SUI>(&v, 500_000, 0, ts::ctx(&mut scenario));
+    ts::return_shared(v);
+
+    ts::next_tx(&mut scenario, USER);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
+
+    ts::next_tx(&mut scenario, WORKER);
+    let mut v2 = ts::take_shared<TaliseVault>(&scenario);
+    let mut registry = ts::take_shared<AutoSwapRegistry>(&scenario);
+    let c = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    // Extract 400_000 SUI from the bag. Bag holds 800_000 after.
+    let (extracted, ticket) = vault::auto_swap_extract<SUI>(
+        &mut v2, &mut registry, &cap, 400_000, &c, ts::ctx(&mut scenario),
+    );
+    assert!(vault::balance_of<SUI>(&v2) == 800_000, 2);
+
+    // `auto_swap_deposit_to_owner` should:
+    //   - take the extracted 400_000 (swap output, simulated 1:1),
+    //   - remove the *remaining* 800_000 of Balance<SUI> from the bag
+    //     (the "stale" overhang for the Dest type),
+    //   - join them, and send the combined 1_200_000 to USER's wallet.
+    vault::auto_swap_deposit_to_owner<SUI>(&mut v2, extracted, ticket, &c, ts::ctx(&mut scenario));
+
+    // Bag should now hold zero SUI — the stale entry was removed.
+    assert!(vault::balance_of<SUI>(&v2) == 0, 3);
+
+    clock::destroy_for_testing(c);
+    ts::return_shared(registry);
+    ts::return_shared(v2);
+    ts::return_shared(cap);
+
+    // USER should hold the combined Coin<SUI> = 1_200_000.
+    ts::next_tx(&mut scenario, USER);
+    let received = ts::take_from_sender<Coin<SUI>>(&scenario);
+    assert!(coin::value(&received) == 1_200_000, 4);
+    coin::burn_for_testing(received);
+
+    ts::end(scenario);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::E_WRONG_VAULT)]
+fun auto_swap_deposit_to_owner_rejects_ticket_for_different_vault() {
+    // (c) The ticket carries the source vault id; the to-owner deposit
+    // must still assert it. Extracting from vault A and trying to close
+    // the ticket against vault B should abort with E_WRONG_VAULT.
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+
+    // USER creates vault A, funds it, mints a cap.
+    setup_user_vault(&mut scenario, USER);
+    ts::next_tx(&mut scenario, USER);
+    let mut v_a = ts::take_shared<TaliseVault>(&scenario);
+    let v_a_id = sui::object::id(&v_a);
+    let funded = coin::mint_for_testing<SUI>(10_000, ts::ctx(&mut scenario));
+    vault::deposit<SUI>(&mut v_a, funded, ts::ctx(&mut scenario));
+    vault::enable_auto_swap<SUI>(&v_a, 5_000, 0, ts::ctx(&mut scenario));
+    ts::return_shared(v_a);
+
+    ts::next_tx(&mut scenario, USER);
+    let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
+
+    // OTHER_USER creates vault B.
+    setup_user_vault(&mut scenario, OTHER_USER);
+
+    // WORKER extracts from vault A, then tries to deposit-to-owner into vault B.
+    ts::next_tx(&mut scenario, WORKER);
+    let mut v_a2 = ts::take_shared_by_id<TaliseVault>(&scenario, v_a_id);
+    let mut registry = ts::take_shared<AutoSwapRegistry>(&scenario);
+    let c = clock::create_for_testing(ts::ctx(&mut scenario));
+
+    let (extracted, ticket) = vault::auto_swap_extract<SUI>(
+        &mut v_a2, &mut registry, &cap, 1_000, &c, ts::ctx(&mut scenario),
+    );
+
+    // Pick vault B (the one that isn't v_a_id).
+    let v_first = ts::take_shared<TaliseVault>(&scenario);
+    let mut v_b = if (sui::object::id(&v_first) == v_a_id) {
+        ts::return_shared(v_first);
+        ts::take_shared<TaliseVault>(&scenario)
+    } else {
+        v_first
+    };
+
+    // Aborts with E_WRONG_VAULT.
+    vault::auto_swap_deposit_to_owner<SUI>(&mut v_b, extracted, ticket, &c, ts::ctx(&mut scenario));
+
+    // Unreachable cleanup.
+    clock::destroy_for_testing(c);
+    ts::return_shared(registry);
+    ts::return_shared(v_b);
+    ts::return_shared(v_a2);
+    ts::return_shared(cap);
     ts::end(scenario);
 }
