@@ -26,6 +26,7 @@ use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 use sui::coin::{Self, Coin};
 use sui::event;
+use sui::transfer::{Self, Receiving};
 use std::type_name;
 use std::string::String;
 
@@ -164,6 +165,36 @@ public entry fun deposit<T>(
     coin: Coin<T>,
     ctx: &TxContext,
 ) {
+    let amount = coin::value(&coin);
+    assert!(amount > 0, E_ZERO_AMOUNT);
+    let balance = coin::into_balance(coin);
+    deposit_balance(vault, balance, ctx.sender());
+}
+
+/// Claim a `Coin<T>` that was transferred TO the vault's object
+/// address (via `transfer::public_transfer(coin, vault_addr)`) and
+/// fold it into the vault's bag.
+///
+/// Why this exists: when the user's @talise subname resolves to the
+/// vault, anyone sending to that handle does a plain
+/// `transfer::public_transfer` — which makes the coin "address-owned"
+/// by the vault's id. The vault is a shared object, so no signer
+/// can spend that coin via the normal owned-object path. Sui's
+/// `transfer::public_receive` primitive is the documented escape:
+/// the shared object's module presents a `Receiving<T>` capability
+/// referring to the orphan, calls `public_receive`, and gets the
+/// `Coin<T>` back as a proper input it can deposit into the bag.
+///
+/// Anyone can call this — there's no fund-extraction risk because
+/// the coin's only destination is `vault.balances`. The off-chain
+/// cron sweeper scans `getOwnedObjects(vault_addr)` and calls this
+/// for every `Coin<T>` it finds before running the auto-swap pass.
+public entry fun receive_and_deposit<T>(
+    vault: &mut TaliseVault,
+    receiving: Receiving<Coin<T>>,
+    ctx: &TxContext,
+) {
+    let coin = transfer::public_receive(&mut vault.id, receiving);
     let amount = coin::value(&coin);
     assert!(amount > 0, E_ZERO_AMOUNT);
     let balance = coin::into_balance(coin);
