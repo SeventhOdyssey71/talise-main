@@ -129,7 +129,7 @@ struct RewardsView: View {
                     let total = points + toNext
                     let progress: CGFloat = total > 0 ? CGFloat(points) / CGFloat(total) : 0
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.06))
+                        Capsule().fill(TaliseColor.line)
                         // Min 8pt filled so the bar reads as "started"
                         // even for sub-1% progress. Looks like a real
                         // step instead of an empty rail.

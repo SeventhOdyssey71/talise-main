@@ -227,11 +227,11 @@ struct ChatTabView: View {
         .background(
             ZStack {
                 Capsule().fill(.ultraThinMaterial)
-                Capsule().fill(Color.black.opacity(0.45))
+                Capsule().fill(TaliseColor.glassTint)
             }
         )
         .overlay(
-            Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            Capsule().strokeBorder(TaliseColor.strokeSpecularMid, lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.5), radius: 16, x: 0, y: 8)
     }

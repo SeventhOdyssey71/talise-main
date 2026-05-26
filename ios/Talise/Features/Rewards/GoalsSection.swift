@@ -121,7 +121,7 @@ private struct ProgressRing: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Color.white.opacity(0.08), lineWidth: 4)
+                .stroke(TaliseColor.line, lineWidth: 4)
             Circle()
                 .trim(from: 0, to: max(0.02, CGFloat(progress)))
                 .stroke(TaliseColor.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
