@@ -402,7 +402,7 @@ struct HomeView: View {
             // value we already had on screen — the user sees ₦0.00
             // flash in. Preserve last-known state on cancel; only nil
             // out for genuine load failures.
-            if !isCancellation(error) {
+            if !APIError.isCancellation(error) {
                 balance = nil
             }
         }
@@ -418,23 +418,18 @@ struct HomeView: View {
             #endif
             activity = r.entries
         } catch {
-            #if DEBUG
-            print("[activity] load failed: \(error)")
-            #endif
-            if !isCancellation(error) {
+            // Don't log cancellations — they're the dominant signal in
+            // dev because SwiftUI's `.task` cancels its prior body
+            // every time the view re-evaluates. Logging them used to
+            // turn the dev console into unreadable `[activity] load
+            // failed: …NSURLErrorDomain Code=-999 "cancelled"…` spam.
+            if !APIError.isCancellation(error) {
+                #if DEBUG
+                print("[activity] load failed: \(error)")
+                #endif
                 activity = []
             }
         }
-    }
-
-    /// True when the URLSession task was cancelled (typically because
-    /// SwiftUI tore down the previous `.task` while a refresh kicked
-    /// off a new one). Cancellations are NOT load failures — preserve
-    /// any data we already have on screen.
-    private func isCancellation(_ error: Error) -> Bool {
-        if error is CancellationError { return true }
-        let ns = error as NSError
-        return ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
     }
 
     /// Sui fullnode `suix_queryTransactionBlocks` and `suix_getBalance`
@@ -599,7 +594,7 @@ struct HomeView: View {
         } catch {
             // Same cancellation-vs-failure split as loadBalance — don't
             // clobber the banner state on a refresh-triggered cancel.
-            if !isCancellation(error) {
+            if !APIError.isCancellation(error) {
                 sweepPreview = nil
             }
         }

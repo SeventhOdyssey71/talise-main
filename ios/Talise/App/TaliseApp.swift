@@ -8,6 +8,22 @@ struct TaliseApp: App {
     @State private var locked = false
 
     init() {
+        #if DEBUG
+        // Silence URLSession's chatty CFNetwork / Network.framework
+        // logs in dev builds — specifically the
+        //   `nw_connection_copy_connected_local_endpoint_block_invoke
+        //    [C2] Connection has no local endpoint`
+        // and friends that fire on every cancelled task. They're
+        // harmless but they drown out our own `print` statements in
+        // the Xcode console. `OS_ACTIVITY_MODE=disable` mutes the
+        // os_log stream that those frames are emitted into.
+        //
+        // setenv must run BEFORE URLSession is instantiated (i.e.
+        // before APIClient.shared is touched) for the system loggers
+        // to pick it up. App `init()` is the earliest hook we have.
+        setenv("OS_ACTIVITY_MODE", "disable", 1)
+        #endif
+
         Self.registerFonts()
         #if DEBUG
         // Cross-check our pure-Swift BLAKE2b-256 against @noble/hashes

@@ -134,8 +134,19 @@ struct AutoSwapMigrationBanner: View {
             status = try await VaultAPI.migrationStatus()
         } catch {
             // Swallow — the banner is purely additive UI; if the
-            // endpoint is unreachable we just don't show it.
-            status = nil
+            // endpoint is unreachable we just don't show it. Special-
+            // case cancellation: when the parent HomeView fires its
+            // pull-to-refresh while this `.task` is still in flight,
+            // SwiftUI cancels us. Clearing `status` in that path would
+            // make the banner flicker out and back in on every refresh
+            // (and even racier — the optimistic clobber + the second
+            // fetch repopulating it would shuffle z-order). Preserve
+            // the last-known status on cancel; APIClient's in-flight
+            // dedup means the two .task fires will share one round-
+            // trip anyway.
+            if !APIError.isCancellation(error) {
+                status = nil
+            }
         }
     }
 }
