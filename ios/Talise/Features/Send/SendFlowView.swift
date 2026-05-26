@@ -59,6 +59,15 @@ struct SendFlowView: View {
                         onDone: { close() }
                     )
                     .navigationBarBackButtonHidden(true)
+                    .task {
+                        // Fire an instant sweep right after every
+                        // successful send so the recipient's
+                        // @handle → wallet drain happens within
+                        // seconds, not at the next 60s cron tick.
+                        // Fire-and-forget — the cron will catch up
+                        // even if this call fails.
+                        await VaultAPI.sweepNow()
+                    }
                 }
             }
         }

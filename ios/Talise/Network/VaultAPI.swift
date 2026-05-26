@@ -206,6 +206,22 @@ enum VaultAPI {
         )
     }
 
+    /// `POST /api/vault/sweep-now` — user-triggered instant sweep.
+    /// The Vercel cron runs every 60s; this hits the same server-side
+    /// logic on demand so a Send → @handle drain is visible within
+    /// seconds instead of waiting for the next tick. Idempotent —
+    /// bounded by on-chain cap throttles. Fire-and-forget from the
+    /// caller; the returned summary is informational. Errors are
+    /// non-fatal (the cron will catch up regardless).
+    static func sweepNow() async {
+        struct EmptyBody: Encodable {}
+        struct OK: Decodable { let ok: Bool? }
+        _ = try? await APIClient.shared.post(
+            "/api/vault/sweep-now",
+            body: EmptyBody()
+        ) as OK
+    }
+
     /// `GET /api/vault/state` — returns the user's vault (or nil if
     /// they haven't created one yet) plus every active cap. Drives the
     /// `AutoSwapSettings` view's whole render pass.
