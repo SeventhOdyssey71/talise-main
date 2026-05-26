@@ -54,6 +54,12 @@ const bodySchema = z.object({
   vaultId: objectIdField,
   // The address-owned `Coin<T>` object id sitting under `vault.id`.
   coinObjectId: objectIdField,
+  // u64 version + Base58 digest of the coin object. Required by
+  // `tx.receivingRef` to construct the Receiving<Coin<T>> input — the
+  // SDK can't auto-resolve these because the coin isn't owned by the
+  // PTB signer.
+  coinVersion: z.string().trim().regex(/^\d+$/, 'coinVersion must be u64 string'),
+  coinDigest: z.string().trim().min(1),
   // Fully-qualified type-tag of `T` — the inner coin type, not the
   // wrapping `Coin<T>`. Plumbed verbatim into the Move call's type args.
   coinType: z
@@ -68,30 +74,56 @@ export type ReceiveAndDepositRequest = z.infer<typeof bodySchema>
 
 // ─── PTB builder ─────────────────────────────────────────────────────────────
 
-function buildReceiveTx(
+async function buildReceiveTx(
   req: ReceiveAndDepositRequest,
   sender: string,
-): Transaction {
+  _grpc: SuiGrpcClient,
+): Promise<Transaction> {
+  // Re-fetch the coin's live (version, digest) directly via JSON-RPC
+  // right before building. The cron's snapshot can lag the fullnode
+  // that the actual broadcast hits, causing "Could not find the
+  // referenced object at version SequenceNumber(X)". Going through
+  // direct fetch avoids gRPC SDK shape mismatches.
+  const rpcUrl = 'https://fullnode.mainnet.sui.io:443'
+  const r = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'sui_getObject',
+      params: [req.coinObjectId, { showOwner: false }],
+    }),
+    signal: AbortSignal.timeout(6000),
+  })
+  if (!r.ok) {
+    throw new Error(`getObject HTTP ${r.status}`)
+  }
+  const body = (await r.json()) as {
+    result?: { data?: { version?: string; digest?: string } }
+    error?: { message: string }
+  }
+  if (body.error) throw new Error(body.error.message)
+  const ver = body.result?.data?.version
+  const dig = body.result?.data?.digest
+  if (!ver || !dig) {
+    throw new Error(
+      `coin ${req.coinObjectId} not found on Sui (already consumed?)`,
+    )
+  }
+
   const tx = new Transaction()
   tx.setSender(sender)
-  // `Receiving<Coin<T>>` is constructed from a (mutable) ref to the
-  // receiver object's UID + the coin object's id+version+digest. The
-  // SDK's `tx.receivingRef` helper would let us pass a {objectId,
-  // version, digest} triple — but for the cron path we want a single
-  // round-trip, so we use `tx.object(coinObjectId)`, which lets the
-  // SDK resolve the live version/digest at build time. The chain
-  // type-checks Receiving<Coin<T>> from the function signature.
   tx.moveCall({
     target: `${req.packageId}::vault::receive_and_deposit`,
     typeArguments: [req.coinType],
     arguments: [
       tx.object(req.vaultId),
-      // `tx.object` on an address-owned coin will be encoded as a
-      // Receiving<…> argument because the function expects one — the
-      // Sui SDK looks at the target signature when normalising args.
-      // If a future SDK breaks that affordance, switch to
-      // `tx.receivingRef({ objectId, version, digest })`.
-      tx.object(req.coinObjectId),
+      tx.receivingRef({
+        objectId: req.coinObjectId,
+        version: ver,
+        digest: dig,
+      }),
     ],
   })
   return tx
@@ -157,7 +189,7 @@ async function handleReceiveAndDeposit(c: Context<{ Bindings: Bindings }>) {
   // Build PTB
   let txBytes: Uint8Array
   try {
-    const tx = buildReceiveTx(req, sender)
+    const tx = await buildReceiveTx(req, sender, grpc)
     txBytes = await tx.build({ client: grpc })
   } catch (error) {
     const message =
