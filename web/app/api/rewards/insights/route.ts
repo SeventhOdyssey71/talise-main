@@ -38,8 +38,11 @@ export async function GET(req: Request) {
       })),
     });
   } catch (err) {
+    console.warn(
+      `[rewards/insights] user=${userId} failed: ${(err as Error).message}`
+    );
     return NextResponse.json(
-      { error: (err as Error).message },
+      { error: "could not load insights" },
       { status: 500 }
     );
   }

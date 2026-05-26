@@ -27,8 +27,11 @@ export async function GET(req: Request) {
     const cfg = await getRoundupConfig(userId);
     return NextResponse.json(cfg);
   } catch (err) {
+    console.warn(
+      `[rewards/roundup GET] user=${userId} failed: ${(err as Error).message}`
+    );
     return NextResponse.json(
-      { error: (err as Error).message },
+      { error: "could not read roundup config" },
       { status: 500 }
     );
   }
@@ -75,8 +78,11 @@ export async function POST(req: Request) {
     const cfg = await setRoundupConfig({ userId, ...patch });
     return NextResponse.json(cfg);
   } catch (err) {
+    console.warn(
+      `[rewards/roundup POST] user=${userId} failed: ${(err as Error).message}`
+    );
     return NextResponse.json(
-      { error: (err as Error).message },
+      { error: "could not update roundup config" },
       { status: 500 }
     );
   }

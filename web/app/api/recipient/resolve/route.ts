@@ -22,9 +22,22 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "empty query" }, { status: 400 });
   }
 
-  const resolved = await resolveRecipient(q);
-  if (!resolved) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+  try {
+    const resolved = await resolveRecipient(q);
+    if (!resolved) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+    return NextResponse.json(resolved);
+  } catch (err) {
+    // Resolution touches SuiNS RPC + DB; either can transiently flake.
+    // 502 instead of 500 so callers can distinguish "I couldn't reach
+    // the lookup service" from a code bug.
+    console.warn(
+      `[recipient/resolve] q=${q.slice(0, 32)} failed: ${(err as Error).message}`
+    );
+    return NextResponse.json(
+      { error: "lookup failed" },
+      { status: 502 }
+    );
   }
-  return NextResponse.json(resolved);
 }
