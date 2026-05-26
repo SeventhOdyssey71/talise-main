@@ -14,6 +14,7 @@ import { executeTransaction, type OnStatus, type SponsorEvent } from './executio
 import { writeAnalytics } from './analytics'
 import autoSwapApp from './autoSwap'
 import receiveAndDepositApp from './receiveAndDeposit'
+import receiveFromAccumulatorApp from './receiveFromAccumulator'
 import sponsorPoliciesConfig from '../policies'
 
 interface AnalyticsEngineDataset {
@@ -180,6 +181,11 @@ app.route('/auto-swap', autoSwapApp)
 // cron calls this to fold orphan `Coin<T>` sent to a vault's address
 // into the vault's balance bag before sweeping.
 app.route('/receive-and-deposit', receiveAndDepositApp)
+
+// v5+ companion: claim from Sui's address-accumulator. On current
+// mainnet the accumulator is the dominant path for transfer-to-shared-
+// object-address, so this is what the cron uses for fresh deposits.
+app.route('/receive-from-accumulator', receiveFromAccumulatorApp)
 
 // ─── Transaction status lookup ────────────────────────────────────────────────
 

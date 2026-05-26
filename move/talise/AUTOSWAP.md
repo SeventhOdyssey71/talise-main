@@ -68,9 +68,12 @@ USDsui in their wallet → spend.
    an address-owned `Coin<T>`. Address-owned because the vault is a
    shared object and you can't transfer directly *into* a shared bag.
 3. Within ≤60s the Vercel cron picks it up:
-   - **Step A — claim**: `vault::receive_and_deposit<T>` folds the
-     address-owned coin into `vault.balances` (the bag). This requires
-     no user signature; the worker signs as Onara.
+   - **Step A — claim**: `vault::receive_from_accumulator<T>(amount)`
+     drains Sui's address-accumulator slot for the vault's UID into
+     `vault.balances` (the bag). The legacy `receive_and_deposit<T>`
+     entry still exists for the rare case where a real `Coin<T>` lands
+     at the vault address (pre-accumulator-rollout objects); the cron
+     no longer uses it. No user signature; the worker signs as Onara.
    - **Step B — swap**: `vault::auto_swap_extract<Source>` pulls a
      `Balance<Source>` out of the bag, hands back a `SwapTicket` hot
      potato; Cetus aggregator routes Source → USDsui; the hot potato
@@ -127,6 +130,7 @@ USDsui in their wallet → spend.
 | v2 | `0x45654c43…9046` | Adds `receive_and_deposit<T>`. Caps still user-owned. |
 | v3 | `0x4ae445e0…4e55` | Caps now **shared on mint**. Worker can reference them. Adds `share_existing_cap<T>` for in-place v2→v3 cap migration. |
 | v4 | `0x29a0d730…715a` | Adds `auto_swap_deposit_to_owner<Dest>`. Auto-swapped USDsui lands in user's wallet, not in the bag. Stale bag balances drain on every swap. |
+| v5 | `0xd969ca63…f12c6` | Adds `receive_from_accumulator<T>(amount)`. Drains Sui's address-accumulator slot for the vault's UID — current mainnet routes plain `transfer::public_transfer` to a shared-object address through the accumulator (`dynamic_field::Field<accumulator::Key<Balance<T>>>` at `0x000…0acc`), so the v2 `receive_and_deposit` path silently misses fresh deposits. v5 is what the cron uses now. |
 
 **Env vars (production):**
 

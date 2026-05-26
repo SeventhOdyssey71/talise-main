@@ -212,6 +212,47 @@ public entry fun deposit<T>(
 /// the coin's only destination is `vault.balances`. The off-chain
 /// cron sweeper scans `getOwnedObjects(vault_addr)` and calls this
 /// for every `Coin<T>` it finds before running the auto-swap pass.
+/// v5+ companion to `receive_and_deposit`: claim a `Balance<T>` from
+/// Sui's address-accumulator system into the vault's bag.
+///
+/// Why this is separate from `receive_and_deposit`: when a coin is
+/// transferred to a shared-object's address via `transfer::public_transfer`,
+/// the Sui runtime routes the value through the global accumulator at
+/// address `0x000…0acc` rather than parking a fresh `Coin<T>` at the
+/// destination address. The accumulator stores the inbound value as
+/// `dynamic_field::Field<accumulator::Key<Balance<T>>>` keyed by the
+/// destination. There is no `Coin<T>` to call `public_receive` on, so
+/// the existing `receive_and_deposit` path returns
+/// "Could not find the referenced object at version SequenceNumber(X)".
+///
+/// `balance::withdraw_funds_from_object` is the framework's accumulator-
+/// withdraw primitive: it consumes the address's accumulator slot for
+/// type T (by the vault's UID) up to `amount` raw units, returning a
+/// `Withdrawal<Balance<T>>` capability. Redeeming the withdrawal gives
+/// back a regular `Balance<T>` which is then folded into the bag the
+/// same way every other deposit path lands.
+///
+/// `amount` is intentionally a u64 cap on the claim — callers (the
+/// off-chain cron) pass the current balance read from
+/// `suix_getAllBalances`. If the accumulator slot value differs (e.g.
+/// the user received MORE between the read and this tx), only `amount`
+/// is claimed; the leftover sits for the next tick. The framework
+/// asserts `amount <= slot_value` so over-pulling is impossible.
+///
+/// Permissionless — same trust model as `receive_and_deposit`: the
+/// only destination is `vault.balances`, no fund-extraction surface.
+public entry fun receive_from_accumulator<T>(
+    vault: &mut TaliseVault,
+    amount: u64,
+    ctx: &TxContext,
+) {
+    let withdrawal = balance::withdraw_funds_from_object<T>(&mut vault.id, amount);
+    let bal = balance::redeem_funds(withdrawal);
+    let value = balance::value(&bal);
+    assert!(value > 0, E_ZERO_AMOUNT);
+    deposit_balance(vault, bal, ctx.sender());
+}
+
 public entry fun receive_and_deposit<T>(
     vault: &mut TaliseVault,
     receiving: Receiving<Coin<T>>,
