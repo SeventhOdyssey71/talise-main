@@ -72,31 +72,6 @@ body {
   color: var(--color-fg);
 }
 
-/*
- * Landing-light scope — Xend-inspired marketing landing tokens.
- *
- * Scoped exclusively to the `.landing-light` root so the in-app dark
- * shell (/home, /earn, etc.) is unaffected. Defines a near-white page
- * surface with near-black text, two soft gray surface tiers for cards,
- * and a hairline border. The accent stays Talise green so the brand
- * still reads, but everywhere we used to lean on the green for text we
- * fall back to near-black to match Xend's restrained palette.
- */
-.landing-light {
-  --landing-bg: #ffffff;
-  --landing-fg: #0a0a0a;
-  --landing-fg-dim: rgba(10, 10, 10, 0.55);
-  --landing-fg-muted: rgba(10, 10, 10, 0.40);
-  --landing-surface: #f8f8f7;
-  --landing-surface-2: #f1f1ef;
-  --landing-border: rgba(10, 10, 10, 0.08);
-  --landing-accent: #1d2d62;
-  --landing-brand: #79d96c;
-
-  background: var(--landing-bg);
-  color: var(--landing-fg);
-}
-
 /* Strip the ugly spinner arrows from <input type="number"> across browsers. */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
