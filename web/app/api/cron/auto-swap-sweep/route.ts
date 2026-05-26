@@ -115,6 +115,21 @@ type ActiveCap = {
   paused: boolean;
 };
 
+/** Outcome of a single cap discovery pass. */
+type CapsReadResult = {
+  caps: ActiveCap[];
+  /** How many candidate caps were user-owned (v2 leftovers) and skipped. */
+  userOwnedSkipped: number;
+  /** How many candidate caps were paused/expired/zero-max and skipped. */
+  skippedInvalid: number;
+};
+
+/// Hard cap on `AutoSwapEnabled` events walked per tick. The cron runs
+/// every minute against a 60s Vercel budget; even at 100ms/event a 100-
+/// event walk only costs ~10s of the budget. Bumping higher risks the
+/// per-user processing loop getting starved.
+const MAX_EVENTS_PER_TICK = 100;
+
 /** Read a single vault's `Balance<T>` map by paging its inner Bag. */
 async function readVaultBalances(vaultId: string): Promise<VaultBalance[]> {
   // JSON-RPC: relies on `getObject({id, options.showContent})` response
@@ -191,54 +206,211 @@ async function readVaultBalances(vaultId: string): Promise<VaultBalance[]> {
   return out;
 }
 
-/** Read every active `AutoSwapCap<T>` owned by `owner`. */
-async function readActiveCaps(
+/**
+ * Decode an `AutoSwapCap<T>` object response into an `ActiveCap`, filtering
+ * out paused / expired / zero-max caps. Returns `null` when the object is
+ * not a usable cap, along with an `invalid` flag for the diagnostic counter.
+ *
+ * `requireShared` is set when we're walking the v3 (shared-cap) world —
+ * any cap that still reports `AddressOwner` ownership is from the v2
+ * lineage and must be skipped (Onara's PTB build rejects them with
+ * "Transaction was not signed by the correct sender"). The caller bumps
+ * the `userOwnedSkipped` counter separately, so we just return `null`
+ * here and signal via the return shape.
+ */
+function decodeCapObject(
+  raw: {
+    data?: {
+      objectId?: string;
+      type?: string | null;
+      owner?: unknown;
+      content?: { dataType?: string; fields?: unknown } | null;
+    } | null;
+  },
+  capTypePrefix: string,
+  now: bigint
+): { cap?: ActiveCap; userOwned?: boolean; invalid?: boolean } {
+  const data = raw.data;
+  if (!data) return { invalid: true };
+  const t = data.type ?? "";
+  if (!t.startsWith(capTypePrefix)) return { invalid: true };
+  const inner = t.slice(capTypePrefix.length, -1);
+
+  const c = data.content;
+  if (!c || c.dataType !== "moveObject") return { invalid: true };
+  const fields = (c as { fields?: {
+    max_per_swap?: string | number;
+    expires_at_ms?: string | number;
+    paused?: boolean;
+  } }).fields ?? {};
+  const paused = Boolean(fields.paused);
+  const maxPerSwap = BigInt(String(fields.max_per_swap ?? "0"));
+  const expiresAtMs = BigInt(String(fields.expires_at_ms ?? "0"));
+  if (paused) return { invalid: true };
+  if (expiresAtMs !== 0n && expiresAtMs < now) return { invalid: true };
+  if (maxPerSwap === 0n) return { invalid: true };
+
+  // Owner inspection. The Sui RPC encodes ownership as:
+  //   "Immutable" | { AddressOwner: string } | { ObjectOwner: string } |
+  //   { Shared: { initial_shared_version: number } }
+  const owner = data.owner;
+  const isShared =
+    typeof owner === "object" &&
+    owner !== null &&
+    "Shared" in (owner as Record<string, unknown>);
+  const isAddressOwned =
+    typeof owner === "object" &&
+    owner !== null &&
+    "AddressOwner" in (owner as Record<string, unknown>);
+
+  if (isAddressOwned && !isShared) {
+    return { userOwned: true };
+  }
+
+  return {
+    cap: {
+      id: String(data.objectId ?? ""),
+      sourceType: canonicalizeTypeTag(inner),
+      maxPerSwap,
+      expiresAtMs,
+      paused: false,
+    },
+  };
+}
+
+/**
+ * Read every active `AutoSwapCap<T>` for `owner` via the v2 path:
+ * `getOwnedObjects(owner)`. Address-owned caps only — by definition, a
+ * shared cap won't show up here, so this function is the v1/v2 legacy
+ * read.
+ */
+async function readActiveCapsLegacy(
   packageId: string,
   owner: string
-): Promise<ActiveCap[]> {
+): Promise<CapsReadResult> {
   // JSON-RPC: walks `getOwnedObjects({showType, showContent})`. gRPC's
   // `listOwnedObjects` returns a different shape that we'd need to remap.
   const client = suiJsonRpc();
   const capTypePrefix = `${packageId}::auto_swap::AutoSwapCap<`;
-  const out: ActiveCap[] = [];
+  const caps: ActiveCap[] = [];
+  let skippedInvalid = 0;
   let cursor: string | null | undefined = null;
   const now = BigInt(Date.now());
   do {
     const page = await client.getOwnedObjects({
       owner,
-      options: { showType: true, showContent: true },
+      options: { showType: true, showContent: true, showOwner: true },
       cursor,
     });
     for (const item of page.data ?? []) {
       const t = item.data?.type;
       if (!t || !t.startsWith(capTypePrefix)) continue;
-      const inner = t.slice(capTypePrefix.length, -1);
-      const c = item.data?.content;
-      if (!c || c.dataType !== "moveObject") continue;
-      const fields = (c as unknown as {
-        fields?: {
-          max_per_swap?: string | number;
-          expires_at_ms?: string | number;
-          paused?: boolean;
-        };
-      }).fields ?? {};
-      const paused = Boolean(fields.paused);
-      const maxPerSwap = BigInt(String(fields.max_per_swap ?? "0"));
-      const expiresAtMs = BigInt(String(fields.expires_at_ms ?? "0"));
-      if (paused) continue;
-      if (expiresAtMs !== 0n && expiresAtMs < now) continue;
-      if (maxPerSwap === 0n) continue;
-      out.push({
-        id: item.data!.objectId,
-        sourceType: canonicalizeTypeTag(inner),
-        maxPerSwap,
-        expiresAtMs,
-        paused: false,
-      });
+      const decoded = decodeCapObject(item, capTypePrefix, now);
+      if (decoded.cap) caps.push(decoded.cap);
+      else if (decoded.invalid) skippedInvalid++;
+      // userOwned can't happen on the legacy path (we queried by owner)
+      // but if it did we'd count it as a skip anyway.
     }
     cursor = page.hasNextPage ? page.nextCursor : null;
   } while (cursor);
-  return out;
+  return { caps, userOwnedSkipped: 0, skippedInvalid };
+}
+
+/**
+ * Read every active `AutoSwapCap<T>` for `owner` via the v3 event-driven
+ * path. Walks the most recent `AutoSwapEnabled` events emitted by the
+ * package, filters to those whose `owner` field matches the user, and
+ * resolves each `cap_id` via `getObject`. Caps whose ownership is still
+ * `AddressOwner` (i.e. minted under v2 before the shared-cap migration)
+ * are skipped and counted in `userOwnedSkipped` so callers can log a
+ * single roll-up line per tick instead of one log entry per stale cap.
+ *
+ * Event walk is bounded by `MAX_EVENTS_PER_TICK` so we don't blow the
+ * Vercel 60s budget on a long-lived package. Caps are de-duplicated by
+ * id within the walk (a paused→resumed cap can re-emit `AutoSwapEnabled`).
+ */
+async function readActiveCapsViaEvents(
+  packageId: string,
+  owner: string
+): Promise<CapsReadResult> {
+  const client = suiJsonRpc();
+  const capTypePrefix = `${packageId}::auto_swap::AutoSwapCap<`;
+  const now = BigInt(Date.now());
+  const moveEventType = `${packageId}::auto_swap::AutoSwapEnabled`;
+
+  // Step 1: collect candidate cap_ids from recent AutoSwapEnabled events.
+  const seenCapIds = new Set<string>();
+  const seenOwner = owner.toLowerCase();
+  let walked = 0;
+  let cursor: { txDigest: string; eventSeq: string } | null | undefined = null;
+  while (walked < MAX_EVENTS_PER_TICK) {
+    const remaining = MAX_EVENTS_PER_TICK - walked;
+    const page = await client.queryEvents({
+      query: { MoveEventType: moveEventType },
+      cursor: cursor ?? null,
+      // Page size; we'll loop until we hit MAX_EVENTS_PER_TICK or run out.
+      limit: Math.min(50, remaining),
+      order: "descending",
+    });
+    for (const ev of page.data ?? []) {
+      walked++;
+      const pj = ev.parsedJson as
+        | { owner?: string; cap_id?: string }
+        | null
+        | undefined;
+      if (!pj) continue;
+      const evOwner = (pj.owner ?? "").toLowerCase();
+      const capId = pj.cap_id ?? "";
+      if (!capId) continue;
+      if (evOwner && evOwner !== seenOwner) continue;
+      seenCapIds.add(capId);
+    }
+    if (!page.hasNextPage || !page.nextCursor) break;
+    cursor = page.nextCursor;
+  }
+
+  if (seenCapIds.size === 0) {
+    return { caps: [], userOwnedSkipped: 0, skippedInvalid: 0 };
+  }
+
+  // Step 2: resolve each candidate via getObject and classify by ownership.
+  const caps: ActiveCap[] = [];
+  let userOwnedSkipped = 0;
+  let skippedInvalid = 0;
+  for (const id of seenCapIds) {
+    try {
+      const obj = await client.getObject({
+        id,
+        options: { showOwner: true, showType: true, showContent: true },
+      });
+      const decoded = decodeCapObject(obj as { data?: typeof obj.data }, capTypePrefix, now);
+      if (decoded.cap) caps.push(decoded.cap);
+      else if (decoded.userOwned) userOwnedSkipped++;
+      else if (decoded.invalid) skippedInvalid++;
+    } catch {
+      // Cap may have been burned (disable<T>) between the event emission
+      // and our getObject — count as invalid and move on.
+      skippedInvalid++;
+    }
+  }
+  return { caps, userOwnedSkipped, skippedInvalid };
+}
+
+/**
+ * Read active `AutoSwapCap<T>` set for `owner`. Picks the discovery
+ * strategy by comparing original vs latest package id: if they differ
+ * we assume v3 (shared caps) and walk events; otherwise fall back to
+ * the legacy owned-object walk.
+ */
+async function readActiveCaps(
+  packageId: string,
+  packageIdLatest: string,
+  owner: string
+): Promise<CapsReadResult> {
+  if (packageIdLatest && packageIdLatest !== packageId) {
+    return readActiveCapsViaEvents(packageId, owner);
+  }
+  return readActiveCapsLegacy(packageId, owner);
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -465,6 +637,19 @@ export async function GET(req: Request) {
     claim_skipped_no_cap: 0,
     /** Address-owned coins that failed to claim. */
     claim_failed: 0,
+    /** Shared caps (v3) that were usable this tick. */
+    caps_shared: 0,
+    /**
+     * User-owned caps (v2 lineage) skipped this tick because Onara's
+     * PTB rejects them with "Transaction was not signed by the correct
+     * sender" — they need explicit user migration to v3 before they
+     * become sweepable again. Surfaced as a single roll-up counter
+     * (one log line per tick, no per-user spam) so we can watch the
+     * migration drain over time.
+     */
+    caps_user_owned_skipped: 0,
+    /** Caps skipped because paused / expired / zero max / burned. */
+    caps_skipped_invalid: 0,
     details: [] as Array<{
       userId: number;
       vault: string;
@@ -481,8 +666,18 @@ export async function GET(req: Request) {
     try {
       // Active-cap set first — we need it to filter the address-owned
       // coin sweep AND to drive the balance-bag sweep below. One read,
-      // reused twice.
-      const caps = await readActiveCaps(packageId, u.sui_address);
+      // reused twice. On v3 deploys (packageIdLatest !== packageId)
+      // this walks `AutoSwapEnabled` events and resolves shared caps;
+      // on pre-v3 it falls back to `getOwnedObjects(owner)`.
+      const capsResult = await readActiveCaps(
+        packageId,
+        packageIdLatest,
+        u.sui_address
+      );
+      const caps = capsResult.caps;
+      summary.caps_shared += caps.length;
+      summary.caps_user_owned_skipped += capsResult.userOwnedSkipped;
+      summary.caps_skipped_invalid += capsResult.skippedInvalid;
 
       // Index caps by source type for O(1) match-up.
       const capByType = new Map<string, ActiveCap>();
@@ -626,6 +821,15 @@ export async function GET(req: Request) {
       // continue with next user
     }
   }
+
+  // Single roll-up line per tick. Avoids per-user spam for the
+  // user-owned-cap migration drain — we want to see the count fall,
+  // not a wall of "skipped user-owned cap" warnings every minute.
+  console.log(
+    `[auto-swap-sweep] caps: shared=${summary.caps_shared} ` +
+      `user_owned=${summary.caps_user_owned_skipped} ` +
+      `skipped_invalid=${summary.caps_skipped_invalid}`
+  );
 
   return NextResponse.json({ ok: true, ...summary });
 }
