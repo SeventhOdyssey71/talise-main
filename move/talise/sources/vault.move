@@ -30,7 +30,7 @@ use sui::transfer::{Self, Receiving};
 use std::type_name;
 use std::string::String;
 
-use talise::auto_swap::{Self, AutoSwapRegistry, AutoSwapCap};
+use talise::auto_swap::{Self, AutoSwapRegistry, AutoSwapCap, AutoSwapRegistryV2, AutoSwapCapV2};
 
 // ───────────────────────────────────────────────────────────────────
 // Errors
@@ -511,6 +511,157 @@ public fun auto_swap_deposit_to_owner<Dest>(
         to_amount,
         ts_ms: clock.timestamp_ms(),
     });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// v7: extract + deposit variants that consume `AutoSwapRegistryV2` and
+// `AutoSwapCapV2<T>`. New functions (the existing v1 signatures stay
+// frozen for `compatible` upgrade compliance) — Onara is updated to
+// route through these once v7 is published.
+// ═══════════════════════════════════════════════════════════════════
+
+/// v7 variant of `auto_swap_extract`. Calls `validate_for_swap_v2`
+/// which adds: registry pause check, multi-worker membership check,
+/// per-day throttle, overflow guard.
+public fun auto_swap_extract_v2<Source>(
+    vault: &mut TaliseVault,
+    registry: &mut AutoSwapRegistryV2,
+    cap: &mut AutoSwapCapV2<Source>,
+    amount: u64,
+    clock: &Clock,
+    ctx: &TxContext,
+): (Balance<Source>, SwapTicket) {
+    assert!(auto_swap::cap_v2_vault(cap) == object::id(vault), E_WRONG_VAULT);
+    assert!(amount > 0, E_ZERO_AMOUNT);
+
+    auto_swap::validate_for_swap_v2<Source>(registry, cap, amount, clock, ctx);
+
+    let key = type_name::with_defining_ids<Source>().into_string().into_bytes();
+    assert!(vault.balances.contains(key), E_TYPE_NOT_HELD);
+    let held: &mut Balance<Source> = vault.balances.borrow_mut(key);
+    assert!(balance::value(held) >= amount, E_INSUFFICIENT_BALANCE);
+    let extracted = balance::split(held, amount);
+
+    if (balance::value(held) == 0) {
+        let empty: Balance<Source> = vault.balances.remove(key);
+        balance::destroy_zero(empty);
+    };
+
+    let ticket = SwapTicket {
+        vault_id: object::id(vault),
+        from_type: key,
+        from_amount: amount,
+    };
+
+    (extracted, ticket)
+}
+
+/// v7 variant of `auto_swap_deposit`. Asserts that `Dest` is on the
+/// registry's `allowed_dest_types` list — a compromised Worker cannot
+/// route swap output to an arbitrary coin type.
+public fun auto_swap_deposit_v2<Dest>(
+    vault: &mut TaliseVault,
+    registry: &AutoSwapRegistryV2,
+    output: Balance<Dest>,
+    ticket: SwapTicket,
+    clock: &Clock,
+) {
+    auto_swap::assert_dest_allowed<Dest>(registry);
+
+    let SwapTicket { vault_id, from_type, from_amount } = ticket;
+    assert!(vault_id == object::id(vault), E_WRONG_VAULT);
+
+    let to_amount = balance::value(&output);
+    if (to_amount > 0) {
+        let key = type_name::with_defining_ids<Dest>().into_string().into_bytes();
+        if (vault.balances.contains(key)) {
+            let held: &mut Balance<Dest> = vault.balances.borrow_mut(key);
+            balance::join(held, output);
+        } else {
+            vault.balances.add(key, output);
+        };
+    } else {
+        balance::destroy_zero(output);
+    };
+
+    vault.auto_swaps_total = vault.auto_swaps_total + 1;
+
+    event::emit(VaultAutoSwap {
+        vault_id: object::id(vault),
+        from_type,
+        to_type: type_name::with_defining_ids<Dest>().into_string().into_bytes(),
+        from_amount,
+        to_amount,
+        ts_ms: clock.timestamp_ms(),
+    });
+}
+
+/// v7 variant of `auto_swap_deposit_to_owner`. Same dest-allowlist
+/// assertion as `auto_swap_deposit_v2`, but routes swap output (plus
+/// any stale bag balance of the same type) to `vault.owner`.
+public fun auto_swap_deposit_to_owner_v2<Dest>(
+    vault: &mut TaliseVault,
+    registry: &AutoSwapRegistryV2,
+    output: Balance<Dest>,
+    ticket: SwapTicket,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    auto_swap::assert_dest_allowed<Dest>(registry);
+
+    let SwapTicket { vault_id, from_type, from_amount } = ticket;
+    assert!(vault_id == object::id(vault), E_WRONG_VAULT);
+
+    let to_amount = balance::value(&output);
+
+    let mut total: Balance<Dest> = output;
+    let key = type_name::with_defining_ids<Dest>().into_string().into_bytes();
+    if (vault.balances.contains(key)) {
+        let stale: Balance<Dest> = vault.balances.remove(key);
+        balance::join(&mut total, stale);
+    };
+
+    if (balance::value(&total) > 0) {
+        let coin_out = coin::from_balance(total, ctx);
+        transfer::public_transfer(coin_out, vault.owner);
+    } else {
+        balance::destroy_zero(total);
+    };
+
+    vault.auto_swaps_total = vault.auto_swaps_total + 1;
+
+    event::emit(VaultAutoSwap {
+        vault_id: object::id(vault),
+        from_type,
+        to_type: type_name::with_defining_ids<Dest>().into_string().into_bytes(),
+        from_amount,
+        to_amount,
+        ts_ms: clock.timestamp_ms(),
+    });
+}
+
+/// v7 cap-enable. Mints an `AutoSwapCapV2<T>` directly (vs the v1 path
+/// which mints `AutoSwapCap<T>` then requires `upgrade_cap_to_v2`).
+/// Caller must own the vault.
+public entry fun enable_auto_swap_v2<T>(
+    vault: &TaliseVault,
+    max_per_swap: u64,
+    max_per_day: u64,
+    expires_at_ms: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(ctx.sender() == vault.owner, E_NOT_OWNER);
+    let cap = auto_swap::new_cap_v2<T>(
+        object::id(vault),
+        vault.owner,
+        max_per_swap,
+        max_per_day,
+        expires_at_ms,
+        clock,
+        ctx,
+    );
+    transfer::public_share_object(cap);
 }
 
 // ───────────────────────────────────────────────────────────────────
