@@ -1,19 +1,35 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
-import { sui } from "@/lib/sui";
 import { vaultPackageIds, VaultNotDeployedError } from "@/lib/vault";
+import {
+  gql,
+  VAULT_AND_CAPS_QUERY,
+  BAG_DYNAMIC_FIELDS_QUERY,
+  decodeBagKeyVectorU8,
+  type GraphQLVaultAndCapsResponse,
+  type GraphQLBagDynamicFieldsResponse,
+} from "@/lib/sui-graphql";
 
 export const runtime = "nodejs";
 
 /**
  * GET /api/vault/state
  *
- * Returns the user's vault contents + active auto-swap caps. Cached
- * per-user for ~10s because these reads spawn 3+ JSON-RPC roundtrips
- * (vault object, bag dynamic-fields, every cap object).
+ * Returns the user's vault contents + active auto-swap caps.
  *
- * Shape:
+ * Backend: a single GraphQL query against Sui GraphQL fetches the vault
+ * object's contents (to extract the bag UID) AND lists the user's
+ * AutoSwapCap<...> objects in one round-trip. A second GraphQL call reads
+ * every dynamic field on the bag with the nested Balance<T> value
+ * materialized — typically a single page (<10 coin types in the wild).
+ *
+ * Compared to the legacy JSON-RPC fan-out (vault getObject + bag
+ * getDynamicFields + N × getObject + getOwnedObjects), this is 2 hits
+ * down from 5+. The cache layer in `lib/sui-graphql.ts` also dedups
+ * within the 10s TTL window.
+ *
+ * Shape (unchanged — iOS decodes strictly):
  *   {
  *     vault: { id, balances: [{ coinType, amount }] } | null,
  *     caps: Array<{ id, sourceType, maxPerSwap, expiresAtMs, paused }>
@@ -40,6 +56,69 @@ type State = {
 const CACHE_TTL_MS = 10_000;
 const cache = new Map<number, { at: number; state: State }>();
 
+/** Extract the bag UID from the vault Move struct's `contents.json`. */
+function extractBagId(json: unknown): string | undefined {
+  if (!json || typeof json !== "object") return undefined;
+  // Move serializes `Bag` as `{ id: { id: "0x..." }, size: "N" }`. The
+  // outer wrapping `balances: { ... }` is the field name on the vault.
+  const balances = (json as { balances?: unknown }).balances;
+  if (!balances || typeof balances !== "object") return undefined;
+  const id = (balances as { id?: unknown }).id;
+  if (!id || typeof id !== "object") return undefined;
+  const inner = (id as { id?: unknown }).id;
+  if (typeof inner === "string") return inner;
+  return undefined;
+}
+
+/**
+ * Extract the u64 value from a Balance<T>'s JSON representation. Sui's
+ * GraphQL emits u64 as a JSON string ("12345"); u32 and below as a number.
+ * Defensive against both.
+ */
+function extractBalanceValue(json: unknown): string {
+  if (!json || typeof json !== "object") return "0";
+  const v = (json as { value?: unknown }).value;
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return String(v);
+  return "0";
+}
+
+/** Pull AutoSwapCap fields out of `MoveObject.contents.json`. */
+function extractCapFields(
+  json: unknown
+): { max_per_swap: string; expires_at_ms: string; paused: boolean } {
+  if (!json || typeof json !== "object") {
+    return { max_per_swap: "0", expires_at_ms: "0", paused: false };
+  }
+  const f = json as {
+    max_per_swap?: string | number;
+    expires_at_ms?: string | number;
+    paused?: boolean;
+  };
+  return {
+    max_per_swap: String(f.max_per_swap ?? "0"),
+    expires_at_ms: String(f.expires_at_ms ?? "0"),
+    paused: Boolean(f.paused),
+  };
+}
+
+/**
+ * Parse the type argument out of a fully-qualified cap type repr.
+ * Input:  `0x<pkg>::auto_swap::AutoSwapCap<0x<addr>::module::Name>`
+ * Output: `0x<addr>::module::Name`
+ *
+ * The cap has exactly one type parameter so slicing between the first `<`
+ * and the matching `>` is unambiguous. Returns null when the input is
+ * malformed (defensive — the type-filter should have ruled that out).
+ */
+function extractCapInnerType(repr: string): string | null {
+  const lt = repr.indexOf("<");
+  if (lt < 0) return null;
+  const gt = repr.lastIndexOf(">");
+  if (gt < 0 || gt <= lt) return null;
+  return repr.slice(lt + 1, gt);
+}
+
 export async function GET(req: Request) {
   const userId = await readEntryIdFromRequest(req);
   if (!userId) {
@@ -50,7 +129,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
 
-  // Cache hit — short-circuit before hitting RPC.
+  // Cache hit — short-circuit before hitting the chain.
   const cached = cache.get(userId);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
     return NextResponse.json(cached.state);
@@ -69,170 +148,140 @@ export async function GET(req: Request) {
     throw err;
   }
 
-  const client = sui();
   const vaultId = user.talise_vault_id ?? null;
+  // Type prefix accepted by `ObjectFilter.type` — matches every
+  // `AutoSwapCap<T>` instantiation under our package.
+  const capTypePrefix = `${packageId}::auto_swap::AutoSwapCap`;
 
   // ──────────────────────────────────────────────────────────────
-  // 1. Vault balances. The vault stores `Balance<T>` inside a Bag —
-  //    keyed by the UTF-8 bytes of the type name. We discover the
-  //    held types by listing the bag's dynamic fields.
+  // 1. Single GraphQL hit: vault contents + owned caps.
   let vault: State["vault"] = null;
-  if (vaultId) {
-    try {
-      const vObj = await client.getObject({
-        id: vaultId,
-        options: { showContent: true },
-      });
-      // The Bag is a field on the vault struct. Move's `bag::new` returns
-      // a `Bag` which itself wraps a UID — that wrapped UID is what we
-      // pass to `getDynamicFields`. The exposed shape is
-      //   { fields: { balances: { fields: { id: { id: "0x..." }, size: N } } } }
-      const content = vObj.data?.content;
-      let bagId: string | undefined;
-      if (content && content.dataType === "moveObject") {
-        const fields = (content as unknown as {
-          fields?: {
-            balances?: { fields?: { id?: { id?: string } } };
-          };
-        }).fields;
-        bagId = fields?.balances?.fields?.id?.id;
-      }
+  const caps: Cap[] = [];
 
-      const balances: Balance[] = [];
-      if (bagId) {
-        // Page through every dynamic field on the bag. With Sui's max
-        // page size (~50) and typical Talise users holding a handful of
-        // coin types, this is one round-trip in the common case.
-        let cursor: string | null | undefined = null;
-        do {
-          // SuiJsonRpcClient.getDynamicFields exists but isn't strongly
-          // typed for our pinned version — cast through unknown.
-          const page = (await (
-            client as unknown as {
-              getDynamicFields: (args: {
-                parentId: string;
-                cursor?: string | null;
-              }) => Promise<{
-                data: Array<{
-                  name: { type: string; value: unknown };
-                  objectId: string;
-                }>;
-                nextCursor: string | null;
-                hasNextPage: boolean;
-              }>;
-            }
-          ).getDynamicFields({ parentId: bagId, cursor })) as {
-            data: Array<{
-              name: { type: string; value: unknown };
-              objectId: string;
-            }>;
-            nextCursor: string | null;
-            hasNextPage: boolean;
-          };
+  let bagId: string | undefined;
+  let initialCapPage: GraphQLVaultAndCapsResponse["owner"] | null = null;
+  try {
+    const data = await gql<GraphQLVaultAndCapsResponse>(VAULT_AND_CAPS_QUERY, {
+      vaultId, // may be null — GraphQL accepts a null SuiAddress and skips
+      owner: user.sui_address,
+      capType: capTypePrefix,
+      first: 50,
+      afterObj: null,
+    });
 
-          for (const f of page.data) {
-            // `f.name.value` is the bag key — a vector<u8> rendered as
-            // a byte array of the UTF-8 type-name string. Decode it.
-            const bytes = f.name.value;
-            let coinType = "";
-            if (Array.isArray(bytes)) {
-              coinType = String.fromCharCode(
-                ...(bytes as number[]).filter((n) => typeof n === "number")
-              );
-            } else if (typeof bytes === "string") {
-              coinType = bytes;
-            }
-
-            // Read the field object to extract the inner Balance<T>'s value.
-            try {
-              const fo = await client.getObject({
-                id: f.objectId,
-                options: { showContent: true },
-              });
-              const fcontent = fo.data?.content;
-              let amount = "0";
-              if (fcontent && fcontent.dataType === "moveObject") {
-                // Dynamic field layout: `{ id, name, value: { value: <u64> } }`
-                // where `value` here is a Balance<T> with a single `value` u64.
-                const v = (fcontent as unknown as {
-                  fields?: {
-                    value?: { fields?: { value?: string | number } } | string | number;
-                  };
-                }).fields?.value;
-                if (typeof v === "object" && v !== null && "fields" in v) {
-                  amount = String((v as { fields?: { value?: string | number } }).fields?.value ?? "0");
-                } else if (typeof v === "string" || typeof v === "number") {
-                  amount = String(v);
-                }
-              }
-              balances.push({ coinType, amount });
-            } catch {
-              /* skip unreadable fields */
-            }
-          }
-          cursor = page.hasNextPage ? page.nextCursor : null;
-        } while (cursor);
-      }
-
-      vault = { id: vaultId, balances };
-    } catch (err) {
-      console.warn(
-        `[vault/state] failed to read vault ${vaultId}: ${(err as Error).message}`
-      );
-      // Surface a vault-known-but-unreadable state rather than 500'ing —
-      // the UI can still render management controls.
-      vault = { id: vaultId, balances: [] };
+    if (vaultId && data.vault?.asMoveObject?.contents?.json) {
+      bagId = extractBagId(data.vault.asMoveObject.contents.json);
     }
+    initialCapPage = data.owner;
+  } catch (err) {
+    // Network / GraphQL error — surface a degraded state rather than 500.
+    // The frontend can still render management controls; caps falls back
+    // to empty and vault to {id, balances: []} below.
+    console.warn(
+      `[vault/state] GraphQL vault+caps read failed: ${(err as Error).message}`
+    );
   }
 
   // ──────────────────────────────────────────────────────────────
-  // 2. AutoSwapCaps. Each one is a user-owned object of type
-  //    `<package>::auto_swap::AutoSwapCap<T>`. We can't filter by the
-  //    generic Move type prefix in a single `getOwnedObjects` call, so
-  //    we page everything the user owns and filter client-side. For
-  //    Talise users this is a tractable list (typically <50 objects).
-  const caps: Cap[] = [];
-  try {
-    const capTypePrefix = `${packageId}::auto_swap::AutoSwapCap<`;
-    let cursor: string | null | undefined = null;
-    do {
-      const page = await client.getOwnedObjects({
-        owner: user.sui_address,
-        options: { showType: true, showContent: true },
-        cursor,
-      });
-      for (const item of page.data ?? []) {
-        const t = item.data?.type;
-        if (!t || !t.startsWith(capTypePrefix)) continue;
-        // Extract the generic — everything between the first `<` and
-        // the matching closing `>`. This is depth-safe for nested
-        // generics like `Coin<USDC<X>>` because the cap itself has
-        // exactly one type param.
-        const inner = t.slice(capTypePrefix.length, -1);
-        const content = item.data?.content;
-        if (!content || content.dataType !== "moveObject") continue;
-        const fields = (content as unknown as {
-          fields?: {
-            max_per_swap?: string | number;
-            expires_at_ms?: string | number;
-            paused?: boolean;
-          };
-        }).fields ?? {};
+  // 2. Vault balances. One GraphQL call per bag page (typically 1).
+  if (vaultId) {
+    const balances: Balance[] = [];
+    if (bagId) {
+      try {
+        let cursor: string | null = null;
+        do {
+          const data: GraphQLBagDynamicFieldsResponse = await gql<GraphQLBagDynamicFieldsResponse>(
+            BAG_DYNAMIC_FIELDS_QUERY,
+            { bagId, first: 50, after: cursor }
+          );
+          const conn: NonNullable<GraphQLBagDynamicFieldsResponse["address"]>["dynamicFields"] | undefined =
+            data.address?.dynamicFields;
+          if (!conn) break;
+          for (const node of conn.nodes ?? []) {
+            // Bag key: vector<u8> rendered as a base64 string in
+            // MoveValue.json. Decode to the underlying type-name UTF-8.
+            const coinType = decodeBagKeyVectorU8(node.name.json);
+            if (!coinType) continue;
+
+            // Value: Balance<T> stored by-value → MoveValue branch with
+            // `json: { value: "<u64>" }`.
+            let amount = "0";
+            if (node.value && node.value.__typename === "MoveValue") {
+              amount = extractBalanceValue(node.value.json);
+            } else if (node.value && node.value.__typename === "MoveObject") {
+              // Defensive — if the bag stores Balance<T> wrapped in an
+              // object somewhere, the shape is the same `{ value: u64 }`
+              // under `contents.json`.
+              amount = extractBalanceValue(node.value.contents?.json);
+            }
+            balances.push({ coinType, amount });
+          }
+          cursor = conn.pageInfo.hasNextPage ? conn.pageInfo.endCursor : null;
+        } while (cursor);
+      } catch (err) {
+        console.warn(
+          `[vault/state] GraphQL bag DF read failed for ${bagId}: ${
+            (err as Error).message
+          }`
+        );
+        // Continue with whatever balances we did manage to read.
+      }
+    }
+    vault = { id: vaultId, balances };
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // 3. Caps — continue paginating if the first page hit the cursor.
+  if (initialCapPage) {
+    const pushFromPage = (
+      page: NonNullable<GraphQLVaultAndCapsResponse["owner"]>
+    ) => {
+      for (const node of page.objects.nodes ?? []) {
+        if (!node.contents) continue;
+        const inner = extractCapInnerType(node.contents.type.repr);
+        if (!inner) continue;
+        const fields = extractCapFields(node.contents.json);
         caps.push({
-          id: item.data!.objectId,
+          id: node.address,
           sourceType: inner,
-          maxPerSwap: String(fields.max_per_swap ?? "0"),
-          expiresAtMs: String(fields.expires_at_ms ?? "0"),
-          paused: Boolean(fields.paused),
+          maxPerSwap: fields.max_per_swap,
+          expiresAtMs: fields.expires_at_ms,
+          paused: fields.paused,
         });
       }
-      cursor = page.hasNextPage ? page.nextCursor : null;
-    } while (cursor);
-  } catch (err) {
-    console.warn(
-      `[vault/state] failed to list caps for ${user.sui_address}: ${(err as Error).message}`
-    );
-    // Empty caps array is fine — frontend handles it gracefully.
+    };
+    pushFromPage(initialCapPage);
+
+    // Rare — typical users own <50 caps. Paginate defensively.
+    let cursor: string | null = initialCapPage.objects.pageInfo.hasNextPage
+      ? initialCapPage.objects.pageInfo.endCursor
+      : null;
+    while (cursor) {
+      try {
+        const data = await gql<GraphQLVaultAndCapsResponse>(
+          VAULT_AND_CAPS_QUERY,
+          {
+            // Reuse the same query — vaultId is null so the vault branch
+            // is a no-op on follow-up pages.
+            vaultId: null,
+            owner: user.sui_address,
+            capType: capTypePrefix,
+            first: 50,
+            afterObj: cursor,
+          }
+        );
+        if (!data.owner) break;
+        pushFromPage(data.owner);
+        cursor = data.owner.objects.pageInfo.hasNextPage
+          ? data.owner.objects.pageInfo.endCursor
+          : null;
+      } catch (err) {
+        console.warn(
+          `[vault/state] GraphQL cap page failed: ${(err as Error).message}`
+        );
+        break;
+      }
+    }
   }
 
   const state: State = { vault, caps };
