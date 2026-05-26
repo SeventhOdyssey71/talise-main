@@ -107,23 +107,63 @@ struct ProfileView: View {
                 .frame(width: 88, height: 88)
                 .clipShape(Circle())
                 .overlay(
-                    Circle().stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    // Same specular hairline the initials disc carries —
+                    // keeps the photo and the fallback visually consistent.
+                    Circle().strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.24),
+                                Color.white.opacity(0.04),
+                                Color.white.opacity(0.10),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
                 )
+                .shadow(color: Color.black.opacity(0.55), radius: 22, x: 0, y: 10)
+                .shadow(color: Color.black.opacity(0.32), radius: 3, x: 0, y: 1)
             } else {
                 initialsDisc
             }
         }
     }
 
+    /// Avatar fallback — now a true frosted-glass disc instead of a flat
+    /// `surface2` circle. Matches the BottomNavPill recipe (material +
+    /// dark tint + specular hairline + dual shadow) so it sits *over* the
+    /// page background, not on it.
     private var initialsDisc: some View {
         ZStack {
-            Circle()
-                .fill(TaliseColor.surface2)
-                .frame(width: 88, height: 88)
+            // 1. System glass blur
+            Circle().fill(.ultraThinMaterial)
+            // 2. Dark tint — pulls material into dark mode
+            Circle().fill(Color.black.opacity(0.42))
             Text(initials)
                 .font(TaliseFont.heading(32, weight: .medium))
                 .foregroundStyle(TaliseColor.fg)
         }
+        .frame(width: 88, height: 88)
+        .overlay(
+            // 3. Specular highlight — top-bright, mid-dim, bottom-return
+            Circle().strokeBorder(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.24),
+                        Color.white.opacity(0.04),
+                        Color.white.opacity(0.10),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 1
+            )
+        )
+        .clipShape(Circle())
+        // 4. Dual-shadow for contact + depth
+        .shadow(color: Color.black.opacity(0.55), radius: 22, x: 0, y: 10)
+        .shadow(color: Color.black.opacity(0.32), radius: 3, x: 0, y: 1)
     }
 
     /// `@alice.talise.sui` chip with the green check, or a "Claim
@@ -174,8 +214,10 @@ struct ProfileView: View {
             statCell(label: "Since", value: memberSinceMonth, accent: false)
         }
         .frame(maxWidth: .infinity)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        // Liquid glass — same recipe as the BottomNavPill. A whisper of
+        // accent tint (0.06) makes the strip feel "alive" without going
+        // loud: it carries the user's KYC + Rewards standing.
+        .taliseGlass(cornerRadius: 18, tint: TaliseColor.accent.opacity(0.06))
     }
 
     /// One column of the stats strip. `maxWidth: .infinity` gives all
@@ -194,12 +236,14 @@ struct ProfileView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// 1pt full-height hairline between stat cells. Anchored inside the
-    /// HStack so it spans the card's inner height naturally.
+    /// Full-height hairline between stat cells. Vertical sibling of
+    /// `LiquidGlassDivider`; uses the same `TaliseColor.line` opacity so
+    /// the stat strip's internal dividers match the row dividers in the
+    /// other cards below.
     private var statDivider: some View {
         Rectangle()
-            .fill(Color.white.opacity(0.07))
-            .frame(width: 1)
+            .fill(TaliseColor.line)
+            .frame(width: 1 / UIScreen.main.scale)
             .padding(.vertical, 12)
     }
 
@@ -250,12 +294,13 @@ struct ProfileView: View {
 
                 sectionDivider
 
-                // Actions row — left-aligned pills so they don't float
-                // in the centre of a wide card.
+                // Actions row — left-aligned `LiquidGlassPill`s so the
+                // pills carry the same frosted-glass quality as the rest
+                // of the screen (replaces the old flat `surface2` capsules).
                 HStack(spacing: 10) {
-                    miniButton(
-                        icon: copiedAddress ? "checkmark" : "doc.on.doc",
-                        label: copiedAddress ? "Copied" : "Copy"
+                    LiquidGlassPill(
+                        title: copiedAddress ? "Copied" : "Copy",
+                        icon: copiedAddress ? "checkmark" : "doc.on.doc"
                     ) {
                         if let a = currentUser?.suiAddress {
                             UIPasteboard.general.string = a
@@ -266,7 +311,7 @@ struct ProfileView: View {
                             }
                         }
                     }
-                    miniButton(icon: "arrow.up.right.square", label: "Suiscan") {
+                    LiquidGlassPill(title: "Suiscan", icon: "arrow.up.right.square") {
                         openSuiscan()
                     }
                     Spacer()
@@ -320,6 +365,9 @@ struct ProfileView: View {
                     subtitle: "Changes display only — wallet settles in USDsui."
                 )
                 Spacer()
+                // Glass capsule — same recipe as `LiquidGlassPill` so the
+                // inline currency chooser doesn't read as a flat chip
+                // floating inside a frosted card.
                 HStack(spacing: 6) {
                     Text(CurrencySettings.shared.current.symbol)
                         .font(TaliseFont.heading(13, weight: .medium))
@@ -333,7 +381,26 @@ struct ProfileView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(TaliseColor.surface2)
+                .background(
+                    ZStack {
+                        Capsule().fill(.ultraThinMaterial)
+                        Capsule().fill(Color.black.opacity(0.40))
+                    }
+                )
+                .overlay(
+                    Capsule().strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.22),
+                                Color.white.opacity(0.04),
+                                Color.white.opacity(0.10),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+                )
                 .clipShape(Capsule())
             }
             .padding(.horizontal, 18)
@@ -478,14 +545,20 @@ struct ProfileView: View {
             Eyebrow(text: title)
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(TaliseColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
+                // Same Liquid Glass treatment used everywhere else in the
+                // app (BottomNavPill, activity card). Without this, the
+                // section reads as a flat slab instead of frosted glass
+                // over the page bg.
+                .taliseGlass(cornerRadius: 18)
         }
     }
 
+    /// Inter-row hairline used inside section cards. Uses the design-system
+    /// `LiquidGlassDivider` so it speaks the same visual language as the
+    /// dividers in HistoryRow / EarnView (1 device pixel, glass-tinted
+    /// white).
     private var sectionDivider: some View {
-        Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
-            .padding(.horizontal, 18)
+        LiquidGlassDivider(inset: 18)
     }
 
     /// Standard two-line row label used by every preferences row so
@@ -502,24 +575,9 @@ struct ProfileView: View {
         }
     }
 
-    private func miniButton(
-        icon: String, label: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .medium))
-                Text(label)
-                    .font(TaliseFont.heading(12, weight: .medium))
-            }
-            .foregroundStyle(TaliseColor.fg)
-            .padding(.horizontal, 14).padding(.vertical, 9)
-            .background(TaliseColor.surface2)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
+    // `miniButton` removed — Copy / Suiscan are now `LiquidGlassPill`s
+    // which carry the BottomNavPill glass recipe (material + dark tint +
+    // specular hairline + shadow) instead of a flat `surface2` capsule.
 
     // MARK: - Data
 
