@@ -77,7 +77,68 @@ export type ActivityEntry = {
    * Null on non-compound rows.
    */
   roundupUsdsui: number | null;
+  /**
+   * Non-USDsui / non-SUI coin movement. Populated when the user
+   * sent or received a coin we don't already represent via
+   * `amountUsdsui` / `amountSui` (e.g. WAL, USDC, USDT, random
+   * meme coin). `amount` is the raw u64 value as a string so very
+   * large numbers survive without precision loss; iOS formats it
+   * with `decimals` for display.
+   */
+  otherCoin: {
+    coinType: string;
+    symbol: string;
+    amount: string;
+    decimals: number;
+  } | null;
 };
+
+/**
+ * Per-process coin-info cache. CoinMetadata reads cost an RPC round-
+ * trip per type; caching is critical because we hit the same set of
+ * type ids over and over (every activity refresh re-classifies every
+ * recent tx). The map outlives a single request handler since
+ * `lib/activity.ts` is loaded once per Node process.
+ */
+const coinInfoCache = new Map<string, { symbol: string; decimals: number }>();
+
+async function getCoinInfo(
+  client: SuiJsonRpcClient,
+  coinType: string
+): Promise<{ symbol: string; decimals: number }> {
+  const cached = coinInfoCache.get(coinType);
+  if (cached) return cached;
+  try {
+    // Sui RPC: `suix_getCoinMetadata` (typed in the SDK).
+    const md = await (
+      client as unknown as {
+        getCoinMetadata: (
+          a: { coinType: string }
+        ) => Promise<{ symbol?: string; decimals?: number } | null>;
+      }
+    ).getCoinMetadata({ coinType });
+    if (md && (md.symbol || typeof md.decimals === "number")) {
+      const info = {
+        symbol: md.symbol || coinSymbolFromType(coinType),
+        decimals: typeof md.decimals === "number" ? md.decimals : 9,
+      };
+      coinInfoCache.set(coinType, info);
+      return info;
+    }
+  } catch {
+    /* fall through to type-string fallback */
+  }
+  const info = { symbol: coinSymbolFromType(coinType), decimals: 9 };
+  coinInfoCache.set(coinType, info);
+  return info;
+}
+
+/** Last `::Name` segment of a Move type, uppercased. `WAL`, `USDC`. */
+function coinSymbolFromType(coinType: string): string {
+  const parts = coinType.split("::");
+  const last = parts[parts.length - 1] || "COIN";
+  return last.toUpperCase().slice(0, 12);
+}
 
 /**
  * Package IDs we recognize as "yield venues" for the heuristic fallback
@@ -223,6 +284,8 @@ function summarize(
 ): {
   myUsdsui: number;
   mySui: number;
+  /** Raw u64 deltas for non-USDsui / non-SUI coins. */
+  myOtherRaw: Record<string, bigint>;
   counterparty: string | null;
 } {
   const me = myAddress.toLowerCase();
@@ -230,6 +293,11 @@ function summarize(
   let mySui = 0;
   // pick the largest non-self, non-sponsor counterparty by absolute USDsui (then SUI) movement
   const others: Record<string, { usdsui: number; sui: number }> = {};
+
+  // Non-USDsui / non-SUI movements tracked separately so the feed can
+  // surface "Received 10 WAL" rows. Keyed by coin type, value is raw
+  // u64 string (signed by way of leading '-').
+  const myOtherRaw: Record<string, bigint> = {};
 
   for (const b of tx.balanceChanges ?? []) {
     const owner = (ownerOf(b) ?? "").toLowerCase();
@@ -249,6 +317,15 @@ function summarize(
         others[owner] ??= { usdsui: 0, sui: 0 };
         others[owner].sui += human;
       }
+    } else if (owner === me && b.coinType) {
+      // Generic-coin tracking. We don't try to figure out a USD value;
+      // iOS gets the raw amount + decimals and formats client-side.
+      try {
+        myOtherRaw[b.coinType] =
+          (myOtherRaw[b.coinType] ?? 0n) + BigInt(b.amount ?? "0");
+      } catch {
+        /* skip non-numeric amounts — never expected, but defensive */
+      }
     }
   }
 
@@ -263,7 +340,7 @@ function summarize(
     }
   }
 
-  return { myUsdsui, mySui, counterparty };
+  return { myUsdsui, mySui, myOtherRaw, counterparty };
 }
 
 /**
@@ -590,10 +667,32 @@ export async function getRecentActivity(
       if (!registryId || !namespaceId) continue;
       if (!isTaliseTransaction(tx, registryId, namespaceId)) continue;
     }
-    const { myUsdsui, mySui, counterparty } = summarize(tx, address);
-    // Ignore txs where the user's net movement is essentially zero (e.g.
-    // sponsorship-only events, dust). Don't clutter the feed with noise.
-    if (Math.abs(myUsdsui) < 0.0001 && Math.abs(mySui) < 0.0001) continue;
+    const { myUsdsui, mySui, myOtherRaw, counterparty } = summarize(tx, address);
+
+    // Pick the dominant non-USDsui/non-SUI movement, if any. We pick the
+    // single biggest by absolute raw value rather than emit one row per
+    // coin type — multi-coin txs are dominated by one principal
+    // transfer and a long tail of dust, so showing the big one keeps
+    // the feed readable.
+    const otherEntries = Object.entries(myOtherRaw).filter(
+      ([, v]) => v !== 0n
+    );
+    otherEntries.sort((a, b) => {
+      const aabs = a[1] < 0n ? -a[1] : a[1];
+      const babs = b[1] < 0n ? -b[1] : b[1];
+      return aabs < babs ? 1 : aabs > babs ? -1 : 0;
+    });
+    const dominantOther = otherEntries[0] ?? null;
+
+    // Ignore txs where there is NO meaningful movement of any tracked
+    // coin (sponsorship-only events, pure object reads, etc.).
+    if (
+      Math.abs(myUsdsui) < 0.0001 &&
+      Math.abs(mySui) < 0.0001 &&
+      !dominantOther
+    ) {
+      continue;
+    }
 
     // --- Classification ------------------------------------------------
     // A. Authoritative — the on-chain PaymentRecord memo(s), if any.
@@ -642,8 +741,18 @@ export async function getRecentActivity(
         venue = venueClass.venue;
         cpForRow = null;
       } else {
-        // C. plain transfer.
-        direction = myUsdsui < 0 || mySui < 0 ? "sent" : "received";
+        // C. plain transfer. Direction follows the dominant signed
+        // movement: USDsui first, then SUI, then any other coin we
+        // tracked. This is what makes WAL / USDC / etc. receives
+        // show up as "Received" rows even though we don't have a USD
+        // value for them.
+        if (myUsdsui !== 0 || mySui !== 0) {
+          direction = myUsdsui < 0 || mySui < 0 ? "sent" : "received";
+        } else if (dominantOther) {
+          direction = dominantOther[1] < 0n ? "sent" : "received";
+        } else {
+          direction = "received";
+        }
       }
     }
 
@@ -657,6 +766,24 @@ export async function getRecentActivity(
       entryAmountUsdsui = myUsdsui === 0 ? null : Math.abs(myUsdsui);
     }
 
+    // Build the otherCoin payload — only when (a) we tracked a non-
+    // zero non-USDsui/non-SUI movement AND (b) USDsui/SUI didn't
+    // already cover this row. Resolves coin metadata for the symbol +
+    // decimals; falls back to last-segment-of-type if the chain has
+    // no metadata registered for the coin.
+    let otherCoin: ActivityEntry["otherCoin"] = null;
+    if (dominantOther && entryAmountUsdsui === null && mySui === 0) {
+      const [coinType, rawDelta] = dominantOther;
+      const info = await getCoinInfo(client(), coinType);
+      const absDelta = rawDelta < 0n ? -rawDelta : rawDelta;
+      otherCoin = {
+        coinType,
+        symbol: info.symbol,
+        amount: absDelta.toString(),
+        decimals: info.decimals,
+      };
+    }
+
     entries.push({
       digest: tx.digest!,
       timestampMs: Number(tx.timestampMs ?? 0),
@@ -667,6 +794,7 @@ export async function getRecentActivity(
       counterpartyName: null,
       venue,
       roundupUsdsui: compoundRoundupUsdsui,
+      otherCoin,
     });
   }
 
