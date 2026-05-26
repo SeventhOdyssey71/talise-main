@@ -30,7 +30,22 @@ import { suins } from "./suins-operator";
 // Env / package resolution
 
 export type VaultPackageIds = {
+  /**
+   * Original published-at package id — the one auto-swap caps were minted
+   * against. Used for any call that references types or capabilities tied
+   * to the original publish (caps, registry, type matches).
+   */
   packageId: string;
+  /**
+   * Latest published-at package id. Same upgrade lineage as `packageId`,
+   * just newer code. Use this when calling entry functions that ONLY exist
+   * in a later upgrade (e.g. `vault::receive_and_deposit` shipped in v2).
+   *
+   * If `TALISE_AUTOSWAP_PACKAGE_LATEST` is unset, this falls back to
+   * `packageId` — so callers using only v1 functions don't break, and a
+   * pre-v2 deploy keeps working.
+   */
+  packageIdLatest: string;
   registryId: string;
   usdsuiType: string;
 };
@@ -62,7 +77,20 @@ export function vaultPackageIds(): VaultPackageIds {
   // `TALISE_USDSUI_TYPE` can override the compiled-in constant for testnet
   // / staging deploys where USDsui lives at a different address.
   const usdsuiType = process.env.TALISE_USDSUI_TYPE || USDSUI_TYPE;
-  return { packageId: packageId!, registryId: registryId!, usdsuiType };
+  // `TALISE_AUTOSWAP_PACKAGE_LATEST` holds the most recent upgrade's
+  // `published-at` id. Calls to entry functions added in a newer version
+  // (e.g. `vault::receive_and_deposit`, added in v2) must target this
+  // package id — old `packageId` won't resolve the new symbol. We fall
+  // back to `packageId` if the env var is missing so single-version
+  // deploys still work.
+  const packageIdLatest =
+    process.env.TALISE_AUTOSWAP_PACKAGE_LATEST || packageId!;
+  return {
+    packageId: packageId!,
+    packageIdLatest,
+    registryId: registryId!,
+    usdsuiType,
+  };
 }
 
 // ───────────────────────────────────────────────────────────────────

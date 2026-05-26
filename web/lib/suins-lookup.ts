@@ -4,6 +4,7 @@ import {
   SuiJsonRpcClient,
   getJsonRpcFullnodeUrl,
 } from "@mysten/sui/jsonRpc";
+import { memoTtl } from "./perf-cache";
 
 /**
  * Reverse SuiNS lookup — given a Sui address, find any `*.talise.sui`
@@ -124,7 +125,31 @@ export async function findAllTaliseSubnamesForOwner(
   }
 }
 
+/**
+ * Cached lookup. Subname ownership + targetAddress changes are rare
+ * (a user claims once and never again, or repoints during the vault
+ * migration). A 5-minute TTL means the activity feed's per-counterparty
+ * reverse-lookup (N counterparties × 4-page `getOwnedObjects` + a
+ * SuinsClient.getNameRecord each) costs a few RPC round-trips only on
+ * the cold first request, then nothing for the next 5 minutes.
+ *
+ * The cache lives at module scope and is keyed by lowercased address —
+ * Sui addresses are case-insensitive on the wire but callers normalize
+ * inconsistently; lowering here keeps hit-rate high.
+ */
+const SUBNAME_CACHE_TTL_MS = 5 * 60_000;
+
 export async function findTaliseSubnameForOwner(
+  owner: string
+): Promise<OwnedSubname | null> {
+  return memoTtl(
+    `talise-subname:${owner.toLowerCase()}`,
+    SUBNAME_CACHE_TTL_MS,
+    () => _findTaliseSubnameForOwnerUncached(owner)
+  );
+}
+
+async function _findTaliseSubnameForOwnerUncached(
   owner: string
 ): Promise<OwnedSubname | null> {
   // We do TWO passes: first collect every `*.talise.sui` SubDomain NFT

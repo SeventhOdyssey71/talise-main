@@ -62,6 +62,48 @@ function authorized(req: Request): boolean {
 }
 
 // ───────────────────────────────────────────────────────────────────
+// Type-tag canonicalization
+//
+// Bag keys (written by Move's `type_name::get<T>()`) are full canonical
+// form without `0x` and with the address left-padded to 64 hex chars:
+//   "0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+//
+// Cap `sourceType` (extracted from `getOwnedObjects.data.type`) is the
+// RPC's short form, where the SDK collapses leading-zero addresses:
+//   "0x2::sui::SUI"
+//
+// These two never matched via direct string equality, so `capByType.get`
+// always missed and the per-user sweep silently fell through with no
+// log. Canonicalize both sides into "0x" + 64-char address + "::module::Type"
+// before comparing.
+
+function canonicalizeTypeTag(t: string): string {
+  // Normalize to the SHORT form: strip leading zeros from the address
+  // half. The 64-char canonical form (what `type_name::get` writes into
+  // bag keys) and the short form (what the Sui RPC returns in `data.type`
+  // and what downstream consumers like the Cetus aggregator's pool index
+  // use) both reduce to the same short representation when leading zeros
+  // are dropped.
+  //
+  // We picked SHORT (not 64-char canonical) because:
+  //   - Cetus aggregator's pool index keys by short form; long form
+  //     hits "Cannot read properties of undefined (reading 'map')"
+  //     deep in the SDK.
+  //   - The Sui CLI / @mysten/sui SDK canonicalize to short by default.
+  const idx = t.indexOf("::");
+  if (idx < 0) return t;
+  let addr = t.slice(0, idx);
+  const tail = t.slice(idx);
+  if (addr.startsWith("0x") || addr.startsWith("0X")) {
+    addr = addr.slice(2);
+  }
+  // Strip leading zeros, but keep at least one digit (so "0000…0000"
+  // doesn't collapse to "").
+  addr = addr.toLowerCase().replace(/^0+/, "") || "0";
+  return `0x${addr}${tail}`;
+}
+
+// ───────────────────────────────────────────────────────────────────
 // Chain reads
 
 type VaultBalance = { coinType: string; amount: bigint };
@@ -139,7 +181,7 @@ async function readVaultBalances(vaultId: string): Promise<VaultBalance[]> {
         } else if (typeof v === "string" || typeof v === "number") {
           amount = BigInt(v);
         }
-        if (amount > 0n) out.push({ coinType, amount });
+        if (amount > 0n) out.push({ coinType: canonicalizeTypeTag(coinType), amount });
       } catch {
         /* unreadable field — skip rather than abort the whole user */
       }
@@ -188,11 +230,72 @@ async function readActiveCaps(
       if (maxPerSwap === 0n) continue;
       out.push({
         id: item.data!.objectId,
-        sourceType: inner,
+        sourceType: canonicalizeTypeTag(inner),
         maxPerSwap,
         expiresAtMs,
         paused: false,
       });
+    }
+    cursor = page.hasNextPage ? page.nextCursor : null;
+  } while (cursor);
+  return out;
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Address-owned coin discovery
+//
+// When the user's @talise subname resolves to the vault's object id,
+// inbound `transfer::public_transfer(coin, vault_addr)` calls leave a
+// `Coin<T>` "address-owned" by the vault. The vault is shared, so no
+// signer can spend that coin via the normal owned-object pathway —
+// `vault::receive_and_deposit<T>` is the only way to fold it in.
+//
+// `readVaultOwnedCoins` paginates `getOwnedObjects(vaultId)` and returns
+// every `Coin<T>` it finds, decoded into `{coinObjectId, innerType,
+// balance}`. The caller filters by active-cap source type before
+// dispatching to Onara, so coins of unsupported types are silently
+// ignored (no one to swap them anyway).
+
+const COIN_TYPE_RE = /^0x2::coin::Coin<(.+)>$/;
+
+type OwnedCoin = {
+  coinObjectId: string;
+  innerType: string;
+  balance: bigint;
+};
+
+/** List `Coin<T>` objects address-owned by `vaultId`. */
+async function readVaultOwnedCoins(vaultId: string): Promise<OwnedCoin[]> {
+  const client = suiJsonRpc();
+  const out: OwnedCoin[] = [];
+  let cursor: string | null | undefined = null;
+  do {
+    const page = await client.getOwnedObjects({
+      owner: vaultId,
+      options: { showType: true, showContent: true },
+      cursor,
+    });
+    for (const item of page.data ?? []) {
+      const t = item.data?.type;
+      if (!t) continue;
+      const m = COIN_TYPE_RE.exec(t);
+      if (!m) continue;
+      const innerType = m[1];
+      const c = item.data?.content;
+      if (!c || c.dataType !== "moveObject") continue;
+      const fields = (
+        c as unknown as {
+          fields?: { balance?: string | number };
+        }
+      ).fields ?? {};
+      let balance = 0n;
+      try {
+        balance = BigInt(String(fields.balance ?? "0"));
+      } catch {
+        balance = 0n;
+      }
+      const coinObjectId = item.data!.objectId;
+      out.push({ coinObjectId, innerType: canonicalizeTypeTag(innerType), balance });
     }
     cursor = page.hasNextPage ? page.nextCursor : null;
   } while (cursor);
@@ -205,6 +308,48 @@ async function readActiveCaps(
 type SwapResult =
   | { ok: true; digest: string }
   | { ok: false; error: string };
+
+/**
+ * POST `/receive-and-deposit` — claim an address-owned `Coin<T>` into the
+ * vault's bag via `vault::receive_and_deposit<T>` (package v2).
+ *
+ * `packageId` must be the v2 (or later) published-at id — the entry
+ * function does not exist in v1. The caller is responsible for using
+ * `packageIdLatest` from `vaultPackageIds()`.
+ */
+async function callOnaraReceiveAndDeposit(args: {
+  onaraUrl: string;
+  packageId: string;
+  vaultId: string;
+  coinObjectId: string;
+  coinType: string;
+}): Promise<SwapResult> {
+  try {
+    const r = await fetch(
+      `${args.onaraUrl.replace(/\/+$/, "")}/receive-and-deposit`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vaultId: args.vaultId,
+          coinObjectId: args.coinObjectId,
+          coinType: args.coinType,
+          packageId: args.packageId,
+        }),
+      }
+    );
+    const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!r.ok || body.ok === false) {
+      return {
+        ok: false,
+        error: typeof body.error === "string" ? body.error : `HTTP ${r.status}`,
+      };
+    }
+    return { ok: true, digest: String(body.digest ?? "") };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
 
 async function callOnaraSwap(args: {
   onaraUrl: string;
@@ -252,10 +397,15 @@ export async function GET(req: Request) {
   }
 
   let packageId: string;
+  let packageIdLatest: string;
   let registryId: string;
   let usdsuiType: string;
   try {
-    ({ packageId, registryId, usdsuiType } = vaultPackageIds());
+    ({ packageId, packageIdLatest, registryId, usdsuiType } = vaultPackageIds());
+    // Canonicalize so equality checks against bag keys (which arrive
+    // from Move's `type_name::get<T>()` already in canonical form) line
+    // up without leading-zero/0x discrepancies.
+    usdsuiType = canonicalizeTypeTag(usdsuiType);
   } catch (err) {
     if (err instanceof VaultNotDeployedError) {
       return NextResponse.json(
@@ -292,6 +442,16 @@ export async function GET(req: Request) {
     sui_address: string;
     talise_vault_id: string;
   }>;
+  // Diagnostic: surface user count + first row so we can see whether
+  // the cron has any work without needing direct DB access. Logged at
+  // the top so it shows up even when the per-user loop body never
+  // executes (zero-users case).
+  console.log(
+    `[auto-swap-sweep] users_with_vault=${users.length}` +
+      (users[0]
+        ? ` first={id:${users[0].id},sui_addr:${users[0].sui_address.slice(0, 10)}...,vault:${users[0].talise_vault_id.slice(0, 10)}...}`
+        : "")
+  );
 
   const summary = {
     scanned: 0,
@@ -299,6 +459,12 @@ export async function GET(req: Request) {
     swept: 0,
     skipped_dust: 0,
     failed: 0,
+    /** Address-owned `Coin<T>` claimed into the vault bag this tick. */
+    claimed: 0,
+    /** Address-owned coins skipped because no matching active cap. */
+    claim_skipped_no_cap: 0,
+    /** Address-owned coins that failed to claim. */
+    claim_failed: 0,
     details: [] as Array<{
       userId: number;
       vault: string;
@@ -306,20 +472,93 @@ export async function GET(req: Request) {
       amount?: string;
       digest?: string;
       error?: string;
+      step?: "claim" | "swap";
     }>,
   };
 
   for (const u of users) {
     summary.scanned++;
     try {
-      const [balances, caps] = await Promise.all([
-        readVaultBalances(u.talise_vault_id),
-        readActiveCaps(packageId, u.sui_address),
-      ]);
+      // Active-cap set first — we need it to filter the address-owned
+      // coin sweep AND to drive the balance-bag sweep below. One read,
+      // reused twice.
+      const caps = await readActiveCaps(packageId, u.sui_address);
 
       // Index caps by source type for O(1) match-up.
       const capByType = new Map<string, ActiveCap>();
       for (const c of caps) capByType.set(c.sourceType, c);
+
+      // ─── Step 1: claim address-owned coins into the vault bag ─────
+      //
+      // Coins sent to the vault's *address* (via @talise subname
+      // resolution) sit as orphans until `vault::receive_and_deposit`
+      // folds them in. We only claim types where the user has an active
+      // cap — otherwise the deposited balance would just sit idle in
+      // the bag with nothing to swap it.
+      //
+      // This step uses `packageIdLatest` because `receive_and_deposit`
+      // only exists in package v2+. The cron will silently no-op the
+      // claim step on pre-v2 deploys (no coins matched, or Onara errors
+      // — either way we fall through to the balance sweep below).
+      try {
+        const ownedCoins = await readVaultOwnedCoins(u.talise_vault_id);
+        for (const oc of ownedCoins) {
+          if (oc.balance === 0n) continue;
+          if (!capByType.has(oc.innerType)) {
+            // No cap → we can't auto-swap it, so don't pay gas to
+            // pull it into the bag. (It'll get claimed once the user
+            // enables a cap for that type.)
+            summary.claim_skipped_no_cap++;
+            continue;
+          }
+          const res = await callOnaraReceiveAndDeposit({
+            onaraUrl,
+            packageId: packageIdLatest,
+            vaultId: u.talise_vault_id,
+            coinObjectId: oc.coinObjectId,
+            coinType: oc.innerType,
+          });
+          if (res.ok) {
+            summary.claimed++;
+            summary.details.push({
+              userId: u.id,
+              vault: u.talise_vault_id,
+              coinType: oc.innerType,
+              amount: oc.balance.toString(),
+              digest: res.digest,
+              step: "claim",
+            });
+            console.log(
+              `[auto-swap-sweep] user=${u.id} claimed ${oc.balance.toString()} of ${oc.innerType} digest=${res.digest}`
+            );
+          } else {
+            summary.claim_failed++;
+            summary.details.push({
+              userId: u.id,
+              vault: u.talise_vault_id,
+              coinType: oc.innerType,
+              amount: oc.balance.toString(),
+              error: res.error,
+              step: "claim",
+            });
+            console.warn(
+              `[auto-swap-sweep] user=${u.id} claim-failed ${oc.innerType}: ${res.error}`
+            );
+          }
+        }
+      } catch (err) {
+        // Don't abort the user — the bag-sweep below may still pick up
+        // pre-existing balances.
+        console.warn(
+          `[auto-swap-sweep] user=${u.id} owned-coin-read-error: ${(err as Error).message}`
+        );
+      }
+
+      // ─── Step 2: sweep the vault's balance bag through Cetus ──────
+      //
+      // Read AFTER the claim step so any just-deposited balance is
+      // visible to this tick.
+      const balances = await readVaultBalances(u.talise_vault_id);
 
       for (const b of balances) {
         // Don't try to swap USDsui to USDsui.
@@ -354,6 +593,7 @@ export async function GET(req: Request) {
             coinType: b.coinType,
             amount: amount.toString(),
             digest: res.digest,
+            step: "swap",
           });
           console.log(
             `[auto-swap-sweep] user=${u.id} swept ${amount.toString()} of ${b.coinType} digest=${res.digest}`
@@ -366,6 +606,7 @@ export async function GET(req: Request) {
             coinType: b.coinType,
             amount: amount.toString(),
             error: res.error,
+            step: "swap",
           });
           console.warn(
             `[auto-swap-sweep] user=${u.id} failed ${b.coinType}: ${res.error}`

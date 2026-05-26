@@ -4,8 +4,22 @@ import { userById } from "@/lib/db";
 import { findTaliseSubnameForOwner } from "@/lib/suins-lookup";
 import { suins } from "@/lib/suins-operator";
 import { vaultPackageIds, VaultNotDeployedError } from "@/lib/vault";
+import { memoTtl } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
+
+/**
+ * Migration state changes only when the user:
+ *   • claims a subname (rare, once per user)
+ *   • creates a vault (one-time)
+ *   • repoints the subname (one-time)
+ *
+ * None of those happen mid-session, so a 90s TTL is comfortable. The
+ * banner shows up reliably on appear; once the user takes the action,
+ * the post-action refresh inside AutoSwapMigrationBanner already busts
+ * via a fresh authed request after the TTL elapses.
+ */
+const MIGRATION_CACHE_TTL_MS = 90_000;
 
 type Status = {
   needsMigration: boolean;
@@ -67,46 +81,60 @@ export async function GET(req: Request) {
     throw err;
   }
 
-  const sub = await findTaliseSubnameForOwner(user.sui_address);
-  let currentTarget: string | null = null;
-  if (sub) {
-    try {
-      const rec = await suins().getNameRecord(sub.fullName);
-      currentTarget = rec?.targetAddress ?? null;
-    } catch {
-      currentTarget = null;
-    }
-  }
-
+  // Cache the heavy lookup (subname scan + getNameRecord) keyed by the
+  // user. Cache key includes the current vault id so a just-created
+  // vault doesn't keep returning "no-vault" until the TTL elapses.
   const vaultId = user.talise_vault_id ?? null;
-  const subnameDTO = sub
-    ? { id: sub.nftId, fullName: sub.fullName, currentTarget }
-    : null;
+  const cacheKey = `migration:${user.sui_address.toLowerCase()}:${vaultId ?? "novault"}`;
+  const status = await memoTtl(cacheKey, MIGRATION_CACHE_TTL_MS, async () => {
+    const sub = await findTaliseSubnameForOwner(user.sui_address);
+    let currentTarget: string | null = null;
+    if (sub) {
+      try {
+        const rec = await suins().getNameRecord(sub.fullName);
+        currentTarget = rec?.targetAddress ?? null;
+      } catch {
+        currentTarget = null;
+      }
+    }
 
-  // Decision matrix:
-  //   no subname             -> nothing to migrate
-  //   subname, no vault      -> needs full migration
-  //   subname, vault, points-at-vault -> done (auto-mark flag)
-  //   subname, vault, points-elsewhere -> needs repoint only
-  let reason: Status["reason"];
-  if (!sub) {
-    reason = "no-subname";
-  } else if (!vaultId) {
-    reason = "no-vault";
-  } else if (
-    currentTarget &&
-    currentTarget.toLowerCase() === vaultId.toLowerCase()
-  ) {
-    reason = "done";
-  } else {
-    reason = "subname-not-repointed";
-  }
+    const subnameDTO = sub
+      ? { id: sub.nftId, fullName: sub.fullName, currentTarget }
+      : null;
 
-  const status: Status = {
-    needsMigration: reason === "no-vault" || reason === "subname-not-repointed",
-    reason,
-    subname: subnameDTO,
-    vaultId,
-  };
-  return NextResponse.json(status);
+    // Decision matrix:
+    //   no subname             -> nothing to migrate
+    //   subname, no vault      -> needs full migration
+    //   subname, vault, points-at-vault -> done (auto-mark flag)
+    //   subname, vault, points-elsewhere -> needs repoint only
+    let reason: Status["reason"];
+    if (!sub) {
+      reason = "no-subname";
+    } else if (!vaultId) {
+      reason = "no-vault";
+    } else if (
+      currentTarget &&
+      currentTarget.toLowerCase() === vaultId.toLowerCase()
+    ) {
+      reason = "done";
+    } else {
+      reason = "subname-not-repointed";
+    }
+
+    return {
+      needsMigration:
+        reason === "no-vault" || reason === "subname-not-repointed",
+      reason,
+      subname: subnameDTO,
+      vaultId,
+    } satisfies Status;
+  });
+
+  return NextResponse.json(status, {
+    headers: {
+      // 30s edge cache + SWR — banner state changes are non-urgent.
+      "Cache-Control":
+        "private, max-age=0, s-maxage=30, stale-while-revalidate=120",
+    },
+  });
 }
