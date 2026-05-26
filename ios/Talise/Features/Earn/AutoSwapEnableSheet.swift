@@ -26,6 +26,11 @@ struct AutoSwapEnableSheet: View {
     @State private var input: String = ""
     @State private var submitting = false
     @State private var error: String?
+    /// USD price of the source coin, fetched on appear when `source`
+    /// is non-stable (currently just SUI). Nil until the balances call
+    /// resolves; the submit button stays disabled until it does so we
+    /// never round a ₦250 cap down to 166 raw MIST.
+    @State private var sourceCoinPriceUsd: Double?
 
     /// 1-year cap on the AutoSwapCap's `expires_at_ms`. The Move code
     /// enforces an upper bound server-side too — this is just our
@@ -44,22 +49,41 @@ struct AutoSwapEnableSheet: View {
         return CurrencySettings.shared.convertToUsd(local: local)
     }
 
-    /// Convert USD amount → raw u64 string. Most stablecoins use 6
-    /// decimals; SUI uses 9. We don't have a per-coin decimals lookup
-    /// on iOS, so the server normalizes — iOS sends the human-tier USD
-    /// value and the backend computes the on-chain unit count. Keeps
-    /// the iOS side coin-agnostic.
+    /// Resolved USD price of the source coin. Stables short-circuit
+    /// to 1.0 so we never need an oracle call for USDC/USDT. SUI uses
+    /// the value fetched from `/api/balances` on appear.
+    private var resolvedCoinPriceUsd: Double? {
+        if source.isStable { return 1.0 }
+        return sourceCoinPriceUsd
+    }
+
+    /// Convert the user's fiat budget → raw u64 in the source coin's
+    /// native units. The on-chain `AutoSwapCap.max_per_swap` is
+    /// compared against the actual coin amount (e.g. MIST for SUI),
+    /// not a USD value — so we MUST go through coin price + native
+    /// decimals here. The earlier version skipped both legs and hard-
+    /// coded 6 decimals, which capped SUI swaps at ~0.000167 SUI
+    /// (basically nothing) regardless of the user's fiat budget.
     ///
-    /// We still send `maxPerSwap` as a String to match the wire schema.
+    /// Math: raw = floor((usd_budget / coinPriceUsd) * 10^decimals)
+    ///
+    /// We still send `maxPerSwap` as a String to match the wire schema
+    /// (preserves precision through the JSON roundtrip).
     private var maxPerSwapWire: String {
-        // 6 decimals as a sensible default for the human-tier UX.
-        // Server validates / re-scales using its own coin metadata.
-        let raw = (amountUsd * 1_000_000).rounded()
-        return String(UInt64(max(0, raw)))
+        guard let priceUsd = resolvedCoinPriceUsd, priceUsd > 0 else {
+            return "0"
+        }
+        let coinAmount = amountUsd / priceUsd
+        let scale = pow(10.0, Double(source.decimals))
+        let raw = (coinAmount * scale).rounded(.down)
+        // Clamp to a u64 range. Anything wildly large is the user's
+        // typo; backend would also reject it.
+        let clamped = max(0, min(raw, Double(UInt64.max)))
+        return String(UInt64(clamped))
     }
 
     private var canSubmit: Bool {
-        amountUsd > 0 && !submitting
+        amountUsd > 0 && resolvedCoinPriceUsd != nil && !submitting
     }
 
     var body: some View {
@@ -87,6 +111,33 @@ struct AutoSwapEnableSheet: View {
         .background(TaliseColor.bg.ignoresSafeArea())
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .task { await loadSourceCoinPrice() }
+    }
+
+    /// Pulls the source coin's USD price so `maxPerSwapWire` can scale
+    /// the fiat budget into native coin units. Stables short-circuit
+    /// without a network hit. For SUI we reuse `/api/balances` (which
+    /// already carries `suiPriceUsd` for the Home view) — keeps the
+    /// dependency surface minimal and avoids a new endpoint just for
+    /// this sheet.
+    private func loadSourceCoinPrice() async {
+        if source.isStable {
+            sourceCoinPriceUsd = 1.0
+            return
+        }
+        do {
+            let b: BalancesDTO = try await APIClient.shared.get("/api/balances")
+            // Guard against a zero/missing price snapshot — we'd rather
+            // keep the button disabled than mint a cap that lets
+            // arbitrary swaps through.
+            if b.suiPriceUsd > 0 {
+                sourceCoinPriceUsd = b.suiPriceUsd
+            }
+        } catch {
+            // Soft-fail: leave price nil so canSubmit stays false and
+            // the user sees the "Enable" button disabled rather than
+            // a silently-broken cap.
+        }
     }
 
     // MARK: - Header / explainer

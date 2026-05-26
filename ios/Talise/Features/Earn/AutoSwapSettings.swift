@@ -14,6 +14,11 @@ struct AutoSwapSettings: View {
 
     @State private var state: VaultStateResponse?
     @State private var migration: VaultMigrationStatus?
+    /// Snapshot of `/api/balances` — only used here for `suiPriceUsd`
+    /// so the per-row cap labels can render the configured SUI cap in
+    /// the user's display currency (otherwise SUI rows would read in
+    /// raw SUI units, which looks broken next to USDC/USDT rows).
+    @State private var balances: BalancesDTO?
     @State private var loading = true
     @State private var syncingSubname = false
     /// Per-row in-flight cap mutation (pause/resume/disable). Keyed by
@@ -295,12 +300,18 @@ struct AutoSwapSettings: View {
     /// amount + paused/active badge, plus inline Pause/Resume +
     /// Disable controls.
     private func enabledRow(source: AutoSwapSourceCoin, cap: AutoSwapCapDTO) -> some View {
-        // `maxPerSwapUsdHint` is a presentation-only hint — the on-wire
-        // value is raw u64 with coin-specific decimals, but we don't
-        // have a per-coin decimals lookup on iOS. Default to the
-        // 6-decimal convention used at submit; if the server later
-        // exposes a decimals hint we'd thread it through here.
-        let capUsdHint = cap.maxPerSwapDouble / 1_000_000.0
+        // The on-chain `AutoSwapCap.max_per_swap` is a u64 in the source
+        // coin's native decimals (9 for SUI, 6 for USDC/USDT). Recover
+        // the human-tier coin amount by scaling down, then multiply by
+        // the coin's USD price so we can render the cap in the user's
+        // chosen display currency (matches what they typed when they
+        // enabled the cap). For stables we short-circuit price=1.
+        let scale = pow(10.0, Double(source.decimals))
+        let coinAmount = cap.maxPerSwapDouble / scale
+        let priceUsd: Double = source.isStable
+            ? 1.0
+            : (balances?.suiPriceUsd ?? 0)
+        let capUsdHint = coinAmount * priceUsd
         let isPending = pendingCapId == cap.id
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
@@ -416,15 +427,18 @@ struct AutoSwapSettings: View {
         loading = true
         defer { loading = false }
         do {
-            // Run state + migration-status in parallel so the page
-            // renders the vault card + the "subname not pointing at
-            // your vault" warning in one network round-trip.
+            // Run state + migration-status + balances in parallel so
+            // the page renders the vault card + the "subname not
+            // pointing at your vault" warning + per-row fiat-formatted
+            // caps in one network round-trip.
             async let s = VaultAPI.getState()
             async let m = VaultAPI.migrationStatus()
+            async let bb: BalancesDTO = APIClient.shared.get("/api/balances")
             state = try await s
             // migration-status 503s gracefully when the package isn't
             // deployed; treat any failure here as "no banner".
             migration = (try? await m)
+            balances = (try? await bb)
         } catch {
             self.error = error.localizedDescription
         }

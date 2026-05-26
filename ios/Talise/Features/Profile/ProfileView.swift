@@ -158,42 +158,49 @@ struct ProfileView: View {
     }
 
     // MARK: - Stats strip
+    //
+    // A single card divided into three equal columns by 1pt hairlines.
+    // Using one shared `background` + `clipShape` means all three stat
+    // cells share the same corner radius and visual weight — they read
+    // as ONE component, not three orphaned tiles.
 
-    /// Three pills side-by-side: KYC tier (Free/Verified/Pro), Rewards
-    /// tier (Bronze→Plat), and member-since-month. Compact + scannable.
     private var statsStrip: some View {
-        HStack(spacing: 10) {
-            statPill(
-                label: "KYC",
-                value: kycTierLabel,
-                accent: kycTierLabel != "Free"
-            )
-            statPill(
-                label: "Rewards",
-                value: rewards?.tier?.label ?? "Bronze",
-                accent: (rewards?.tier?.label ?? "Bronze") != "Bronze"
-            )
-            statPill(
-                label: "Since",
-                value: memberSinceMonth,
-                accent: false
-            )
+        HStack(spacing: 0) {
+            statCell(label: "KYC", value: kycTierLabel, accent: kycTierLabel != "Free")
+            statDivider
+            statCell(label: "Rewards", value: rewards?.tier?.label ?? "Bronze",
+                     accent: (rewards?.tier?.label ?? "Bronze") != "Bronze")
+            statDivider
+            statCell(label: "Since", value: memberSinceMonth, accent: false)
         }
+        .frame(maxWidth: .infinity)
+        .background(TaliseColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
-    private func statPill(label: String, value: String, accent: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            MicroLabel(text: label, color: TaliseColor.fgDim).kerning(1.5)
+    /// One column of the stats strip. `maxWidth: .infinity` gives all
+    /// three cells equal widths regardless of content length.
+    private func statCell(label: String, value: String, accent: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Eyebrow(text: label)
             Text(value)
                 .font(TaliseFont.heading(14, weight: .medium))
                 .foregroundStyle(accent ? TaliseColor.accent : TaliseColor.fg)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.75)
         }
-        .padding(14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(TaliseColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// 1pt full-height hairline between stat cells. Anchored inside the
+    /// HStack so it spans the card's inner height naturally.
+    private var statDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.07))
+            .frame(width: 1)
+            .padding(.vertical, 12)
     }
 
     /// Best-effort KYC tier read from UserDefaults (set by the
@@ -221,20 +228,30 @@ struct ProfileView: View {
     }
 
     // MARK: - Wallet section
+    //
+    // Address in a full-width row with monospace truncation; Copy +
+    // Suiscan actions sit in a dedicated row below a hairline so there
+    // is clear breathing room between the address text and the buttons.
 
-    /// Sui address + actions. Section title outside the card so the
-    /// hierarchy reads at a glance.
     private var walletSection: some View {
         section(title: "Wallet") {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 0) {
+                // Address row — mono truncated in the middle so both
+                // the 0x prefix and the last 4 chars are always visible.
                 HStack {
                     Text(currentUser?.suiAddress ?? "—")
                         .font(TaliseFont.mono(12, weight: .light))
                         .foregroundStyle(TaliseColor.fg)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Spacer()
                 }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+
+                sectionDivider
+
+                // Actions row — left-aligned pills so they don't float
+                // in the centre of a wide card.
                 HStack(spacing: 10) {
                     miniButton(
                         icon: copiedAddress ? "checkmark" : "doc.on.doc",
@@ -252,9 +269,11 @@ struct ProfileView: View {
                     miniButton(icon: "arrow.up.right.square", label: "Suiscan") {
                         openSuiscan()
                     }
+                    Spacer()
                 }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
             }
-            .padding(18)
         }
     }
 
@@ -298,7 +317,7 @@ struct ProfileView: View {
             HStack {
                 rowLabel(
                     title: "Display currency",
-                    subtitle: "Wallet settles in USDsui; this only changes display."
+                    subtitle: "Changes display only — wallet settles in USDsui."
                 )
                 Spacer()
                 HStack(spacing: 6) {
@@ -448,18 +467,19 @@ struct ProfileView: View {
 
     // MARK: - Layout helpers
 
-    /// Section with an outside title. Cleaner hierarchy than putting
-    /// the title inside every card — the eye groups by the spacing.
+    /// Section with an outside eyebrow title sitting 8pt above the card.
+    /// Using `Eyebrow` (uppercase + 2pt tracking) matches `AutoSwapSettings`
+    /// and `ContactsSheet` — consistent across all list-style screens.
     private func section<Content: View>(
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            MicroLabel(text: title, color: TaliseColor.fgDim).kerning(1.5)
+        VStack(alignment: .leading, spacing: 8) {
+            Eyebrow(text: title)
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(TaliseColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 22))
+                .clipShape(RoundedRectangle(cornerRadius: 18))
         }
     }
 
@@ -468,14 +488,17 @@ struct ProfileView: View {
             .padding(.horizontal, 18)
     }
 
+    /// Standard two-line row label used by every preferences row so
+    /// the title + subtitle rhythm is identical across all three rows.
     private func rowLabel(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(title)
                 .font(TaliseFont.body(14, weight: .light))
                 .foregroundStyle(TaliseColor.fg)
             Text(subtitle)
                 .font(TaliseFont.mono(10, weight: .light))
                 .foregroundStyle(TaliseColor.fgDim)
+                .lineLimit(1)
         }
     }
 
