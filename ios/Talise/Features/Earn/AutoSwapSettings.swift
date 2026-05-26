@@ -47,6 +47,26 @@ struct AutoSwapSettings: View {
     /// for a spinner so the user knows the round-trip is alive.
     @State private var enablingDefaults = false
 
+    // MARK: - Optimistic state (Bug A fix)
+    //
+    // After a successful pause/resume/disable PTB lands, `load()` refetches
+    // the chain state — but the fullnode isn't always indexed yet, so the
+    // refresh can briefly return the PRE-mutation state and flip the row
+    // back to its old paused/active value before the next poll corrects it.
+    // The user sees a visible flicker. We hold the freshly-mutated value
+    // authoritative for ~3 seconds and ignore conflicting server state in
+    // that window.
+    @State private var optimisticPauseState: [String: Bool] = [:]
+    @State private var optimisticDisabled: [String: Bool] = [:]
+    @State private var optimisticUntil: [String: Date] = [:]
+    private static let optimisticHoldSeconds: TimeInterval = 3
+
+    /// Bug B fix — track the most recent `load()` task so we can cancel
+    /// stale ones. Two near-simultaneous `load()` calls (e.g. sheet
+    /// dismiss + an explicit refetch) could otherwise resolve out of order
+    /// and let the older response overwrite the newer one.
+    @State private var loadTask: Task<Void, Never>?
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 22) {
@@ -76,12 +96,16 @@ struct AutoSwapSettings: View {
         }
         .refreshable { await load() }
         .taliseScreenBackground()
-        .task { await load() }
+        .task { reload() }
+        .onDisappear { loadTask?.cancel() }
         .sheet(item: $enableTarget) { source in
             AutoSwapEnableSheet(source: source) {
                 // Refetch state so the row flips to "active" + the
                 // success banner reads the digest on the next pass.
-                Task { await load() }
+                // Use `reload()` (not bare `Task { load() }`) so an
+                // older in-flight load can't land after this one and
+                // clobber the freshly-enabled row.
+                reload()
             }
         }
     }
@@ -267,9 +291,30 @@ struct AutoSwapSettings: View {
         state?.caps.first { $0.sourceType == source.rawValue }
     }
 
+    /// True when a cap was optimistically disabled within the hold
+    /// window — we hide the row so the user doesn't see it flicker
+    /// back in before the chain catches up.
+    private func isOptimisticallyDisabled(_ capId: String) -> Bool {
+        guard let until = optimisticUntil[capId], until > Date() else {
+            return false
+        }
+        return optimisticDisabled[capId] == true
+    }
+
+    /// Resolved paused state — prefers the optimistic value while inside
+    /// its hold window, otherwise the server-reported value. See
+    /// `optimisticPauseState` comment for the why.
+    private func resolvedPaused(_ cap: AutoSwapCapDTO) -> Bool {
+        if let until = optimisticUntil[cap.id], until > Date(),
+           let optimistic = optimisticPauseState[cap.id] {
+            return optimistic
+        }
+        return cap.paused
+    }
+
     @ViewBuilder
     private func coinRow(_ source: AutoSwapSourceCoin) -> some View {
-        if let cap = cap(for: source) {
+        if let cap = cap(for: source), !isOptimisticallyDisabled(cap.id) {
             enabledRow(source: source, cap: cap)
         } else {
             disabledRow(source: source)
@@ -325,15 +370,18 @@ struct AutoSwapSettings: View {
         // de-emphasize the pause/disable row so the user's eye lands on
         // the migrate action first.
         let needsMigration = cap.requiresMigration
+        // Honor the optimistic-hold window (Bug A) — server may briefly
+        // return stale state right after a successful pause/resume.
+        let paused = resolvedPaused(cap)
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
-                        .fill(TaliseColor.accent.opacity(cap.paused ? 0.12 : 0.22))
+                        .fill(TaliseColor.accent.opacity(paused ? 0.12 : 0.22))
                         .frame(width: 36, height: 36)
                     Image(systemName: source.iconName)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(cap.paused
+                        .foregroundStyle(paused
                                          ? TaliseColor.fgMuted
                                          : TaliseColor.accent)
                 }
@@ -343,11 +391,11 @@ struct AutoSwapSettings: View {
                         .foregroundStyle(TaliseColor.fg)
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(cap.paused ? TaliseColor.fgDim : TaliseColor.accent)
+                            .fill(paused ? TaliseColor.fgDim : TaliseColor.accent)
                             .frame(width: 6, height: 6)
-                        Text(cap.paused ? "Paused" : "Active")
+                        Text(paused ? "Paused" : "Active")
                             .font(TaliseFont.mono(10, weight: .light))
-                            .foregroundStyle(cap.paused
+                            .foregroundStyle(paused
                                              ? TaliseColor.fgDim
                                              : TaliseColor.accent)
                     }
@@ -362,11 +410,11 @@ struct AutoSwapSettings: View {
 
             HStack(spacing: 10) {
                 LiquidGlassPill(
-                    title: cap.paused ? "Resume" : "Pause",
-                    icon: cap.paused ? "play.fill" : "pause.fill"
+                    title: paused ? "Resume" : "Pause",
+                    icon: paused ? "play.fill" : "pause.fill"
                 ) {
                     Task {
-                        if cap.paused {
+                        if paused {
                             await mutate(cap: cap, action: .resume)
                         } else {
                             await mutate(cap: cap, action: .pause)
@@ -688,14 +736,32 @@ struct AutoSwapSettings: View {
             async let s = VaultAPI.getState()
             async let m = VaultAPI.migrationStatus()
             async let bb: BalancesDTO = APIClient.shared.get("/api/balances")
-            state = try await s
+            let resolved = try await s
             // migration-status 503s gracefully when the package isn't
             // deployed; treat any failure here as "no banner".
-            migration = (try? await m)
-            balances = (try? await bb)
+            let m2 = (try? await m)
+            let bb2 = (try? await bb)
+            // Bail before mutating @State if a newer load() superseded
+            // us mid-flight (Bug B). Without this guard, an older
+            // response that returns last can overwrite the newer one.
+            if Task.isCancelled { return }
+            state = resolved
+            migration = m2
+            balances = bb2
         } catch {
+            if Task.isCancelled { return }
             self.error = error.localizedDescription
         }
+    }
+
+    /// Cancel any in-flight `load()` and start a fresh one. This is the
+    /// Bug B fix: bare `Task { await load() }` calls could land out of
+    /// order — an older PTB's refetch could finish AFTER a newer one and
+    /// overwrite the corrected state. Routing every refetch through here
+    /// guarantees only the most recent task gets to commit.
+    private func reload() {
+        loadTask?.cancel()
+        loadTask = Task { await load() }
     }
 
     /// Whether the user's `@talise` subname still targets an address
@@ -831,8 +897,21 @@ struct AutoSwapSettings: View {
                 intent: action.intent,
                 rewards: nil
             )
+            // Bug A — set the optimistic-hold window before the refetch
+            // so the upcoming `load()` can't briefly flip the row back
+            // to the pre-mutation state if the fullnode isn't indexed yet.
+            let holdUntil = Date().addingTimeInterval(Self.optimisticHoldSeconds)
+            optimisticUntil[cap.id] = holdUntil
+            switch action {
+            case .pause:
+                optimisticPauseState[cap.id] = true
+            case .resume:
+                optimisticPauseState[cap.id] = false
+            case .disable:
+                optimisticDisabled[cap.id] = true
+            }
             success = result.digest
-            await load()
+            reload()
         } catch {
             self.error = error.localizedDescription
         }
