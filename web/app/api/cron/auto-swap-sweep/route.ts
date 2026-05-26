@@ -443,6 +443,58 @@ type OwnedCoin = {
 };
 
 /** List `Coin<T>` objects address-owned by `vaultId`. */
+type AccumulatorBalance = {
+  coinType: string; // canonicalized short-form type tag
+  amount: bigint;
+};
+
+/**
+ * V5+ accumulator discovery. Reads `suix_getAllBalances(vault_addr)`
+ * which surfaces accumulator slot values regardless of whether the
+ * underlying storage is an owned `Coin<T>` or a `dynamic_field::Field<
+ * accumulator::Key<Balance<T>>>`. The cron's Step 1 calls
+ * `vault::receive_from_accumulator<T>(amount)` per row to drain into
+ * the bag.
+ */
+async function readVaultAccumulatorBalances(
+  vaultId: string,
+): Promise<AccumulatorBalance[]> {
+  const url = "https://fullnode.mainnet.sui.io:443";
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "suix_getAllBalances",
+      params: [vaultId],
+    }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!r.ok) throw new Error(`suix_getAllBalances HTTP ${r.status}`);
+  const body = (await r.json()) as {
+    result?: Array<{ coinType: string; totalBalance: string }>;
+    error?: { message: string };
+  };
+  if (body.error) throw new Error(body.error.message);
+  const out: AccumulatorBalance[] = [];
+  for (const row of body.result ?? []) {
+    if (!row.coinType) continue;
+    let amount = 0n;
+    try {
+      amount = BigInt(row.totalBalance ?? "0");
+    } catch {
+      amount = 0n;
+    }
+    if (amount === 0n) continue;
+    out.push({
+      coinType: canonicalizeTypeTag(row.coinType),
+      amount,
+    });
+  }
+  return out;
+}
+
 async function readVaultOwnedCoins(vaultId: string): Promise<OwnedCoin[]> {
   // Discovery via direct JSON-RPC fetch — the SDK's getAllBalances/getCoins
   // returned empty for shared-object addresses in production despite raw
@@ -526,6 +578,51 @@ type SwapResult =
  * function does not exist in v1. The caller is responsible for using
  * `packageIdLatest` from `vaultPackageIds()`.
  */
+/**
+ * POST `/receive-from-accumulator` — claim a `Balance<T>` slot from
+ * Sui's address-accumulator into the vault's bag via
+ * `vault::receive_from_accumulator<T>(amount)` (package v5+).
+ *
+ * The accumulator is the path Sui uses today for plain
+ * `transfer::public_transfer(coin, shared_object_addr)` — the value
+ * lands as a dynamic field under the global accumulator root rather
+ * than as a Coin<T> at the destination. This call drains the slot
+ * into the vault bag in one tx, no Receiving ref needed.
+ */
+async function callOnaraReceiveFromAccumulator(args: {
+  onaraUrl: string;
+  packageId: string;
+  vaultId: string;
+  coinType: string;
+  amount: bigint;
+}): Promise<SwapResult> {
+  try {
+    const r = await fetch(
+      `${args.onaraUrl.replace(/\/+$/, "")}/receive-from-accumulator`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vaultId: args.vaultId,
+          coinType: args.coinType,
+          amount: args.amount.toString(),
+          packageId: args.packageId,
+        }),
+      }
+    );
+    const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!r.ok || body.ok === false) {
+      return {
+        ok: false,
+        error: typeof body.error === "string" ? body.error : `HTTP ${r.status}`,
+      };
+    }
+    return { ok: true, digest: String(body.digest ?? "") };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 async function callOnaraReceiveAndDeposit(args: {
   onaraUrl: string;
   packageId: string;
@@ -742,72 +839,73 @@ export async function GET(req: Request) {
       // only exists in package v2+. The cron will silently no-op the
       // claim step on pre-v2 deploys (no coins matched, or Onara errors
       // — either way we fall through to the balance sweep below).
+      // V5 path — Sui mainnet now routes plain transfer-to-shared-
+      // object-address through the global accumulator, so coins sent
+      // to @handle land as a `dynamic_field::Field<accumulator::Key<
+      // Balance<T>>>` at `0x000…0acc`, NOT as an addressable Coin<T>.
+      // `suix_getAllBalances` surfaces the accumulator slot value;
+      // `vault::receive_from_accumulator<T>(amount)` drains it into
+      // the bag. No Receiving ref or object-id triple needed.
       try {
-        const ownedCoins = await readVaultOwnedCoins(u.talise_vault_id);
+        const accBalances = await readVaultAccumulatorBalances(u.talise_vault_id);
         console.log(
-          `[auto-swap-sweep] user=${u.id} owned-coins-found=${ownedCoins.length}` +
-            (ownedCoins[0]
-              ? ` first={type:${ownedCoins[0].innerType.slice(0, 40)}...,bal:${ownedCoins[0].balance.toString()}}`
+          `[auto-swap-sweep] user=${u.id} accumulator-slots=${accBalances.length}` +
+            (accBalances[0]
+              ? ` first={type:${accBalances[0].coinType.slice(0, 40)}...,bal:${accBalances[0].amount.toString()}}`
               : "")
         );
-        for (const oc of ownedCoins) {
-          if (oc.balance === 0n) continue;
-          // Claim if (a) we have a cap for this type (it'll be swapped
-          // on the same tick) OR (b) it's USDsui directly — USDsui has
-          // no cap by design (it's the destination, not a source), but
-          // we still want to receive it so the v4
-          // `auto_swap_deposit_to_owner` drain flushes it to the user's
-          // wallet on the next swap tick. Without this special case,
-          // USDsui sent to @handle would sit address-owned at the vault
-          // forever.
-          const isUsdsuiDest = oc.innerType === usdsuiType;
-          if (!capByType.has(oc.innerType) && !isUsdsuiDest) {
-            // No cap and not the dest type → can't move it forward.
+        for (const ab of accBalances) {
+          if (ab.amount === 0n) continue;
+          // Claim if (a) we have a cap for this source type (it'll get
+          // swapped this same tick) OR (b) it's USDsui itself —
+          // USDsui has no cap (it's the destination, not a source),
+          // but pulling it into the bag means the next swap's
+          // auto_swap_deposit_to_owner flushes both legs to the
+          // wallet in one tx. Without (b), USDsui sent to @handle
+          // would sit in the accumulator forever.
+          const isUsdsuiDest = ab.coinType === usdsuiType;
+          if (!capByType.has(ab.coinType) && !isUsdsuiDest) {
             summary.claim_skipped_no_cap++;
             continue;
           }
-          const res = await callOnaraReceiveAndDeposit({
+          const res = await callOnaraReceiveFromAccumulator({
             onaraUrl,
             packageId: packageIdLatest,
             vaultId: u.talise_vault_id,
-            coinObjectId: oc.coinObjectId,
-            coinVersion: oc.version,
-            coinDigest: oc.digest,
-            coinType: oc.innerType,
+            coinType: ab.coinType,
+            amount: ab.amount,
           });
           if (res.ok) {
             summary.claimed++;
             summary.details.push({
               userId: u.id,
               vault: u.talise_vault_id,
-              coinType: oc.innerType,
-              amount: oc.balance.toString(),
+              coinType: ab.coinType,
+              amount: ab.amount.toString(),
               digest: res.digest,
               step: "claim",
             });
             console.log(
-              `[auto-swap-sweep] user=${u.id} claimed ${oc.balance.toString()} of ${oc.innerType} digest=${res.digest}`
+              `[auto-swap-sweep] user=${u.id} claimed ${ab.amount.toString()} of ${ab.coinType} digest=${res.digest}`
             );
           } else {
             summary.claim_failed++;
             summary.details.push({
               userId: u.id,
               vault: u.talise_vault_id,
-              coinType: oc.innerType,
-              amount: oc.balance.toString(),
+              coinType: ab.coinType,
+              amount: ab.amount.toString(),
               error: res.error,
               step: "claim",
             });
             console.warn(
-              `[auto-swap-sweep] user=${u.id} claim-failed ${oc.innerType}: ${res.error}`
+              `[auto-swap-sweep] user=${u.id} claim-failed ${ab.coinType}: ${res.error}`
             );
           }
         }
       } catch (err) {
-        // Don't abort the user — the bag-sweep below may still pick up
-        // pre-existing balances.
         console.warn(
-          `[auto-swap-sweep] user=${u.id} owned-coin-read-error: ${(err as Error).message}`
+          `[auto-swap-sweep] user=${u.id} accumulator-read-error: ${(err as Error).message}`
         );
       }
 
