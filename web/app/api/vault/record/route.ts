@@ -48,15 +48,17 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
-  const vaultId = (body.vaultId ?? "").trim();
+  // iOS can't extract the new vault id locally (vault::create transfers
+  // via share_object and the entry returns void), so the client is
+  // allowed to omit `vaultId` and we resolve it from the digest's
+  // object-changes below. Web callers that already know the id pass
+  // both and we verify match-up as a defense-in-depth check.
+  let vaultId = (body.vaultId ?? "").trim();
   const digest = (body.digest ?? "").trim();
-  if (!vaultId || !digest) {
-    return NextResponse.json(
-      { error: "vaultId and digest required" },
-      { status: 400 }
-    );
+  if (!digest) {
+    return NextResponse.json({ error: "digest required" }, { status: 400 });
   }
-  if (!/^0x[a-fA-F0-9]+$/.test(vaultId)) {
+  if (vaultId && !/^0x[a-fA-F0-9]+$/.test(vaultId)) {
     return NextResponse.json({ error: "vaultId malformed" }, { status: 400 });
   }
 
@@ -90,25 +92,48 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2. vaultId appears as a created object of the right Move type.
+    // 2. Locate the freshly-created `TaliseVault` in the digest's
+    //    object-changes. If the client supplied a vaultId we verify it
+    //    matches one; if not, we adopt the first match (there's only
+    //    ever one created vault per `vault::create` call).
     const expectedType = `${packageId}::vault::TaliseVault`;
     const changes = tx.objectChanges ?? [];
-    const match = changes.find((c) => {
+    const createdVaults = changes.filter((c) => {
       if (c.type !== "created") return false;
-      const obj = c as { objectId?: string; objectType?: string };
-      return (
-        (obj.objectId ?? "").toLowerCase() === vaultId.toLowerCase() &&
-        obj.objectType === expectedType
-      );
-    });
-    if (!match) {
+      const obj = c as { objectType?: string };
+      return obj.objectType === expectedType;
+    }) as Array<{ objectId?: string; objectType?: string }>;
+
+    if (createdVaults.length === 0) {
       return NextResponse.json(
         {
-          error: "vaultId not present in tx as a created TaliseVault",
+          error: "no TaliseVault was created in this tx",
           expectedType,
         },
         { status: 400 }
       );
+    }
+
+    if (vaultId) {
+      const found = createdVaults.find(
+        (c) => (c.objectId ?? "").toLowerCase() === vaultId.toLowerCase()
+      );
+      if (!found) {
+        return NextResponse.json(
+          { error: "vaultId not present in tx as a created TaliseVault" },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Adopt the derived id. We've already verified type + sender,
+      // so this is safe.
+      vaultId = createdVaults[0].objectId ?? "";
+      if (!vaultId) {
+        return NextResponse.json(
+          { error: "TaliseVault created but objectId missing from receipt" },
+          { status: 502 }
+        );
+      }
     }
 
     // 3. Tx didn't abort. `effects.status` shape: { status: "success" | "failure" }.
