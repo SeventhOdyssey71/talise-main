@@ -13,6 +13,7 @@ import { loadPolicies, validateSponsoredTxPayload } from './policy'
 import { executeTransaction, type OnStatus, type SponsorEvent } from './execution'
 import { writeAnalytics } from './analytics'
 import autoSwapApp from './autoSwap'
+import receiveAndDepositApp from './receiveAndDeposit'
 import sponsorPoliciesConfig from '../policies'
 
 interface AnalyticsEngineDataset {
@@ -173,6 +174,12 @@ app.get('/policies', (c) => {
 
 // ─── Auto-swap (Path C executor) ──────────────────────────────────────────────
 app.route('/auto-swap', autoSwapApp)
+
+// ─── Receive-and-deposit (claims address-owned coins into a vault) ───────────
+// Pairs with `vault::receive_and_deposit<T>` (package v2). The auto-swap
+// cron calls this to fold orphan `Coin<T>` sent to a vault's address
+// into the vault's balance bag before sweeping.
+app.route('/receive-and-deposit', receiveAndDepositApp)
 
 // ─── Transaction status lookup ────────────────────────────────────────────────
 

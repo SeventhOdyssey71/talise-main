@@ -28,6 +28,7 @@ import {
   type TransactionObjectArgument,
 } from '@mysten/sui/transactions'
 import { SuiGrpcClient } from '@mysten/sui/grpc'
+import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc'
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import { isValidSuiObjectId } from '@mysten/sui/utils'
 import { AggregatorClient } from '@cetusprotocol/aggregator-sdk'
@@ -45,10 +46,15 @@ import pTimeout from 'p-timeout'
 /// users opted in to "best execution," not "any execution."
 const DEFAULT_SLIPPAGE = 0.01
 
-/// Public Cetus aggregator endpoint. The SDK ships with this baked in,
-/// but pinning it here makes it overridable via env later without a
-/// code change.
-const CETUS_AGGREGATOR_ENDPOINT = 'https://api-sui.cetus.zone/router_v2/find_routes'
+/// Public Cetus aggregator endpoint — BASE URL only. The SDK appends
+/// `/find_routes` and other path segments itself, so the previous value
+/// `…/router_v2/find_routes` produced double-`/find_routes` URLs that
+/// returned a v2-shaped response the SDK's `parseRouterResponse`
+/// couldn't decode (it reads `data.paths` but v2 returns
+/// `data.routes[].path`). Crashed deep in the SDK with
+/// "Cannot read properties of undefined (reading 'map')". v3 is what
+/// `DEFAULT_AGG_V3_ENDPOINT` inside the SDK uses too.
+const CETUS_AGGREGATOR_ENDPOINT = 'https://api-sui.cetus.zone/router_v3'
 
 // ─── Env shape (subset — must match app.ts Bindings) ─────────────────────────
 
@@ -289,26 +295,44 @@ function getKeypair(mnemonic: string): Ed25519Keypair {
   return _kp
 }
 
+// The Cetus aggregator SDK reads several Sui-mainnet object addresses
+// (Pyth state, CLMM registry, etc.) off the client it's handed — those
+// helpers exist on `SuiJsonRpcClient` but NOT on `SuiGrpcClient`, which
+// is why feeding it the gRPC client crashes with
+// `Cannot read properties of undefined (reading 'pythStateId')`. Cache
+// a JSON-RPC client separately just for the aggregator.
+let _aggClient: SuiJsonRpcClient | null = null
+function getAggregatorClient(network: string): SuiJsonRpcClient {
+  if (_aggClient) return _aggClient
+  const net = network === 'mainnet' ? 'mainnet' : 'testnet'
+  _aggClient = new SuiJsonRpcClient({
+    url: getJsonRpcFullnodeUrl(net),
+    network: net,
+  })
+  return _aggClient
+}
+
 let _agg: AggregatorClient | null = null
 let _aggKey = ''
 function getAggregator(
-  grpc: SuiGrpcClient,
   network: string,
   signer: string,
 ): AggregatorClient {
-  // The aggregator's V8-incompatible `Env` type is a string union
-  // ("mainnet" | "testnet") at runtime — feed it our network as-is.
-  // The signer address is used only to derive coin objects when the
-  // SDK builds its own input coin; we hand it a Coin directly, so this
-  // is just metadata for the route-finder.
-  const env = network === 'mainnet' ? 'mainnet' : 'testnet'
-  const key = `${env}:${signer}`
+  // The SDK's `env` field is a NUMERIC enum at runtime: 0 = Mainnet,
+  // 1 = Testnet. The type defs hide this behind a string union, but
+  // `CONFIG[this.env]` is indexed by the int — pass a string and you
+  // get `CONFIG['mainnet']` → undefined → `.pythStateId` TypeError.
+  const envNum = network === 'mainnet' ? 0 : 1
+  const key = `${envNum}:${signer}`
   if (_agg && _aggKey === key) return _agg
   _agg = new AggregatorClient({
     endpoint: CETUS_AGGREGATOR_ENDPOINT,
-    client: grpc,
+    // SDK is typed against SuiGrpcClient but at runtime reads helpers
+    // that only exist on the JSON-RPC client (pythStateId, clmm registry,
+    // etc.). Force-cast through `never`.
+    client: getAggregatorClient(network) as never,
     signer,
-    env: env as never,
+    env: envNum as never,
   })
   _aggKey = key
   return _agg
@@ -343,7 +367,7 @@ async function handleAutoSwap(c: Context<{ Bindings: Bindings }>) {
   const keypair = getKeypair(bindings.SUI_MNEMONIC)
   const sender = keypair.toSuiAddress()
   const grpc = getGrpc(bindings)
-  const aggregator = getAggregator(grpc, bindings.SUI_NETWORK, sender)
+  const aggregator = getAggregator(bindings.SUI_NETWORK, sender)
 
   // Build PTB
   let txBytes: Uint8Array
@@ -355,6 +379,13 @@ async function handleAutoSwap(c: Context<{ Bindings: Bindings }>) {
       error instanceof Error
         ? error.message
         : 'Failed to build auto-swap transaction.'
+    console.error('[auto-swap] build failed:', message, 'req:', JSON.stringify({
+      vaultId: req.vaultId,
+      capId: req.capId,
+      sourceType: req.sourceType,
+      destType: req.destType,
+      amount: req.amount,
+    }))
     return c.json({ ok: false, error: `Build failed: ${message}` }, 500)
   }
 
