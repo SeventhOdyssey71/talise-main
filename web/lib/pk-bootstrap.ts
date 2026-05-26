@@ -3,7 +3,7 @@ import "server-only";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { PaymentKitClient } from "@mysten/payment-kit";
-import { sui } from "./sui";
+import { sui, suiJsonRpc } from "./sui";
 import { memoTtl } from "./perf-cache";
 
 const REGISTRY_NAME = "talise";
@@ -28,12 +28,16 @@ export async function ensurePaymentRegistry() {
   // again for the life of this Node process. Effectively a singleton.
   return memoTtl("pk:registry:exists", 24 * 60 * 60 * 1000, async () => {
     const client = sui();
+    // JSON-RPC fallback: legacy `getObject({id, options}).data.objectId`
+    // and `executeTransactionBlock` shapes. PaymentKit itself is fine with
+    // the gRPC client (uses the unified `core.*` surface).
+    const jsonRpcClient = suiJsonRpc();
     const pk = new PaymentKitClient({ client: client as never });
     const registryId = pk.getRegistryIdFromName(REGISTRY_NAME);
 
     // Fast path: registry already exists on chain (idempotent across procs).
     try {
-      const existing = await client.getObject({
+      const existing = await jsonRpcClient.getObject({
         id: registryId,
         options: { showType: true },
       });
@@ -81,7 +85,7 @@ export async function ensurePaymentRegistry() {
     const bytes = await tx.build({ client: client as never });
     const { signature } = await operator.signTransaction(bytes);
 
-    const result = await client.executeTransactionBlock({
+    const result = await jsonRpcClient.executeTransactionBlock({
       transactionBlock: bytes,
       signature,
       options: { showEffects: true },

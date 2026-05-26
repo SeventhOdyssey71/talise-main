@@ -1,4 +1,8 @@
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
+import {
+  SuiJsonRpcClient,
+  getJsonRpcFullnodeUrl,
+} from "@mysten/sui/jsonRpc";
 import { USDSUI_TYPE } from "./usdsui";
 
 export type Network = "testnet" | "mainnet";
@@ -23,16 +27,70 @@ export function network(): Network {
   return v === "testnet" ? "testnet" : "mainnet";
 }
 
-let _client: SuiJsonRpcClient | null = null;
+/**
+ * Default gRPC endpoint for Sui mainnet. The same fullnode host serves both
+ * JSON-RPC and gRPC-web (port 443, no special path). Mirrors the value
+ * Onara wires through `SUI_GRPC_URL`.
+ */
+function defaultGrpcBaseUrl(net: Network): string {
+  // env override lets us point at a private gRPC endpoint (Shinami, etc.)
+  // without touching code. Falls back to the public fullnode.
+  const fromEnv = process.env.SUI_GRPC_URL ?? process.env.NEXT_PUBLIC_SUI_GRPC_URL;
+  if (fromEnv && fromEnv.trim().length > 0) return fromEnv.trim();
+  return net === "mainnet"
+    ? "https://fullnode.mainnet.sui.io:443"
+    : "https://fullnode.testnet.sui.io:443";
+}
 
-export function sui(): SuiJsonRpcClient {
-  if (_client) return _client;
+// ─── gRPC (default) ───────────────────────────────────────────────────────────
+// `sui()` is the canonical client. Reads that map cleanly onto the unified
+// `BaseClient` surface (`getBalance`, `getCoinMetadata`, `getObject`,
+// `listOwnedObjects`, `listCoins`, `getTransaction`, `listDynamicFields`,
+// SDK pass-throughs that consume the same surface) use this.
+
+let _grpc: SuiGrpcClient | null = null;
+let _grpcKey = "";
+
+export function sui(): SuiGrpcClient {
   const net = network();
-  _client = new SuiJsonRpcClient({
-    url: getJsonRpcFullnodeUrl(net),
-    network: net,
-  });
-  return _client;
+  const baseUrl = defaultGrpcBaseUrl(net);
+  const key = `${net}:${baseUrl}`;
+  if (_grpc && _grpcKey === key) return _grpc;
+  _grpc = new SuiGrpcClient({ network: net, baseUrl });
+  _grpcKey = key;
+  return _grpc;
+}
+
+// ─── JSON-RPC fallback ────────────────────────────────────────────────────────
+// Some legacy reads have no gRPC equivalent or use a response shape we
+// haven't migrated yet:
+//   • `queryTransactionBlocks` — not exposed on `SuiGrpcClient` at all
+//     (gRPC's analog is event-based subscription, not a paginated query).
+//   • `getTransactionBlock` — JSON-RPC's shape (`transaction.data.sender`,
+//     `objectChanges[]` with `type: "created"`, `effects.status.status`)
+//     is what our verify paths walk. gRPC's `getTransaction` returns a
+//     proto-shaped struct we'd have to re-map.
+//   • `getOwnedObjects` — JSON-RPC version returns `data[].data.type` plus
+//     `showContent` payload our code reads directly.
+//   • `getDynamicFields` — JSON-RPC version returns `data[].name.value` as
+//     UTF-8 byte arrays our code decodes inline.
+//   • `getAllCoins`, `multiGetObjects`, `getLatestSuiSystemState` — also
+//     no clean gRPC counterpart in the current `@mysten/sui` build.
+//
+// `suiJsonRpc()` is the escape hatch for these. Keep its use limited to
+// the legacy call sites — new code should default to `sui()`.
+
+let _jsonRpc: SuiJsonRpcClient | null = null;
+let _jsonRpcKey = "";
+
+export function suiJsonRpc(): SuiJsonRpcClient {
+  const net = network();
+  const url = getJsonRpcFullnodeUrl(net);
+  const key = `${net}:${url}`;
+  if (_jsonRpc && _jsonRpcKey === key) return _jsonRpc;
+  _jsonRpc = new SuiJsonRpcClient({ url, network: net });
+  _jsonRpcKey = key;
+  return _jsonRpc;
 }
 
 /** Canonical coin types on Sui mainnet (and equivalents on testnet). */
@@ -59,8 +117,10 @@ export async function getSuiBalance(address: string): Promise<{
   sui: number;
 }> {
   try {
-    const b = await sui().getBalance({ owner: address });
-    const mistStr = b.totalBalance;
+    // gRPC `getBalance` returns `{ balance: { addressBalance, coinBalance,
+    // balance, coinType } }`. `balance.balance` is the totalBalance.
+    const res = await sui().getBalance({ owner: address });
+    const mistStr = res.balance.balance;
     const suiNum = Number(BigInt(mistStr)) / 1e9;
     return { mist: mistStr, sui: suiNum };
   } catch {
@@ -73,11 +133,11 @@ export async function getUsdcBalance(address: string): Promise<{
   usdc: number;
 }> {
   try {
-    const b = await sui().getBalance({
+    const res = await sui().getBalance({
       owner: address,
       coinType: COIN_TYPES.USDC,
     });
-    const raw = b.totalBalance;
+    const raw = res.balance.balance;
     // Native USDC has 6 decimals
     const usdc = Number(BigInt(raw)) / 1e6;
     return { raw, usdc };
@@ -95,11 +155,11 @@ export async function getUsdsuiBalance(address: string): Promise<{
   usdsui: number;
 }> {
   try {
-    const b = await sui().getBalance({
+    const res = await sui().getBalance({
       owner: address,
       coinType: USDSUI_TYPE,
     });
-    const raw = b.totalBalance;
+    const raw = res.balance.balance;
     const usdsui = Number(BigInt(raw)) / Math.pow(10, USDSUI_DECIMALS);
     return { raw, usdsui };
   } catch {

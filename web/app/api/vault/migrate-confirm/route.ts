@@ -7,7 +7,7 @@ import {
   db,
   ensureSchema,
 } from "@/lib/db";
-import { sui } from "@/lib/sui";
+import { suiJsonRpc } from "@/lib/sui";
 import { vaultPackageIds, VaultNotDeployedError } from "@/lib/vault";
 
 export const runtime = "nodejs";
@@ -85,7 +85,10 @@ export async function POST(req: Request) {
       return { ok: false, error: "vaultId malformed" };
     }
     try {
-      const tx = await sui().getTransactionBlock({
+      // JSON-RPC: `getTransactionBlock` response shape
+      // (`transaction.data.sender`, `objectChanges[].type === "created"`,
+      // `effects.status.status`) is what these verifiers consume.
+      const tx = await suiJsonRpc().getTransactionBlock({
         digest,
         options: { showObjectChanges: true, showInput: true, showEffects: true },
       });
@@ -123,7 +126,10 @@ export async function POST(req: Request) {
     digest: string
   ): Promise<{ ok: true } | { ok: false; error: string }> => {
     try {
-      const tx = await sui().getTransactionBlock({
+      // JSON-RPC: `getTransactionBlock` response shape
+      // (`transaction.data.sender`, `objectChanges[].type === "created"`,
+      // `effects.status.status`) is what these verifiers consume.
+      const tx = await suiJsonRpc().getTransactionBlock({
         digest,
         options: { showInput: true, showEffects: true },
       });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, ensureSchema } from "@/lib/db";
-import { sui } from "@/lib/sui";
+import { suiJsonRpc } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { vaultPackageIds, VaultNotDeployedError } from "@/lib/vault";
 
@@ -75,7 +75,10 @@ type ActiveCap = {
 
 /** Read a single vault's `Balance<T>` map by paging its inner Bag. */
 async function readVaultBalances(vaultId: string): Promise<VaultBalance[]> {
-  const client = sui();
+  // JSON-RPC: relies on `getObject({id, options.showContent})` response
+  // shape (`{data: {content: {dataType: "moveObject", fields}}}`) and
+  // `getDynamicFields` byte-array name decoding — both diverge from gRPC.
+  const client = suiJsonRpc();
   const vObj = await client.getObject({
     id: vaultId,
     options: { showContent: true },
@@ -151,7 +154,9 @@ async function readActiveCaps(
   packageId: string,
   owner: string
 ): Promise<ActiveCap[]> {
-  const client = sui();
+  // JSON-RPC: walks `getOwnedObjects({showType, showContent})`. gRPC's
+  // `listOwnedObjects` returns a different shape that we'd need to remap.
+  const client = suiJsonRpc();
   const capTypePrefix = `${packageId}::auto_swap::AutoSwapCap<`;
   const out: ActiveCap[] = [];
   let cursor: string | null | undefined = null;

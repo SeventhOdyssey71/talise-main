@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById, setTaliseVaultId } from "@/lib/db";
-import { sui } from "@/lib/sui";
+import { sui, suiJsonRpc } from "@/lib/sui";
 import {
   vaultPackageIds,
   VaultNotDeployedError,
@@ -77,7 +77,10 @@ export async function POST(req: Request) {
 
   // On-chain verification — we trust nothing the client sends.
   try {
-    const tx = await sui().getTransactionBlock({
+    // JSON-RPC: `getTransactionBlock` response shape
+    // (`transaction.data.sender`, `objectChanges[].type === "created"`,
+    // `effects.status.status`) is what this verifier consumes.
+    const tx = await suiJsonRpc().getTransactionBlock({
       digest,
       options: { showObjectChanges: true, showInput: true, showEffects: true },
     });

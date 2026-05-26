@@ -75,9 +75,11 @@ export async function POST(req: Request) {
     // epoch-scoped (~24h). On cache hits each resolves in <1ms.
     const [{ address: sponsor }, gasPrice] = await Promise.all([
       memoTtl(`onara:status:${onaraUrl}`, 60_000, () => onaraClient.status()),
-      memoTtl(`sui:gasPrice:${net}`, 60_000, () =>
-        client.getReferenceGasPrice()
-      ),
+      memoTtl(`sui:gasPrice:${net}`, 60_000, async () => {
+        // gRPC `getReferenceGasPrice` returns `{ referenceGasPrice: string }`.
+        const r = await client.getReferenceGasPrice();
+        return r.referenceGasPrice;
+      }),
       ensureRegistry,
     ]);
     const tStatus = Date.now();

@@ -103,7 +103,8 @@ export async function POST(req: Request) {
       owner: user.sui_address,
       coinType: COIN_TYPES.SUI,
     });
-    const totalMist = BigInt(balance.totalBalance);
+    // gRPC shape: { balance: { balance, addressBalance, coinBalance } }.
+    const totalMist = BigInt(balance.balance.balance);
     if (totalMist <= 0n) {
       return NextResponse.json(
         { error: "SUI balance is zero" },

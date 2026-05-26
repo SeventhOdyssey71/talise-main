@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { PaymentKitClient } from "@mysten/payment-kit";
-import { sui } from "@/lib/sui";
+import { sui, suiJsonRpc } from "@/lib/sui";
 import { ensurePaymentRegistry } from "@/lib/pk-bootstrap";
 
 export const runtime = "nodejs";
@@ -24,6 +24,9 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const REGISTRY_NAME = "talise";
   const client = sui();
+  // Probe paths below use JSON-RPC shapes (`{totalBalance}`,
+  // `getObject().data.objectId`) — keep them on the JSON-RPC client.
+  const jsonRpcClient = suiJsonRpc();
   const pk = new PaymentKitClient({ client: client as never });
   const registryId = pk.getRegistryIdFromName(REGISTRY_NAME);
 
@@ -36,7 +39,7 @@ export async function GET() {
     try {
       const kp = Ed25519Keypair.fromSecretKey(key);
       operatorAddress = kp.getPublicKey().toSuiAddress();
-      const bal = await client.getBalance({
+      const bal = await jsonRpcClient.getBalance({
         owner: operatorAddress,
         coinType: "0x2::sui::SUI",
       });
@@ -52,7 +55,7 @@ export async function GET() {
   // 2. On-chain existence check (independent of any cache)
   let registryExists = false;
   try {
-    const o = await client.getObject({
+    const o = await jsonRpcClient.getObject({
       id: registryId,
       options: { showType: true },
     });
