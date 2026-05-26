@@ -34,11 +34,22 @@ struct AutoSwapSettings: View {
     /// True while the create-vault PTB is in flight. The vault status
     /// card disables its CTA while this is set.
     @State private var creatingVault = false
+    /// True while a `share_existing_cap` PTB is in flight, gated to a
+    /// single cap at a time. Keyed by `capId` so the spinner sticks to
+    /// the row being migrated.
+    @State private var migratingCapId: String?
+    /// True while the "Migrate all" banner action is iterating through
+    /// every user-owned cap. Disables both the banner CTA and the per-
+    /// row CTAs to avoid double-fire.
+    @State private var migratingAll = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 22) {
                 header
+                if allCapsNeedMigration {
+                    migrateAllBanner
+                }
                 vaultStatusCard
                 if hasVault {
                     coinList
@@ -313,6 +324,10 @@ struct AutoSwapSettings: View {
             : (balances?.suiPriceUsd ?? 0)
         let capUsdHint = coinAmount * priceUsd
         let isPending = pendingCapId == cap.id
+        // Caps that still need migration get their per-row CTA + visually
+        // de-emphasize the pause/disable row so the user's eye lands on
+        // the migrate action first.
+        let needsMigration = cap.requiresMigration
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
                 ZStack {
@@ -396,10 +411,172 @@ struct AutoSwapSettings: View {
 
                 Spacer()
             }
+            .opacity(needsMigration ? 0.55 : 1.0)
+
+            if needsMigration {
+                Divider().background(Color.white.opacity(0.06))
+                migrateCapCTA(cap: cap)
+            }
         }
         .padding(14)
         .background(TaliseColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    // MARK: - Migration
+
+    /// True when the user has at least one cap AND every cap returned by
+    /// the server is flagged `needsMigration`. Drives the top-of-screen
+    /// "Migrate all" banner — we suppress it the moment any cap is
+    /// already shared, since piecemeal migration is the path forward
+    /// once part of the inventory is on v3.
+    private var allCapsNeedMigration: Bool {
+        guard let caps = state?.caps, !caps.isEmpty else { return false }
+        return caps.allSatisfy { $0.requiresMigration }
+    }
+
+    /// Inline banner at the top of the screen — shown only when every
+    /// cap the user owns is still v2 user-owned. One tap kicks off a
+    /// sequential migration over every cap. Matches the visual language
+    /// of the in-card `repointWarning` (accent triangle, dim explainer,
+    /// solid accent CTA) so the surface reads as part of the same
+    /// system upgrade flow.
+    private var migrateAllBanner: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TaliseColor.accent)
+                Text("Quick migration needed")
+                    .font(TaliseFont.heading(13, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+            }
+            Text("Auto-swap needs a quick migration to work with the new system. Tap to migrate all.")
+                .font(TaliseFont.body(12, weight: .light))
+                .foregroundStyle(TaliseColor.fgDim)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: { Task { await migrateAllCaps() } }) {
+                HStack(spacing: 8) {
+                    if migratingAll {
+                        ProgressView().controlSize(.mini).tint(TaliseColor.bg)
+                    }
+                    Text(migratingAll ? "Migrating…" : "Migrate all")
+                        .font(TaliseFont.heading(13, weight: .medium))
+                }
+                .foregroundStyle(TaliseColor.bg)
+                .frame(maxWidth: .infinity)
+                .frame(height: 42)
+                .background(migratingAll
+                            ? TaliseColor.accent.opacity(0.5)
+                            : TaliseColor.accent)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .disabled(migratingAll)
+        }
+        .padding(14)
+        .background(TaliseColor.accent.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// Per-row migrate CTA shown beneath enabled rows whose cap is still
+    /// v2 user-owned. Kept visually quiet (small accent capsule) — the
+    /// banner above carries the loud copy. While the migrate PTB is in
+    /// flight, the row's pause/disable controls are de-emphasized by the
+    /// enabledRow body (it checks `migratingCapId`).
+    private func migrateCapCTA(cap: AutoSwapCapDTO) -> some View {
+        let isPending = migratingCapId == cap.id
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("This auto-swap predates a system upgrade. Tap to migrate.")
+                .font(TaliseFont.body(11, weight: .light))
+                .foregroundStyle(TaliseColor.fgDim)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                Task { await migrateCap(cap: cap) }
+            } label: {
+                HStack(spacing: 6) {
+                    if isPending {
+                        ProgressView().controlSize(.mini).tint(TaliseColor.accent)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    Text(isPending ? "Migrating…" : "Migrate")
+                        .font(TaliseFont.heading(12, weight: .medium))
+                }
+                .foregroundStyle(TaliseColor.accent)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .overlay(
+                    Capsule().stroke(TaliseColor.accent.opacity(0.5), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isPending || migratingAll)
+        }
+    }
+
+    /// Migrate a single cap. Build → sign → sponsor-execute → refetch.
+    /// Refuses to start when ANOTHER cap is already migrating (the
+    /// `migrateAllCaps` loop drives that case sequentially).
+    private func migrateCap(cap: AutoSwapCapDTO) async {
+        if migratingCapId != nil { return }
+        migratingCapId = cap.id
+        error = nil
+        defer { migratingCapId = nil }
+        do {
+            let built = try await VaultAPI.migrateCap(
+                capId: cap.id, sourceType: cap.sourceType
+            )
+            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                transactionKindB64: built.bytesB64,
+                intent: "Migrate auto-swap",
+                rewards: nil
+            )
+            success = result.digest
+            await load()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Drive `migrateCap` once per cap in `state.caps` that still needs
+    /// migration. Sequential — Sui PTBs against the same owner can't
+    /// share a gas object concurrently and the sponsor flow will queue
+    /// them server-side anyway, so we keep the client honest.
+    private func migrateAllCaps() async {
+        if migratingAll { return }
+        migratingAll = true
+        error = nil
+        defer { migratingAll = false }
+        let pending = (state?.caps ?? []).filter { $0.requiresMigration }
+        for cap in pending {
+            // `migrateCap` is gated on `migratingCapId`; we don't drive
+            // it through that helper because the helper bails when
+            // anything else is in flight. Inline the build + execute
+            // here so the loop stays serial without that guard tripping.
+            migratingCapId = cap.id
+            do {
+                let built = try await VaultAPI.migrateCap(
+                    capId: cap.id, sourceType: cap.sourceType
+                )
+                let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                    transactionKindB64: built.bytesB64,
+                    intent: "Migrate auto-swap",
+                    rewards: nil
+                )
+                success = result.digest
+            } catch {
+                self.error = error.localizedDescription
+                // Stop on the first failure so the user can see the
+                // error and retry — better than silently barreling
+                // through every remaining cap.
+                migratingCapId = nil
+                await load()
+                return
+            }
+            migratingCapId = nil
+        }
+        await load()
     }
 
     // MARK: - Success banner
