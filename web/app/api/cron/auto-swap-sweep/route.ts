@@ -541,10 +541,21 @@ async function readActiveCaps(
  */
 async function readActiveCapsV2(
   packageId: string,
+  packageIdLatest: string,
   owner: string
 ): Promise<CapsReadResult> {
   const client = suiJsonRpc();
-  const capV2TypePrefix = `${packageId}::auto_swap::AutoSwapCapV2<`;
+  // CORRECTION (verified empirically against mainnet object tags):
+  // BOTH event types AND struct types are pinned to the package id at
+  // which the type was DEFINED. v1 only had `AutoSwapCap` —
+  // `AutoSwapCapV2` is new in v7, so its type tag uses `packageIdLatest`.
+  // Same for `CapUpgradedToV2` events. Querying with v1's prefix
+  // returns zero rows on both. The (incorrect) earlier doc claim that
+  // struct types pin to original-id is wrong specifically when the
+  // struct is added in an upgrade — they pin to the publish where the
+  // struct first appeared.
+  const capV2TypePrefix = `${packageIdLatest}::auto_swap::AutoSwapCapV2<`;
+  void packageId;
   const now = BigInt(Date.now());
   const seenOwner = owner.toLowerCase();
 
@@ -587,8 +598,15 @@ async function readActiveCapsV2(
   };
 
   // Stream 1: CapUpgradedToV2 (v1→v2 migration emits this).
+  //
+  // CRITICAL: this event struct was first DEFINED in v7. Sui tags
+  // event types with the package id at which the struct was defined,
+  // not the original-id of the chain of upgrades. Querying with v1's
+  // packageId here returns ZERO rows even when the events exist
+  // (verified on mainnet: caps_v2 always = 0 with packageId prefix,
+  // events surface under packageIdLatest prefix). Use packageIdLatest.
   await walkEvents(
-    `${packageId}::auto_swap::CapUpgradedToV2`,
+    `${packageIdLatest}::auto_swap::CapUpgradedToV2`,
     (pj) => (pj?.new_cap_id as string | undefined) ?? undefined,
     (pj) => {
       const o = (pj?.owner as string | undefined) ?? "";
@@ -1116,7 +1134,7 @@ export async function GET(req: Request) {
       // to upgrade via `upgrade_cap_to_v2`.
       const [capsResultV1, capsResultV2] = await Promise.all([
         readActiveCaps(packageId, packageIdLatest, u.sui_address),
-        readActiveCapsV2(packageId, u.sui_address),
+        readActiveCapsV2(packageId, packageIdLatest, u.sui_address),
       ]);
       summary.caps_shared += capsResultV1.caps.length;
       summary.caps_user_owned_skipped += capsResultV1.userOwnedSkipped;
