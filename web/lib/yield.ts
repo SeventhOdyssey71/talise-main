@@ -14,6 +14,7 @@ import {
   fetchUsdsuiMarginApy,
   fetchUserUsdsuiSupply,
 } from "./deepbook-margin";
+import { fetchNaviUsdsuiSupplyApy } from "./navi-supply";
 
 /**
  * Server-side yield queries — all stateless (no zkLogin signer needed).
@@ -93,10 +94,16 @@ export type YieldComparison = {
 export async function getYieldComparison(
   address: string
 ): Promise<YieldComparison> {
-  const [naviSnap, dbApy, dbSupply] = await Promise.all([
+  const [naviSnap, dbApy, dbSupply, naviApyLive] = await Promise.all([
     getEarnSnapshot(address).catch(() => null),
     fetchUsdsuiMarginApy().catch(() => null),
     fetchUserUsdsuiSupply(address).catch(() => null),
+    // Live USDsui supply APY from Navi's open API. The SDK's
+    // `getFinancialSummary` keys APY off USDC's pool (a SDK bug —
+    // see fetchNaviUsdsuiSupplyApy comment), so we override with the
+    // portal-accurate value whenever the API is reachable. Falls back
+    // to the SDK number when null.
+    fetchNaviUsdsuiSupplyApy().catch(() => null),
   ]);
 
   const venues: YieldVenue[] = [];
@@ -104,7 +111,7 @@ export async function getYieldComparison(
     venues.push({
       id: "navi",
       name: "NAVI lending",
-      apy: naviSnap.apy,
+      apy: naviApyLive ?? naviSnap.apy,
       supplied: naviSnap.supplied,
       meta: { pendingUsd: naviSnap.totalPendingUsd },
     });
