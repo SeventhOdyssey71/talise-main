@@ -74,3 +74,20 @@ ios/Talise.xcodeproj/project.xcworkspace/xcuserdata/
 ios/*.xcodeproj/
 .vercel
 .env.vercel
+
+# ── Scratch / screenshots / scratch images ────────────────────────────
+_scratch/
+Simulator Screenshot*.png
+Simulator Screenshot*.jpg
+Simulator Screenshot*.jpeg
+Simulator Screen Recording*.mp4
+Simulator Screen Recording*.mov
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.mp4
+/*.mov
+# But keep the brand logos which README references
+!/TaliseLogoFavicon.png
+!/TaliseLogoNavbar.png
