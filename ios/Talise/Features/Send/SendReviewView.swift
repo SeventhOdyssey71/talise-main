@@ -30,9 +30,19 @@ struct SendReviewView: View {
                 .padding(.bottom, 24)
             }
 
-            confirmButton
-                .padding(.horizontal, 24)
-                .padding(.bottom, 18)
+            VStack(spacing: 8) {
+                confirmButton
+                if !BiometricGate.hintShown {
+                    Text("Talise asks for \(biometryName) before every transaction. This stays on your device.")
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 18)
+            .onAppear { BiometricGate.markHintShown() }
         }
         .background(TaliseColor.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
@@ -191,11 +201,15 @@ struct SendReviewView: View {
 
     // MARK: - Confirm
 
+    private var biometryName: String {
+        BiometricGate.biometryDisplayName()
+    }
+
     private var confirmButton: some View {
         Button {
             Task { await onConfirm() }
         } label: {
-            Text("Confirm")
+            Text("Confirm with \(biometryName)")
                 .font(TaliseFont.heading(16, weight: .medium))
                 .foregroundStyle(TaliseColor.bg)
                 .frame(maxWidth: .infinity)

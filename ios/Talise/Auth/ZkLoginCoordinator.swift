@@ -70,6 +70,19 @@ final class ZkLoginCoordinator {
         )
         try SecureSessionStore.shared.save(token: signed.bearer)
 
+        // P1-5: kick off App Attest bootstrap immediately after the
+        // bearer lands. Best-effort: if the device doesn't support
+        // App Attest (sim, dev) the call no-ops; if the network is
+        // flaky it'll retry next launch. Sensitive routes that
+        // require X-App-Attest will still 401 until this completes
+        // at least once, which is the intended behavior.
+        Task.detached { [bearer = signed.bearer] in
+            try? await AppAttestService.shared.bootstrap(
+                bearer: bearer,
+                apiBaseURL: AppConfig.shared.apiBaseURL
+            )
+        }
+
         // 3. Authoritative user record via /api/me (taliseHandle on
         //    chain, accountType, businessHandle, etc.).
         let me: UserDTO = try await APIClient.shared.get("/api/me")
