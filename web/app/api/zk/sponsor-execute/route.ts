@@ -157,11 +157,18 @@ export async function POST(req: Request) {
     const tProof = Date.now();
 
     const onaraClient = onara();
+    // Optimistic broadcast: return the digest as soon as Onara ACKs
+    // receipt instead of waiting for the chain to include the tx.
+    // Sui finalizes in ~600ms regardless; this lets the user's UI
+    // advance immediately. Trade-off: if the tx fails on chain (rare
+    // — only on malformed PTB or balance race), we don't surface that
+    // here. iOS resolves the actual outcome by polling the digest
+    // (HomeView's optimistic-balance path already does this).
     const result = (await onaraClient.sponsor({
       sender: user.sui_address,
       txBytes: body.bytesB64,
       txSignature: zkLoginSignature,
-      waitForExecution: true,
+      waitForExecution: false,
     })) as Record<string, unknown>;
     const tDone = Date.now();
 
