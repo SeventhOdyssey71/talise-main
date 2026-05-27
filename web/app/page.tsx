@@ -93,15 +93,9 @@ function TopBar() {
 function Hero({ err }: { err?: string }) {
   return (
     <section className="pt-12 pb-12 text-center md:pt-20 md:pb-16">
-      {/* Eyebrow */}
-      <div className="motion-eyebrow mx-auto flex items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
-        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
-        new, live on Sui mainnet
-      </div>
-
       {/* Centered headline. Italic accent on "For free." picks up
           Instrument Serif from the layout fonts. */}
-      <h1 className="motion-headline mx-auto mt-6 max-w-[1100px] text-[clamp(44px,7.5vw,88px)] font-medium leading-[1.02] tracking-[-0.025em] text-[var(--color-fg)]">
+      <h1 className="motion-headline mx-auto max-w-[1100px] text-[clamp(44px,7.5vw,88px)] font-medium leading-[1.02] tracking-[-0.025em] text-[var(--color-fg)]">
         Send money across the globe.{" "}
         <span
           className="text-[var(--color-accent)]"
@@ -112,33 +106,27 @@ function Hero({ err }: { err?: string }) {
       </h1>
 
       <p className="motion-subtitle mx-auto mt-6 max-w-[640px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
-        Talise moves naira, shillings, cedis, and rand across borders with
-        sub-second finality, at a fraction of what Wise, Western Union, or
-        Remitly charge. Sign in on the web or grab the iOS app. No agent,
-        no queue.
+        Talise will move naira, shillings, cedis, and rand across borders for
+        a fraction of what Wise, Western Union, or Remitly charge — settled
+        on Sui in under a second. We're in private beta. Join the waitlist.
       </p>
 
-      {/* Dual CTAs: web sign-in (Google) + mobile download (App Store).
-          On small screens they stack; on sm+ they sit side by side. */}
+      {/* Dual CTAs: waitlist + iOS placeholder. On small screens they
+          stack; on sm+ they sit side by side. */}
       <div
         id="cta"
-        className="motion-cta mx-auto mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center"
+        className="motion-cta mx-auto mt-9 flex flex-col items-center gap-2 sm:flex-row sm:justify-center"
       >
         {/* Talise is in private beta — every Get started/Sign up CTA
             routes to the waitlist, not Google sign-in. When we
             flip the doors open this swaps back to SignInButton. */}
         <Link
           href="/waitlist"
-          className="inline-flex items-center justify-center rounded-full bg-white px-7 py-2.5 text-[14px] font-medium text-black transition-opacity hover:opacity-90"
+          className="inline-flex h-10 items-center justify-center rounded-full bg-white px-6 text-[14px] font-medium text-black transition-opacity hover:opacity-90"
         >
           Join waitlist
         </Link>
         <AppStoreButton />
-      </div>
-      <div className="motion-tagline mt-4 flex items-center justify-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-        <span>web + iOS</span>
-        <span>·</span>
-        <span>finality under 1 second</span>
       </div>
 
       {err && <ErrorBanner err={err} />}
@@ -172,17 +160,10 @@ function AppStoreButton() {
     <div
       role="img"
       aria-label="iOS app coming soon"
-      className="inline-flex items-center justify-center gap-2 rounded-full bg-white/[0.04] px-5 py-2.5 text-[var(--color-fg-muted)] ring-1 ring-[var(--color-line)] cursor-not-allowed select-none"
+      className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white/[0.04] px-6 text-[14px] font-medium text-[var(--color-fg-muted)] ring-1 ring-[var(--color-line)] cursor-not-allowed select-none"
     >
       <AppleGlyph />
-      <span className="flex flex-col items-start leading-[1.05]">
-        <span className="text-[8px] uppercase tracking-[0.18em] text-[var(--color-fg-dim)]">
-          iOS
-        </span>
-        <span className="text-[13px] font-medium text-[var(--color-fg-muted)]">
-          Coming soon
-        </span>
-      </span>
+      <span>iOS · Coming soon</span>
     </div>
   );
 }
@@ -895,18 +876,16 @@ function FinalCta() {
         Talise covers the network fee on every transfer. No first-transfer
         gimmick. No fine print. Free, every single time.
       </p>
-      <div className="mx-auto mt-9 flex w-full max-w-[520px] flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
-        <div className="flex flex-1">
-          {/* Talise is in private beta — every Get started/Sign up CTA
-              routes to the waitlist, not Google sign-in. When we
-              flip the doors open this swaps back to SignInButton. */}
-          <Link
-            href="/waitlist"
-            className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-[15px] font-medium text-black transition-opacity hover:opacity-90"
-          >
-            Join waitlist
-          </Link>
-        </div>
+      <div className="mx-auto mt-9 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
+        {/* Talise is in private beta — every Get started/Sign up CTA
+            routes to the waitlist, not Google sign-in. When we
+            flip the doors open this swaps back to SignInButton. */}
+        <Link
+          href="/waitlist"
+          className="inline-flex h-10 items-center justify-center rounded-full bg-white px-6 text-[14px] font-medium text-black transition-opacity hover:opacity-90"
+        >
+          Join waitlist
+        </Link>
         <AppStoreButton />
       </div>
     </section>
@@ -916,90 +895,50 @@ function FinalCta() {
 function SiteFooter() {
   return (
     <footer className="motion-footer relative z-10 border-t border-[var(--color-line)] bg-[var(--color-bg)]">
-      <div className="mx-auto w-full max-w-[1440px] px-6 py-20 md:px-12 lg:px-16">
-        {/* Top: branding column + 4-column link grid */}
-        <div className="grid gap-14 lg:grid-cols-[1.3fr_2.5fr]">
-          {/* ── Branding block ─────────────────────────────────────── */}
-          <div className="motion-footer-col">
-            <Link href="/" className="flex items-center gap-2 text-[20px] tracking-tight text-[var(--color-fg)]">
+      <div className="mx-auto w-full max-w-[1440px] px-6 py-12 md:px-12 lg:px-16">
+        {/* One-row layout: brand + tagline on the left, minimal links
+            on the right. Pre-launch shape — no product columns, no
+            corridor list, no careers/blog. */}
+        <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-2 text-[15px] tracking-tight text-[var(--color-fg)]">
               <Diamond />
               <span>talise</span>
             </Link>
-            <p className="mt-5 max-w-[300px] text-[14px] leading-[1.6] text-[var(--color-fg-muted)]">
-              Money home, in seconds. Built for the diaspora on Sui mainnet.
-              USDsui-native, zkLogin-signed, sponsored gas on every transfer.
-            </p>
-            <SocialRow />
-            <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
-              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
-              live on sui mainnet
-            </div>
+            <span className="text-[var(--color-fg-dim)]">·</span>
+            <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              Pre-launch · Built on Sui
+            </span>
           </div>
 
-          {/* ── 4-column links ─────────────────────────────────────── */}
-          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
-            <FooterCol
-              title="Product"
-              links={[
-                ["How it works", "#how"],
-                ["Who it's for", "#who"],
-                ["Sign in", "#cta"],
-                ["Download iOS", "#cta"],
-              ]}
-            />
-            <FooterCol
-              title="Corridors"
-              links={[
-                ["UK → Nigeria", "#"],
-                ["UK → Kenya", "#"],
-                ["UK → Ghana", "#"],
-                ["UK → South Africa", "#"],
-                ["US → Nigeria", "#"],
-              ]}
-            />
-            <FooterCol
-              title="Company"
-              links={[
-                ["About", "#"],
-                ["Blog", "#"],
-                ["Careers", "#"],
-                ["Press", "#"],
-              ]}
-            />
-            <FooterCol
-              title="Trust"
-              links={[
-                ["Privacy policy", "#"],
-                ["Terms of use", "#"],
-                ["Security", "#"],
-                ["hello@talise.io", "mailto:hello@talise.io"],
-              ]}
-            />
-          </div>
+          <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] text-[var(--color-fg-muted)]">
+            <a href="#" className="transition hover:text-[var(--color-fg)]">Privacy</a>
+            <a href="#" className="transition hover:text-[var(--color-fg)]">Terms</a>
+            <a href="#" className="transition hover:text-[var(--color-fg)]">Litepaper</a>
+            <a
+              href="mailto:hello@talise.io"
+              className="transition hover:text-[var(--color-fg)]"
+            >
+              hello@talise.io
+            </a>
+          </nav>
         </div>
 
-        {/* Oversized wordmark — design accent so the footer doesn't fade
-            out into nothing. Uses currentColor with low opacity so it
-            reads as a watermark rather than a CTA. */}
+        {/* Tiny social row + copyright */}
+        <div className="mt-8 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
+            © {new Date().getFullYear()} Talise, Inc.
+          </div>
+          <SocialRow />
+        </div>
+
+        {/* Oversized wordmark — visual grounding so the footer doesn't
+            fade out into nothing. */}
         <div
           aria-hidden
-          className="mt-16 select-none overflow-hidden whitespace-nowrap text-[clamp(80px,18vw,260px)] font-medium leading-[0.85] tracking-[-0.04em] text-[var(--color-fg)] opacity-[0.04]"
+          className="mt-10 select-none overflow-hidden whitespace-nowrap text-[clamp(80px,18vw,260px)] font-medium leading-[0.85] tracking-[-0.04em] text-[var(--color-fg)] opacity-[0.04]"
         >
           talise.
-        </div>
-      </div>
-
-      {/* Bottom strip — copyright, stack badges, network info */}
-      <div className="border-t border-[var(--color-line)]">
-        <div className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center justify-between gap-3 px-6 py-5 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)] md:px-12 lg:px-16">
-          <div>© {new Date().getFullYear()} talise. all rights reserved.</div>
-          <div className="flex items-center gap-3">
-            <span>built on sui</span>
-            <span>·</span>
-            <span>usdsui native</span>
-            <span>·</span>
-            <span>zklogin</span>
-          </div>
         </div>
       </div>
     </footer>
@@ -1149,34 +1088,6 @@ function PersonaCard({
         </p>
       </div>
     </article>
-  );
-}
-
-function FooterCol({
-  title,
-  links,
-}: {
-  title: string;
-  links: Array<[string, string]>;
-}) {
-  return (
-    <div className="motion-footer-col">
-      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
-        {title}
-      </div>
-      <ul className="mt-3 space-y-2 text-[13px]">
-        {links.map(([label, href]) => (
-          <li key={label}>
-            <a
-              href={href}
-              className="text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]"
-            >
-              {label}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 
