@@ -219,7 +219,7 @@ public(package) fun mint_cap<T>(
 
 /// Permanently disable auto-swap for `T`. Burns the cap.
 /// Caller must be `cap.owner`.
-public entry fun disable<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
+public fun disable<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
     assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
     let AutoSwapCap { id, vault_id: _, owner, max_per_swap: _, expires_at_ms: _, paused: _ } = cap;
     event::emit(AutoSwapDisabled {
@@ -232,7 +232,7 @@ public entry fun disable<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
 
 /// Temporarily pause auto-swap (worker validation fails until resumed).
 /// Caller must be `cap.owner`.
-public entry fun pause<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
+public fun pause<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
     assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
     cap.paused = true;
     event::emit(AutoSwapPaused {
@@ -243,7 +243,7 @@ public entry fun pause<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
 }
 
 /// Resume after a pause. Caller must be `cap.owner`.
-public entry fun resume<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
+public fun resume<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
     assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
     cap.paused = false;
     event::emit(AutoSwapPaused {
@@ -256,7 +256,7 @@ public entry fun resume<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
 /// Update bounds without re-minting. Caller must be `cap.owner`.
 /// Note: v1 lets the owner raise limits freely. v2 should clamp
 /// to `original_max` (see AUTOSWAP.md hardening list).
-public entry fun update_bounds<T>(
+public fun update_bounds<T>(
     cap: &mut AutoSwapCap<T>,
     max_per_swap: u64,
     expires_at_ms: u64,
@@ -516,7 +516,7 @@ public struct AutoSwapValidatedV2 has copy, drop {
 /// or struct-construction-locality — neither works mid-upgrade. The
 /// risk surface is small: an attacker creating a second registry
 /// cannot grant themselves access to the canonical one.
-public entry fun bootstrap_v7(ctx: &mut TxContext) {
+public fun bootstrap_v7(ctx: &mut TxContext) {
     let publisher = ctx.sender();
     let registry = AutoSwapRegistryV2 {
         id: object::new(ctx),
@@ -548,7 +548,7 @@ public entry fun bootstrap_v7(ctx: &mut TxContext) {
 // ───────────────────────────────────────────────────────────────────
 // Role-management entries (admin-only)
 
-public entry fun grant_worker(
+public fun grant_worker(
     registry: &mut AutoSwapRegistryV2,
     addr: address,
     ctx: &TxContext,
@@ -559,7 +559,7 @@ public entry fun grant_worker(
     event::emit(WorkerGranted { addr, by: ctx.sender() });
 }
 
-public entry fun revoke_worker(
+public fun revoke_worker(
     registry: &mut AutoSwapRegistryV2,
     addr: address,
     ctx: &TxContext,
@@ -571,7 +571,7 @@ public entry fun revoke_worker(
     event::emit(WorkerRevoked { addr, by: ctx.sender() });
 }
 
-public entry fun grant_oncall(
+public fun grant_oncall(
     registry: &mut AutoSwapRegistryV2,
     addr: address,
     ctx: &TxContext,
@@ -582,7 +582,7 @@ public entry fun grant_oncall(
     event::emit(OncallGranted { addr, by: ctx.sender() });
 }
 
-public entry fun revoke_oncall(
+public fun revoke_oncall(
     registry: &mut AutoSwapRegistryV2,
     addr: address,
     ctx: &TxContext,
@@ -594,7 +594,7 @@ public entry fun revoke_oncall(
     event::emit(OncallRevoked { addr, by: ctx.sender() });
 }
 
-public entry fun grant_treasury(
+public fun grant_treasury(
     registry: &mut AutoSwapRegistryV2,
     addr: address,
     ctx: &TxContext,
@@ -605,7 +605,7 @@ public entry fun grant_treasury(
     event::emit(TreasuryGranted { addr, by: ctx.sender() });
 }
 
-public entry fun revoke_treasury(
+public fun revoke_treasury(
     registry: &mut AutoSwapRegistryV2,
     addr: address,
     ctx: &TxContext,
@@ -620,7 +620,7 @@ public entry fun revoke_treasury(
 // ───────────────────────────────────────────────────────────────────
 // Admin rotation (2-step + 48h delay + cancel)
 
-public entry fun begin_admin_transfer(
+public fun begin_admin_transfer(
     registry: &mut AutoSwapRegistryV2,
     new_admin: address,
     clock: &Clock,
@@ -642,7 +642,7 @@ public entry fun begin_admin_transfer(
     });
 }
 
-public entry fun accept_admin_transfer(
+public fun accept_admin_transfer(
     registry: &mut AutoSwapRegistryV2,
     clock: &Clock,
     ctx: &TxContext,
@@ -660,7 +660,7 @@ public entry fun accept_admin_transfer(
     event::emit(AdminTransferAccepted { old, new: new_admin });
 }
 
-public entry fun cancel_admin_transfer(
+public fun cancel_admin_transfer(
     registry: &mut AutoSwapRegistryV2,
     ctx: &TxContext,
 ) {
@@ -674,7 +674,7 @@ public entry fun cancel_admin_transfer(
     });
 }
 
-public entry fun begin_delay_change(
+public fun begin_delay_change(
     registry: &mut AutoSwapRegistryV2,
     new_delay_ms: u64,
     clock: &Clock,
@@ -697,7 +697,7 @@ public entry fun begin_delay_change(
     });
 }
 
-public entry fun accept_delay_change(
+public fun accept_delay_change(
     registry: &mut AutoSwapRegistryV2,
     clock: &Clock,
     ctx: &TxContext,
@@ -715,7 +715,7 @@ public entry fun accept_delay_change(
     event::emit(DelayChangeAccepted { old_delay_ms: old, new_delay_ms });
 }
 
-public entry fun cancel_delay_change(
+public fun cancel_delay_change(
     registry: &mut AutoSwapRegistryV2,
     ctx: &TxContext,
 ) {
@@ -732,7 +732,7 @@ public entry fun cancel_delay_change(
 // ───────────────────────────────────────────────────────────────────
 // Pause / unpause (admin OR oncall)
 
-public entry fun pause_registry(
+public fun pause_registry(
     registry: &mut AutoSwapRegistryV2,
     ctx: &TxContext,
 ) {
@@ -741,7 +741,7 @@ public entry fun pause_registry(
     event::emit(RegistryPaused { by: ctx.sender() });
 }
 
-public entry fun unpause_registry(
+public fun unpause_registry(
     registry: &mut AutoSwapRegistryV2,
     ctx: &TxContext,
 ) {
@@ -753,7 +753,7 @@ public entry fun unpause_registry(
 // ───────────────────────────────────────────────────────────────────
 // Allowlist management (admin OR treasury)
 
-public entry fun add_allowed_dest<Dest>(
+public fun add_allowed_dest<Dest>(
     registry: &mut AutoSwapRegistryV2,
     ctx: &TxContext,
 ) {
@@ -764,7 +764,7 @@ public entry fun add_allowed_dest<Dest>(
     event::emit(AllowedDestAdded { dest_type: t, by: ctx.sender() });
 }
 
-public entry fun remove_allowed_dest<Dest>(
+public fun remove_allowed_dest<Dest>(
     registry: &mut AutoSwapRegistryV2,
     ctx: &TxContext,
 ) {
@@ -776,7 +776,7 @@ public entry fun remove_allowed_dest<Dest>(
     event::emit(AllowedDestRemoved { dest_type: t, by: ctx.sender() });
 }
 
-public entry fun add_allowed_provider(
+public fun add_allowed_provider(
     registry: &mut AutoSwapRegistryV2,
     provider: vector<u8>,
     ctx: &TxContext,
@@ -787,7 +787,7 @@ public entry fun add_allowed_provider(
     event::emit(AllowedProviderAdded { provider, by: ctx.sender() });
 }
 
-public entry fun remove_allowed_provider(
+public fun remove_allowed_provider(
     registry: &mut AutoSwapRegistryV2,
     provider: vector<u8>,
     ctx: &TxContext,
@@ -915,7 +915,7 @@ public(package) fun new_cap_v2<T>(
 ///
 /// The new cap is shared so the worker can reference it in a PTB the
 /// worker signs (same model as v3+ shared caps).
-public entry fun upgrade_cap_to_v2<T>(
+public fun upgrade_cap_to_v2<T>(
     cap: AutoSwapCap<T>,
     max_per_day: u64,
     clock: &Clock,
