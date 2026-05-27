@@ -26,6 +26,8 @@ struct ProfileView: View {
     /// True while the auto-swap settings sheet is up. Driven by the
     /// Preferences row that opens `AutoSwapSettings`.
     @State private var showAutoSwap = false
+    /// Mirror of `BiometricGate.isRequired` so the toggle re-renders.
+    @State private var requireBiometric = BiometricGate.isRequired
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -34,6 +36,7 @@ struct ProfileView: View {
                 statsStrip
                 walletSection
                 preferencesSection
+                securitySection
                 helpSection
                 signOutButton
                 versionFooter
@@ -453,6 +456,32 @@ struct ProfileView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
+    }
+
+    // MARK: - Security section
+
+    /// Security toggles. Default ON; user can opt out, in which case
+    /// `BiometricGate.requireUserPresence` becomes a no-op. The label
+    /// mirrors what the system prompt will ask for so users aren't
+    /// surprised at tap time.
+    private var securitySection: some View {
+        section(title: "Security") {
+            HStack {
+                rowLabel(
+                    title: "Require \(BiometricGate.biometryDisplayName()) for transactions",
+                    subtitle: "Confirm with biometrics or passcode before every send, supply, or withdraw."
+                )
+                Spacer()
+                Toggle("", isOn: $requireBiometric)
+                    .labelsHidden()
+                    .tint(TaliseColor.accent)
+                    .onChange(of: requireBiometric) { _, new in
+                        BiometricGate.setRequired(new)
+                    }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+        }
     }
 
     // MARK: - Help section

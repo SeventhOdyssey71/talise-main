@@ -185,8 +185,9 @@ struct VaultWithdrawSheet: View {
 
     private var actionBar: some View {
         VStack(spacing: 10) {
+            let bio = BiometricGate.biometryDisplayName()
             LiquidGlassButton(
-                title: submitting ? "Moving…" : "Move to wallet",
+                title: submitting ? "Moving…" : "Move to wallet  ·  \(bio)",
                 tint: TaliseColor.accent,
                 size: .lg,
                 loading: submitting
@@ -248,6 +249,9 @@ struct VaultWithdrawSheet: View {
                 amount: s.amount
             )
             let intent = "Move \(displayAmount(s)) from vault to wallet"
+            try await BiometricGate.shared.requireUserPresence(
+                reason: "Withdraw \(displayAmount(s)) from Vault to your wallet"
+            )
             _ = try await ZkLoginCoordinator.shared.signAndSubmit(
                 transactionKindB64: built.bytesB64,
                 intent: intent,
@@ -255,6 +259,10 @@ struct VaultWithdrawSheet: View {
             )
             onWithdrew()
             dismiss()
+        } catch BiometricGate.BiometricGateError.cancelled {
+            self.error = nil
+        } catch BiometricGate.BiometricGateError.notAvailable {
+            self.error = "Set up Face ID or a device passcode to move funds from the vault."
         } catch {
             self.error = error.localizedDescription
         }
