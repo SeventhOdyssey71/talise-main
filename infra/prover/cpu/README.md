@@ -8,10 +8,10 @@ gatekeeper.
 
 ```bash
 # 1. Pull the mainnet proving key (~3.2 GB).
-bash prover/download-zkey.sh
+bash infra/prover/cpu/download-zkey.sh
 
 # 2. Boot the prover stack.
-docker compose -f prover/docker-compose.yml up -d
+docker compose -f infra/prover/cpu/docker-compose.yml up -d
 
 # 3. Wait ~30 s for the prover to load the key into memory, then ping.
 curl http://localhost:8001/ping
@@ -48,7 +48,7 @@ scalable — front it with a load balancer if traffic warrants.
 
 ```bash
 curl http://localhost:8001/ping
-docker compose -f prover/docker-compose.yml logs -f prover-fe
+docker compose -f infra/prover/cpu/docker-compose.yml logs -f prover-fe
 ```
 
 If proofs are slow on first hit, the zkey is still mmapping; subsequent

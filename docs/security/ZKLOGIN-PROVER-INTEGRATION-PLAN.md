@@ -1,6 +1,6 @@
 # zkLogin Prover Integration Plan
 
-Sister doc: `docs/ZKLOGIN-PROVER-COMPARISON.md` (technical / cost / risk comparison).
+Sister doc: `docs/security/ZKLOGIN-PROVER-COMPARISON.md` (technical / cost / risk comparison).
 This doc is the **action plan** — the concrete deployment sequence for swapping Talise's zkLogin prover backend.
 
 ---

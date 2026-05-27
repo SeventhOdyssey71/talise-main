@@ -1,5 +1,7 @@
 # Talise — architecture
 
+> Historical document, preserved for context. See docs/generated/codebase/INDEX.md for current architecture.
+
 ## Move package layout
 
 ```

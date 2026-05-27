@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Downloads the Sui mainnet zkLogin proving key (~3.2 GB) via Git LFS, the
 # canonical source (sui-foundation/zklogin-ceremony-contributions).
-# Run from repo root: bash prover/download-zkey.sh
+# Run from repo root: bash infra/prover/cpu/download-zkey.sh
 # Idempotent — skips if the file already exists and the size looks right.
 
 set -euo pipefail
@@ -43,5 +43,5 @@ size=$(wc -c <"$DEST" | tr -d ' ')
 echo
 echo "✓ Saved $DEST ($((size / 1024 / 1024)) MB)"
 echo
-echo "Next:  docker compose -f prover/docker-compose.yml up -d"
+echo "Next:  docker compose -f infra/prover/cpu/docker-compose.yml up -d"
 echo "Then:  curl http://localhost:8001/ping"

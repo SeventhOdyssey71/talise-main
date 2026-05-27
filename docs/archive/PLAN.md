@@ -1,5 +1,7 @@
 # Talise — 6-day build plan
 
+> Historical document, preserved for context. See docs/generated/codebase/INDEX.md for current architecture.
+
 Today: **2026-05-17 (Sat)** · Submission: **2026-05-23 (Fri)**
 
 ## Daily breakdown

@@ -20,11 +20,30 @@ Talise/
 ├── web/         Next.js 15 App Router — auth, claim, send, receive, earn
 ├── ios/         SwiftUI client — zkLogin, App Attest, native receipts (parallel track)
 ├── onara/       Cloudflare Workers gas station + SDK — signs as sponsor, never as user
-├── prover/      Self-hosted zkLogin prover compose (alt to Shinami)
-├── zklogin/     OAuth bridge utilities for ephemeral key + nonce binding
-├── docs/        Pitch, demo script, performance notes
+├── infra/       Prover deployment material (CPU compose, GPU Dockerfile, runbooks)
+│   └── prover/
+│       ├── cpu/   Self-hosted CPU zkLogin prover compose (alt to Shinami)
+│       └── gpu/   GPU prover Dockerfile, deploy script, smoke test, runbooks
+├── docs/        Product, architecture, security, ops docs + generated codebase map
+├── archive/     Preserved-for-context legacy code. Nothing here should be deployed.
 └── research/    Brief, competitive notes
 ```
+
+### Where to find things
+
+| If you want... | Look in... |
+| --- | --- |
+| Product story | `docs/product/LITEPAPER.md`, `docs/product/BUSINESS-MODEL.md` |
+| How a feature works | `docs/generated/codebase/INDEX.md` |
+| Security policies | `docs/security/`, `move/talise/SECURITY-V7.md`, `SECURITY.md`, `THREAT_MODEL.md` |
+| Web app | `web/` |
+| iOS app | `ios/` |
+| Move contracts | `move/talise/` |
+| Sponsor service | `onara/` |
+| Prover ops | `infra/prover/` |
+| Historical context | `archive/`, `docs/archive/` |
+
+Start with `docs/generated/codebase/INDEX.md` for the 26-document code map. It is the current source of truth for how the code actually behaves; the older root-level architecture docs are kept for context but may drift from code.
 
 ## Run it locally
 
@@ -108,7 +127,7 @@ Sui Overflow 2026 — DeFi & Payments track. Track-by-track judging breakdown, s
               └──────────────────────────────────────────┘
 ```
 
-Full system map: [`ARCHITECTURE.md`](ARCHITECTURE.md). Auto-swap deep-dive: [`move/talise/AUTOSWAP.md`](move/talise/AUTOSWAP.md). Web internals: [`WEB_ARCHITECTURE.md`](WEB_ARCHITECTURE.md). Threat model and audit findings: [`THREAT_MODEL.md`](THREAT_MODEL.md), [`SECURITY.md`](SECURITY.md).
+Full system map: [`docs/generated/codebase/INDEX.md`](docs/generated/codebase/INDEX.md) (current). Auto-swap deep-dive: [`move/talise/AUTOSWAP.md`](move/talise/AUTOSWAP.md). Web internals: [`WEB_ARCHITECTURE.md`](WEB_ARCHITECTURE.md). Threat model and audit findings: [`THREAT_MODEL.md`](THREAT_MODEL.md), [`SECURITY.md`](SECURITY.md). Historical architecture notes: [`docs/archive/ARCHITECTURE.md`](docs/archive/ARCHITECTURE.md).
 
 ## License
 
