@@ -14,6 +14,9 @@ build/
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+.env.staging
 .dev.vars
 *.pem
 *.key
@@ -72,8 +75,10 @@ ios/Talise.xcodeproj/project.xcworkspace/xcuserdata/
 
 # XcodeGen regenerates the .xcodeproj from project.yml; don't track it.
 ios/*.xcodeproj/
-.vercel
+.vercel/
+**/.vercel/
 .env.vercel
+**/.env.vercel
 
 # ── Scratch / screenshots / scratch images ────────────────────────────
 _scratch/
