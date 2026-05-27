@@ -12,6 +12,22 @@ jobs:
       contents: read
       packages: write
     steps:
+      # Default ubuntu-latest runner has ~14GB free disk. CUDA dev
+      # base (3.2GB) + cudnn (2.3GB) + Rust toolchain + cargo target
+      # + rapidsnark/icicle-snark build artifacts blow past that. We
+      # delete unused tooling (dotnet, android sdk, ghc, codeql, etc.)
+      # to free ~30GB before the docker build starts.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
       - uses: actions/checkout@v4
         with:
           repository: unconfirmedlabs/sui-zklogin-gpu-prover
