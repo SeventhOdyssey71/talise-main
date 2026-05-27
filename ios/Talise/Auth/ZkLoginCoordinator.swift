@@ -320,6 +320,108 @@ final class ZkLoginCoordinator {
         return SignedSubmission(digest: digest)
     }
 
+    /// Combined Send path. Replaces the legacy three-call sequence
+    /// (prepare → sponsor → sponsor-execute) with two:
+    ///
+    ///   POST /api/send/sponsor-prepare { to, amount, asset } → { bytes, roundupUsd }
+    ///   sign(bytes) locally
+    ///   POST /api/zk/sponsor-execute   { bytesB64, ..., cachedProof? } → { digest }
+    ///
+    /// One fewer iOS→Vercel round-trip saves ~500–800ms per send. Use
+    /// this instead of `signAndSubmit(transactionKindB64:)` for any
+    /// Send. The legacy method stays for Earn/Vault flows which still
+    /// need the explicit prepare→sponsor split.
+    func signAndSubmitSend(
+        to: String,
+        amountUsd: Double,
+        asset: String = "USDsui",
+        intent: String,
+        rewards: RewardsMeta? = nil
+    ) async throws -> SignedSubmission {
+        guard let maxEpoch = ProofCache.shared.maxEpoch,
+              let jwtRandomness = ProofCache.shared.jwtRandomness else {
+            throw CoordinatorError.exchangeFailed("no proof cache — sign in again")
+        }
+
+        // 1. Combined build + sponsor in a single server-side call.
+        let prep = try await postAuthenticated(
+            path: "/api/send/sponsor-prepare",
+            body: [
+                "to": to,
+                "amount": amountUsd,
+                "asset": asset,
+            ]
+        )
+        guard let bytesB64 = prep["bytes"] as? String,
+              let txBytesData = Data(base64Encoded: bytesB64) else {
+            throw CoordinatorError.sponsorFailed("malformed sponsor-prepare response")
+        }
+        // Server-blessed round-up amount, forwarded to sponsor-execute
+        // so the rewards engine credits the auto-save leg too.
+        let serverRoundupUsd = prep["roundupUsd"] as? Double ?? 0
+
+        // 2. Sign locally — Sui intent prefix + BLAKE2b digest, Ed25519.
+        //    Same path as `signAndSubmit`; the bytes shape is identical
+        //    (sponsor-prepare runs the same `tx.build(client:)` that
+        //    `/api/zk/sponsor` did).
+        let intentMessage = Data([0, 0, 0]) + txBytesData
+        let digest = Blake2b.hash256(intentMessage)
+        let key = try EphemeralKeyStore.shared.loadOrCreate()
+        let rawSig = try key.signature(for: digest)
+        let pubKey = key.publicKey.rawRepresentation
+        let pubKeyB64 = pubKey.base64EncodedString()
+        let userSig = (Data([0x00]) + rawSig + pubKey).base64EncodedString()
+
+        // 3. Build the execute body. Merge the server-blessed round-up
+        //    into the rewards meta so the second-leg points credit.
+        var executeBody: [String: Any] = [
+            "bytesB64": bytesB64,
+            "ephemeralPubKeyB64": pubKeyB64,
+            "maxEpoch": maxEpoch,
+            "randomness": jwtRandomness,
+            "userSignature": userSig,
+        ]
+        if let r = rewards {
+            var metaDict: [String: Any] = [
+                "kind": r.kind,
+                "amountUsd": r.amountUsd,
+            ]
+            if let v = r.venue { metaDict["venue"] = v }
+            // Prefer the server's value (recomputed from the user's
+            // current round-up config) over whatever the caller passed.
+            let roundup = serverRoundupUsd > 0 ? serverRoundupUsd : (r.roundupUsd ?? 0)
+            if roundup > 0 { metaDict["roundupUsd"] = roundup }
+            executeBody["meta"] = metaDict
+        }
+        // Forward a CACHED proof if available + well-shaped. Skipping
+        // the prover entirely on send #2+ is the single biggest win
+        // once the user has authenticated once.
+        if let proofData = ProofCache.shared.proofRaw,
+           let proofJSON = try? JSONSerialization.jsonObject(with: proofData) as? [String: Any],
+           proofJSON["proofPoints"] is [String: Any] {
+            executeBody["cachedProof"] = proofJSON
+        } else {
+            ProofCache.shared.proofRaw = nil
+        }
+
+        let exec = try await postAuthenticated(
+            path: "/api/zk/sponsor-execute",
+            body: executeBody
+        )
+        if let err = exec["error"] as? String {
+            throw CoordinatorError.executeFailed(err)
+        }
+        guard let digestStr = exec["digest"] as? String, !digestStr.isEmpty else {
+            throw CoordinatorError.executeFailed("no digest in response")
+        }
+        if let fresh = exec["freshProof"],
+           JSONSerialization.isValidJSONObject(fresh) {
+            ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: fresh)
+        }
+        _ = intent // currently unused server-side; kept in signature for parity with signAndSubmit
+        return SignedSubmission(digest: digestStr)
+    }
+
     // MARK: - Helpers
 
     /// Fetches the current Sui epoch and returns `epoch + 2` — the standard

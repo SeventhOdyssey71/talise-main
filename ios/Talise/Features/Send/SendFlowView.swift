@@ -134,32 +134,22 @@ struct SendFlowView: View {
         path.append(.sending)
 
         do {
-            struct Body: Encodable {
-                let to: String
-                let amount: Double
-                let asset: String
-            }
-            let built: BuildKindResponse = try await APIClient.shared.post(
-                "/api/send/prepare",
-                body: Body(
-                    to: resolved.address,
-                    amount: draft.amountUsdsui,
-                    asset: "USDsui"
-                )
-            )
-            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
-                transactionKindB64: built.transactionKindB64,
+            // Combined build+sponsor in one call (was prepare + sponsor,
+            // two round-trips). Server returns sponsor-ready bytes
+            // straight away; sponsor-execute does the broadcast.
+            let result = try await ZkLoginCoordinator.shared.signAndSubmitSend(
+                to: resolved.address,
+                amountUsd: draft.amountUsdsui,
+                asset: "USDsui",
                 intent: intentLabel,
                 rewards: ZkLoginCoordinator.RewardsMeta(
                     kind: "send",
                     amountUsd: draft.amountUsdsui,
                     venue: nil,
-                    // Forwards the server-blessed round-up amount so
-                    // sponsor-execute can credit the second leg's
-                    // points + bump the savings tally. The on-chain
-                    // NAVI supply for this amount landed atomically
-                    // with the send (compound PTB built by prepare).
-                    roundupUsd: built.roundupUsd
+                    // Server recomputes round-up from the current
+                    // config inside sponsor-prepare and forwards it
+                    // through; this value is a fallback only.
+                    roundupUsd: nil
                 )
             )
 
