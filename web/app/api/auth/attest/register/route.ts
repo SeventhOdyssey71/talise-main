@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { db, ensureSchema } from "@/lib/db";
+import { consumeAttestChallenge } from "@/lib/app-attest";
 
 export const runtime = "nodejs";
 
 /**
  * Persist the App Attest keyId + first attestation object.
  *
- * Full Apple validation (AppleAppAttestRoot CA chain, RPID hash, counter,
- * AAGUID, etc.) lives in `lib/app-attest.ts` (to be written — out of scope
- * for the iOS scaffold commit). For now we store the raw blob + keyId so
- * subsequent asserts can be verified.
+ * Phase 1 (this commit): we verify the challenge half of the protocol
+ * (one-time, server-persisted nonce with 5-minute TTL) and store the
+ * raw attestation blob keyed by the iOS Secure Enclave keyId.
+ *
+ * Phase 2 (deferred, see `TODO-APPATTEST.md`): full Apple chain
+ * verification. Until that ships, a stolen bearer can still register
+ * a forged attestation; the challenge layer just prevents replays.
  *
  * Schema is idempotent.
  */
@@ -43,10 +47,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
 
-  // TODO(security): full Apple App Attest verification — verify cert chain,
-  // RPID hash matches teamID+bundleID, counter starts at 0, etc. Until that
-  // ships, accept the blob and rely on TLS + the cookie session as a soft
-  // gate. Document this gap in SECURITY.md.
+  const consumed = await consumeAttestChallenge({
+    nonce: body.challenge,
+    userId,
+  });
+  if (!consumed.ok) {
+    return NextResponse.json({ error: consumed.reason }, { status: 400 });
+  }
+
+  // TODO(P1-5 phase 2): full Apple App Attest verification:
+  //   - decode CBOR attestation, walk authData,
+  //   - verify AppleAppAttestRoot CA chain on the attestation cert,
+  //   - check `nonce` extension matches SHA256(challenge || appId),
+  //   - verify RPID hash == SHA256(teamID || "." || bundleID),
+  //   - assert counter starts at 0,
+  //   - persist credentialPublicKey + AAGUID so future asserts can
+  //     be verified via signature + counter monotonicity.
+  // See `TODO-APPATTEST.md` for the runbook.
 
   await ensureAttestSchema();
   await db().execute({

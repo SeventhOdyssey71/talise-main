@@ -166,9 +166,18 @@ export async function callProver(
   const url = (opts?.url ?? PROVER_URL).replace(/\/+$/, "");
   const timeoutMs = opts?.timeoutMs ?? PROVER_TIMEOUT_MS;
   const label = opts?.label ?? "mysten";
+  // P1-6: GPU prover endpoint sits behind a bearer token. If the
+  // env var is set we attach it on every call. Public provers
+  // (Mysten / Shinami) ignore unknown auth headers, so this is
+  // safe to send unconditionally when the token is configured.
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const authToken = process.env.ZK_PROVER_AUTH_TOKEN;
+  if (authToken && authToken.length > 0) {
+    headers["Authorization"] = `Bearer ${authToken}`;
+  }
   const r = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(inputs),
     signal: AbortSignal.timeout(timeoutMs),
   });

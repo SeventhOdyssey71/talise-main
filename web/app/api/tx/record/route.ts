@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { readSessionEntryId } from "@/lib/session";
 import {
+  invoiceBySlug,
   markInvoicePaid,
   recordTx,
   setInvoiceReceiptObjectId,
   userById,
 } from "@/lib/db";
+import { suiJsonRpc } from "@/lib/sui";
+import { isUsdsui } from "@/lib/usdsui";
+import { requireAppAttestStructural } from "@/lib/app-attest";
 
 export const runtime = "nodejs";
 
@@ -45,6 +49,10 @@ const MEMO_MAX = 200;
 const AMOUNT_MAX = 64;
 
 export async function POST(req: Request) {
+  // P1-5: mobile traffic must carry an App Attest assertion.
+  const attestBlock = requireAppAttestStructural(req);
+  if (attestBlock) return attestBlock;
+
   const userId = await readSessionEntryId();
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
@@ -159,15 +167,111 @@ export async function POST(req: Request) {
   // `tx_history` row-count check so it only fires once per user.
 
   if (invoiceSlug) {
-    try {
-      await markInvoicePaid(invoiceSlug, digest, user.sui_address);
-      if (receiptObjectId) {
-        await setInvoiceReceiptObjectId(invoiceSlug, receiptObjectId);
-      }
-    } catch (e) {
-      console.warn(`[tx/record] invoice close failed: ${(e as Error).message}`);
+    // P1-3: never trust client-submitted amount / recipient for
+    // invoice payments. Load the invoice authoritatively, then
+    // verify on-chain that the submitted digest paid the merchant
+    // the exact canonical amount in USDsui.
+    const result = await verifyAndCloseInvoice({
+      slug: invoiceSlug,
+      digest,
+      payerAddress: user.sui_address,
+      receiptObjectId,
+    });
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: `invoice verification failed: ${result.reason}` },
+        { status: 400 }
+      );
     }
   }
 
   return NextResponse.json({ ok: true });
+}
+
+// ─── Invoice verification ────────────────────────────────────────────────
+
+const USDSUI_MICRO_DIVISOR = 1_000_000;
+
+type VerifyResult = { ok: true } | { ok: false; reason: string };
+
+async function verifyAndCloseInvoice(input: {
+  slug: string;
+  digest: string;
+  payerAddress: string;
+  receiptObjectId: string | null;
+}): Promise<VerifyResult> {
+  const invoice = await invoiceBySlug(input.slug);
+  if (!invoice) return { ok: false, reason: "invoice not found" };
+  if (invoice.status !== "open") {
+    // Already paid (or void). Idempotent: don't error, but don't
+    // overwrite the prior digest either.
+    return { ok: true };
+  }
+
+  const merchant = await userById(invoice.business_user_id);
+  if (!merchant) return { ok: false, reason: "merchant not found" };
+  const merchantAddress = merchant.sui_address.toLowerCase();
+
+  const expectedUsdsui = Number(invoice.amount_usdc);
+  if (!Number.isFinite(expectedUsdsui) || expectedUsdsui <= 0) {
+    return { ok: false, reason: "invoice amount invalid" };
+  }
+  // Tolerance for u64<>float rounding (1e-6 USDsui = 1 micro-unit).
+  const expectedMicro = BigInt(Math.round(expectedUsdsui * USDSUI_MICRO_DIVISOR));
+
+  let tx;
+  try {
+    tx = await suiJsonRpc().getTransactionBlock({
+      digest: input.digest,
+      options: {
+        showEffects: true,
+        showBalanceChanges: true,
+        showInput: false,
+        showEvents: false,
+      },
+    });
+  } catch (e) {
+    return { ok: false, reason: `tx fetch failed: ${(e as Error).message}` };
+  }
+
+  const status = tx?.effects?.status?.status;
+  if (status !== "success") {
+    return { ok: false, reason: `tx status is ${status ?? "unknown"}` };
+  }
+
+  // Walk balanceChanges: the merchant address must end with a
+  // USDsui positive delta >= invoice canonical amount.
+  const changes = tx.balanceChanges ?? [];
+  let merchantReceivedMicro = 0n;
+  for (const c of changes) {
+    const owner = typeof c.owner === "object" && c.owner && "AddressOwner" in c.owner
+      ? (c.owner.AddressOwner as string).toLowerCase()
+      : null;
+    if (!owner || owner !== merchantAddress) continue;
+    if (!isUsdsui(c.coinType)) continue;
+    // amount is a string signed integer (raw u64 minor units).
+    try {
+      const delta = BigInt(c.amount);
+      if (delta > 0n) merchantReceivedMicro += delta;
+    } catch {
+      // ignore malformed amounts
+    }
+  }
+
+  if (merchantReceivedMicro < expectedMicro) {
+    return {
+      ok: false,
+      reason: `recipient received ${merchantReceivedMicro} micro USDsui, expected >= ${expectedMicro}`,
+    };
+  }
+
+  try {
+    await markInvoicePaid(input.slug, input.digest, input.payerAddress);
+    if (input.receiptObjectId) {
+      await setInvoiceReceiptObjectId(input.slug, input.receiptObjectId);
+    }
+  } catch (e) {
+    return { ok: false, reason: `db update failed: ${(e as Error).message}` };
+  }
+  return { ok: true };
 }
