@@ -32,6 +32,11 @@ const JWT_COOKIE = "talise_jwt";
  *   2. Mysten's testnet prover (open to all audiences) on testnet.
  *   3. Mysten's mainnet prover as a last resort on mainnet (only works for
  *      whitelisted audiences).
+ *
+ * NOTE: This URL is used by the LEGACY single-call `callProver()` path. The
+ * preferred entry point is `callProverWithFallback()` (below) which honours
+ * `ZK_PROVER_PRIMARY` + `ZK_PROVER_GPU_URL` and falls back to either Shinami
+ * or the legacy Mysten URL on 5xx/timeout.
  */
 const PROVER_URL = (() => {
   const override = process.env.ZK_PROVER_URL?.trim();
@@ -41,6 +46,68 @@ const PROVER_URL = (() => {
     ? "https://prover-dev.mystenlabs.com/v1"
     : "https://prover.mystenlabs.com/v1";
 })();
+
+/**
+ * Runtime toggle for which prover backend wins.
+ *
+ *   ZK_PROVER_PRIMARY     - "gpu" | "shinami" | "mysten"   (default "shinami")
+ *   ZK_PROVER_GPU_URL     - https URL of our unconfirmedlabs GPU prover
+ *   ZK_PROVER_FALLBACK    - "gpu" | "shinami" | "mysten" | "none" (default "shinami")
+ *   ZK_PROVER_CANARY_PCT  - 0..100 (default 0). When >0 a deterministic bucket
+ *                           of users gets routed to GPU regardless of PRIMARY,
+ *                           the rest fall through to PRIMARY.
+ *   ZK_PROVER_TIMEOUT_MS  - per-attempt timeout (default 8000ms — generous
+ *                           enough for the GPU cold-load on the first call).
+ *
+ * We keep `shinami` as the default primary so this ships safely. Flip
+ * `ZK_PROVER_PRIMARY=gpu` once the GPU box is healthy.
+ */
+type ProverBackend = "gpu" | "shinami" | "mysten";
+
+function readBackend(name: string, fallback: ProverBackend | "none"): ProverBackend | "none" {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (raw === "gpu" || raw === "shinami" || raw === "mysten" || raw === "none") return raw;
+  return fallback;
+}
+
+const PRIMARY_BACKEND: ProverBackend = (() => {
+  const b = readBackend("ZK_PROVER_PRIMARY", "shinami");
+  return b === "none" ? "shinami" : b;
+})();
+
+const FALLBACK_BACKEND: ProverBackend | "none" = readBackend(
+  "ZK_PROVER_FALLBACK",
+  "shinami"
+);
+
+const GPU_URL = (() => {
+  const u = process.env.ZK_PROVER_GPU_URL?.trim();
+  return u ? u.replace(/\/+$/, "") : null;
+})();
+
+const CANARY_PCT = (() => {
+  const raw = process.env.ZK_PROVER_CANARY_PCT?.trim();
+  if (!raw) return 0;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, n));
+})();
+
+const PROVER_TIMEOUT_MS = (() => {
+  const raw = process.env.ZK_PROVER_TIMEOUT_MS?.trim();
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 8000;
+})();
+
+/** FNV-1a 32-bit hash → stable bucket 0..99 from any utf-8 string. */
+function bucket0_99(key: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h % 100;
+}
 
 /** Persist the JWT + salt in an encrypted cookie. ~1 hour TTL (matches Google JWT). */
 export async function setSigningCookie(jwt: string, salt: string) {
@@ -92,17 +159,158 @@ type ProverResponse = {
   headerBase64: string;
 };
 
-export async function callProver(inputs: ProverInputs): Promise<ProverResponse> {
-  const r = await fetch(PROVER_URL, {
+export async function callProver(
+  inputs: ProverInputs,
+  opts?: { url?: string; timeoutMs?: number; label?: string }
+): Promise<ProverResponse> {
+  const url = (opts?.url ?? PROVER_URL).replace(/\/+$/, "");
+  const timeoutMs = opts?.timeoutMs ?? PROVER_TIMEOUT_MS;
+  const label = opts?.label ?? "mysten";
+  const r = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(inputs),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!r.ok) {
     const text = await r.text();
-    throw new Error(`prover ${r.status}: ${text.slice(0, 200)}`);
+    const err = new Error(`prover ${r.status} (${label}): ${text.slice(0, 200)}`);
+    // Tag 5xx so the fallback wrapper can decide whether to retry.
+    (err as Error & { status?: number }).status = r.status;
+    throw err;
   }
-  return (await r.json()) as ProverResponse;
+  // Tolerate snake_case responses from third-party provers (e.g. some GPU
+  // builds). Mysten/Shinami return the camelCase shape natively, so this
+  // normalize is a no-op for them.
+  const raw = (await r.json()) as Record<string, unknown>;
+  return normalizeProverResponse(raw);
+}
+
+function normalizeProverResponse(raw: Record<string, unknown>): ProverResponse {
+  const proofPoints =
+    (raw.proofPoints as ProverResponse["proofPoints"] | undefined) ??
+    (raw.proof_points as ProverResponse["proofPoints"] | undefined);
+  const issBase64Details =
+    (raw.issBase64Details as ProverResponse["issBase64Details"] | undefined) ??
+    (raw.iss_base64_details as ProverResponse["issBase64Details"] | undefined);
+  const headerBase64 =
+    (raw.headerBase64 as string | undefined) ??
+    (raw.header_base64 as string | undefined);
+  if (!proofPoints || !issBase64Details || !headerBase64) {
+    throw new Error(
+      `prover response missing fields (got keys: ${Object.keys(raw).join(",")})`
+    );
+  }
+  return { proofPoints, issBase64Details, headerBase64 };
+}
+
+type WithFallbackOpts = {
+  inputs: ProverInputs;
+  /** Used by canary bucketing — stable per-user (address seed or salt-sub). */
+  canaryKey?: string;
+};
+
+/**
+ * Unified entry-point that respects ZK_PROVER_PRIMARY / ZK_PROVER_FALLBACK /
+ * ZK_PROVER_CANARY_PCT. Success path: primary returns 200 → done. 5xx or
+ * timeout (AbortError): try the configured fallback once, then throw.
+ *
+ * Per-attempt structured log line:
+ *   [zk-prover] role=primary backend=gpu attempt=1 status=200 ms=412
+ *   [zk-prover] role=fallback backend=shinami attempt=2 status=200 ms=2740
+ *
+ * Visible in Vercel logs as `[zk-prover] ...` and intentionally low-cardinality
+ * so we can grep cleanly during cutover.
+ */
+export async function callProverWithFallback(
+  opts: WithFallbackOpts
+): Promise<ProverResponse> {
+  // Canary override: a deterministic bucket of users always gets GPU if
+  // configured, even when PRIMARY is still shinami. Use this for the 5%/25%
+  // ramp before flipping PRIMARY globally.
+  let primary = PRIMARY_BACKEND;
+  if (
+    CANARY_PCT > 0 &&
+    GPU_URL &&
+    primary !== "gpu" &&
+    opts.canaryKey &&
+    bucket0_99(opts.canaryKey) < CANARY_PCT
+  ) {
+    primary = "gpu";
+  }
+
+  const order: ProverBackend[] = [primary];
+  if (FALLBACK_BACKEND !== "none" && FALLBACK_BACKEND !== primary) {
+    order.push(FALLBACK_BACKEND);
+  }
+
+  let attempt = 0;
+  let lastErr: unknown = null;
+  for (let i = 0; i < order.length; i++) {
+    attempt++;
+    const backend = order[i];
+    const role = i === 0 ? "primary" : "fallback";
+    const start = Date.now();
+    try {
+      const out = await invokeBackend(backend, opts.inputs);
+      const ms = Date.now() - start;
+      console.log(
+        `[zk-prover] role=${role} backend=${backend} attempt=${attempt} status=200 ms=${ms}`
+      );
+      return out;
+    } catch (err) {
+      const ms = Date.now() - start;
+      const status = (err as { status?: number }).status;
+      const isTimeout =
+        (err as { name?: string }).name === "TimeoutError" ||
+        (err as { name?: string }).name === "AbortError";
+      const retryable = isTimeout || (typeof status === "number" && status >= 500);
+      console.log(
+        `[zk-prover] role=${role} backend=${backend} attempt=${attempt} status=${
+          status ?? (isTimeout ? "timeout" : "err")
+        } ms=${ms} msg=${truncate(String((err as Error).message ?? err), 160)}`
+      );
+      lastErr = err;
+      if (!retryable && i === 0) {
+        // Non-retryable primary failure (e.g. 4xx — bad JWT). Still fall
+        // through to the fallback once so an upstream auth-flake on one
+        // provider doesn't break the whole signing path; provider quirks
+        // sometimes surface as 4xx on one and 200 on the other.
+      }
+    }
+  }
+  throw lastErr ?? new Error("all provers failed");
+}
+
+function truncate(s: string, n: number) {
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+async function invokeBackend(
+  backend: ProverBackend,
+  inputs: ProverInputs
+): Promise<ProverResponse> {
+  if (backend === "gpu") {
+    if (!GPU_URL) {
+      throw new Error("ZK_PROVER_GPU_URL not set (backend=gpu requires it)");
+    }
+    return callProver(inputs, { url: GPU_URL, label: "gpu" });
+  }
+  if (backend === "shinami") {
+    if (!shinamiEnabled()) {
+      throw new Error("SHINAMI_API_KEY not set (backend=shinami requires it)");
+    }
+    const raw = await shinamiCreateProof({
+      jwt: inputs.jwt,
+      maxEpoch: inputs.maxEpoch,
+      extendedEphemeralPublicKey: inputs.extendedEphemeralPublicKey,
+      jwtRandomness: inputs.jwtRandomness,
+      salt: inputs.salt,
+    });
+    return raw;
+  }
+  // backend === "mysten" — use the legacy PROVER_URL resolution.
+  return callProver(inputs, { url: PROVER_URL, label: "mysten" });
 }
 
 /**
@@ -147,23 +355,8 @@ export async function mintZkProof(opts: {
   const pubKey = new Ed25519PublicKey(fromBase64(opts.ephemeralPubKeyB64));
   const extendedEphemeralPublicKey = getExtendedEphemeralPublicKey(pubKey);
 
-  const raw = shinamiEnabled()
-    ? await shinamiCreateProof({
-        jwt,
-        maxEpoch: opts.maxEpoch,
-        extendedEphemeralPublicKey,
-        jwtRandomness: opts.randomness,
-        salt,
-      })
-    : await callProver({
-        jwt,
-        extendedEphemeralPublicKey,
-        maxEpoch: opts.maxEpoch,
-        jwtRandomness: opts.randomness,
-        salt,
-        keyClaimName: "sub",
-      });
-
+  // Compute addressSeed up-front so we can use it as the deterministic canary
+  // bucketing key (stable per-user regardless of session).
   const claims = decodeJwt(jwt);
   const addressSeed = genAddressSeed(
     BigInt(salt),
@@ -171,6 +364,18 @@ export async function mintZkProof(opts: {
     claims.sub,
     claims.aud
   ).toString();
+
+  const raw = await callProverWithFallback({
+    inputs: {
+      jwt,
+      extendedEphemeralPublicKey,
+      maxEpoch: opts.maxEpoch,
+      jwtRandomness: opts.randomness,
+      salt,
+      keyClaimName: "sub",
+    },
+    canaryKey: addressSeed,
+  });
 
   return { ...raw, addressSeed };
 }

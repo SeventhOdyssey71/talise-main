@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import { readSessionEntryId } from "@/lib/session";
 import { userById } from "@/lib/db";
 import {
-  callProver,
+  callProverWithFallback,
   readSigningCookie,
 } from "@/lib/zksigner";
-import { shinamiCreateProof, shinamiEnabled } from "@/lib/shinami";
 import { decodeJwt } from "@/lib/zklogin";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { fromBase64 } from "@mysten/sui/utils";
@@ -101,23 +100,6 @@ export async function POST(req: Request) {
       const pubKey = new Ed25519PublicKey(fromBase64(body.ephemeralPubKeyB64));
       const extendedEphemeralPublicKey = getExtendedEphemeralPublicKey(pubKey);
 
-      const proof = shinamiEnabled()
-        ? await shinamiCreateProof({
-            jwt: signing.jwt,
-            maxEpoch: body.maxEpoch,
-            extendedEphemeralPublicKey,
-            jwtRandomness: body.randomness,
-            salt: signing.salt,
-          })
-        : await callProver({
-            jwt: signing.jwt,
-            extendedEphemeralPublicKey,
-            maxEpoch: body.maxEpoch,
-            jwtRandomness: body.randomness,
-            salt: signing.salt,
-            keyClaimName: "sub",
-          });
-
       const claims = decodeJwt(signing.jwt);
       const addressSeed = genAddressSeed(
         BigInt(signing.salt),
@@ -125,6 +107,18 @@ export async function POST(req: Request) {
         claims.sub,
         claims.aud
       ).toString();
+
+      const proof = await callProverWithFallback({
+        inputs: {
+          jwt: signing.jwt,
+          extendedEphemeralPublicKey,
+          maxEpoch: body.maxEpoch,
+          jwtRandomness: body.randomness,
+          salt: signing.salt,
+          keyClaimName: "sub",
+        },
+        canaryKey: addressSeed,
+      });
 
       zkProof = { ...proof, addressSeed };
       isFresh = true;

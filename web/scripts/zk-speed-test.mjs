@@ -44,7 +44,26 @@ const ITERATIONS = 10;
 
 const NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "mainnet").toLowerCase();
 
+// CLI args: --prover-url=<https…> [--mode=mysten|shinami|gpu]
+// `--mode` is a label only — the wire format is identical to Mysten's. Use
+// `--mode=shinami` to drive the JSON-RPC envelope, otherwise we hit the
+// plain `/input`-style POST that Mysten + unconfirmedlabs GPU both speak.
+const CLI = (() => {
+  const args = process.argv.slice(2);
+  const out = { proverUrl: null, mode: null };
+  for (const a of args) {
+    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
+    if (!m) continue;
+    const [, k, v] = m;
+    if (k === "prover-url") out.proverUrl = (v ?? "").trim() || null;
+    if (k === "mode") out.mode = (v ?? "").trim() || null;
+  }
+  return out;
+})();
+
 const PROVER_URL = (() => {
+  const cli = CLI.proverUrl;
+  if (cli) return cli.replace(/\/+$/, "");
   const override = process.env.ZK_PROVER_URL?.trim();
   if (override) return override.replace(/\/+$/, "");
   return NETWORK === "testnet"
@@ -54,6 +73,11 @@ const PROVER_URL = (() => {
 
 const SHINAMI_KEY = process.env.SHINAMI_API_KEY?.trim();
 const SHINAMI_PROVER_URL = "https://api.us1.shinami.com/sui/zkprover/v1";
+
+// `--mode` overrides auto-detect: lets us benchmark Shinami specifically even
+// when ZK_PROVER_URL is set, or force GPU/Mysten flow when SHINAMI_API_KEY is
+// also present (Shinami would otherwise win the auto-detect).
+const MODE_OVERRIDE = CLI.mode; // null | "mysten" | "shinami" | "gpu"
 
 const TEST_JWT = process.env.ZK_TEST_JWT?.trim();
 // Salt must be a decimal-string BigInt. Use a deterministic stand-in unless
@@ -342,14 +366,23 @@ async function runIteration(ctx) {
 
 async function main() {
   const havePr = !!TEST_JWT;
-  const proverMode = !havePr ? "skip" : SHINAMI_KEY ? "shinami" : "mysten";
+  let proverMode;
+  if (!havePr) {
+    proverMode = "skip";
+  } else if (MODE_OVERRIDE) {
+    // `gpu` and `mysten` both speak the plain POST envelope.
+    proverMode = MODE_OVERRIDE === "shinami" ? "shinami" : "mysten";
+  } else {
+    proverMode = SHINAMI_KEY ? "shinami" : "mysten";
+  }
+  const proverLabel = MODE_OVERRIDE ?? proverMode;
 
   console.log("=".repeat(72));
   console.log("Talise zkLogin signing speed test");
   console.log("=".repeat(72));
   console.log(`network        : ${NETWORK}`);
   console.log(`iterations     : ${ITERATIONS}`);
-  console.log(`prover mode    : ${proverMode}`);
+  console.log(`prover mode    : ${proverLabel}${MODE_OVERRIDE ? "  (cli-forced)" : ""}`);
   if (proverMode === "mysten") console.log(`  prover URL   : ${PROVER_URL}`);
   if (proverMode === "shinami") console.log(`  prover URL   : ${SHINAMI_PROVER_URL}`);
   console.log(`sponsor URL    : ${SPONSOR_URL ?? "(not configured — end-to-end skipped)"}`);
