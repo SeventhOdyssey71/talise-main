@@ -64,6 +64,10 @@ struct VaultWithdrawSheet: View {
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
         .task { await load() }
+        // PIN host inside the sheet's own presentation context so the
+        // PIN sheet can surface above this sheet (iOS only allows one
+        // sheet per presenter; mounting here lets it nest).
+        .pinGateHost()
     }
 
     // MARK: - Header
