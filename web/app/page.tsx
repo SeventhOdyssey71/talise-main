@@ -72,7 +72,7 @@ function TopBar() {
     <header className="motion-topbar relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between px-6 py-5 md:px-12 lg:px-16">
       <Link
         href="/"
-        className="flex items-center gap-2 text-[15px] tracking-tight text-[var(--color-fg)]"
+        className="flex items-center gap-2.5 text-[17px] tracking-tight text-[var(--color-fg)]"
       >
         <Diamond />
         <span>talise</span>
@@ -82,7 +82,7 @@ function TopBar() {
           the only thing we want users to do. */}
       <Link
         href="#cta"
-        className="rounded-full bg-[var(--color-surface-2)] px-4 py-2 text-[13px] text-[var(--color-fg)] transition hover:bg-[var(--color-surface)]"
+        className="rounded-full bg-[var(--color-surface-2)] px-5 py-2.5 text-[14px] text-[var(--color-fg)] transition hover:bg-[var(--color-surface)]"
       >
         Sign in
       </Link>
@@ -94,9 +94,14 @@ function Hero({ err }: { err?: string }) {
   return (
     <section className="pt-12 pb-12 text-center md:pt-20 md:pb-16">
       {/* Centered headline. Italic accent on "For free." picks up
-          Instrument Serif from the layout fonts. */}
-      <h1 className="motion-headline mx-auto max-w-[1280px] text-[clamp(44px,7.5vw,88px)] font-medium leading-[1.02] tracking-[-0.025em] text-[var(--color-fg)]">
-        Send money across the globe.{" "}
+          Instrument Serif from the layout fonts. Forced break after
+          "the" so the layout is two lines: "Send money across the" /
+          "globe. For free." — keeps the accent inline with the noun
+          it modifies instead of orphaning on its own row. */}
+      <h1 className="motion-headline mx-auto max-w-[900px] text-[clamp(40px,6vw,72px)] font-medium leading-[1.05] tracking-[-0.025em] text-[var(--color-fg)]">
+        Send money across the
+        <br />
+        globe.{" "}
         <span
           className="text-[var(--color-accent)]"
           style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
@@ -105,9 +110,9 @@ function Hero({ err }: { err?: string }) {
         </span>
       </h1>
 
-      <p className="motion-subtitle mx-auto mt-6 max-w-[640px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
+      <p className="motion-subtitle mx-auto mt-6 max-w-[560px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
         Talise will move naira, shillings, cedis, and rand across borders for
-        a fraction of what Wise, Western Union, or Remitly charge — settled
+        a fraction of what Wise, Western Union, or Remitly charge, settled
         on Sui in under a second. We're in private beta. Join the waitlist.
       </p>
 
@@ -863,18 +868,20 @@ function PersonaStories() {
 function FinalCta() {
   return (
     <section className="motion-final mt-32 text-center">
-      <h2 className="mx-auto max-w-[1280px] text-[clamp(34px,5.5vw,60px)] font-medium leading-[1.05] tracking-[-0.02em]">
+      <h2 className="mx-auto max-w-[900px] text-[clamp(32px,4.5vw,52px)] font-medium leading-[1.05] tracking-[-0.02em]">
         Send. Save. Earn.{" "}
         <span
           className="text-[var(--color-accent)]"
           style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
         >
-          Always free.
+          Free to send.
         </span>
       </h2>
-      <p className="mx-auto mt-5 max-w-[540px] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
-        Talise covers the network fee on every transfer. No first-transfer
-        gimmick. No fine print. Free, every single time.
+      <p className="mx-auto mt-5 max-w-[560px] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
+        Talise covers the network fee on every transfer between Talise
+        handles. No first-transfer gimmick. We make money on a small spread
+        when coins auto-swap to USDsui and when balances cash out to local
+        currency, the same way Wise and Revolut do, only smaller.
       </p>
       <div className="mx-auto mt-9 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
         {/* Talise is in private beta — every Get started/Sign up CTA
@@ -888,6 +895,17 @@ function FinalCta() {
         </Link>
         <AppStoreButton />
       </div>
+      <p className="mx-auto mt-6 max-w-[520px] text-[12px] leading-[1.55] text-[var(--color-fg-muted)]/70">
+        Want the full picture?{" "}
+        <Link
+          href="/litepaper"
+          className="underline decoration-[var(--color-fg-muted)]/40 underline-offset-[3px] hover:decoration-[var(--color-fg)]"
+        >
+          Read the litepaper
+        </Link>
+        . We document the FX spread, the yield rebate, and how Talise stays
+        solvent on a free-transfer product.
+      </p>
     </section>
   );
 }
@@ -1094,15 +1112,20 @@ function PersonaCard({
 // ───────────────────────────────────────────────────────────────────
 // Glyphs
 
+/**
+ * Brand mark — the actual Talise symbol from `public/symbol.svg`.
+ * Path data is inlined here so we can fill it with the live
+ * `--color-accent` CSS var (the source SVG ships with `fill="black"`,
+ * which would render invisible on the dark page bg). The viewBox /
+ * sizing is preserved so the visual scale matches the original asset.
+ */
 function Diamond() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
+    <svg width="24" height="22" viewBox="0 0 583 533" aria-hidden>
       <path
-        d="M12 2 22 12 12 22 2 12z"
+        d="M375.231 85.2803C375.232 120.604 403.867 149.24 439.191 149.24H582.036V195.141C582.036 275.133 517.696 340.098 437.943 341.108L435.271 341.125C402.04 341.546 375.232 368.614 375.231 401.944V533H345.384C260.606 533 191.88 464.274 191.88 379.496V341.12H0V303.18C8.18875e-05 219.067 67.6907 150.62 151.798 149.686L191.875 149.24V341.119H427.871C396.135 332.728 367.039 316.441 343.293 293.774L191.876 149.24H191.88V63.96C191.88 28.6358 220.516 0 255.84 0H375.231V85.2803Z"
         fill="var(--color-accent)"
-        opacity="0.95"
       />
-      <path d="M12 2 22 12 12 22 2 12z" stroke="var(--color-bg)" strokeWidth="0.8" fill="none" />
     </svg>
   );
 }
