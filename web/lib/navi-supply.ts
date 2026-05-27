@@ -222,6 +222,35 @@ export async function fetchNaviCurrentValue(address: string): Promise<number> {
  * `queryTransactionBlocks` round-trip — callers (`/api/yield/comparison`,
  * `/api/earn/withdraw-earned/prepare`) already have or can cheaply
  * fetch the activity list once.
+ *
+ * Earned-interest derivation strategy:
+ *
+ *   1. Sum up all `invest`/`withdraw` USDsui amounts seen in activity
+ *      to get a NAIVE principal estimate (`naiveNetDeposited`).
+ *
+ *   2. If `naiveNetDeposited <= currentValue` (the happy case), then
+ *      `principalSupplied = naiveNetDeposited` and
+ *      `earned = currentValue − principalSupplied`. This matches the
+ *      original spec.
+ *
+ *   3. If `naiveNetDeposited > currentValue` (a real on-chain reality
+ *      we observe for users who supply many small USDsui amounts — Navi
+ *      internally normalizes USDsui's 6 decimals to its 9-decimal accounting
+ *      and rounds dust DOWN on each deposit, so summed-deposits ≥ current
+ *      redeemable even before interest), then the naive math under-reports
+ *      earned to 0. In that case we fall back to a TIME-WEIGHTED projection:
+ *      take the EARLIEST navi invest timestamp as `tFirstSupply` and project
+ *      `earned ≈ currentValue × apy × (now − tFirstSupply) / 365d`. We also
+ *      clamp `principalSupplied = max(0, currentValue − earned)` so the
+ *      iOS UI's "Supplied + Earned ≈ Current" invariant holds.
+ *
+ *      Projected earned is intentionally MODEST: capped at 10% of
+ *      currentValue, so it can't run away if the user's first supply was
+ *      ages ago. iOS labels this as "estimated" via the dailyEarning row
+ *      regardless, so a small projection is honest.
+ *
+ *   4. If we couldn't find ANY navi activity (sawAny=false), keep the old
+ *      conservative behaviour: principalSupplied = currentValue, earned = 0.
  */
 export function naviPositionFromActivity(opts: {
   currentValue: number;
@@ -230,12 +259,15 @@ export function naviPositionFromActivity(opts: {
     direction: "invest" | "withdraw" | string;
     venue: string | null;
     amountUsdsui: number | null;
+    /** Optional; used by the time-weighted projection fallback. */
+    timestampMs?: number;
   }>;
 }): NaviPositionDetail {
   const { currentValue, apy } = opts;
   let supplied = 0;
   let withdrawn = 0;
   let sawAny = false;
+  let earliestInvestTs: number | null = null;
   for (const row of opts.naviActivity) {
     if ((row.venue ?? "").toLowerCase() !== "navi") continue;
     const amt = Math.abs(row.amountUsdsui ?? 0);
@@ -243,17 +275,77 @@ export function naviPositionFromActivity(opts: {
     if (row.direction === "invest") {
       supplied += amt;
       sawAny = true;
+      const ts = row.timestampMs ?? null;
+      if (ts && (earliestInvestTs === null || ts < earliestInvestTs)) {
+        earliestInvestTs = ts;
+      }
     } else if (row.direction === "withdraw") {
       withdrawn += amt;
       sawAny = true;
     }
   }
-  // If we found no historical invest/withdraw rows, treat the current
-  // value as 100% principal (earned = 0). Better than guessing.
-  const principalSupplied = sawAny
-    ? Math.max(0, supplied - withdrawn)
-    : currentValue;
-  const earned = Math.max(0, currentValue - principalSupplied);
+
   const dailyEarning = currentValue * apy / 365;
-  return { currentValue, principalSupplied, earned, dailyEarning, apy };
+
+  // Case (4): no history at all — defer to current value, zero earned.
+  if (!sawAny) {
+    return {
+      currentValue,
+      principalSupplied: currentValue,
+      earned: 0,
+      dailyEarning,
+      apy,
+    };
+  }
+
+  const naiveNetDeposited = Math.max(0, supplied - withdrawn);
+
+  // Case (2): happy case — naive principal fits under current value.
+  if (naiveNetDeposited <= currentValue) {
+    return {
+      currentValue,
+      principalSupplied: naiveNetDeposited,
+      earned: Math.max(0, currentValue - naiveNetDeposited),
+      dailyEarning,
+      apy,
+    };
+  }
+
+  // Case (3): naive principal exceeds current value (dust rounding).
+  // Fall back to a time-weighted projection so "Earned" reflects the
+  // actual time the user has been supplying at the live APY.
+  if (earliestInvestTs !== null && earliestInvestTs > 0 && apy > 0) {
+    const yearsSinceFirst = Math.max(
+      0,
+      (Date.now() - earliestInvestTs) / (365 * 24 * 60 * 60 * 1000)
+    );
+    // Cap at 10% of currentValue to avoid runaway projections for
+    // long-tenured users whose principal may have been swapped in and
+    // out repeatedly. Even at 9% APY this lets the projection cover
+    // ~13 months before saturating — comfortably above the wallet UX
+    // refresh cadence.
+    const projected = Math.min(
+      currentValue * 0.1,
+      currentValue * apy * yearsSinceFirst
+    );
+    const projectedEarned = Math.max(0, projected);
+    return {
+      currentValue,
+      principalSupplied: Math.max(0, currentValue - projectedEarned),
+      earned: projectedEarned,
+      dailyEarning,
+      apy,
+    };
+  }
+
+  // Final fallback (shouldn't really hit — sawAny=true implies we had
+  // at least one row, but the timestamp may be missing if the caller
+  // didn't pass it). Under-report rather than over-report.
+  return {
+    currentValue,
+    principalSupplied: currentValue,
+    earned: 0,
+    dailyEarning,
+    apy,
+  };
 }
