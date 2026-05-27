@@ -353,9 +353,7 @@ struct EarnView: View {
         }
         // Render the button caption in the user's display currency
         // (₦12,000 not "$12000") so the action matches the input pill.
-        // Suffix the biometry hint so users know what tap does next.
-        let bio = BiometricGate.biometryDisplayName()
-        return "Supply \(TaliseFormat.local2(amountUsd)) to \(best.displayName)  ·  \(bio)"
+        return "Supply \(TaliseFormat.local2(amountUsd)) to \(best.displayName)  ·  PIN"
     }
 
     private func successBanner(_ digest: String) -> some View {
@@ -431,7 +429,7 @@ struct EarnView: View {
                 )
                 let symbol = CurrencySettings.shared.current.symbol
                 let amountForPrompt = String(format: "$%.2f", usd)
-                try await BiometricGate.shared.requireUserPresence(
+                try await PinGate.shared.requireUserPresence(
                     reason: "Supply to Earn \(amountForPrompt) at \(displayVenueName(venue))"
                 )
                 let result = try await ZkLoginCoordinator.shared.signAndSubmit(
@@ -458,13 +456,14 @@ struct EarnView: View {
                 amount = ""
                 Task { await load() }
                 return
-            } catch BiometricGate.BiometricGateError.cancelled {
+            } catch PinError.cancelled {
                 // Silent: user dismissed the prompt. Leave the form
                 // intact so they can retry without re-typing.
                 self.error = nil
                 return
-            } catch BiometricGate.BiometricGateError.notAvailable {
-                self.error = "Set up Face ID or a device passcode to supply to Earn."
+            } catch PinError.forgotSignOut {
+                // PinService already cleared this user's hash.
+                self.error = "Sign in again to set a new PIN."
                 return
             } catch {
                 self.error = error.localizedDescription
@@ -695,11 +694,10 @@ private struct WithdrawSheet: View {
 
     private var actionBar: some View {
         VStack(spacing: 10) {
-            let bio = BiometricGate.biometryDisplayName()
             LiquidGlassButton(
                 title: withdrawing
                     ? "Working…"
-                    : "Withdraw \(partial.isEmpty ? "" : "\(CurrencySettings.shared.current.symbol)\(partial)")  ·  \(bio)",
+                    : "Withdraw \(partial.isEmpty ? "" : "\(CurrencySettings.shared.current.symbol)\(partial)")  ·  PIN",
                 tint: TaliseColor.accent,
                 size: .lg,
                 loading: withdrawing
@@ -789,7 +787,7 @@ private struct WithdrawSheet: View {
             let reasonAmount: String = all
                 ? String(format: "$%.2f", venue.supplied ?? 0)
                 : String(format: "$%.2f", amtUsd ?? 0)
-            try await BiometricGate.shared.requireUserPresence(
+            try await PinGate.shared.requireUserPresence(
                 reason: "Withdraw \(reasonAmount) from \(venue.displayName)"
             )
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
@@ -825,10 +823,10 @@ private struct WithdrawSheet: View {
             // Give the user a beat to see the success state, then close.
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             dismiss()
-        } catch BiometricGate.BiometricGateError.cancelled {
+        } catch PinError.cancelled {
             self.error = nil
-        } catch BiometricGate.BiometricGateError.notAvailable {
-            self.error = "Set up Face ID or a device passcode to withdraw."
+        } catch PinError.forgotSignOut {
+            self.error = "Sign in again to set a new PIN."
         } catch {
             self.error = error.localizedDescription
         }

@@ -421,8 +421,19 @@ final class ZkLoginCoordinator {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization")
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let payload = try JSONSerialization.data(withJSONObject: body)
+        req.httpBody = payload
         req.timeoutInterval = 30
+        // Mirror APIClient: attach App Attest assertion + keyId hashed over
+        // the exact JSON payload. The web side (/api/zk/sponsor-execute,
+        // /api/zk/sponsor) rejects calls missing these headers.
+        let payloadHash = Data(SHA256.hash(data: payload))
+        if let assertion = await AppAttestService.shared.assertion(forRequestHash: payloadHash) {
+            req.setValue(assertion, forHTTPHeaderField: "X-App-Attest")
+        }
+        if let keyId = AppAttestService.shared.keyId {
+            req.setValue(keyId, forHTTPHeaderField: "X-App-Attest-KeyId")
+        }
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else {
             throw CoordinatorError.sponsorFailed("no response")
