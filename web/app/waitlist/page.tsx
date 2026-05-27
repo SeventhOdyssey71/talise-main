@@ -68,9 +68,8 @@ export default function WaitlistPage() {
 
         <p className="mt-5 max-w-[480px] text-[17px] leading-[1.55] text-white/65">
           Talise turns <span className="text-white">@yourname</span> into a Sui
-          address that auto-converts every inbound coin to USDsui. Send money
-          home in seconds, hold dollars on your phone, earn yield on idle
-          balance — no wires, no swift codes, no three-day waits.
+          address that auto-converts every inbound coin to USDsui. Hold dollars,
+          send home in seconds, earn on idle balance.
         </p>
 
         <div className="mt-9 w-full max-w-[460px]">
@@ -81,15 +80,15 @@ export default function WaitlistPage() {
         <div className="mt-12 grid w-full max-w-[560px] grid-cols-1 gap-3 sm:grid-cols-3">
           <ReassuranceTile
             title="Early access"
-            body="Invites go out in small batches. Waitlist members go through first."
+            body="Invites go out in small batches."
           />
           <ReassuranceTile
             title="No spam"
-            body="One email when it's your turn. Nothing in between."
+            body="One email when it's your turn."
           />
           <ReassuranceTile
             title="Easy out"
-            body="Unsubscribe any time. We won't take it personally."
+            body="Unsubscribe any time."
           />
         </div>
 

@@ -95,7 +95,7 @@ function Hero({ err }: { err?: string }) {
     <section className="pt-12 pb-12 text-center md:pt-20 md:pb-16">
       {/* Centered headline. Italic accent on "For free." picks up
           Instrument Serif from the layout fonts. */}
-      <h1 className="motion-headline mx-auto max-w-[1100px] text-[clamp(44px,7.5vw,88px)] font-medium leading-[1.02] tracking-[-0.025em] text-[var(--color-fg)]">
+      <h1 className="motion-headline mx-auto max-w-[1280px] text-[clamp(44px,7.5vw,88px)] font-medium leading-[1.02] tracking-[-0.025em] text-[var(--color-fg)]">
         Send money across the globe.{" "}
         <span
           className="text-[var(--color-accent)]"
@@ -863,7 +863,7 @@ function PersonaStories() {
 function FinalCta() {
   return (
     <section className="motion-final mt-32 text-center">
-      <h2 className="mx-auto max-w-[760px] text-[clamp(34px,5.5vw,60px)] font-medium leading-[1.05] tracking-[-0.02em]">
+      <h2 className="mx-auto max-w-[1280px] text-[clamp(34px,5.5vw,60px)] font-medium leading-[1.05] tracking-[-0.02em]">
         Send. Save. Earn.{" "}
         <span
           className="text-[var(--color-accent)]"

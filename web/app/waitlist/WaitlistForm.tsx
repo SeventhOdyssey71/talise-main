@@ -61,13 +61,32 @@ export function WaitlistForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="flex flex-col gap-2"
+      className="waitlist-form flex flex-col gap-2"
       // Properly identify the form to the browser's autofill — without
       // this, Chrome reaches for any email it has on file and the
       // suggestion popup overlays the page chrome.
       autoComplete="on"
       noValidate
     >
+      {/* Scoped autofill override. Chrome paints `:-webkit-autofill`
+          inputs with a yellow background that ignores the parent's
+          rounded pill — visually bleeding past the container corners.
+          The canonical fix: cancel the bg via a huge transition delay
+          + a transparent inset box-shadow, and force the fill color
+          to white so the text stays legible. Scoped via the
+          `.waitlist-form` class so it only affects this form. */}
+      <style>{`
+        .waitlist-form input:-webkit-autofill,
+        .waitlist-form input:-webkit-autofill:hover,
+        .waitlist-form input:-webkit-autofill:focus,
+        .waitlist-form input:-webkit-autofill:active {
+          -webkit-text-fill-color: #ffffff;
+          -webkit-box-shadow: 0 0 0 1000px transparent inset;
+          transition: background-color 9999s ease-in-out 0s;
+          caret-color: #ffffff;
+          background-clip: content-box !important;
+        }
+      `}</style>
       <label htmlFor="waitlist-email" className="sr-only">
         Email address
       </label>
