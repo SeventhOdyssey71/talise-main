@@ -8,6 +8,7 @@ import { db, userById } from "@/lib/db";
 import { assembleZkLoginSignature, readSigningCookie } from "@/lib/zksigner";
 import { onara } from "@/lib/onara";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
+import { requireAppAttestStructural } from "@/lib/app-attest";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,11 @@ export const runtime = "nodejs";
  * We never see the sponsor private key from the web tier.
  */
 export async function POST(req: Request) {
+  // P1-5: mobile traffic must carry an App Attest assertion on
+  // money-moving routes. Web cookie sessions fall through.
+  const attestBlock = requireAppAttestStructural(req);
+  if (attestBlock) return attestBlock;
+
   const onaraUrl = process.env.ONARA_URL;
   if (!onaraUrl) {
     return NextResponse.json(

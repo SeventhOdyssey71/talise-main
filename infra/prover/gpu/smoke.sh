@@ -14,8 +14,8 @@
 #   4. Round-trip is < 5s (cold path is acceptable up to 8s; warmup recommended)
 #
 # Usage:
-#   bash scripts/zk-prover-smoke.sh https://zk-prover.talise.io
-#   bash scripts/zk-prover-smoke.sh https://zk-prover.talise.io --warmup
+#   bash infra/prover/gpu/smoke.sh https://zk-prover.talise.io
+#   bash infra/prover/gpu/smoke.sh https://zk-prover.talise.io --warmup
 #
 # Exit 0 = wire-compatible, safe to flip ZK_PROVER_PRIMARY=gpu.
 # Exit 1 = mismatch (read the diagnostic, do not flip the toggle).
@@ -52,6 +52,39 @@ fi
 green "  /healthz -> 200"
 cat /tmp/zkprover_health.json 2>/dev/null && echo
 
+# ---- 1b. Auth gate on /input ------------------------------------------------
+# P1-6: /input must require Bearer auth. Sending without the header
+# should 401; sending with the configured token should 200.
+if [[ -n "${ZK_PROVER_AUTH_TOKEN:-}" ]]; then
+  bold "[1b/3] Auth gate on ${URL}/input"
+  UNAUTH=$(curl -s -o /dev/null -w '%{http_code}' \
+    -X POST "${URL}/input" \
+    -H 'content-type: application/json' \
+    --data '{}' --max-time 10 || true)
+  if [[ "$UNAUTH" != "401" && "$UNAUTH" != "403" ]]; then
+    red "FAIL: unauthenticated POST /input returned HTTP $UNAUTH (expected 401/403)"
+    exit 1
+  fi
+  green "  unauthenticated POST /input -> ${UNAUTH}"
+
+  AUTH=$(curl -s -o /dev/null -w '%{http_code}' \
+    -X POST "${URL}/input" \
+    -H "Authorization: Bearer ${ZK_PROVER_AUTH_TOKEN}" \
+    -H 'content-type: application/json' \
+    --data '{}' --max-time 10 || true)
+  # The prover itself may 400 on the bogus body, but Caddy must
+  # let the request through (not 401/403). Any non-auth response
+  # proves the bearer was accepted.
+  if [[ "$AUTH" == "401" || "$AUTH" == "403" ]]; then
+    red "FAIL: authenticated POST /input still returned $AUTH"
+    red "  Check that ZK_PROVER_AUTH_TOKEN on this host matches the deploy value."
+    exit 1
+  fi
+  green "  authenticated POST /input -> ${AUTH} (auth header accepted)"
+else
+  yel "[1b/3] Skipped auth gate check (set ZK_PROVER_AUTH_TOKEN to enable)."
+fi
+
 # ---- 2. POST /input with synthetic input -----------------------------------
 # The unconfirmedlabs prover accepts the *exact* 42-field Sui zkLogin circuit
 # input. The Mysten reference test payload lives in their sample-extension
@@ -60,7 +93,7 @@ cat /tmp/zkprover_health.json 2>/dev/null && echo
 # response code as the wire check.
 #
 # Once you have a real captured payload, pipe it through:
-#   bash scripts/zk-prover-smoke.sh URL  < real-input.json
+#   bash infra/prover/gpu/smoke.sh URL  < real-input.json
 
 if [[ -t 0 ]]; then
   # No piped input → use /warmup with a minimal sentinel.
@@ -68,8 +101,13 @@ if [[ -t 0 ]]; then
   START_MS=$(date +%s%3N 2>/dev/null || python3 -c 'import time;print(int(time.time()*1000))')
   # Warmup with an empty body — the prover's warmup endpoint loads the zkey
   # into GPU memory; it does not need a real input.
+  AUTH_HDR=()
+  if [[ -n "${ZK_PROVER_AUTH_TOKEN:-}" ]]; then
+    AUTH_HDR=(-H "Authorization: Bearer ${ZK_PROVER_AUTH_TOKEN}")
+  fi
   HTTP_CODE=$(curl -fsS -o /tmp/zkprover_warmup.json -w '%{http_code}' \
     -X POST "${URL}/warmup" \
+    "${AUTH_HDR[@]}" \
     -H 'content-type: application/json' \
     --data '{}' \
     --max-time 60 || true)
@@ -100,9 +138,14 @@ fi
 INPUT=$(cat)
 bold "[2/3] POST ${URL}/input  ($(echo -n "$INPUT" | wc -c | tr -d ' ') bytes)"
 START_MS=$(date +%s%3N 2>/dev/null || python3 -c 'import time;print(int(time.time()*1000))')
+AUTH_HDR=()
+if [[ -n "${ZK_PROVER_AUTH_TOKEN:-}" ]]; then
+  AUTH_HDR=(-H "Authorization: Bearer ${ZK_PROVER_AUTH_TOKEN}")
+fi
 HTTP_CODE=$(curl -fsS -o /tmp/zkprover_proof.json -w '%{http_code}' \
   -D /tmp/zkprover_proof.headers \
   -X POST "${URL}/input" \
+  "${AUTH_HDR[@]}" \
   -H 'content-type: application/json' \
   --data-binary @- \
   --max-time 30 <<<"$INPUT" || true)

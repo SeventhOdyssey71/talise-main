@@ -17,7 +17,7 @@ import receiveAndDepositApp from './receiveAndDeposit'
 import receiveFromAccumulatorApp from './receiveFromAccumulator'
 import receiveFromAccumulatorToOwnerApp from './receiveFromAccumulatorToOwner'
 import walletSweepApp from './walletSweep'
-import sponsorPoliciesConfig from '../policies'
+import sponsorPoliciesConfig, { resolveSponsorPolicies } from '../policies'
 
 interface AnalyticsEngineDataset {
   writeDataPoint(event: {
@@ -31,6 +31,11 @@ type Bindings = {
   SUI_GRPC_URL: string
   SUI_NETWORK: string
   SUI_MNEMONIC: string
+  // Canonical Talise Move package id. Used to compile the sponsor
+  // policy `targets` at request time so the sponsor only signs for
+  // our own modules (send/vault/auto_swap/receipt). Unset = sponsor
+  // refuses every Talise tx (safer than falling back to wildcard).
+  TALISE_PACKAGE_ID?: string
   DRY_RUN_ONLY?: string
   EXECUTION_TIMEOUT_MS?: string
   CONFIRMATION_TIMEOUT_MS?: string
@@ -115,7 +120,22 @@ const sponsorPayloadSchema = z.object({
   txSignature: base64Field,
 })
 
-const SPONSORED_POLICIES = loadPolicies(sponsorPoliciesConfig)
+// Per-binding cache so we don't re-compile policies on every request.
+// Keyed by the resolved package id (empty string = no Talise package).
+const _policiesCache = new Map<string, ReturnType<typeof loadPolicies>>()
+
+function getSponsorPolicies(bindings: Bindings) {
+  const key = (bindings.TALISE_PACKAGE_ID ?? '').trim()
+  const cached = _policiesCache.get(key)
+  if (cached) return cached
+  const raw = resolveSponsorPolicies(key)
+  if (raw.length === 0) {
+    throw new Error('TALISE_PACKAGE_ID binding is unset; sponsor refuses to sign without a canonical Move package id.')
+  }
+  const compiled = loadPolicies(raw)
+  _policiesCache.set(key, compiled)
+  return compiled
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -247,9 +267,20 @@ app.post('/sponsor', async (c) => {
   const sponsorAddress = getSponsorAddress(bindings.SUI_MNEMONIC)
   endTime(c, 'init')
 
+  // Compile policies bound to the canonical Talise package id from
+  // request bindings. Throws if the env var is unset (we refuse to
+  // sign without a canonical package id).
+  let sponsorPolicies: ReturnType<typeof loadPolicies>
+  try {
+    sponsorPolicies = getSponsorPolicies(bindings)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Policy resolution failed.'
+    return c.json({ error: message }, 500)
+  }
+
   // Resolve SuiNS name only when a policy requires it
   startTime(c, 'suins', 'SuiNS resolution')
-  const senderName = SPONSORED_POLICIES.needsSuinsResolution
+  const senderName = sponsorPolicies.needsSuinsResolution
     ? (await pRetry(
         () => grpcClient.core.defaultNameServiceName({ address: parsed.data.sender }),
         { retries: 1 },
@@ -265,7 +296,7 @@ app.post('/sponsor', async (c) => {
       txBytesBase64: parsed.data.txBytes,
       expectedSender: parsed.data.sender,
       expectedSponsor: sponsorAddress,
-      policies: SPONSORED_POLICIES,
+      policies: sponsorPolicies,
       senderName,
     })
     calledTargets = validation.calledTargets
@@ -433,9 +464,19 @@ app.get(
         const keypair = getKeyPair(bindings.SUI_MNEMONIC)
         const sponsorAddress = getSponsorAddress(bindings.SUI_MNEMONIC)
 
+        // Compile policies bound to the request's package id.
+        let sponsorPolicies: ReturnType<typeof loadPolicies>
+        try {
+          sponsorPolicies = getSponsorPolicies(bindings)
+        } catch (error) {
+          send({ status: 'error', error: error instanceof Error ? error.message : 'Policy resolution failed.' })
+          ws.close(1011)
+          return
+        }
+
         // SuiNS resolution
         let senderName: string | null = null
-        if (SPONSORED_POLICIES.needsSuinsResolution) {
+        if (sponsorPolicies.needsSuinsResolution) {
           try {
             senderName = (await pRetry(
               () => grpcClient.core.defaultNameServiceName({ address: parsed.data.sender }),
@@ -456,7 +497,7 @@ app.get(
             txBytesBase64: parsed.data.txBytes,
             expectedSender: parsed.data.sender,
             expectedSponsor: sponsorAddress,
-            policies: SPONSORED_POLICIES,
+            policies: sponsorPolicies,
             senderName,
           })
           matchedPolicyName = validation.matchedPolicyName

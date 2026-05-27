@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
+import { requireAppAttestStructural } from "@/lib/app-attest";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,10 @@ export const runtime = "nodejs";
  * Docs: https://docs.stripe.com/crypto/onramp
  */
 export async function POST(req: Request) {
+  // P1-5: mobile traffic must carry an App Attest assertion.
+  const attestBlock = requireAppAttestStructural(req);
+  if (attestBlock) return attestBlock;
+
   const userId = await readEntryIdFromRequest(req);
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });

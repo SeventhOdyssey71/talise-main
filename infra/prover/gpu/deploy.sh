@@ -7,11 +7,11 @@
 # Vercel's ZK_PROVER_GPU_URL env var.
 #
 # Usage:
-#   bash scripts/deploy-gpu-prover.sh                          # default: runpod
-#   bash scripts/deploy-gpu-prover.sh --target=runpod
-#   bash scripts/deploy-gpu-prover.sh --target=lambda-labs
-#   bash scripts/deploy-gpu-prover.sh --target=aws
-#   bash scripts/deploy-gpu-prover.sh --target=fly
+#   bash infra/prover/gpu/deploy.sh                          # default: runpod
+#   bash infra/prover/gpu/deploy.sh --target=runpod
+#   bash infra/prover/gpu/deploy.sh --target=lambda-labs
+#   bash infra/prover/gpu/deploy.sh --target=aws
+#   bash infra/prover/gpu/deploy.sh --target=fly
 #
 # Required env vars per provider:
 #   runpod      RUNPOD_API_KEY
@@ -97,6 +97,7 @@ ADMIN_EMAIL="__ADMIN_EMAIL__"
 IMAGE="__IMAGE__"
 GHCR_USERNAME="__GHCR_USERNAME__"
 GHCR_TOKEN="__GHCR_TOKEN__"
+ZK_PROVER_AUTH_TOKEN="__ZK_PROVER_AUTH_TOKEN__"
 
 ZKEY_URL="https://github.com/sui-foundation/zklogin-ceremony-contributions.git"
 ZKEY_FILE="zkLogin-main.zkey"
@@ -211,6 +212,18 @@ cat > /etc/caddy/Caddyfile <<CADDY
 }
 
 ${DOMAIN} {
+    # P1-6: /input and /warmup require Bearer token auth so
+    # arbitrary internet callers can't burn GPU cycles on us.
+    # /healthz stays open for uptime checks.
+    @needs_auth path /input /warmup
+    @bad_auth {
+        path /input /warmup
+        not header Authorization "Bearer ${ZK_PROVER_AUTH_TOKEN}"
+    }
+    respond @bad_auth "unauthorized" 401 {
+        close
+    }
+
     reverse_proxy 127.0.0.1:8080 {
         header_up Host {host}
         transport http {
@@ -251,13 +264,25 @@ echo "  curl -fsS https://${DOMAIN}/healthz"
 BOOTSTRAP_EOF
 
 # Substitute placeholders before sending to a remote host.
+# ZK_PROVER_AUTH_TOKEN must be set in the deploy environment so the
+# Caddy sidecar gates /input and /warmup behind Bearer auth. The
+# same token must also be set on the Vercel side (`ZK_PROVER_AUTH_TOKEN`)
+# so `callProver` in web/lib/zksigner.ts attaches it on outbound calls.
+if [[ -z "${ZK_PROVER_AUTH_TOKEN:-}" ]]; then
+  red "ZK_PROVER_AUTH_TOKEN is required. Generate one with:"
+  red "  openssl rand -hex 32"
+  red "then export it and set the same value on Vercel."
+  exit 1
+fi
+
 render_bootstrap() {
   printf '%s' "$BOOTSTRAP_SCRIPT" \
     | sed -e "s|__DOMAIN__|${DOMAIN}|g" \
           -e "s|__ADMIN_EMAIL__|${ADMIN_EMAIL}|g" \
           -e "s|__IMAGE__|${IMAGE}|g" \
           -e "s|__GHCR_USERNAME__|${GHCR_USERNAME}|g" \
-          -e "s|__GHCR_TOKEN__|${GHCR_TOKEN:-__GHCR_TOKEN__}|g"
+          -e "s|__GHCR_TOKEN__|${GHCR_TOKEN:-__GHCR_TOKEN__}|g" \
+          -e "s|__ZK_PROVER_AUTH_TOKEN__|${ZK_PROVER_AUTH_TOKEN}|g"
 }
 
 # ---- per-provider provisioning ---------------------------------------------
@@ -343,7 +368,7 @@ EOJSON
   echo "(Caddy will fetch a Let's Encrypt cert on first HTTPS request to ${DOMAIN}.)"
   echo
   echo "Once DNS propagates:"
-  echo "  bash scripts/zk-prover-smoke.sh https://${DOMAIN}"
+  echo "  bash infra/prover/gpu/smoke.sh https://${DOMAIN}"
   echo
   echo "Then on Vercel:"
   echo "  vercel env add ZK_PROVER_GPU_URL production"
@@ -418,7 +443,7 @@ EOM
 
   green "DONE."
   echo "Point DNS A record:  ${DOMAIN}  ->  ${IP}"
-  echo "Then:  bash scripts/zk-prover-smoke.sh https://${DOMAIN}"
+  echo "Then:  bash infra/prover/gpu/smoke.sh https://${DOMAIN}"
 }
 
 deploy_aws() {
@@ -428,13 +453,21 @@ deploy_aws() {
     exit 1
   fi
   if ! aws sts get-caller-identity >/dev/null 2>&1; then
-    red "AWS creds not configured. Run: aws configure"
+    red "AWS creds not configured."
     cat <<'EOM'
 
-Or export:
-  export AWS_ACCESS_KEY_ID=...
-  export AWS_SECRET_ACCESS_KEY=...
-  export AWS_DEFAULT_REGION=us-east-1
+Get creds:
+  1. Sign up / sign in: https://console.aws.amazon.com/
+  2. IAM -> Users -> Your user -> Security credentials -> Create access key
+     (pick "Command Line Interface").
+  3. Either run `aws configure` and paste them, or export:
+       export AWS_ACCESS_KEY_ID=...
+       export AWS_SECRET_ACCESS_KEY=...
+       export AWS_DEFAULT_REGION=us-east-1
+  4. You also need an EC2 key pair in your region:
+       aws ec2 create-key-pair --key-name talise-zklogin --query KeyMaterial --output text > ~/.ssh/talise-zklogin.pem
+       chmod 600 ~/.ssh/talise-zklogin.pem
+       export AWS_KEYPAIR_NAME=talise-zklogin
 
 Recommended sku: g6.xlarge (1x L4, 24GB) on-demand $0.8048/hr.
                  Switch to 1yr reserved (~36% saving) after 30-day burn-in.
@@ -493,7 +526,7 @@ Watch progress:
   ssh ubuntu@${IP} 'sudo tail -f /var/log/cloud-init-output.log'
 
 Point DNS:  ${DOMAIN}  ->  ${IP}
-Then:  bash scripts/zk-prover-smoke.sh https://${DOMAIN}
+Then:  bash infra/prover/gpu/smoke.sh https://${DOMAIN}
 EOF
 }
 

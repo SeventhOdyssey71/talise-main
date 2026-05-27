@@ -22,6 +22,8 @@ npx tsc --noEmit
 bun run deploy
 ```
 
+> **Rotating the sponsor mnemonic?** See [`SECRETS-ROTATION.md`](./SECRETS-ROTATION.md) for the full runbook.
+
 ### Environment variables
 
 | Variable | Description |
@@ -29,6 +31,7 @@ bun run deploy
 | `SUI_NETWORK` | Network identifier (e.g. `testnet`, `mainnet`) |
 | `SUI_GRPC_URL` | Sui gRPC endpoint URL |
 | `SUI_MNEMONIC` | BIP-39 mnemonic for the sponsor keypair |
+| `TALISE_PACKAGE_ID` | Canonical Talise Move package id. Required: sponsor refuses to sign when unset. |
 | `DRY_RUN_ONLY` | When set, `/sponsor` always returns dry-run results |
 | `EXECUTION_TIMEOUT_MS` | Max execution time in ms (default: `30000`) |
 

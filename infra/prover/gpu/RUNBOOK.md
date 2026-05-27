@@ -1,7 +1,7 @@
 # zkLogin GPU Prover — Production Runbook
 
-_Companion to `ZKLOGIN-PROVER-COMPARISON.md` (technical analysis) and
-`ZKLOGIN-PROVER-INTEGRATION-PLAN.md` (rollout plan). This doc is **operations**
+_Companion to `docs/security/ZKLOGIN-PROVER-COMPARISON.md` (technical analysis) and
+`docs/security/ZKLOGIN-PROVER-INTEGRATION-PLAN.md` (rollout plan). This doc is **operations**
 — how to actually stand up the unconfirmedlabs GPU prover for Talise._
 
 **Why GPU at all?** Talise's Google OAuth audience is **not whitelisted** on

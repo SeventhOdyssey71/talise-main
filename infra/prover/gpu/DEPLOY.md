@@ -53,7 +53,7 @@ under 10 minutes, and they don't require enterprise approval for GPU SKUs.
 ## 3. Run the deploy script
 
 ```bash
-bash scripts/deploy-gpu-prover.sh --target=runpod
+bash infra/prover/gpu/deploy.sh --target=runpod
 # or --target=lambda-labs / --target=aws
 ```
 
@@ -101,7 +101,7 @@ fetching the cert — wait another minute.
 ## 5. Smoke-test the wire format
 
 ```bash
-bash scripts/zk-prover-smoke.sh https://zk-prover.talise.io
+bash infra/prover/gpu/smoke.sh https://zk-prover.talise.io
 ```
 
 Validates:
@@ -168,7 +168,7 @@ GPU 5xx/timeout.
      then `docker build -f Dockerfile.talise -t ghcr.io/seventhodyssey71/sui-zklogin-gpu-prover:v1 .`
      using the Dockerfile.talise wrapper in this repo. Then `gh auth token | docker login ghcr.io --password-stdin` and push.
    - **(b) Skip the wrapper** for the first deploy: edit
-     `scripts/deploy-gpu-prover.sh` and set `IMAGE=sui-zklogin-icicle-cuda:upstream`
+     `infra/prover/gpu/deploy.sh` and set `IMAGE=sui-zklogin-icicle-cuda:upstream`
      after building the upstream image locally on the GPU box. You lose the
      tini PID-1 wrapper and the Docker HEALTHCHECK, but it works.
 
@@ -213,4 +213,4 @@ doesn't slam a fallback path.
 - Upstream prover repo: https://github.com/unconfirmedlabs/sui-zklogin-gpu-prover
 - zkLogin ceremony zkey source: https://github.com/sui-foundation/zklogin-ceremony-contributions
 - Talise rollout/canary code: `web/lib/zksigner.ts::callProverWithFallback`
-- Full operations notes: `docs/ZKLOGIN-GPU-PROVER-RUNBOOK.md`
+- Full operations notes: `infra/prover/gpu/RUNBOOK.md`
