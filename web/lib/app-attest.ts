@@ -123,6 +123,13 @@ export function requireAppAttestStructural(req: Request): Response | null {
   if (!isMobileRequest(req)) return null;
   const url = new URL(req.url);
   if (!pathRequiresAppAttest(url.pathname)) return null;
+  // Escape hatch for simulator / staging. `DCAppAttestService.isSupported`
+  // is false in the iOS Simulator, so an iOS sim build CANNOT generate the
+  // assertion required by this check — turning every sponsor-execute into
+  // a 401. Setting `TALISE_APP_ATTEST_REQUIRED=0` lets dev / preview
+  // environments accept simulator traffic. Production should leave this
+  // unset (defaults to enforcing) once we ship to App Store users.
+  if (process.env.TALISE_APP_ATTEST_REQUIRED === "0") return null;
   const assertion = req.headers.get("x-app-attest");
   const keyId = req.headers.get("x-app-attest-keyid");
   if (!assertion || !keyId) {
