@@ -296,6 +296,17 @@ async function doEnsureSchema(): Promise<void> {
       fulfilled_at BIGINT
     )`,
     `CREATE INDEX IF NOT EXISTS idx_redemptions_user ON redemptions(user_id, created_at DESC)`,
+    // Marketing waitlist — emails dropped on the /waitlist page while
+    // the app is in private beta. Anonymized: no IP, no fingerprint —
+    // just email + when. Used for invite-batch outbound.
+    `CREATE TABLE IF NOT EXISTS waitlist (
+      id SERIAL PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      created_at BIGINT NOT NULL,
+      source TEXT,
+      invited_at BIGINT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_waitlist_created ON waitlist(created_at DESC)`,
   ];
   for (const stmt of tables) {
     await c.execute(stmt);
@@ -332,6 +343,20 @@ async function doEnsureSchema(): Promise<void> {
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_id TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_subname_repointed INTEGER DEFAULT 0",
     "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS receipt_object_id TEXT",
+    // P1-3: explicit audit trail of the verified on-chain digest that
+    // closed each invoice. CREATE TABLE already includes the column on
+    // fresh DBs; the ALTER covers any pre-existing deploy.
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_digest TEXT",
+    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_by_address TEXT",
+    // Waitlist signup form expansion. Name, country, and reason are
+    // optional fields captured alongside the email. The confirmation
+    // columns track whether the Resend transactional mail went out and
+    // its message id (for traceability in the Resend dashboard).
+    "ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS name TEXT",
+    "ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS country TEXT",
+    "ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS reason TEXT",
+    "ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS confirmation_sent_at BIGINT",
+    "ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS confirmation_message_id TEXT",
   ]) {
     try {
       await c.execute(sql);
