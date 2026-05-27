@@ -75,6 +75,10 @@ struct SendFlowView: View {
         // No drag indicator — we present as `.fullScreenCover` from
         // AppRoot, not a bottom sheet. Mid-flow swipe-down dismiss
         // would land users on a half-confirmed state.
+        // Mount the PIN host inside the fullScreenCover so its sheet
+        // can present over the Send flow (the AppRoot-level host is
+        // behind the cover and would otherwise be queued by iOS).
+        .pinGateHost()
     }
 
     // MARK: - Navigation
@@ -97,11 +101,37 @@ struct SendFlowView: View {
     /// the chain.
     private func confirm() async {
         guard let resolved = draft.resolved, draft.amountUsdsui > 0 else { return }
-
-        // Push the in-flight page synchronously so the spinner shows
-        // before we await the network.
-        path.append(.sending)
         draft.errorMessage = nil
+
+        // PIN sheet FIRST, while still on the Review screen. We don't
+        // push .sending until the user has actually confirmed —
+        // otherwise the spinner appears before they've approved the
+        // transaction. The sheet is hosted by SendFlowView itself (see
+        // `.pinGateHost()` on `body`) so it surfaces above the
+        // fullScreenCover.
+        let intentLabel = "Send \(draft.currency.symbol)\(draft.rawAmount)"
+        let recipientLabel = resolved.displayName ?? shortAddress(resolved.address)
+        let amountForPrompt = String(format: "$%.2f", draft.amountUsdsui)
+        do {
+            try await PinGate.shared.requireUserPresence(
+                reason: "Send \(amountForPrompt) to \(recipientLabel)"
+            )
+        } catch PinError.cancelled {
+            // User dismissed the PIN sheet from Review — stay put, no
+            // spinner, no error.
+            return
+        } catch PinError.forgotSignOut {
+            // PinService already cleared this user's hash.
+            session.signOut()
+            return
+        } catch {
+            draft.errorMessage = error.localizedDescription
+            return
+        }
+
+        // PIN confirmed. Now push the in-flight page and run the
+        // network round-trip.
+        path.append(.sending)
 
         do {
             struct Body: Encodable {
@@ -116,12 +146,6 @@ struct SendFlowView: View {
                     amount: draft.amountUsdsui,
                     asset: "USDsui"
                 )
-            )
-            let intentLabel = "Send \(draft.currency.symbol)\(draft.rawAmount)"
-            let recipientLabel = resolved.displayName ?? shortAddress(resolved.address)
-            let amountForPrompt = String(format: "$%.2f", draft.amountUsdsui)
-            try await PinGate.shared.requireUserPresence(
-                reason: "Send \(amountForPrompt) to \(recipientLabel)"
             )
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
                 transactionKindB64: built.transactionKindB64,
@@ -171,18 +195,6 @@ struct SendFlowView: View {
             // rather than push so the back-stack doesn't let the user
             // wander back into a stale "Sending…" screen.
             path = [.recipient, .review, .complete]
-        } catch PinError.cancelled {
-            // User dismissed the PIN sheet. Don't show an error — just
-            // drop them back on Review so they can retry.
-            draft.errorMessage = nil
-            path = [.recipient, .review]
-        } catch PinError.forgotSignOut {
-            // Forgot PIN: PinService already cleared this user's hash.
-            // Sign out so they re-auth and set a fresh PIN on the next
-            // confirm.
-            session.signOut()
-            draft.errorMessage = nil
-            path = [.recipient, .review]
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
             // Bearer predates the Poseidon-nonce binding; sign the user
             // out so they re-auth and rebuild a valid session.

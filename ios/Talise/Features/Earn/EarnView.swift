@@ -60,6 +60,10 @@ struct EarnView: View {
                 Task { await load() }
             }
         }
+        // Mount the PIN host at the EarnView root so its sheet
+        // presents in this tab's context — supply/withdraw confirm
+        // calls flow through here.
+        .pinGateHost()
     }
 
     // MARK: - Header
@@ -580,6 +584,11 @@ private struct WithdrawSheet: View {
         // case the user flagged.
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        // Host the PIN sheet inside this sheet's own presentation
+        // context. EarnView's host is the parent presenter (it already
+        // has this WithdrawSheet up), so the PIN call needs to surface
+        // from inside.
+        .pinGateHost()
     }
 
     private var header: some View {
