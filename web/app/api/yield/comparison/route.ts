@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { getYieldComparison } from "@/lib/yield";
+import {
+  naviPositionFromActivity,
+  type NaviPositionDetail,
+} from "@/lib/navi-supply";
+import { getRecentActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
 
@@ -24,13 +29,65 @@ export async function GET(req: Request) {
   }
   try {
     const cmp = await getYieldComparison(user.sui_address);
-    const venues = cmp.venues.map((v) => ({
-      venue: v.id,
-      apy: v.apy,
-      supplied: v.supplied ?? 0,
-      pendingRewards:
-        (v.meta as { pendingUsd?: number } | undefined)?.pendingUsd ?? 0,
-    }));
+
+    // For Navi, additionally compute `earned` (current − principal)
+    // and `earningPerDay` from a recent on-chain activity replay. We
+    // scan a generous window (~200 txs) so historical supplies aren't
+    // missed for long-tenured users. Activity is the source of truth
+    // here — neither Navi's open API nor `@t2000/sdk`'s
+    // `EarningsResult` exposes real accrued interest per user (the
+    // SDK's `totalYieldEarned` is dailyEarning × 30, a projection,
+    // not actual yield). See `naviPositionFromActivity` for the full
+    // rationale.
+    let naviDetail: NaviPositionDetail | null = null;
+    const naviVenue = cmp.venues.find((v) => v.id === "navi");
+    if (naviVenue && (naviVenue.supplied ?? 0) > 0) {
+      try {
+        const activity = await getRecentActivity(user.sui_address, 200, {
+          includeNonTalise: false,
+        });
+        const naviRows = activity
+          .filter((a) => (a.venue ?? "").toLowerCase() === "navi")
+          .map((a) => ({
+            direction: a.direction,
+            venue: a.venue,
+            amountUsdsui: a.amountUsdsui,
+          }));
+        naviDetail = naviPositionFromActivity({
+          currentValue: naviVenue.supplied ?? 0,
+          apy: naviVenue.apy,
+          naviActivity: naviRows,
+        });
+      } catch (e) {
+        // Activity feed failures are non-fatal — we'll just omit the
+        // breakdown and let iOS render the legacy single "Earning / day"
+        // row.
+        console.warn(
+          `[yield/comparison] navi activity replay failed: ${(e as Error).message}`
+        );
+      }
+    }
+
+    const venues = cmp.venues.map((v) => {
+      const base = {
+        venue: v.id,
+        apy: v.apy,
+        supplied: v.supplied ?? 0,
+        pendingRewards:
+          (v.meta as { pendingUsd?: number } | undefined)?.pendingUsd ?? 0,
+      };
+      if (v.id === "navi" && naviDetail) {
+        return {
+          ...base,
+          // USD amounts (USDsui is 1:1 USD). iOS converts to local
+          // currency at render time.
+          earned: naviDetail.earned,
+          earningPerDay: naviDetail.dailyEarning,
+          principalSupplied: naviDetail.principalSupplied,
+        };
+      }
+      return base;
+    });
     const best = cmp.best
       ? {
           venue: cmp.best.id,

@@ -241,6 +241,20 @@ struct YieldVenue: Codable, Identifiable {
     let apy: Double
     let supplied: Double?
     let pendingRewards: Double?
+    /// Cumulative yield earned-so-far for the user on this venue, in
+    /// USD (USDsui is 1:1 USD). For Navi, computed server-side as
+    /// `currentValue − principalSupplied` from on-chain activity
+    /// replay. Optional so older builds and other venues decode
+    /// cleanly.
+    let earned: Double?
+    /// Projected per-day yield (`supplied × apy / 365`) in USD.
+    /// Server-computed so the iOS side doesn't have to mix APY and
+    /// supplied in the view layer.
+    let earningPerDay: Double?
+    /// Reconstructed principal (sum of supplies − sum of withdraws).
+    /// Optional / informational — iOS doesn't need it for the
+    /// WithdrawSheet but it's useful for debugging the breakdown.
+    let principalSupplied: Double?
 
     /// Display-cased venue name — the venue code stays lowercased over
     /// the wire (server keys + activity classifier use "navi" /

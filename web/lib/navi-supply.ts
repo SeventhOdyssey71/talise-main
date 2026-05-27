@@ -166,3 +166,94 @@ async function fetchNaviUsdsuiSupplyApyOnce(): Promise<number | null> {
 export async function fetchNaviUsdsuiSupplyApy(): Promise<number | null> {
   return memoTtl("navi:usdsui-supply-apy", 60_000, fetchNaviUsdsuiSupplyApyOnce);
 }
+
+/**
+ * Live NAVI USDsui position for `address`, with an estimated "earned"
+ * breakdown derived from on-chain activity.
+ *
+ * Data-source decision (Approach A from the spec):
+ *   - `currentValue` comes straight from `NaviAdapter.getPositions()` —
+ *     the USDsui supply row's `amount` is the principal-plus-accrued
+ *     redeemable balance (Navi accrues interest into the position
+ *     in-place; there's no separate accrual ledger exposed via SDK,
+ *     and Navi's open API only surfaces pool-level data).
+ *   - `principalSupplied` is reconstructed by replaying the user's
+ *     on-chain Talise Payment-Kit memos: every invest/withdraw to
+ *     `venue=navi` carries a typed memo (`talise/v1|invest|...|venue=navi|...`)
+ *     whose `amount` field is the canonical USDsui amount the user
+ *     supplied or withdrew. The caller passes the parsed activity list
+ *     so we don't double-fetch — the comparison route already has it.
+ *   - `earned = max(0, currentValue − principalSupplied)`. The floor at
+ *     0 protects against transient gaps (e.g. user supplied 100, then
+ *     withdrew 100 → we'd read a near-zero current value but the
+ *     activity replay nets to 0; rounding noise could go negative).
+ *
+ * If we can't determine principal (no activity hits for navi, or the
+ * activity feed errored out), `principalSupplied` is returned as
+ * `currentValue` so `earned` falls to 0 — better to under-report than
+ * accidentally show negative or inflated earnings.
+ */
+export type NaviPositionDetail = {
+  /** Current redeemable USDsui balance. Includes accrued interest. */
+  currentValue: number;
+  /** Estimated principal supplied (sum of supplies − sum of withdraws). */
+  principalSupplied: number;
+  /** `currentValue − principalSupplied`, floored at 0. */
+  earned: number;
+  /** `currentValue × apy / 365` — per-day burn rate at this APY. */
+  dailyEarning: number;
+  /** Live USDsui supply APY as a fraction (0.0917 = 9.17%). */
+  apy: number;
+};
+
+export async function fetchNaviCurrentValue(address: string): Promise<number> {
+  const a = await adapter();
+  const positions = await a.getPositions(address);
+  const row = positions.supplies.find(
+    (s) => s.asset === NAVI_ASSET || s.asset.toLowerCase() === "usdsui"
+  );
+  return row?.amount ?? 0;
+}
+
+/**
+ * Compute the NAVI USDsui position breakdown for an address, given a
+ * pre-fetched activity feed (the `venue == 'navi'` rows). Returning a
+ * function rather than fetching activity here avoids a second
+ * `queryTransactionBlocks` round-trip — callers (`/api/yield/comparison`,
+ * `/api/earn/withdraw-earned/prepare`) already have or can cheaply
+ * fetch the activity list once.
+ */
+export function naviPositionFromActivity(opts: {
+  currentValue: number;
+  apy: number;
+  naviActivity: Array<{
+    direction: "invest" | "withdraw" | string;
+    venue: string | null;
+    amountUsdsui: number | null;
+  }>;
+}): NaviPositionDetail {
+  const { currentValue, apy } = opts;
+  let supplied = 0;
+  let withdrawn = 0;
+  let sawAny = false;
+  for (const row of opts.naviActivity) {
+    if ((row.venue ?? "").toLowerCase() !== "navi") continue;
+    const amt = Math.abs(row.amountUsdsui ?? 0);
+    if (amt <= 0) continue;
+    if (row.direction === "invest") {
+      supplied += amt;
+      sawAny = true;
+    } else if (row.direction === "withdraw") {
+      withdrawn += amt;
+      sawAny = true;
+    }
+  }
+  // If we found no historical invest/withdraw rows, treat the current
+  // value as 100% principal (earned = 0). Better than guessing.
+  const principalSupplied = sawAny
+    ? Math.max(0, supplied - withdrawn)
+    : currentValue;
+  const earned = Math.max(0, currentValue - principalSupplied);
+  const dailyEarning = currentValue * apy / 365;
+  return { currentValue, principalSupplied, earned, dailyEarning, apy };
+}

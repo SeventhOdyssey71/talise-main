@@ -488,8 +488,34 @@ private struct WithdrawSheet: View {
     /// ₦, a US user sees $, etc. — see `positionCard`.
     private var supplied: Double { venue.supplied ?? 0 }
     private var apy: Double { venue.apy }
-    /// Daily yield in USD at this APY × current position.
-    private var dailyEarning: Double { supplied * apy / 365.0 }
+    /// Daily yield in USD at this APY × current position. Prefer the
+    /// server-computed value when present (matches the principal-only
+    /// projection the comparison endpoint surfaces); fall back to the
+    /// local supplied × apy formula for older server builds.
+    private var dailyEarning: Double {
+        venue.earningPerDay ?? (supplied * apy / 365.0)
+    }
+    /// Cumulative yield earned-so-far (server-side: `currentValue −
+    /// principalSupplied`). `nil` for venues that don't expose the
+    /// breakdown — UI hides the "Earned so far" row + the dedicated
+    /// withdraw-earned button in that case.
+    private var earnedSoFar: Double? { venue.earned }
+
+    /// USD floor for showing the "Withdraw earned" button. Anything
+    /// below this and the button is dust (sub-cent rounding noise) —
+    /// we'd just be burning gas to redeem a value smaller than the
+    /// PTB build cost. ₦ equivalent at typical FX is ~₦15 so the
+    /// floor reads naturally in either currency.
+    private static let WITHDRAW_EARNED_DUST_USD: Double = 0.01
+
+    /// Whether the "Withdraw earned" button is visible. Three gates:
+    ///   • Venue must expose `earned` (Navi today; Deepbook later)
+    ///   • Earned amount must be above the dust floor
+    ///   • A withdraw isn't already in-flight
+    private var canWithdrawEarned: Bool {
+        guard let e = earnedSoFar else { return false }
+        return e >= Self.WITHDRAW_EARNED_DUST_USD && !withdrawing
+    }
 
     /// User-typed partial-withdraw amount, in the display currency,
     /// converted to USD for the wire + cap check. Returns 0 when the
@@ -565,6 +591,20 @@ private struct WithdrawSheet: View {
                 value: String(format: "%.2f%%", apy * 100),
                 accent: true
             )
+            // "Earned so far" — server-computed cumulative yield since
+            // the user's first supply. Only shown when the venue
+            // exposes the breakdown (Navi today). Green accent +
+            // larger weight so the user reads it as the headline
+            // number; the per-day burn rate sits beneath in muted
+            // copy.
+            if let earned = earnedSoFar {
+                rowDivider
+                row(
+                    label: "Earned so far",
+                    value: TaliseFormat.local2(earned),
+                    accent: true
+                )
+            }
             rowDivider
             // Show actual amount whenever there's a position earning yield —
             // the previous `>= 0.0001 USD` threshold hid daily earnings for
@@ -652,6 +692,26 @@ private struct WithdrawSheet: View {
                 Task { await withdraw(all: false) }
             }
             .disabled(!canWithdrawPartial)
+
+            // "Withdraw earned" — server computes the exact USDsui
+            // earned amount at request time so the value on the
+            // button label can lag chain truth by a few seconds
+            // without a misclick burning the user's principal. The
+            // button is only visible when there's enough accrued
+            // yield to be worth the gas (see WITHDRAW_EARNED_DUST_USD).
+            if let earned = earnedSoFar, canWithdrawEarned {
+                let (local, _) = CurrencySettings.shared.convert(usd: earned)
+                let label = "Withdraw earned (\(CurrencySettings.shared.current.symbol)\(String(format: "%.2f", local)))"
+                LiquidGlassButton(
+                    title: withdrawing ? "Working…" : label,
+                    tint: TaliseColor.accent,
+                    size: .md,
+                    loading: withdrawing
+                ) {
+                    Task { await withdrawEarned() }
+                }
+                .disabled(withdrawing)
+            }
 
             LiquidGlassButton(
                 title: "Withdraw all + rewards",
@@ -742,6 +802,60 @@ private struct WithdrawSheet: View {
             partial = ""
             onClose()
             // Give the user a beat to see the success state, then close.
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            dismiss()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Withdraw ONLY the accrued yield, leaving the principal in place
+    /// to keep earning. The server computes `earned` at request time
+    /// from a fresh on-chain replay — we don't send an amount on the
+    /// wire so a stale UI value can't accidentally redeem more than
+    /// the user has earned. Mirrors `withdraw(all:)` for everything
+    /// after the prepare leg (sign + rewards + history reconcile).
+    private func withdrawEarned() async {
+        withdrawing = true
+        error = nil
+        success = nil
+        defer { withdrawing = false }
+        do {
+            struct Body: Encodable { let venue: String }
+            let built: BuildKindResponse = try await APIClient.shared.post(
+                "/api/earn/withdraw-earned/prepare",
+                body: Body(venue: venue.venue)
+            )
+            // For the rewards-engine hint we forward the UI-side
+            // earned snapshot (USDsui = USD). Server clips to its
+            // per-tx cap so a stale value doesn't grant extra points.
+            let rewardsAmount = earnedSoFar ?? 0
+            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                transactionKindB64: built.transactionKindB64,
+                intent: "Withdraw earned yield from \(venue.displayName)",
+                rewards: ZkLoginCoordinator.RewardsMeta(
+                    kind: "withdraw",
+                    amountUsd: rewardsAmount,
+                    venue: venue.venue
+                )
+            )
+            success = result.digest
+            NotificationCenter.default.post(
+                name: .taliseTxCompleted,
+                object: TaliseTxEvent(
+                    digest: result.digest,
+                    direction: "withdraw",
+                    // Server returned the precise USDsui earned in the
+                    // prepare response, but the iOS-side snapshot is
+                    // close enough for the optimistic activity row —
+                    // the 1.5s reconcile picks up the canonical value.
+                    amountUsdsui: rewardsAmount,
+                    counterparty: nil,
+                    counterpartyName: nil,
+                    venue: venue.venue
+                )
+            )
+            onClose()
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             dismiss()
         } catch {
