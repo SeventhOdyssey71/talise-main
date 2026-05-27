@@ -25,6 +25,18 @@ struct AppRoot: View {
         }
         .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.2), value: phaseKey)
+        // Mounts the PIN sheet host once at the top of the tree. Any
+        // call site can `PinGate.shared.requireUserPresence(...)` and
+        // the sheet surfaces here.
+        .pinGateHost()
+        .onAppear {
+            // Wire the PinGate's user-id resolver to the current session.
+            // Doing it once at the root means deep call sites don't need
+            // AppSession in their environment.
+            PinGate.shared.userIdProvider = { [weak session] in
+                session?.currentUser?.id
+            }
+        }
     }
 
     private var phaseKey: String {

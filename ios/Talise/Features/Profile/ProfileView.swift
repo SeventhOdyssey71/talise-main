@@ -468,8 +468,8 @@ struct ProfileView: View {
         section(title: "Security") {
             HStack {
                 rowLabel(
-                    title: "Require \(BiometricGate.biometryDisplayName()) for transactions",
-                    subtitle: "Confirm with biometrics or passcode before every send, supply, or withdraw."
+                    title: "Require PIN for transactions",
+                    subtitle: "Enter your 4-digit PIN before every send, supply, or withdraw."
                 )
                 Spacer()
                 Toggle("", isOn: $requireBiometric)

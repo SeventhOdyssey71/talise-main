@@ -18,6 +18,15 @@ final class AppSession {
     var phase: Phase = .launching
     var lastError: String?
 
+    /// Convenience — current signed-in user, if any. Used by call sites
+    /// that need the user id to key per-user state (e.g. PIN storage).
+    var currentUser: UserDTO? {
+        switch phase {
+        case .onboarding(let u), .ready(let u): return u
+        default: return nil
+        }
+    }
+
     func bootstrap() async {
         guard SecureSessionStore.shared.hasToken() else {
             phase = .signedOut

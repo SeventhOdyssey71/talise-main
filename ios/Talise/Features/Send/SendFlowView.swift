@@ -120,7 +120,7 @@ struct SendFlowView: View {
             let intentLabel = "Send \(draft.currency.symbol)\(draft.rawAmount)"
             let recipientLabel = resolved.displayName ?? shortAddress(resolved.address)
             let amountForPrompt = String(format: "$%.2f", draft.amountUsdsui)
-            try await BiometricGate.shared.requireUserPresence(
+            try await PinGate.shared.requireUserPresence(
                 reason: "Send \(amountForPrompt) to \(recipientLabel)"
             )
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
@@ -171,13 +171,17 @@ struct SendFlowView: View {
             // rather than push so the back-stack doesn't let the user
             // wander back into a stale "Sending…" screen.
             path = [.recipient, .review, .complete]
-        } catch BiometricGate.BiometricGateError.cancelled {
-            // User dismissed the Face ID / passcode sheet. Don't show an
-            // error — just drop them back on Review so they can retry.
+        } catch PinError.cancelled {
+            // User dismissed the PIN sheet. Don't show an error — just
+            // drop them back on Review so they can retry.
             draft.errorMessage = nil
             path = [.recipient, .review]
-        } catch BiometricGate.BiometricGateError.notAvailable {
-            draft.errorMessage = "Set up Face ID or a device passcode to send money from Talise. Open Settings to enable."
+        } catch PinError.forgotSignOut {
+            // Forgot PIN: PinService already cleared this user's hash.
+            // Sign out so they re-auth and set a fresh PIN on the next
+            // confirm.
+            session.signOut()
+            draft.errorMessage = nil
             path = [.recipient, .review]
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
             // Bearer predates the Poseidon-nonce binding; sign the user

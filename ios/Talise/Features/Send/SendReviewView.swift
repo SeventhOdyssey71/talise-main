@@ -33,7 +33,7 @@ struct SendReviewView: View {
             VStack(spacing: 8) {
                 confirmButton
                 if !BiometricGate.hintShown {
-                    Text("Talise asks for \(biometryName) before every transaction. This stays on your device.")
+                    Text("Talise asks for your PIN before every transaction. It's stored on this device only.")
                         .font(TaliseFont.mono(10, weight: .light))
                         .foregroundStyle(TaliseColor.fgDim)
                         .multilineTextAlignment(.center)
@@ -201,15 +201,11 @@ struct SendReviewView: View {
 
     // MARK: - Confirm
 
-    private var biometryName: String {
-        BiometricGate.biometryDisplayName()
-    }
-
     private var confirmButton: some View {
         Button {
             Task { await onConfirm() }
         } label: {
-            Text("Confirm with \(biometryName)")
+            Text("Confirm with PIN")
                 .font(TaliseFont.heading(16, weight: .medium))
                 .foregroundStyle(TaliseColor.bg)
                 .frame(maxWidth: .infinity)
