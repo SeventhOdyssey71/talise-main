@@ -88,6 +88,10 @@ export async function POST(req: Request) {
         direction: a.direction,
         venue: a.venue,
         amountUsdsui: a.amountUsdsui,
+        // Earliest-invest timestamp feeds the time-weighted
+        // projection in naviPositionFromActivity when naive principal
+        // exceeds currentValue (USDsui-dust rounding case).
+        timestampMs: a.timestampMs,
       }));
     const detail = naviPositionFromActivity({
       currentValue,

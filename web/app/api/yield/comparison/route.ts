@@ -52,6 +52,10 @@ export async function GET(req: Request) {
             direction: a.direction,
             venue: a.venue,
             amountUsdsui: a.amountUsdsui,
+            // The time-weighted projection fallback in
+            // naviPositionFromActivity needs the EARLIEST invest
+            // timestamp; the rest are ignored.
+            timestampMs: a.timestampMs,
           }));
         naviDetail = naviPositionFromActivity({
           currentValue: naviVenue.supplied ?? 0,

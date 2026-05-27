@@ -390,8 +390,21 @@ function isTaliseTransaction(
  */
 function isPaymentRecordType(objectType: string | undefined): boolean {
   if (!objectType) return false;
-  // The `<…>` strips type arg variance; we just match the module + name.
-  return /::payment_kit::PaymentRecord</.test(objectType);
+  // Two on-chain shapes both count as a PaymentRecord write:
+  //   1. `<pkg>::payment_kit::PaymentRecord<<coinType>>` — the record
+  //      object itself, with its USDsui type-arg, when it appears as
+  //      a direct object change.
+  //   2. `0x2::dynamic_field::Field<<pkg>::payment_kit::PaymentKey<...>,
+  //       <pkg>::payment_kit::PaymentRecord>` — the dynamic field
+  //      wrapper under the registry; here PaymentRecord appears WITHOUT
+  //      its type-arg (the `<` is followed by another type, not USDSUI).
+  //
+  // The earlier regex `PaymentRecord</` only matched shape (1) — which
+  // missed every real Navi supply tx because RPCs surface only the
+  // dynamic-field wrapper. Now we accept BOTH shapes: PaymentRecord
+  // followed by `<` (with type arg) OR `>` (no type arg, dynamic-field
+  // close bracket).
+  return /::payment_kit::PaymentRecord[<>]/.test(objectType);
 }
 
 /**
