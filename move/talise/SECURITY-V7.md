@@ -100,11 +100,16 @@ Written ourselves, using OZ math primitives internally:
    compromised Worker can't even pull funds into the bag during a
    pause).
 
-5. **Slippage hard ceiling** — Move-level assertion in
-   `auto_swap_deposit_to_owner` that `output_amount * 100 >=
-   expected_amount * 98` (2% max slippage). Compromised Onara TS
-   config that accepts a 50% slippage route gets rejected at chain
-   level.
+5. **Slippage** — Enforced off-chain by Onara, with a target ceiling
+   of 2%. The on-chain `auto_swap_deposit_to_owner_v2` asserts only
+   that the destination type is in `registry.allowed_dest_types` and
+   that the `SwapTicket.vault_id` matches the depositing vault; it
+   does not assert an output-vs-expected slippage bound. A compromised
+   Onara TS config that accepted a 50% slippage route would not be
+   rejected at chain level today. If a chain-level cap is later
+   desired it would need a new field on the cap/registry and a price
+   reference passed alongside the ticket. See
+   `sources/vault.move:602-640`.
 
 ## Cap migration plan — v3-v6 → v2
 
