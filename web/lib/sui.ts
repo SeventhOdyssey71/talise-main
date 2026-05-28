@@ -50,9 +50,20 @@ let _grpcKey = "";
 export function sui(): SuiGrpcClient {
   const net = network();
   const baseUrl = defaultGrpcBaseUrl(net);
-  const key = `${net}:${baseUrl}`;
+  // Optional auth header — used when SUI_GRPC_URL points at a paid
+  // provider that requires an API key (Shinami uses X-Api-Key,
+  // Dwellir uses x-api-key, etc.). The grpcweb transport forwards
+  // `meta` as HTTP headers.
+  const authHeader = process.env.SUI_GRPC_AUTH_HEADER?.trim();
+  const authValue = process.env.SUI_GRPC_AUTH_VALUE?.trim();
+  const meta = authHeader && authValue ? { [authHeader]: authValue } : undefined;
+  const key = `${net}:${baseUrl}:${authHeader ?? ""}`;
   if (_grpc && _grpcKey === key) return _grpc;
-  _grpc = new SuiGrpcClient({ network: net, baseUrl });
+  _grpc = new SuiGrpcClient({
+    network: net,
+    baseUrl,
+    ...(meta ? { meta } : {}),
+  });
   _grpcKey = key;
   return _grpc;
 }
