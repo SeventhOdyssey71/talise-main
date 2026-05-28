@@ -445,29 +445,28 @@ final class ZkLoginCoordinator {
     ///
     /// Two paths in priority order:
     ///   1. Our backend `/api/sui/epoch` (fast, already-warm SuiClient)
-    ///   2. Direct mainnet JSON-RPC fallback — so a dev-server outage or
-    ///      stale cache doesn't block sign-in. The epoch is public chain
-    ///      state; either source returns the same value.
+    ///   2. Direct mainnet gRPC fallback via `SuiGrpcClient` — so a
+    ///      dev-server outage or stale cache doesn't block sign-in. The
+    ///      epoch is public chain state; either source returns the same
+    ///      value. Sub-plan 5.6 removed the legacy JSON-RPC fallback in
+    ///      favour of unconditional gRPC (deployment target is now iOS 18).
     private func fetchMaxEpoch() async -> Int? {
         if let v = await fetchEpochViaBackend() { return v + 2 }
-        if let v = await fetchEpochViaMainnetGrpcOrRPC() { return v + 2 }
+        if let v = await fetchEpochViaMainnetGrpc() { return v + 2 }
         return nil
     }
 
-    /// gRPC on iOS 18+ (sub-plan 3.8), JSON-RPC fallback on iOS 17.
-    /// Same source-of-truth (the public mainnet fullnode), same value.
-    private func fetchEpochViaMainnetGrpcOrRPC() async -> Int? {
-        if #available(iOS 18, *) {
-            do {
-                let epoch = try await SuiGrpcClient.shared.getLatestEpoch()
-                return Int(epoch.epoch)
-            } catch {
-                // Fall through to JSON-RPC on any gRPC failure — keeps
-                // sign-in working if the fullnode's gRPC port is hiccupping.
-                return await fetchEpochViaMainnetRPC()
-            }
-        } else {
-            return await fetchEpochViaMainnetRPC()
+    /// Direct gRPC fallback to the mainnet fullnode. `SuiGrpcClient` has
+    /// an 8s per-request timeout and one built-in retry on transient
+    /// failures; if we still got an error here, both attempts failed and
+    /// nil bubbles up to the caller, which surfaces a "Sign in again" UX.
+    /// Better than crashing.
+    private func fetchEpochViaMainnetGrpc() async -> Int? {
+        do {
+            let epoch = try await SuiGrpcClient.shared.getLatestEpoch()
+            return Int(epoch.epoch)
+        } catch {
+            return nil
         }
     }
 
@@ -476,34 +475,6 @@ final class ZkLoginCoordinator {
         do {
             let r: Response = try await APIClient.shared.get("/api/sui/epoch")
             return Int(r.epoch)
-        } catch {
-            return nil
-        }
-    }
-
-    /// Direct call to the public Sui mainnet fullnode RPC. Mirrors what
-    /// the backend does, but skips our server so we still get sign-in
-    /// even if the dev server is down or rebooting.
-    private func fetchEpochViaMainnetRPC() async -> Int? {
-        var req = URLRequest(url: URL(string: "https://fullnode.mainnet.sui.io:443")!)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.timeoutInterval = 8
-        let body: [String: Any] = [
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "sui_getLatestSuiSystemState",
-            "params": [],
-        ]
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        do {
-            let (data, _) = try await URLSession.shared.data(for: req)
-            struct Envelope: Decodable {
-                struct Result: Decodable { let epoch: String }
-                let result: Result?
-            }
-            let env = try JSONDecoder().decode(Envelope.self, from: data)
-            return env.result.flatMap { Int($0.epoch) }
         } catch {
             return nil
         }

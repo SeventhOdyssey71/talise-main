@@ -45,7 +45,6 @@ struct SuiEndpoint {
     let apiKeyHeader: String?
 }
 
-@available(iOS 18.0, macOS 15.0, *)
 enum SuiEndpoints {
 
     /// Ordered Sui MAINNET gRPC endpoints, preferred first.

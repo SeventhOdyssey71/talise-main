@@ -4,10 +4,10 @@
 // Method bodies were filled in by sub-plans 3.4–3.7; retry + timeout +
 // telemetry come from sub-plan 3.10.
 //
-// grpc-swift v2 APIs are only available on iOS 18+ / macOS 15+, so this
-// whole type is gated behind that availability. Sub-plan 3.8 wires it
-// into ZkLoginCoordinator behind an `if #available` check (the app's
-// deployment target is iOS 17.0).
+// grpc-swift v2 requires iOS 18+ / macOS 15+. As of sub-plan 5.6 the
+// app's deployment target is iOS 18.0, so this type is unconditionally
+// available — the legacy JSON-RPC fallback that lived in
+// ZkLoginCoordinator has been removed.
 
 import Foundation
 import GRPCCore
@@ -15,7 +15,6 @@ import GRPCNIOTransportHTTP2Posix
 import GRPCProtobuf
 import SwiftProtobuf
 
-@available(iOS 18.0, macOS 15.0, *)
 @MainActor
 final class SuiGrpcClient {
     static let shared = SuiGrpcClient(host: "fullnode.mainnet.sui.io", port: 443)
