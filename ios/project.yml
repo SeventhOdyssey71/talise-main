@@ -14,10 +14,28 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
 
-# No SPM deps for the initial scaffold — Google sign-in uses
-# ASWebAuthenticationSession (Apple SDK) against our backend's
-# /api/auth/mobile/start, and SuiKit gets added when we wire the
-# PTB builder for Send/Earn. This keeps the first build pure-Apple.
+# SPM deps:
+# - grpc-swift v2 (split across grpc-swift-2 + nio-transport + protobuf
+#   sub-packages, see https://github.com/grpc/grpc-swift-2#quick-start)
+#   for the Sui fullnode gRPC SDK. See ios/Talise/Network/SuiProto/ for
+#   the vendored .proto sources and ios/scripts/regen-proto.sh for
+#   regenerating Swift bindings.
+# - SwiftProtobuf for generated message types.
+# - Google sign-in uses ASWebAuthenticationSession (Apple SDK) against
+#   our backend's /api/auth/mobile/start.
+packages:
+  GRPC:
+    url: https://github.com/grpc/grpc-swift-2
+    majorVersion: 2.0.0
+  GRPCNIOTransport:
+    url: https://github.com/grpc/grpc-swift-nio-transport
+    majorVersion: 2.0.0
+  GRPCProtobuf:
+    url: https://github.com/grpc/grpc-swift-protobuf
+    majorVersion: 2.0.0
+  SwiftProtobuf:
+    url: https://github.com/apple/swift-protobuf
+    majorVersion: 1.0.0
 
 targets:
   Talise:
@@ -27,6 +45,11 @@ targets:
       - path: Talise
         excludes:
           - "**/.DS_Store"
+          # Don't bundle the vendored .proto sources or their READMEs —
+          # they're inputs to ios/scripts/regen-proto.sh, not runtime
+          # resources. The Generated/ Swift output is the build input.
+          - "Network/SuiProto/proto"
+          - "Network/SuiProto/README.md"
     resources:
       - Talise/Resources/Assets.xcassets
       - Talise/Resources/GoogleSans
@@ -73,7 +96,21 @@ targets:
         keychain-access-groups:
           - $(AppIdentifierPrefix)io.talise.app
         aps-environment: production
-    dependencies: []
+    dependencies:
+      - package: GRPC
+        product: GRPCCore
+      - package: GRPCNIOTransport
+        # Use the Posix-only product instead of the umbrella
+        # GRPCNIOTransportHTTP2; the umbrella also pulls in
+        # GRPCNIOTransportHTTP2TransportServices which currently fails
+        # to build against the iOS 18.2 SDK
+        # (SecCertificate is not Sendable). Posix is sufficient for
+        # client-side HTTP/2 on iOS via NIOSSL.
+        product: GRPCNIOTransportHTTP2Posix
+      - package: GRPCProtobuf
+        product: GRPCProtobuf
+      - package: SwiftProtobuf
+        product: SwiftProtobuf
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.talise.app

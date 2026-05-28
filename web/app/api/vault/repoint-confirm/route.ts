@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById, markVaultSubnameRepointed } from "@/lib/db";
-import { suiJsonRpc } from "@/lib/sui";
+import { getNormalizedTransaction } from "@/lib/sui-shapes";
 
 export const runtime = "nodejs";
 
@@ -18,7 +18,7 @@ export const runtime = "nodejs";
  * Returns: { ok: true }
  *
  * Verification rules:
- *   • Digest resolves via getTransactionBlock.
+ *   • Digest resolves via getNormalizedTransaction (gRPC core.getTransaction).
  *   • Sender matches the signed-in user's wallet.
  *   • Effects status == "success".
  *
@@ -50,23 +50,18 @@ export async function POST(req: Request) {
   }
 
   try {
-    // JSON-RPC: `getTransactionBlock` response shape is what this
-    // verifier consumes.
-    const tx = await suiJsonRpc().getTransactionBlock({
-      digest,
-      options: { showInput: true, showEffects: true },
-    });
-    const sender = (tx.transaction?.data?.sender ?? "").toLowerCase();
-    if (sender !== user.sui_address.toLowerCase()) {
+    // gRPC: normalized shape from `getNormalizedTransaction`. Fields used
+    // are `sender` (already lowercased) and `status`.
+    const tx = await getNormalizedTransaction(digest);
+    if (tx.sender !== user.sui_address.toLowerCase()) {
       return NextResponse.json(
         { error: "digest sender does not match user wallet" },
         { status: 400 }
       );
     }
-    const status = tx.effects?.status?.status;
-    if (status !== "success") {
+    if (tx.status !== "success") {
       return NextResponse.json(
-        { error: `tx status not success: ${status ?? "unknown"}` },
+        { error: `tx status not success: ${tx.status}` },
         { status: 400 }
       );
     }

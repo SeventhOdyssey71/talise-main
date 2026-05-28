@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { PaymentKitClient } from "@mysten/payment-kit";
-import { sui, suiJsonRpc } from "@/lib/sui";
+import { sui } from "@/lib/sui";
 import { ensurePaymentRegistry } from "@/lib/pk-bootstrap";
 
 export const runtime = "nodejs";
@@ -24,9 +24,6 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const REGISTRY_NAME = "talise";
   const client = sui();
-  // Probe paths below use JSON-RPC shapes (`{totalBalance}`,
-  // `getObject().data.objectId`) — keep them on the JSON-RPC client.
-  const jsonRpcClient = suiJsonRpc();
   const pk = new PaymentKitClient({ client: client as never });
   const registryId = pk.getRegistryIdFromName(REGISTRY_NAME);
 
@@ -39,11 +36,15 @@ export async function GET() {
     try {
       const kp = Ed25519Keypair.fromSecretKey(key);
       operatorAddress = kp.getPublicKey().toSuiAddress();
-      const bal = await jsonRpcClient.getBalance({
-        owner: operatorAddress,
-        coinType: "0x2::sui::SUI",
-      });
-      operatorBalanceSui = Number(bal.totalBalance) / 1e9;
+      // gRPC `listBalances` returns every coin the address holds in one
+      // round-trip. Find the SUI row (default to "0" if absent — e.g. a
+      // freshly-derived operator that's never been funded).
+      const list = await client.listBalances({ owner: operatorAddress });
+      const suiRow = list.balances?.find(
+        (b) => b.coinType === "0x2::sui::SUI"
+      );
+      const mistStr = suiRow?.balance ?? "0";
+      operatorBalanceSui = Number(BigInt(mistStr)) / 1e9;
     } catch (err) {
       return NextResponse.json({
         ok: false,
@@ -52,14 +53,16 @@ export async function GET() {
     }
   }
 
-  // 2. On-chain existence check (independent of any cache)
+  // 2. On-chain existence check (independent of any cache).
+  // gRPC `getObject` THROWS when the object doesn't exist (JSON-RPC
+  // returned `{ data: null }`); we treat any error as "not found".
   let registryExists = false;
   try {
-    const o = await jsonRpcClient.getObject({
-      id: registryId,
-      options: { showType: true },
+    const o = await client.getObject({
+      objectId: registryId,
+      include: { json: true },
     });
-    registryExists = !!o?.data?.objectId;
+    registryExists = !!o.object?.objectId;
   } catch {
     /* registry doesn't exist */
   }
