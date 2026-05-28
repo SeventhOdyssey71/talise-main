@@ -60,9 +60,14 @@ struct SendAmountView: View {
 
     private var amountBlock: some View {
         VStack(spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            // Symbol + number at the SAME font size so the cap-tops
+            // and baselines naturally line up. Visual hierarchy comes
+            // from weight (.thin symbol vs .medium number) + color
+            // (fgMuted vs fg), not from a size delta — that's what
+            // produced the misaligned "tiny ₦ next to giant 0" look.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(draft.currency.symbol)
-                    .font(TaliseFont.heading(40, weight: .light))
+                    .font(TaliseFont.heading(72, weight: .thin))
                     .foregroundStyle(TaliseColor.fgMuted)
                 Text(displayAmount)
                     .font(TaliseFont.heading(72, weight: .medium))
@@ -70,11 +75,20 @@ struct SendAmountView: View {
                     .foregroundStyle(TaliseColor.fg)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
+                    // Smooth digit + comma transitions as the user
+                    // types past thousands boundaries. SwiftUI's
+                    // numericText transition crossfades the
+                    // appearing/disappearing glyphs in place, so the
+                    // comma slides in cleanly when "999" → "1,000".
+                    .contentTransition(.numericText())
+                    .animation(.snappy(duration: 0.18), value: displayAmount)
             }
 
             Text(usdsuiSecondary)
                 .font(TaliseFont.mono(13, weight: .light))
                 .foregroundStyle(TaliseColor.fgDim)
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.18), value: usdsuiSecondary)
 
             if exceedsBalance {
                 MicroLabel(
@@ -88,12 +102,36 @@ struct SendAmountView: View {
         .padding(.horizontal, 24)
     }
 
-    /// What we render inside the big number. Mirrors the raw input so
-    /// "12." looks like "12." (with the dot) rather than parsing back
-    /// to "12" mid-typing.
+    /// What we render inside the big number. Formats the integer part
+    /// with thousand-separator commas while preserving the raw decimal
+    /// the user has typed — so mid-typing states like "12." stay as
+    /// "12." (with the dangling dot) and "1234.5" reads "1,234.5".
     private var displayAmount: String {
-        if draft.rawAmount.isEmpty { return "0" }
-        return draft.rawAmount
+        let raw = draft.rawAmount
+        if raw.isEmpty { return "0" }
+        // Locate the decimal point (if any) and group only the digits
+        // to its LEFT. The right side is purely user-controlled — we
+        // never reformat what they've typed past the dot.
+        if let dotIdx = raw.firstIndex(of: ".") {
+            let intPart = String(raw[raw.startIndex..<dotIdx])
+            let fracPart = String(raw[raw.index(after: dotIdx)...])
+            return "\(groupDigits(intPart)).\(fracPart)"
+        }
+        return groupDigits(raw)
+    }
+
+    /// Insert thousands-separator commas into a pure-digit integer
+    /// string. Returns the input unchanged for strings ≤ 3 chars or
+    /// for any string containing non-digits (defensive — the input
+    /// here is the user's typed amount, but bracket against surprises).
+    private func groupDigits(_ s: String) -> String {
+        guard s.count > 3, s.allSatisfy({ $0.isNumber }) else { return s }
+        var out = ""
+        for (i, ch) in s.reversed().enumerated() {
+            if i > 0 && i % 3 == 0 { out.append(",") }
+            out.append(ch)
+        }
+        return String(out.reversed())
     }
 
     /// USDsui equivalent of what's typed, formatted as "1,234.56 USDsui".
