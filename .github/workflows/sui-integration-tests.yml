@@ -1,0 +1,54 @@
+name: Sui integration tests
+
+# Integration tests hit Sui mainnet RPC and take ~3s+ to run. We deliberately
+# avoid running them on every PR. Triggers:
+#   - workflow_dispatch: on-demand manual runs (primary trigger)
+#   - schedule: nightly at 06:00 UTC to catch upstream/mainnet drift
+#   - push to main: only when files that affect Sui integration are touched
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'web/lib/sui*.ts'
+      - 'web/lib/activity.ts'
+      - 'web/app/api/zk/**'
+      - 'web/app/api/send/**'
+      - 'web/__tests__/sui/**'
+      - '.github/workflows/sui-integration-tests.yml'
+
+jobs:
+  integration:
+    name: vitest (mainnet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: 'web/pnpm-lock.yaml'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run integration tests
+        run: pnpm test:integration
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "::error::Sui integration suite failed - check logs above. Possible causes: mainnet RPC drift, rate limits, or regression in web/lib/sui*."

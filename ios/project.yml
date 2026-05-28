@@ -118,3 +118,37 @@ targets:
         INFOPLIST_KEY_UIRequiresFullScreen: NO
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  # Unit test bundle. Hosted by the Talise app target so it can link
+  # against the app's internal types (SuiGrpcClient is internal+@MainActor
+  # and gated behind @available(iOS 18.0, *), matching Cohort 3/4).
+  TaliseTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: TaliseTests
+        excludes:
+          - "**/.DS_Store"
+    dependencies:
+      - target: Talise
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.talise.app.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Talise.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Talise"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Talise:
+    build:
+      targets:
+        Talise: all
+        TaliseTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - TaliseTests

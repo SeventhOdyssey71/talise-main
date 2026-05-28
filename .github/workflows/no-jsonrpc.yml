@@ -1,0 +1,46 @@
+name: JSON-RPC import gate
+
+# Cheap lint that fails the PR if any non-allowlisted file imports the legacy
+# SuiJsonRpcClient. Runs on every PR and on pushes to main that touch web/.
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/no-jsonrpc.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/no-jsonrpc.yml'
+
+jobs:
+  lint:
+    name: lint:no-jsonrpc
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: 'web/pnpm-lock.yaml'
+
+      # Lint script is pure bash + grep; no node_modules required, but we
+      # install anyway so the step matches local dev parity. Skip-scripts
+      # keeps it fast (~10s instead of ~60s).
+      - name: Install dependencies (no scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Run JSON-RPC import gate
+        run: pnpm lint:no-jsonrpc
