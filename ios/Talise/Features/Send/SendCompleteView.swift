@@ -13,7 +13,7 @@ struct SendCompleteView: View {
             Spacer()
 
             VStack(spacing: 22) {
-                SendSuccessAnimation(size: 96)
+                SendSuccessAnimation(size: 140)
 
                 VStack(spacing: 8) {
                     Text("Sent")

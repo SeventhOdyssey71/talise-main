@@ -1,52 +1,61 @@
 import SwiftUI
 
-/// Animated checkmark used by `SendCompleteView`. The two stroke
-/// segments (the circle ring + the check) trim from 0→1 on appear so
-/// it reads as the chain confirmation drawing itself in.
+/// Animated check used by `SendCompleteView`. Matches the
+/// `AnimatedPaperPlane` aesthetic: gradient-stroke ring + check,
+/// gentle floating motion, soft drop-shadow for depth. No expanding
+/// halo / glow — the previous pulsing ring read as a system
+/// notification instead of a confirmed transfer.
 struct SendSuccessAnimation: View {
-    var size: CGFloat = 96
+    var size: CGFloat = 120
     var color: Color = TaliseColor.accent
 
     @State private var ringProgress: CGFloat = 0
     @State private var checkProgress: CGFloat = 0
-    @State private var pulse: CGFloat = 0.6
+    @State private var float = false
+
+    private var strokeGradient: LinearGradient {
+        LinearGradient(
+            colors: [color.opacity(0.9), color],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
 
     var body: some View {
         ZStack {
-            // Soft halo behind the ring — a pulse on appear so the
-            // moment of confirmation has weight.
-            Circle()
-                .fill(color.opacity(0.18))
-                .frame(width: size * 1.4, height: size * 1.4)
-                .scaleEffect(pulse)
-                .opacity(Double(2 - pulse).clamped(to: 0...1))
-
             Circle()
                 .trim(from: 0, to: ringProgress)
-                .stroke(color, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .stroke(
+                    strokeGradient,
+                    style: StrokeStyle(lineWidth: 2.6, lineCap: .round)
+                )
                 .rotationEffect(.degrees(-90))
                 .frame(width: size, height: size)
 
             CheckmarkPath()
                 .trim(from: 0, to: checkProgress)
-                .stroke(color, style: StrokeStyle(
-                    lineWidth: 4, lineCap: .round, lineJoin: .round
-                ))
-                .frame(width: size * 0.55, height: size * 0.55)
+                .stroke(
+                    strokeGradient,
+                    style: StrokeStyle(
+                        lineWidth: 3.2,
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
+                )
+                .frame(width: size * 0.50, height: size * 0.50)
         }
+        .rotationEffect(.degrees(float ? -2 : 2))
+        .offset(y: float ? -3 : 3)
+        .shadow(color: color.opacity(0.35), radius: 14, x: 0, y: 6)
         .onAppear { runIn() }
     }
 
     private func runIn() {
-        withAnimation(.easeOut(duration: 0.55)) {
-            ringProgress = 1
-        }
-        withAnimation(.easeOut(duration: 0.45).delay(0.45)) {
-            checkProgress = 1
-        }
-        withAnimation(.easeOut(duration: 0.9)) {
-            pulse = 1.6
-        }
+        withAnimation(.easeOut(duration: 0.55)) { ringProgress = 1 }
+        withAnimation(.easeOut(duration: 0.45).delay(0.45)) { checkProgress = 1 }
+        withAnimation(
+            .easeInOut(duration: 1.6).repeatForever(autoreverses: true)
+        ) { float.toggle() }
     }
 }
 
