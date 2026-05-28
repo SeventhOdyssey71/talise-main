@@ -429,7 +429,7 @@ export function decodeBagKeyVectorU8(value: unknown): string {
 // are a thin singleton wrapper around `@mysten/sui/graphql`'s `SuiGraphQLClient`
 // so new call sites can use the typed SDK surface (`gql.tada`-style documents)
 // without each one paying for client construction. Mirrors the `sui()` /
-// `suiJsonRpc()` pattern in `./sui.ts` — same network resolution, same
+// `sui()` pattern in `./sui.ts` — same network resolution, same
 // process-wide cache key (network + url) so a single
 // `NEXT_PUBLIC_SUI_NETWORK` env var keeps every client in lockstep.
 
@@ -466,7 +466,7 @@ let _gqlClientKey = "";
 /**
  * Cached `SuiGraphQLClient` for the active network. Prefer this over hand-
  * rolled `fetch` for new call sites — it integrates with `graphql` typed
- * documents and matches the singleton ergonomics of `sui()` /`suiJsonRpc()`.
+ * documents and matches the singleton ergonomics of `sui()`.
  */
 export function suiGraphQL(): SuiGraphQLClient {
   const net = network();

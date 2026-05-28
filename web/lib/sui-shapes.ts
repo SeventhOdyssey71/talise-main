@@ -8,8 +8,7 @@
  * transport-specific branches we normalize to ONE shape here.
  *
  * Sub-plans 1.4–1.7 (the four verifier sites) read from `NormalizedTransaction`
- * exclusively. They MUST NOT call `sui().getTransaction()` or
- * `suiJsonRpc().getTransactionBlock()` directly.
+ * exclusively. They MUST NOT call `sui().getTransaction()` directly.
  *
  * Consumers and the fields each reads:
  *   • /api/tx/record (1.4) — `status`, `balanceChanges[].ownerAddress`,
