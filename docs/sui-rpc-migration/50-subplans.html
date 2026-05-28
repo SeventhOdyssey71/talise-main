@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="dcterms.date" content="2026-05-28" />
+  <title>50 Subplans</title>
+  <style>
+
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+</style>
+  <style type="text/css">body { font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+max-width: 760px; margin: 40px auto; color: #1a1a1a; line-height: 1.55; font-size: 12pt; }
+h1 { font-size: 22pt; border-bottom: 2px solid #1a1a1a; padding-bottom: 6px; margin-top: 32pt; page-break-before: always; }
+h1:first-of-type { page-break-before: avoid; }
+h2 { font-size: 16pt; margin-top: 24pt; }
+h3 { font-size: 13pt; margin-top: 18pt; }
+table { border-collapse: collapse; width: 100%; margin: 12pt 0; font-size: 10.5pt; }
+th, td { border: 1px solid #cccccc; padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f4f4; font-weight: 600; }
+code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-size: 10.5pt; }
+pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 10pt; line-height: 1.4; }
+blockquote { border-left: 3px solid #999; padding-left: 12px; color: #555; }
+ul, ol { padding-left: 24px; }
+.title { font-size: 26pt; margin-bottom: 4pt; }
+.subtitle { font-size: 14pt; color: #555; margin-top: 0; }
+.author, .date { color: #777; font-size: 11pt; }
+</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">50 Subplans</h1>
+<p class="subtitle">Each Phase × 10 sub-plans, agent-ready</p>
+<p class="date">2026-05-28</p>
+</header>
+<nav id="TOC" role="doc-toc">
+
+</nav>
+<h1 id="reading-guide">Reading guide</h1>
+<p>Each sub-plan has:</p>
+<ul>
+<li><strong>ID</strong> — <code>&lt;phase&gt;.&lt;n&gt;</code>
+(e.g. <code>1.5</code>)</li>
+<li><strong>Title</strong> — single-line summary</li>
+<li><strong>Scope</strong> — what an agent should do</li>
+<li><strong>Files touched</strong> — explicit paths so agents don’t
+drift</li>
+<li><strong>Parallel-safe?</strong> — <code>PARALLEL-SAFE</code> /
+<code>SEQ-WITHIN-PHASE</code> / <code>BLOCKED-BY:&lt;id&gt;</code></li>
+<li><strong>Recommended agent count</strong> — most are 1; complex ones
+get 2 with explicit work-splits</li>
+<li><strong>Estimated effort</strong> — engineer-hours, not
+agent-wall-clock</li>
+</ul>
+<p><strong>Total realistic concurrent agents: ~6–8.</strong> Spawning
+all 50 simultaneously causes file conflicts and wasted context (see
+Appendix C in the main plan).</p>
+<h1 id="phase-0-pre-work-10-sub-plans">Phase 0 — Pre-work (10
+sub-plans)</h1>
+<h2 id="pull-sui-protobuf-files">0.1 — Pull Sui protobuf files</h2>
+<p><strong>Scope.</strong> Clone <code>github.com/MystenLabs/sui</code>
+at the tag matching <code>@mysten/sui ^2.16</code>. Copy
+<code>crates/sui-rpc-api/proto/*.proto</code> (and recursive imports)
+into the repo.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/lib/sui-proto/proto/*.proto</code>,
+<code>ios/Talise/Network/SuiProto/proto/*.proto</code> (identical copies
+for traceability).</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="vendor-protobuf-into-ios">0.2 — Vendor protobuf into iOS</h2>
+<p><strong>Scope.</strong> Run protoc with
+<code>protoc-gen-grpc-swift</code> + <code>protoc-gen-swift</code>
+against the vendored .proto from 0.1. Commit generated Swift files to
+<code>ios/Talise/Network/SuiProto/Generated/</code>.</p>
+<p><strong>Files touched.</strong> New:
+<code>ios/Talise/Network/SuiProto/Generated/*.grpc.swift</code>,
+<code>*.pb.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 0.1.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="graphql-singleton">0.3 — GraphQL singleton</h2>
+<p><strong>Scope.</strong> Add <code>web/lib/sui-graphql.ts</code>
+exporting <code>suiGraphQL()</code> cached
+<code>SuiGraphQLClient</code>. Read network from
+<code>NEXT_PUBLIC_SUI_NETWORK</code>.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/lib/sui-graphql.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="feature-flag-scaffolding">0.4 — Feature flag scaffolding</h2>
+<p><strong>Scope.</strong> Add <code>TALISE_LEGACY_JSONRPC</code> env
+var support to <code>web/lib/sui.ts</code>. When <code>=0</code>,
+JSON-RPC helpers throw at call time — used per-site to verify gRPC
+swap.</p>
+<p><strong>Files touched.</strong> <code>web/lib/sui.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE (no shared editing
+yet).</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="ci-lint-gate-against-new-json-rpc">0.5 — CI lint gate against
+new JSON-RPC</h2>
+<p><strong>Scope.</strong> Add an ESLint rule (or grep CI step) that
+fails the build if a new <code>import.*SuiJsonRpcClient</code> appears
+in a non-allowlisted file. Allowlist shrinks to zero by Phase 5.</p>
+<p><strong>Files touched.</strong> <code>web/.eslintrc.cjs</code> (or
+new lint script), <code>web/package.json</code> (test script entry).</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="integration-test-harness">0.6 — Integration test harness</h2>
+<p><strong>Scope.</strong> Set up <code>web/__tests__/sui/</code> with a
+shared <code>beforeAll</code> that initializes both <code>sui()</code>
+and <code>suiGraphQL()</code> clients pointing at mainnet read-only
+endpoints. Adds a <code>vitest</code> config that excludes these by
+default (slow) and a <code>pnpm test:integration</code> runner.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/__tests__/sui/harness.ts</code>,
+<code>web/vitest.config.ts</code> updates,
+<code>web/package.json</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1.5h.</p>
+<hr />
+<h2 id="normalizetransactionshape-helper-stub">0.7 —
+<code>normalizeTransactionShape()</code> helper stub</h2>
+<p><strong>Scope.</strong> Define the contract in
+<code>web/lib/sui-shapes.ts</code>: a TS type that both JSON-RPC and
+gRPC <code>getTransaction</code> responses map into. No implementation
+yet — just the type signature + JSDoc explaining what callers can rely
+on. Phase 1 sub-plans implement.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/lib/sui-shapes.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="engineering-doc-migration-patterns">0.8 — Engineering doc:
+migration patterns</h2>
+<p><strong>Scope.</strong> Write
+<code>docs/sui-rpc-migration/patterns.md</code> showing the canonical
+migration recipes (JSON-RPC <code>getObject</code> → gRPC
+<code>core.getObject</code> with shape diff, etc.). Reused by every
+Phase 1 agent.</p>
+<p><strong>Files touched.</strong> New:
+<code>docs/sui-rpc-migration/patterns.md</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="map-private-key-access-patterns">0.9 — Map private-key access
+patterns</h2>
+<p><strong>Scope.</strong> Audit which JSON-RPC sites currently access
+signer / private-key flows. Document any that need extra care during
+migration (e.g. the Suins-operator signing path).</p>
+<p><strong>Files touched.</strong> Output:
+<code>docs/sui-rpc-migration/key-access-audit.md</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="pull-request-template">0.10 — Pull request template</h2>
+<p><strong>Scope.</strong> Add a PR template
+<code>docs/sui-rpc-migration/pr-template.md</code> that every Phase 1+
+PR follows: site migrated, response-shape diff, test added, regression
+run.</p>
+<p><strong>Files touched.</strong> New:
+<code>docs/sui-rpc-migration/pr-template.md</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<h1 id="phase-1-backend-migration-10-sub-plans">Phase 1 — Backend
+migration (10 sub-plans)</h1>
+<h2 id="epoch-helper-apisuiepoch-apiauthmobilestart">1.1 — Epoch helper
+(<code>/api/sui/epoch</code> + <code>/api/auth/mobile/start</code>)</h2>
+<p><strong>Scope.</strong> Replace two
+<code>suiJsonRpc().getLatestSuiSystemState()</code> calls with a single
+shared helper using <code>sui()</code> (gRPC). New helper:
+<code>web/lib/sui-epoch.ts</code>.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/lib/sui-epoch.ts</code>. Modified:
+<code>web/app/api/sui/epoch/route.ts</code>,
+<code>web/app/api/auth/mobile/start/route.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="apipkstatus-balance-object">1.2 — <code>/api/pk/status</code>
+(balance + object)</h2>
+<p><strong>Scope.</strong> Migrate <code>getBalance</code> →
+<code>core.listBalances</code> and <code>getObject</code> →
+<code>core.getObject</code>. Update field-access paths.</p>
+<p><strong>Files touched.</strong>
+<code>web/app/api/pk/status/route.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="normalizetransactionshape-implementation">1.3 —
+<code>normalizeTransactionShape()</code> implementation</h2>
+<p><strong>Scope.</strong> Implement the helper stubbed in 0.7. Reads
+from either JSON-RPC <code>getTransactionBlock</code> or gRPC
+<code>core.getTransaction</code>, normalizes to a canonical TS shape
+that the four verifier sites read from. Unit tests against known mainnet
+digests.</p>
+<p><strong>Files touched.</strong> <code>web/lib/sui-shapes.ts</code>.
+Tests: <code>web/__tests__/sui/normalize-tx.test.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE. <strong>BLOCKING for
+1.4–1.7.</strong></p>
+<p><strong>Agents.</strong> 2 (one impl, one tests).
+<strong>Effort.</strong> 4h.</p>
+<hr />
+<h2 id="apitxrecord-verifier-swap">1.4 — <code>/api/tx/record</code>
+verifier swap</h2>
+<p><strong>Scope.</strong> Replace JSON-RPC
+<code>getTransactionBlock</code> with <code>core.getTransaction</code>
+going through <code>normalizeTransactionShape()</code>.</p>
+<p><strong>Files touched.</strong>
+<code>web/app/api/tx/record/route.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 1.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1.5h.</p>
+<hr />
+<h2 id="apivaultrecord-verifier-swap">1.5 —
+<code>/api/vault/record</code> verifier swap</h2>
+<p><strong>Scope.</strong> Same recipe as 1.4 for vault-side
+verification.</p>
+<p><strong>Files touched.</strong>
+<code>web/app/api/vault/record/route.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 1.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="apivaultmigrate-confirm-verifier-swap">1.6 —
+<code>/api/vault/migrate-confirm</code> verifier swap</h2>
+<p><strong>Scope.</strong> Same recipe as 1.4 for vault migration
+confirmation.</p>
+<p><strong>Files touched.</strong>
+<code>web/app/api/vault/migrate-confirm/route.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 1.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="apivaultrepoint-confirm-verifier-swap">1.7 —
+<code>/api/vault/repoint-confirm</code> verifier swap</h2>
+<p><strong>Scope.</strong> Same recipe as 1.4 for vault repoint
+confirmation.</p>
+<p><strong>Files touched.</strong>
+<code>web/app/api/vault/repoint-confirm/route.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 1.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="libactivity.ts-graphql">1.8 — <code>lib/activity.ts</code> →
+GraphQL</h2>
+<p><strong>Scope.</strong> Replace <code>queryEvents</code> +
+<code>queryTransactionBlocks</code> pair with a single GraphQL query
+that fetches both event + transaction history with Relay cursor
+pagination. Caller API stays the same.</p>
+<p><strong>Files touched.</strong> <code>web/lib/activity.ts</code>.
+Tests: <code>web/__tests__/sui/activity.test.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 2 (one for the query design + impl, one for
+the test against known mainnet history). <strong>Effort.</strong>
+4h.</p>
+<hr />
+<h2 id="apicronauto-swap-sweep-event-polling-graphql">1.9 —
+<code>/api/cron/auto-swap-sweep</code> event polling → GraphQL</h2>
+<p><strong>Scope.</strong> The 11 <code>queryEvents</code> /
+<code>queryObjects</code> calls in the cron sweeper migrate to GraphQL
+paginated queries. Largest single-file scope.</p>
+<p><strong>Files touched.</strong>
+<code>web/app/api/cron/auto-swap-sweep/route.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 2 (split by section: claim-side vs
+sweep-side). <strong>Effort.</strong> 5h.</p>
+<hr />
+<h2 id="libsuins-lookup-deepbook-margin-zkclient-suins-operator-pk-bootstrap-navi-supply-vaultstate-cluster">1.10
+—
+<code>lib/{suins-lookup, deepbook-margin, zkclient, suins-operator, pk-bootstrap, navi-supply, vault/state}</code>
+cluster</h2>
+<p><strong>Scope.</strong> Final 6 sites: each is small (1-3 lines of
+JSON-RPC), grouped into one PR. Each gets a swap to gRPC
+<code>core.*</code> methods. Most are <code>executeTransaction</code> or
+<code>listOwnedObjects</code> patterns.</p>
+<p><strong>Files touched.</strong> <code>web/lib/suins-lookup.ts</code>,
+<code>web/lib/deepbook-margin.ts</code>,
+<code>web/lib/zkclient.ts</code>,
+<code>web/lib/suins-operator.ts</code>,
+<code>web/lib/pk-bootstrap.ts</code>,
+<code>web/lib/navi-supply.ts</code>,
+<code>web/app/api/vault/state/route.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> SEQ-WITHIN-PHASE (single PR, multiple
+files).</p>
+<p><strong>Agents.</strong> 2 (split: SDK-init files vs route file).
+<strong>Effort.</strong> 4h.</p>
+<h1 id="phase-2-web-frontend-10-sub-plans">Phase 2 — Web frontend (10
+sub-plans)</h1>
+<p>Phase 2 is genuinely small. The 10-sub-plan slicing below is
+fine-grained to fit the structure, but most slots are 15-30 min
+jobs.</p>
+<h2 id="browser-side-graphql-client-setup">2.1 — Browser-side GraphQL
+client setup</h2>
+<p><strong>Scope.</strong> Add
+<code>web/components/lib/sui-graphql-client.ts</code> — separate from
+the server-side <code>lib/sui-graphql.ts</code> to keep browser bundle
+small.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/components/lib/sui-graphql-client.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="query-suins-subname-lookup">2.2 — Query: Suins subname
+lookup</h2>
+<p><strong>Scope.</strong> Write the GraphQL query string that the
+FixSubnameBanner needs (look up the user’s existing subname object).
+Validate against testnet via GraphQL playground.</p>
+<p><strong>Files touched.</strong>
+<code>web/components/FixSubnameBanner.tsx</code> (query constant).</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 2.1.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="fixsubnamebanner-json-rpc-graphql-migration">2.3 —
+FixSubnameBanner JSON-RPC → GraphQL migration</h2>
+<p><strong>Scope.</strong> Replace the <code>SuiJsonRpcClient</code> +
+JSON-RPC call with the GraphQL query from 2.2.</p>
+<p><strong>Files touched.</strong>
+<code>web/components/FixSubnameBanner.tsx</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 2.2.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="loading-error-states">2.4 — Loading + error states</h2>
+<p><strong>Scope.</strong> Make sure the GraphQL call has parity loading
++ error UX with the previous JSON-RPC version.</p>
+<p><strong>Files touched.</strong>
+<code>web/components/FixSubnameBanner.tsx</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 2.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="smoke-test-for-fixsubnamebanner">2.5 — Smoke test for
+FixSubnameBanner</h2>
+<p><strong>Scope.</strong> Playwright smoke test that mounts the banner
+on a known-broken-state account and verifies the GraphQL data fills
+in.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/__tests__/components/fix-subname-banner.test.tsx</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="type-generation-from-graphql-schema">2.6 — Type generation from
+GraphQL schema</h2>
+<p><strong>Scope.</strong> Add a <code>pnpm graphql:codegen</code>
+script that pulls types from Sui’s GraphQL schema and generates TS
+interfaces for our queries. Saves manual <code>as any</code> casts.</p>
+<p><strong>Files touched.</strong> New: <code>web/codegen.ts</code>,
+<code>web/package.json</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1.5h.</p>
+<hr />
+<h2 id="bundle-size-audit">2.7 — Bundle-size audit</h2>
+<p><strong>Scope.</strong> Run <code>pnpm build</code> before/after the
+GraphQL client adds and confirm the browser bundle didn’t bloat
+(&gt;10kB delta needs investigation).</p>
+<p><strong>Files touched.</strong> None (reporting only).</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="caching-cache-the-subname-lookup-for-60s">2.8 — Caching: cache
+the subname lookup for 60s</h2>
+<p><strong>Scope.</strong> Use the GraphQL client’s built-in cache OR a
+small SWR wrapper to avoid re-querying on every re-mount.</p>
+<p><strong>Files touched.</strong>
+<code>web/components/FixSubnameBanner.tsx</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 2.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="telemetry-tag-the-graphql-request-in-our-analytics">2.9 —
+Telemetry: tag the GraphQL request in our analytics</h2>
+<p><strong>Scope.</strong> Add a <code>transport: &quot;graphql&quot;</code> tag
+to the SubnameBanner’s analytics event so we can confirm the migration
+in production telemetry.</p>
+<p><strong>Files touched.</strong>
+<code>web/components/FixSubnameBanner.tsx</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 2.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 15m.</p>
+<hr />
+<h2 id="delete-the-json-rpc-import-from-the-file">2.10 — Delete the
+JSON-RPC import from the file</h2>
+<p><strong>Scope.</strong> Final pass: drop the
+<code>SuiJsonRpcClient</code> import line. PR diff sweep for any
+residual references.</p>
+<p><strong>Files touched.</strong>
+<code>web/components/FixSubnameBanner.tsx</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 2.3–2.9 all green.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 10m.</p>
+<h1 id="phase-3-ios-grpc-sdk-10-sub-plans">Phase 3 — iOS gRPC SDK (10
+sub-plans)</h1>
+<h2 id="add-grpc-swift-spm-dependency">3.1 — Add grpc-swift SPM
+dependency</h2>
+<p><strong>Scope.</strong> Add <code>grpc-swift</code> v2 and
+<code>swift-protobuf</code> to <code>ios/project.yml</code> packages
+section. Run <code>xcodegen</code> to regenerate
+<code>Talise.xcodeproj</code>.</p>
+<p><strong>Files touched.</strong> <code>ios/project.yml</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="toolchain-setup-protoc-plugins">3.2 — Toolchain setup (protoc +
+plugins)</h2>
+<p><strong>Scope.</strong> Write a
+<code>ios/scripts/regen-proto.sh</code> that downloads the correct
+<code>protoc-gen-grpc-swift</code> + <code>protoc-gen-swift</code>
+versions and runs them against
+<code>ios/Talise/Network/SuiProto/proto/*.proto</code>. Commit the
+script + the generated output.</p>
+<p><strong>Files touched.</strong> New:
+<code>ios/scripts/regen-proto.sh</code>,
+<code>ios/Talise/Network/SuiProto/Generated/*.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 0.1, 3.1.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 3h.</p>
+<hr />
+<h2 id="suigrpcclient.swift-skeleton">3.3 —
+<code>SuiGrpcClient.swift</code> skeleton</h2>
+<p><strong>Scope.</strong> Class skeleton with a static
+<code>shared</code> instance, internal state (channel, baseUrl,
+network), and empty method stubs for <code>getLatestEpoch</code>,
+<code>getReferenceGasPrice</code>, <code>getBalance</code>,
+<code>executeTransaction</code>.</p>
+<p><strong>Files touched.</strong> New:
+<code>ios/Talise/Network/SuiGrpcClient.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 3.2.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="getlatestepoch-implementation">3.4 —
+<code>getLatestEpoch()</code> implementation</h2>
+<p><strong>Scope.</strong> Implement using <code>LedgerService</code>
+from the generated bindings. Maps the proto epoch field to
+<code>UInt64</code>.</p>
+<p><strong>Files touched.</strong>
+<code>ios/Talise/Network/SuiGrpcClient.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 3.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="getreferencegasprice-implementation">3.5 —
+<code>getReferenceGasPrice()</code> implementation</h2>
+<p><strong>Scope.</strong> Same pattern as 3.4 for gas price. Likely
+shares a single <code>LedgerService</code> query helper.</p>
+<p><strong>Files touched.</strong>
+<code>ios/Talise/Network/SuiGrpcClient.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 3.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1.5h.</p>
+<hr />
+<h2 id="getbalanceownercointype-implementation">3.6 —
+<code>getBalance(owner:coinType:)</code> implementation</h2>
+<p><strong>Scope.</strong> Uses <code>StateService.listBalances</code>.
+Returns a typed <code>Balance</code> struct (Swift mirror of the gRPC
+response).</p>
+<p><strong>Files touched.</strong>
+<code>ios/Talise/Network/SuiGrpcClient.swift</code>, new
+<code>ios/Talise/Network/SuiTypes.swift</code> if needed.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 3.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="executetransactionbytessignatures-implementation">3.7 —
+<code>executeTransaction(bytes:signatures:)</code> implementation</h2>
+<p><strong>Scope.</strong> Uses
+<code>TransactionExecutionService.executeTransaction</code>. Returns
+digest + status. Future-proof for the day iOS does offline tx
+assembly.</p>
+<p><strong>Files touched.</strong>
+<code>ios/Talise/Network/SuiGrpcClient.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 3.3.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2.5h.</p>
+<hr />
+<h2 id="migrate-zklogincoordinator.fetchepochviamainnetrpc">3.8 —
+Migrate <code>ZkLoginCoordinator.fetchEpochViaMainnetRPC</code></h2>
+<p><strong>Scope.</strong> Replace the raw
+<code>URLSession.shared.data(for: req)</code> JSON-RPC POST with
+<code>SuiGrpcClient.shared.getLatestEpoch()</code>.</p>
+<p><strong>Files touched.</strong>
+<code>ios/Talise/Auth/ZkLoginCoordinator.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 3.4.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="unit-tests-for-suigrpcclient">3.9 — Unit tests for
+<code>SuiGrpcClient</code></h2>
+<p><strong>Scope.</strong> XCTest cases for each of the 4 methods.
+Round-trip a known mainnet object / address to confirm response
+decoding.</p>
+<p><strong>Files touched.</strong> New:
+<code>ios/TaliseTests/SuiGrpcClientTests.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 3.4–3.7.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="performance-retry-policy">3.10 — Performance + retry policy</h2>
+<p><strong>Scope.</strong> Add a retry-with-backoff for transient gRPC
+errors. Add a per-request timeout. Add a one-line latency log for
+production observability.</p>
+<p><strong>Files touched.</strong>
+<code>ios/Talise/Network/SuiGrpcClient.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 3.4–3.7.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1.5h.</p>
+<h1 id="phase-4-test-matrix-10-sub-plans">Phase 4 — Test matrix (10
+sub-plans)</h1>
+<h2 id="send-gasless.test.ts">4.1 —
+<code>send-gasless.test.ts</code></h2>
+<p><strong>Scope.</strong> Integration test that builds + submits a
+$0.01 USDsui send on testnet via the gasless path. Verifies digest,
+on-chain receipt.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/__tests__/sui/send-gasless.test.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="send-sponsored.test.ts">4.2 —
+<code>send-sponsored.test.ts</code></h2>
+<p><strong>Scope.</strong> Same but with round-up enabled (sponsored
+path). Verifies both send + supply legs.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/__tests__/sui/send-sponsored.test.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="supply.test.ts">4.3 — <code>supply.test.ts</code></h2>
+<p><strong>Scope.</strong> Integration test for
+<code>/api/earn/supply/prepare</code> + sponsor-execute. Confirms NAVI
+position appears.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/__tests__/sui/supply.test.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="withdraw.test.ts">4.4 — <code>withdraw.test.ts</code></h2>
+<p><strong>Scope.</strong> Integration test for
+<code>/api/earn/withdraw/prepare</code> + sponsor-execute. Verifies
+funds return to wallet.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/__tests__/sui/withdraw.test.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="vault-state.test.ts">4.5 — <code>vault-state.test.ts</code></h2>
+<p><strong>Scope.</strong> Integration test for
+<code>/api/vault/state</code>. Verifies balances + supplied amount via
+gRPC.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/__tests__/sui/vault-state.test.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1.5h.</p>
+<hr />
+<h2 id="activity.test.ts">4.6 — <code>activity.test.ts</code></h2>
+<p><strong>Scope.</strong> Integration test for the GraphQL-backed
+<code>lib/activity.ts</code>. Pulls a known mainnet wallet’s history and
+confirms ordering, dedup, mixed entry types.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/__tests__/sui/activity.test.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="tx-record.test.ts">4.7 — <code>tx-record.test.ts</code></h2>
+<p><strong>Scope.</strong> Integration test that the verifier in
+<code>/api/tx/record</code> correctly accepts a known mainnet digest
+after the migration.</p>
+<p><strong>Files touched.</strong> New:
+<code>web/__tests__/sui/tx-record.test.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1.5h.</p>
+<hr />
+<h2 id="ios-epoch.test">4.8 — <code>ios-epoch.test</code></h2>
+<p><strong>Scope.</strong> Swift XCTest case that hits
+<code>SuiGrpcClient.shared.getLatestEpoch()</code> and asserts the
+response is a positive <code>UInt64</code> ≥ a known floor.</p>
+<p><strong>Files touched.</strong> New:
+<code>ios/TaliseTests/SuiEpochTests.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1h.</p>
+<hr />
+<h2 id="prod-smoke-runner">4.9 — <code>prod-smoke</code> runner</h2>
+<p><strong>Scope.</strong> Bash + curl script that walks the whole
+Send→Withdraw→Supply→Activity flow on production with a $0.01 test
+amount. Hand-run before every Phase 5 deploy.</p>
+<p><strong>Files touched.</strong> New:
+<code>scripts/prod-smoke.sh</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 2h.</p>
+<hr />
+<h2 id="ci-integration">4.10 — CI integration</h2>
+<p><strong>Scope.</strong> Wire all Phase 4 tests into GitHub Actions.
+Mark integration tests as <code>manual</code> (not run on every PR — too
+slow); run them nightly + before Phase 5 deploys.</p>
+<p><strong>Files touched.</strong>
+<code>.github/workflows/*.yml</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 4.1–4.9.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 1.5h.</p>
+<h1 id="phase-5-json-rpc-removal-10-sub-plans">Phase 5 — JSON-RPC
+removal (10 sub-plans)</h1>
+<p>Phase 5 is the cleanup pass. All blocked-by the rest of the migration
+being green.</p>
+<h2 id="delete-suijsonrpc-helper">5.1 — Delete <code>suiJsonRpc()</code>
+helper</h2>
+<p><strong>Scope.</strong> Remove the export from
+<code>web/lib/sui.ts</code>.</p>
+<p><strong>Files touched.</strong> <code>web/lib/sui.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: Phase 1, 2, 3
+complete.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 15m.</p>
+<hr />
+<h2 id="drop-suijsonrpcclient-imports-in-libzkclient.ts">5.2 — Drop
+SuiJsonRpcClient imports in <code>lib/zkclient.ts</code></h2>
+<p><strong>Scope.</strong> Remove the import + ensure the file
+compiles.</p>
+<p><strong>Files touched.</strong> <code>web/lib/zkclient.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 1.10.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 15m.</p>
+<hr />
+<h2 id="drop-suijsonrpcclient-imports-in-libnavi-supply.ts">5.3 — Drop
+SuiJsonRpcClient imports in <code>lib/navi-supply.ts</code></h2>
+<p><strong>Scope.</strong> Same as 5.2.</p>
+<p><strong>Files touched.</strong>
+<code>web/lib/navi-supply.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 1.10.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 15m.</p>
+<hr />
+<h2 id="drop-suijsonrpcclient-imports-in-components">5.4 — Drop
+SuiJsonRpcClient imports in components</h2>
+<p><strong>Scope.</strong> Last call site after Phase 2:
+<code>FixSubnameBanner.tsx</code>. Remove the import line.</p>
+<p><strong>Files touched.</strong>
+<code>web/components/FixSubnameBanner.tsx</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 2.10.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 10m.</p>
+<hr />
+<h2 id="drop-mystensuijsonrpc-from-package-surface">5.5 — Drop
+<code>@mysten/sui/jsonRpc</code> from package surface</h2>
+<p><strong>Scope.</strong> Remove the package-level re-export from
+<code>web/lib/sui.ts</code> (if still present) and confirm
+<code>pnpm build</code> doesn’t pull the JSON-RPC chunk anymore. Audit
+bundle.</p>
+<p><strong>Files touched.</strong> <code>web/lib/sui.ts</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 5.1–5.4.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="remove-ios-json-rpc-fallback">5.6 — Remove iOS JSON-RPC
+fallback</h2>
+<p><strong>Scope.</strong> Delete
+<code>ZkLoginCoordinator.fetchEpochViaMainnetRPC</code> (now replaced by
+<code>SuiGrpcClient.shared.getLatestEpoch()</code> from 3.8). Drop the
+URLSession imports if no longer used.</p>
+<p><strong>Files touched.</strong>
+<code>ios/Talise/Auth/ZkLoginCoordinator.swift</code>.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 3.8.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 20m.</p>
+<hr />
+<h2 id="pr-diff-jsonrpc-sweep">5.7 — PR-diff <code>JsonRpc</code>
+sweep</h2>
+<p><strong>Scope.</strong> <code>git grep -i jsonrpc</code> should
+return zero matches outside of (a) the lint rule from 0.5 and (b)
+historical commit messages. Document this in the PR.</p>
+<p><strong>Files touched.</strong> None (verification only).</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 5.1–5.6.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="strengthen-the-ci-lint-gate">5.8 — Strengthen the CI lint
+gate</h2>
+<p><strong>Scope.</strong> The lint rule from 0.5 was an allowlist of
+files that COULD import <code>SuiJsonRpcClient</code>. Flip it to a
+deny-list (zero files allowed). CI fails any new JSON-RPC import.</p>
+<p><strong>Files touched.</strong> <code>web/.eslintrc.cjs</code> or
+wherever 0.5 placed the rule.</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 5.7.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="update-architectural-docs">5.9 — Update architectural docs</h2>
+<p><strong>Scope.</strong> Update <code>CLAUDE.md</code> and
+<code>docs/architecture/</code> (if present) to state the gRPC-primary
+stance. Drop any “JSON-RPC fallback” language.</p>
+<p><strong>Files touched.</strong> <code>CLAUDE.md</code>,
+<code>docs/architecture/*.md</code>.</p>
+<p><strong>Parallel-safe?</strong> PARALLEL-SAFE.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m.</p>
+<hr />
+<h2 id="final-regression-run">5.10 — Final regression run</h2>
+<p><strong>Scope.</strong> Trigger <code>prod-smoke.sh</code> (4.9)
+end-to-end. If green, ship Phase 5. Tag the release.</p>
+<p><strong>Files touched.</strong> None (run only).</p>
+<p><strong>Parallel-safe?</strong> BLOCKED-BY: 5.1–5.9.</p>
+<p><strong>Agents.</strong> 1. <strong>Effort.</strong> 30m + bake
+time.</p>
+<h1 id="total-concurrency-table">Total + concurrency table</h1>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Sub-plans</th>
+<th>Total effort (h)</th>
+<th>Max concurrent agents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0. Pre-work</td>
+<td>10</td>
+<td>~10</td>
+<td>4</td>
+</tr>
+<tr>
+<td>1. Backend</td>
+<td>10</td>
+<td>~28</td>
+<td>4 (limited by 1.3 blocking)</td>
+</tr>
+<tr>
+<td>2. Web frontend</td>
+<td>10</td>
+<td>~7</td>
+<td>2</td>
+</tr>
+<tr>
+<td>3. iOS SDK</td>
+<td>10</td>
+<td>~20</td>
+<td>2 (limited by sequential 3.2 → 3.3)</td>
+</tr>
+<tr>
+<td>4. Test matrix</td>
+<td>10</td>
+<td>~16</td>
+<td>6</td>
+</tr>
+<tr>
+<td>5. JSON-RPC removal</td>
+<td>10</td>
+<td>~5</td>
+<td>2</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>50</strong></td>
+<td><strong>~86 h ≈ 11 engineer-days</strong></td>
+<td><strong>~6–8 realistic</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Note: the 11-day total above is sub-plan-level. The 7.5-day
+plan-level estimate assumes parallelism within each phase. Both numbers
+are the same project, sliced differently.</p>
+<hr />
+<h1 id="recommended-pilot-cohort-start-here">Recommended pilot cohort
+(start here)</h1>
+<p>If you want to kick off agent work tonight, the most independent +
+lowest-conflict sub-plans:</p>
+<ol type="1">
+<li><strong>0.1</strong> — Pull protobuf</li>
+<li><strong>0.3</strong> — GraphQL singleton
+(<code>lib/sui-graphql.ts</code>)</li>
+<li><strong>0.5</strong> — CI lint gate</li>
+<li><strong>0.6</strong> — Integration test harness</li>
+<li><strong>0.8</strong> — Engineering doc: migration patterns</li>
+<li><strong>0.10</strong> — PR template</li>
+</ol>
+<p>Six agents, all writing new files (no contention), all completable in
+1–2 hours each. After this cohort lands, Phase 1 can start with most of
+its prerequisites in place.</p>
+</body>
+</html>

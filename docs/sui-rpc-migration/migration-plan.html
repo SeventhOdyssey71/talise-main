@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Talise Engineering" />
+  <meta name="dcterms.date" content="2026-05-28" />
+  <title>Sui RPC Migration Plan</title>
+  <style>
+
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+  <style type="text/css">body { font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+max-width: 760px; margin: 40px auto; color: #1a1a1a; line-height: 1.55; font-size: 12pt; }
+h1 { font-size: 22pt; border-bottom: 2px solid #1a1a1a; padding-bottom: 6px; margin-top: 32pt; page-break-before: always; }
+h1:first-of-type { page-break-before: avoid; }
+h2 { font-size: 16pt; margin-top: 24pt; }
+h3 { font-size: 13pt; margin-top: 18pt; }
+table { border-collapse: collapse; width: 100%; margin: 12pt 0; font-size: 10.5pt; }
+th, td { border: 1px solid #cccccc; padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: #f4f4f4; font-weight: 600; }
+code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-size: 10.5pt; }
+pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 10pt; line-height: 1.4; }
+blockquote { border-left: 3px solid #999; padding-left: 12px; color: #555; }
+ul, ol { padding-left: 24px; }
+.title { font-size: 26pt; margin-bottom: 4pt; }
+.subtitle { font-size: 14pt; color: #555; margin-top: 0; }
+.author, .date { color: #777; font-size: 11pt; }
+</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Sui RPC Migration Plan</h1>
+<p class="subtitle">Full migration off JSON-RPC, onto gRPC (primary) +
+GraphQL (paginated reads)</p>
+<p class="author">Talise Engineering</p>
+<p class="date">2026-05-28</p>
+</header>
+<nav id="TOC" role="doc-toc">
+
+</nav>
+<h1 id="executive-summary">Executive summary</h1>
+<p>Talise’s Sui RPC surface is <strong>35 gRPC sites + 17 JSON-RPC sites
++ 1 iOS direct JSON-RPC fallback + 1 web-frontend JSON-RPC site = 54
+call sites total</strong>. All five <strong>hot paths</strong> (per-send
+/ per-request) already use gRPC; the JSON-RPC sites are intentional
+fallbacks for endpoints whose response shape isn’t available on
+gRPC.</p>
+<p>This document is the plan to:</p>
+<ol type="1">
+<li>Migrate every backend JSON-RPC call to <strong>gRPC</strong> (point
+reads, executions, lookups) or <strong>GraphQL</strong> (paginated
+history, multi-entity reads).</li>
+<li>Build a native <strong>iOS gRPC SDK</strong> so the app no longer
+needs a JSON-RPC fallback.</li>
+<li>Move the single web-frontend JSON-RPC site to GraphQL.</li>
+<li>Delete the JSON-RPC client entirely and add a CI gate against its
+return.</li>
+<li>Cover every migrated site with an integration test.</li>
+</ol>
+<p><strong>Total estimated effort:</strong> ~7.5 engineer-days, broken
+into 5 phases, broken into 50 sub-plans across the phases.</p>
+<h1 id="architecture-decision">Architecture decision</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Transport</th>
+<th>Use for</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>gRPC</strong></td>
+<td>Point reads, tx execution, simulation, Suins lookup, <strong>all hot
+paths</strong></td>
+<td>Lowest latency, typed contracts, native streaming via
+<code>subscribeEvents</code></td>
+</tr>
+<tr>
+<td><strong>GraphQL</strong></td>
+<td>Activity feed, multi-entity profile reads, paginated history</td>
+<td>Cursor pagination, multi-entity joins in one round-trip</td>
+</tr>
+<tr>
+<td><strong>JSON-RPC</strong></td>
+<td>❌ Removed</td>
+<td>Legacy; both gRPC and GraphQL cover the surface we need</td>
+</tr>
+</tbody>
+</table>
+<p>The current <code>lib/sui.ts</code> exports a <code>sui()</code>
+returning <code>SuiGrpcClient</code> and a <code>suiJsonRpc()</code>
+returning <code>SuiJsonRpcClient</code>. After migration, only
+<code>sui()</code> and <code>suiGraphQL()</code> survive.</p>
+<h1 id="endpoint-inventory">Endpoint inventory</h1>
+<h2 id="mainnet">Mainnet</h2>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Transport</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>gRPC</td>
+<td><code>https://fullnode.mainnet.sui.io:443</code></td>
+</tr>
+<tr>
+<td>GraphQL</td>
+<td><code>https://graphql.mainnet.sui.io/graphql</code></td>
+</tr>
+<tr>
+<td>Archival gRPC</td>
+<td><code>archive.mainnet.sui.io:443</code> (only when historical
+retention exceeds fullnode pruning window)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="testnet">Testnet</h2>
+<table>
+<thead>
+<tr>
+<th>Transport</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>gRPC</td>
+<td><code>https://fullnode.testnet.sui.io:443</code></td>
+</tr>
+<tr>
+<td>GraphQL</td>
+<td><code>https://graphql.testnet.sui.io/graphql</code></td>
+</tr>
+</tbody>
+</table>
+<p>Production warning: public endpoints are rate-limited. Before Phase 4
+deploys, we need either a self-hosted Sui full node or a provider
+endpoint.</p>
+<h1 id="phase-0-pre-work-½-day">Phase 0 — Pre-work (½ day)</h1>
+<p>Before any migration code lands.</p>
+<ol type="1">
+<li><strong>Protobuf vendoring.</strong> Pull
+<code>crates/sui-rpc-api/proto/*.proto</code> from
+<code>MystenLabs/sui</code> at the version matching our
+<code>@mysten/sui</code> package (currently <code>^2.16</code>). Vendor
+into <code>ios/Talise/Network/SuiProto/proto/</code> and
+<code>web/lib/sui-proto/</code> for traceability.</li>
+<li><strong>GraphQL singleton.</strong> Add
+<code>lib/sui-graphql.ts</code> exporting a <code>suiGraphQL()</code>
+helper that returns a cached <code>SuiGraphQLClient</code> for the
+current network.</li>
+<li><strong>Feature flag scaffold.</strong> Add
+<code>TALISE_LEGACY_JSONRPC</code> env var (default <code>1</code>
+during migration, flip to <code>0</code> per-site as each is verified).
+Lets us mid-migrate safely.</li>
+<li><strong>CI gate.</strong> Add a lint rule that fails CI if any new
+<code>import.*SuiJsonRpcClient</code> appears outside of files in the
+explicit allow-list (which shrinks to zero by Phase 5).</li>
+<li><strong>Integration-test scaffolding.</strong> Spin up a
+<code>web/__tests__/sui/</code> folder with a shared harness for hitting
+mainnet endpoints with read-only operations.</li>
+</ol>
+<h1 id="phase-1-backend-17-json-rpc-sites-grpc-graphql-2-days">Phase 1 —
+Backend: 17 JSON-RPC sites → gRPC / GraphQL (2 days)</h1>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>#</th>
+<th>Site</th>
+<th>Current method</th>
+<th>Migrate to</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>/api/sui/epoch</code></td>
+<td><code>getLatestSuiSystemState</code></td>
+<td>gRPC (epoch via <code>LedgerService</code>)</td>
+<td>Shared helper for #2</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>/api/auth/mobile/start</code></td>
+<td><code>getLatestSuiSystemState</code></td>
+<td>Same shared helper</td>
+<td></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>/api/pk/status</code></td>
+<td><code>getBalance</code></td>
+<td>gRPC <code>core.listBalances</code></td>
+<td>Response shape changes — update reader</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>/api/pk/status</code></td>
+<td><code>getObject</code></td>
+<td>gRPC <code>core.getObject</code></td>
+<td>Same</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>/api/tx/record</code></td>
+<td><code>getTransactionBlock</code></td>
+<td>gRPC <code>core.getTransaction</code></td>
+<td><strong>Largest scope</strong>: verifier code rewrite</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>/api/vault/record</code></td>
+<td><code>getTransactionBlock</code></td>
+<td>Same verifier helper as #5</td>
+<td></td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>/api/vault/migrate-confirm</code></td>
+<td><code>getTransactionBlock</code></td>
+<td>Same</td>
+<td></td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>/api/vault/repoint-confirm</code></td>
+<td><code>getTransactionBlock</code></td>
+<td>Same</td>
+<td></td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>/api/cron/auto-swap-sweep</code> event polling</td>
+<td><code>queryEvents</code> paginated</td>
+<td><strong>GraphQL</strong> — Relay cursor</td>
+<td>gRPC has subscriptions only, no cursor query</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>/api/vault/state</code> Bag reads</td>
+<td><code>getObject({showContent})</code></td>
+<td>gRPC <code>core.getObject({include:{content:true}})</code></td>
+<td>Bag is under <code>content.json</code></td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>lib/activity.ts</code></td>
+<td><code>queryEvents</code> + <code>queryTransactionBlocks</code></td>
+<td><strong>GraphQL</strong></td>
+<td>Single query replaces 2-3 round-trips</td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>lib/suins-lookup.ts</code> (handle)</td>
+<td><code>getOwnedObjects</code> paginated</td>
+<td>gRPC <code>core.listOwnedObjects</code></td>
+<td>Cursor pagination on list ops</td>
+</tr>
+<tr>
+<td>13</td>
+<td><code>lib/suins-lookup.ts</code> (subname)</td>
+<td><code>getOwnedObjects</code></td>
+<td>gRPC <code>core.listOwnedObjects</code></td>
+<td></td>
+</tr>
+<tr>
+<td>14</td>
+<td><code>lib/deepbook-margin.ts</code></td>
+<td><code>getOwnedObjects</code></td>
+<td>gRPC <code>core.listOwnedObjects</code></td>
+<td></td>
+</tr>
+<tr>
+<td>15</td>
+<td><code>lib/zkclient.ts</code></td>
+<td><code>executeTransactionBlock</code></td>
+<td>gRPC <code>core.executeTransaction</code></td>
+<td></td>
+</tr>
+<tr>
+<td>16</td>
+<td><code>lib/zkclient.ts</code></td>
+<td><code>getCoins</code></td>
+<td>gRPC <code>core.listCoins</code></td>
+<td></td>
+</tr>
+<tr>
+<td>17</td>
+<td><code>lib/suins-operator.ts</code></td>
+<td><code>executeTransactionBlock</code></td>
+<td>gRPC <code>core.executeTransaction</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Top risk.</strong> <code>getTransaction</code> response shape
+on gRPC differs from JSON-RPC. The verifier in
+<code>/api/tx/record</code> reads <code>transaction.data.sender</code> +
+<code>effects.status</code> (JSON-RPC paths). Mitigation: write a
+<code>normalizeTransactionShape()</code> helper that maps either source
+into a shared TS type, so the verifier doesn’t care which transport was
+used.</p>
+<p><strong>Test gate.</strong> Each migrated site gets an integration
+test against mainnet read data + an existing-flow regression run.</p>
+<h1 id="phase-2-web-frontend-½-day">Phase 2 — Web frontend (½ day)</h1>
+<p>The web frontend has exactly one direct Sui call:
+<code>web/components/FixSubnameBanner.tsx</code> (Suins subname repair
+flow). Migrate it to GraphQL via <code>@mysten/sui/graphql</code>:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode ts"><code class="sourceCode typescript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> client <span class="op">=</span> <span class="kw">new</span> <span class="fu">SuiGraphQLClient</span>({</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  network<span class="op">:</span> <span class="st">&quot;mainnet&quot;</span><span class="op">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  url<span class="op">:</span> <span class="st">&quot;https://graphql.mainnet.sui.io/graphql&quot;</span><span class="op">,</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> data <span class="op">=</span> <span class="cf">await</span> client<span class="op">.</span><span class="fu">query</span>({</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  query<span class="op">:</span> <span class="fu">graphql</span>(<span class="vs">`query { ... }`</span>)<span class="op">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  variables<span class="op">:</span> { <span class="op">...</span> }<span class="op">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>Everything else in the web app is server-side and covered by Phase
+1.</p>
+<h1 id="phase-3-ios-grpc-sdk-3-days-new">Phase 3 — iOS gRPC SDK (3 days)
+— NEW</h1>
+<p>The biggest single piece of work. iOS currently has one direct Sui
+call (<code>ZkLoginCoordinator.fetchEpochViaMainnetRPC</code>, raw
+JSON-RPC POST). To remove JSON-RPC from iOS, we build a thin Swift gRPC
+client over Apple’s <code>grpc-swift</code> v2 + Sui’s protobuf
+definitions.</p>
+<p><strong>Steps:</strong></p>
+<ol type="1">
+<li><p><strong>Swift Package dependencies.</strong> Add to
+<code>ios/project.yml</code>:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packages</span><span class="kw">:</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">GRPC</span><span class="kw">:</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">url</span><span class="kw">:</span><span class="at"> https://github.com/grpc/grpc-swift</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">majorVersion</span><span class="kw">:</span><span class="at"> </span><span class="fl">2.0.0</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">SwiftProtobuf</span><span class="kw">:</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">url</span><span class="kw">:</span><span class="at"> https://github.com/apple/swift-protobuf</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">majorVersion</span><span class="kw">:</span><span class="at"> </span><span class="fl">1.0.0</span></span></code></pre></div></li>
+<li><p><strong>Generate Swift bindings.</strong> From the .proto files
+vendored in Phase 0:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">protoc</span> <span class="dt">\</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--plugin</span><span class="op">=</span>protoc-gen-grpc-swift <span class="dt">\</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--plugin</span><span class="op">=</span>protoc-gen-swift <span class="dt">\</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--grpc-swift_out</span><span class="op">=</span>ios/Talise/Network/SuiProto/Generated <span class="dt">\</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">--swift_out</span><span class="op">=</span>ios/Talise/Network/SuiProto/Generated <span class="dt">\</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  ios/Talise/Network/SuiProto/proto/<span class="pp">*</span>.proto</span></code></pre></div>
+<p>Generated files are committed to the repo so iOS builds don’t require
+<code>protoc</code> locally.</p></li>
+<li><p><strong>Build <code>SuiGrpcClient.swift</code>.</strong> A Swift
+class that mirrors the subset of methods iOS needs:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode swift"><code class="sourceCode swift"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="at">@MainActor</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">final</span> <span class="kw">class</span> SuiGrpcClient <span class="op">{</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">static</span> <span class="kw">let</span> <span class="va">shared</span> <span class="op">=</span> SuiGrpcClient<span class="op">(</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>        baseUrl<span class="op">:</span> <span class="st">&quot;https://fullnode.mainnet.sui.io:443&quot;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="op">)</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">func</span> <span class="fu">getLatestEpoch</span><span class="op">()</span> <span class="fu">async</span> <span class="kw">throws</span> -&gt; <span class="fu">UInt64</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">func</span> <span class="fu">getReferenceGasPrice</span><span class="op">()</span> <span class="fu">async</span> <span class="kw">throws</span> -&gt; <span class="fu">UInt64</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">func</span> <span class="fu">getBalance</span><span class="op">(</span><span class="va">owner</span><span class="op">:</span> <span class="dt">String</span><span class="op">,</span> <span class="va">coinType</span><span class="op">:</span> <span class="dt">String</span><span class="op">)</span> <span class="fu">async</span> <span class="kw">throws</span> -&gt; <span class="fu">Balance</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">func</span> <span class="fu">executeTransaction</span><span class="op">(</span><span class="va">bytes</span><span class="op">:</span> <span class="dt">Data</span><span class="op">,</span> <span class="va">signatures</span><span class="op">:</span> [<span class="dt">String</span>]<span class="op">)</span> <span class="fu">async</span> <span class="kw">throws</span> -&gt; <span class="fu">TxResult</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>We only expose the 4 methods iOS calls today + the 1 we want to
+switch to (<code>getLatestEpoch</code>). The class can grow as iOS picks
+up more direct Sui usage (offline tx assembly, wallet adapter,
+etc.).</p></li>
+<li><p><strong>Migrate the single existing iOS direct call.</strong>
+<code>ZkLoginCoordinator.fetchEpochViaMainnetRPC</code> (line 471-489)
+is replaced by <code>SuiGrpcClient.shared.getLatestEpoch()</code>. The
+<code>URLSession.shared.data(for: req)</code> raw POST
+disappears.</p></li>
+<li><p><strong>Unit tests.</strong> XCTest cases for each method that
+round-trip a known-good mainnet object.</p></li>
+</ol>
+<p><strong>Risks.</strong></p>
+<ul>
+<li>grpc-swift v2 is recent; learning curve on Swift concurrency +
+grpc-web transport</li>
+<li>Protobuf code generation needs consistent plugin versions across our
+laptops and CI; commit generated code to side-step this</li>
+<li>The Sui gRPC server uses Connect gRPC over HTTP/2 — make sure the
+iOS networking stack handles ALPN correctly</li>
+</ul>
+<p><strong>Mitigation.</strong> Scope the iOS SDK to 4 methods total.
+Generated code is checked in. Failing fast on any protobuf field-naming
+mismatch via unit tests.</p>
+<h1 id="phase-4-test-matrix-1-day">Phase 4 — Test matrix (1 day)</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Test</th>
+<th>Surface</th>
+<th>Pass criteria</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>send-gasless.test.ts</code></td>
+<td><code>/api/send/sponsor-prepare</code> +
+<code>/api/send/gasless-submit</code></td>
+<td>Digest returned, on-chain receipt visible</td>
+</tr>
+<tr>
+<td><code>send-sponsored.test.ts</code></td>
+<td><code>/api/send/sponsor-prepare</code> (round-up on) +
+<code>/api/zk/sponsor-execute</code></td>
+<td>Send + supply leg confirmed</td>
+</tr>
+<tr>
+<td><code>supply.test.ts</code></td>
+<td><code>/api/earn/supply/prepare</code> + sponsor-execute</td>
+<td>NAVI position visible</td>
+</tr>
+<tr>
+<td><code>withdraw.test.ts</code></td>
+<td><code>/api/earn/withdraw/prepare</code> + sponsor-execute</td>
+<td>Funds back in wallet</td>
+</tr>
+<tr>
+<td><code>vault-state.test.ts</code></td>
+<td><code>/api/vault/state</code></td>
+<td>Returns balances + supplied amount</td>
+</tr>
+<tr>
+<td><code>activity.test.ts</code></td>
+<td><code>lib/activity.ts</code> via GraphQL</td>
+<td>Feed renders mixed entries correctly</td>
+</tr>
+<tr>
+<td><code>tx-record.test.ts</code></td>
+<td><code>/api/tx/record</code> verifier</td>
+<td>Verifies a known mainnet digest</td>
+</tr>
+<tr>
+<td><code>ios-epoch.test</code></td>
+<td>Swift unit test on <code>SuiGrpcClient.getLatestEpoch</code></td>
+<td>Returns epoch ≥ current</td>
+</tr>
+<tr>
+<td><code>prod-smoke</code></td>
+<td>$0.01 USDsui send on prod</td>
+<td>Send → Withdraw → Supply → Activity all green</td>
+</tr>
+</tbody>
+</table>
+<h1 id="phase-5-json-rpc-removal-½-day">Phase 5 — JSON-RPC removal (½
+day)</h1>
+<p>Final cleanup, gated on Phases 1-4 green.</p>
+<ul>
+<li>Delete <code>suiJsonRpc()</code> from <code>lib/sui.ts</code></li>
+<li>Drop <code>SuiJsonRpcClient</code> imports from
+<code>lib/zkclient.ts</code>, <code>lib/navi-supply.ts</code>,
+<code>components/FixSubnameBanner.tsx</code></li>
+<li>Drop <code>@mysten/sui/jsonRpc</code> import surface</li>
+<li>Remove iOS’s <code>fetchEpochViaMainnetRPC</code> (replaced by
+<code>SuiGrpcClient.shared.getLatestEpoch()</code> in Phase 3)</li>
+<li>Final PR diff sweep: zero matches for <code>JsonRpc</code> outside
+of the deprecation comment in CI lint</li>
+<li>Update <code>CLAUDE.md</code> and <code>docs/architecture/</code> to
+reflect gRPC-primary stance</li>
+</ul>
+<h1 id="cost-ordering">Cost + ordering</h1>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Days</th>
+<th>Blocks</th>
+<th>Parallelism with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0. Pre-work</td>
+<td>0.5</td>
+<td>—</td>
+<td>Independent — kickoff</td>
+</tr>
+<tr>
+<td>1. Backend gRPC + GraphQL</td>
+<td>2</td>
+<td>0</td>
+<td>Internal parallel by call-site cluster</td>
+</tr>
+<tr>
+<td>2. Web FixSubnameBanner</td>
+<td>0.5</td>
+<td>0</td>
+<td>Phase 1 + Phase 3 (fully independent)</td>
+</tr>
+<tr>
+<td>3. iOS gRPC SDK</td>
+<td>3</td>
+<td>0</td>
+<td>Phase 1 + Phase 2 (independent)</td>
+</tr>
+<tr>
+<td>4. Test matrix</td>
+<td>1</td>
+<td>Phase 1 + 3</td>
+<td>Tests can be drafted alongside</td>
+</tr>
+<tr>
+<td>5. JSON-RPC removal</td>
+<td>0.5</td>
+<td>All</td>
+<td>Sequential, last</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>~7.5 days</strong></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h1 id="pre-conditions-for-execution">Pre-conditions for execution</h1>
+<p>Before starting Phase 1:</p>
+<ol type="1">
+<li><strong>Approve scope.</strong> Confirm 7.5 days is acceptable, or
+tell me which phases to defer.</li>
+<li><strong>Self-hosted full node decision.</strong> Public endpoints
+rate-limit; production needs either Mysten’s paid endpoint or a
+self-hosted fullnode. Decide before Phase 4 deploys.</li>
+<li><strong><code>executeTransaction</code> transport.</strong>
+Currently gRPC. GraphQL also has it via mutation. Recommend staying on
+gRPC for hot path (lower latency, no read-after-write nested scope
+needed).</li>
+<li><strong>Ordering.</strong> Phase 1 (backend) and Phase 3 (iOS SDK)
+are independent — they can start in parallel. Phase 1 gives the bigger
+immediate code-quality win; Phase 3 unlocks future offline iOS
+features.</li>
+</ol>
+<h1 id="appendix-a-json-rpc-grpc-method-map">Appendix A — JSON-RPC →
+gRPC method map</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>JSON-RPC</th>
+<th>gRPC equivalent</th>
+<th>Available?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>suix_getBalance</code></td>
+<td><code>core.listBalances</code></td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>suix_getCoins</code></td>
+<td><code>core.listCoins</code> (with cursor)</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>sui_getObject</code></td>
+<td><code>core.getObject</code> (with <code>include</code> flags)</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>sui_multiGetObjects</code></td>
+<td><code>core.getObjects</code></td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>sui_getTransactionBlock</code></td>
+<td><code>core.getTransaction</code></td>
+<td>✓ (different shape)</td>
+</tr>
+<tr>
+<td><code>sui_executeTransactionBlock</code></td>
+<td><code>core.executeTransaction</code></td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>sui_dryRunTransactionBlock</code></td>
+<td><code>core.simulateTransaction</code></td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>suix_queryEvents</code></td>
+<td><code>subscriptionService.subscribeEvents</code> (streaming)</td>
+<td>Streaming only; historical → GraphQL</td>
+</tr>
+<tr>
+<td><code>suix_queryTransactionBlocks</code></td>
+<td>n/a (no cursor on gRPC)</td>
+<td>GraphQL only</td>
+</tr>
+<tr>
+<td><code>suix_getOwnedObjects</code></td>
+<td><code>core.listOwnedObjects</code> (with cursor + filter)</td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>sui_getLatestSuiSystemState</code></td>
+<td>gRPC <code>LedgerService</code> epoch helper</td>
+<td>✓ (different shape)</td>
+</tr>
+<tr>
+<td><code>suix_resolveNameServiceAddress</code></td>
+<td><code>nameService.forwardLookupName</code></td>
+<td>✓</td>
+</tr>
+<tr>
+<td><code>suix_resolveNameServiceNames</code></td>
+<td><code>nameService.reverseLookupName</code></td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<h1 id="appendix-b-endpoint-contention-rate-limits">Appendix B —
+Endpoint contention + rate limits</h1>
+<p>Public Sui endpoints (<code>fullnode.*.sui.io</code>,
+<code>graphql.*.sui.io</code>) return <code>RESOURCE_EXHAUSTED</code>
+(gRPC) or <code>429</code> (GraphQL) under load. For production:</p>
+<ul>
+<li>Use Mysten’s paid endpoints (Sui Foundation), OR</li>
+<li>Self-host a full node + GraphQL service (operationally heavier but
+no rate limit)</li>
+</ul>
+<p>Decision is needed before Phase 4 ships to production. For Phase 1-3
+development against mainnet, public endpoints are fine.</p>
+<h1 id="appendix-c-parallelism-caveat">Appendix C — Parallelism
+caveat</h1>
+<p>This plan is broken into 50 sub-plans (separate document).
+<strong>Realistic max concurrent agents is ~6–8</strong>, not 50.
+Reasons:</p>
+<ul>
+<li>File contention: many sub-plans modify <code>lib/sui.ts</code>,
+<code>lib/activity.ts</code>, or <code>ZkLoginCoordinator.swift</code>.
+Agents stepping on each other will produce merge conflicts.</li>
+<li>Sequential dependencies: Phase 3’s Swift bindings must finish before
+any iOS sub-plan can use them; the <code>getTransaction</code> verifier
+rewrite must finish before the four <code>/api/vault/*</code> migration
+sub-plans land.</li>
+<li>Shape alignment: all sub-plans touching the same response-shape
+change must agree on the same normalized type.</li>
+</ul>
+<p>The 50-sub-plan document tags each sub-plan as
+<strong>PARALLEL-SAFE</strong>,
+<strong>SEQUENTIAL-WITHIN-PHASE</strong>, or
+<strong>BLOCKED-BY-OTHER</strong>. Spawn agents accordingly.</p>
+</body>
+</html>
