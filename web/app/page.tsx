@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
 import { SignInButton } from "@/components/SignInButton";
+import { Reveal } from "@/components/Reveal";
 // LandingMotion removed — page is short enough now (Hero + FeatureGrid
 // + FinalCta) that the GSAP scroll-trigger layer is more distraction
 // than affordance.
@@ -56,6 +57,9 @@ export default async function Landing({
       <main className="relative z-10 mx-auto w-full max-w-[1440px] px-6 pb-32 md:px-12 lg:px-16">
         <Hero err={params.err} />
         <FeatureGrid />
+        <WhoItsFor />
+        <SecuritySection />
+        <ByTheNumbers />
         <FinalCta />
       </main>
 
@@ -120,14 +124,17 @@ function Hero({ err }: { err?: string }) {
           stack; on sm+ they sit side by side. */}
       <div
         id="cta"
-        className="motion-cta mx-auto mt-9 flex flex-col items-center gap-2 sm:flex-row sm:justify-center"
+        className="motion-cta mx-auto mt-9 flex w-full max-w-[280px] flex-col items-stretch gap-2 sm:max-w-none sm:flex-row sm:items-center sm:justify-center"
       >
         {/* Talise is in private beta — every Get started/Sign up CTA
             routes to the waitlist, not Google sign-in. When we
-            flip the doors open this swaps back to SignInButton. */}
+            flip the doors open this swaps back to SignInButton.
+            w-full + items-stretch on mobile so the two CTAs are
+            visually paired (same width); auto-width on sm+ keeps
+            them content-sized side by side. */}
         <Link
           href="/waitlist"
-          className="inline-flex h-10 items-center justify-center rounded-full bg-white px-6 text-[14px] font-medium text-black transition-opacity hover:opacity-90"
+          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-white px-6 text-[14px] font-medium text-black transition-opacity hover:opacity-90 sm:w-auto"
         >
           Join waitlist
         </Link>
@@ -165,7 +172,7 @@ function AppStoreButton() {
     <div
       role="img"
       aria-label="iOS app coming soon"
-      className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white/[0.04] px-6 text-[14px] font-medium text-[var(--color-fg-muted)] ring-1 ring-[var(--color-line)] cursor-not-allowed select-none"
+      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full bg-white/[0.04] px-6 text-[14px] font-medium text-[var(--color-fg-muted)] ring-1 ring-[var(--color-line)] cursor-not-allowed select-none sm:w-auto"
     >
       <AppleGlyph />
       <span>iOS · Coming soon</span>
@@ -270,6 +277,197 @@ function FeatureGrid() {
               {it.body}
             </p>
           </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Section: Who it's for. Three short paragraphs aimed at the diaspora
+ * audience that the rest of the page already speaks to. Eyebrow + serif
+ * accent on the headline mirrors the FeatureGrid rhythm directly above.
+ * Each paragraph is wrapped in <Reveal> so they cascade in on scroll
+ * (60ms stagger via the delay prop).
+ */
+function WhoItsFor() {
+  return (
+    <section id="who" className="mt-28 border-t border-[var(--color-line)] pt-20">
+      <Reveal>
+        <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+          who it&apos;s for
+        </div>
+      </Reveal>
+      <Reveal delay={0.06}>
+        <h2 className="mt-3 max-w-[820px] text-[clamp(28px,4.5vw,46px)] font-medium leading-[1.08] tracking-[-0.01em]">
+          Made for the people moving money{" "}
+          <span
+            className="text-[var(--color-accent)]"
+            style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
+          >
+            across the world.
+          </span>
+        </h2>
+      </Reveal>
+
+      <div className="mt-10 grid max-w-[1100px] gap-8 md:grid-cols-3 md:gap-10">
+        <Reveal delay={0.12}>
+          <p className="text-[14px] leading-[1.65] text-[var(--color-fg-muted)]">
+            For the diaspora sending part of every paycheck to family in Lagos,
+            Manila, or Accra. The corridor is the whole product. We optimize
+            for the receiver getting cash in their hand on the same day, not
+            three business days later.
+          </p>
+        </Reveal>
+        <Reveal delay={0.18}>
+          <p className="text-[14px] leading-[1.65] text-[var(--color-fg-muted)]">
+            For anyone tired of SWIFT taking days and eating five or six
+            percent on the way. Talise rides Sui&apos;s settlement, not a chain
+            of correspondent banks, so the same transfer arrives in seconds and
+            costs nothing.
+          </p>
+        </Reveal>
+        <Reveal delay={0.24}>
+          <p className="text-[14px] leading-[1.65] text-[var(--color-fg-muted)]">
+            For anyone who wants idle savings to actually compound. The dollar
+            sitting in your checking account earns nothing. The same dollar on
+            Talise earns a live lending yield, in real time, with no lockup and
+            no minimum.
+          </p>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Section: Security. Three short cards explaining zkLogin, sponsored gas,
+ * and App Attest in plain language. No "military-grade" claims; the
+ * point is just to tell a curious user how the thing works.
+ */
+function SecuritySection() {
+  const items: Array<{ eyebrow: string; title: string; body: string }> = [
+    {
+      eyebrow: "zklogin",
+      title: "Sign in with Google. No seed phrase.",
+      body:
+        "Your wallet is derived from your Google account through a zero-knowledge proof. There's nothing to write down, nothing to lose. If you switch phones, you sign in again and the same wallet comes back.",
+    },
+    {
+      eyebrow: "sponsored gas",
+      title: "Talise pays the chain fee.",
+      body:
+        "You never need to hold SUI to send USDsui. Every transaction is sponsored from a Talise gas pool, so the fee on the user side is zero, and you see one number when you send: the amount that lands.",
+    },
+    {
+      eyebrow: "app attest",
+      title: "Only a real Talise app can call us.",
+      body:
+        "The wallet only talks to the Talise backend from a genuine, unmodified Talise iOS app on a real iPhone, verified by Apple App Attest. Replicas, sideloaded clones, and scripts get rejected at the door.",
+    },
+  ];
+
+  return (
+    <section id="security" className="mt-28 border-t border-[var(--color-line)] pt-20">
+      <Reveal>
+        <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+          security
+        </div>
+      </Reveal>
+      <Reveal delay={0.06}>
+        <h2 className="mt-3 max-w-[820px] text-[clamp(28px,4.5vw,46px)] font-medium leading-[1.08] tracking-[-0.01em]">
+          No seed phrases.{" "}
+          <span
+            className="text-[var(--color-fg-muted)]"
+            style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
+          >
+            No keys to lose.
+          </span>
+        </h2>
+      </Reveal>
+
+      <div className="mt-12 grid gap-4 md:grid-cols-3">
+        {items.map((it, i) => (
+          <Reveal key={it.eyebrow} delay={0.12 + i * 0.06}>
+            <article className="talise-glass h-full rounded-2xl p-6">
+              <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
+                {it.eyebrow}
+              </div>
+              <h3 className="mt-7 text-[18px] font-medium leading-[1.2] tracking-[-0.005em]">
+                {it.title}
+              </h3>
+              <p className="mt-3 text-[13px] leading-[1.6] text-[var(--color-fg-muted)]">
+                {it.body}
+              </p>
+            </article>
+          </Reveal>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Section: By the numbers. Four single-stat cards: a huge tabular-nums
+ * number on top, a single-line caption under. No icons inside the stat.
+ * APY is the live representative number from `web/lib/navi-supply.ts`
+ * (~5% USDsui supply on NAVI) — the same number the iOS EarnView reads
+ * via the same backend.
+ */
+function ByTheNumbers() {
+  const stats: Array<{ value: string; caption: string }> = [
+    {
+      value: "~5 sec",
+      caption: "Sui finality. Sent and confirmed before the screen finishes its swipe.",
+    },
+    {
+      value: "0%",
+      caption: "Gas paid by you on stablecoin transfers. Talise covers the network fee.",
+    },
+    {
+      value: "~5% APY",
+      caption: "Live NAVI USDsui supply yield. Read fresh on every load, no fixed promise.",
+    },
+    {
+      value: "1–3 days",
+      caption: "Typical SWIFT or remittance corridor settlement. The bar we beat.",
+    },
+  ];
+
+  return (
+    <section id="numbers" className="mt-28 border-t border-[var(--color-line)] pt-20">
+      <Reveal>
+        <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+          by the numbers
+        </div>
+      </Reveal>
+      <Reveal delay={0.06}>
+        <h2 className="mt-3 max-w-[720px] text-[clamp(28px,4.5vw,46px)] font-medium leading-[1.08] tracking-[-0.01em]">
+          What you can{" "}
+          <span
+            className="text-[var(--color-accent)]"
+            style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
+          >
+            expect.
+          </span>
+        </h2>
+      </Reveal>
+
+      <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {stats.map((s, i) => (
+          <Reveal key={s.value} delay={0.12 + i * 0.06}>
+            <div className="talise-glass h-full rounded-2xl px-6 py-7">
+              <div
+                className="text-[clamp(36px,4vw,48px)] font-medium leading-none tracking-[-0.02em] text-[var(--color-fg)]"
+                style={{ fontVariantNumeric: "tabular-nums" }}
+              >
+                {s.value}
+              </div>
+              <div className="mt-4 text-[12px] leading-[1.55] text-[var(--color-fg-muted)]">
+                {s.caption}
+              </div>
+            </div>
+          </Reveal>
         ))}
       </div>
     </section>
@@ -883,13 +1081,13 @@ function FinalCta() {
         when coins auto-swap to USDsui and when balances cash out to local
         currency, the same way Wise and Revolut do, only smaller.
       </p>
-      <div className="mx-auto mt-9 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
+      <div className="mx-auto mt-9 flex w-full max-w-[280px] flex-col items-stretch gap-2 sm:max-w-none sm:flex-row sm:items-center sm:justify-center">
         {/* Talise is in private beta — every Get started/Sign up CTA
             routes to the waitlist, not Google sign-in. When we
             flip the doors open this swaps back to SignInButton. */}
         <Link
           href="/waitlist"
-          className="inline-flex h-10 items-center justify-center rounded-full bg-white px-6 text-[14px] font-medium text-black transition-opacity hover:opacity-90"
+          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-white px-6 text-[14px] font-medium text-black transition-opacity hover:opacity-90 sm:w-auto"
         >
           Join waitlist
         </Link>
@@ -914,18 +1112,20 @@ function SiteFooter() {
   return (
     <footer className="motion-footer relative z-10 border-t border-[var(--color-line)] bg-[var(--color-bg)]">
       <div className="mx-auto w-full max-w-[1440px] px-6 py-12 md:px-12 lg:px-16">
-        {/* One-row layout: brand + tagline on the left, minimal links
-            on the right. Pre-launch shape — no product columns, no
-            corridor list, no careers/blog. */}
+        {/* Pre-launch shape — no product columns, no corridor list,
+            no careers/blog. On mobile, the brand row, the "Built on"
+            row, and the nav stack vertically with even spacing; on
+            sm+ the brand + nav sit on one line. */}
         <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
             <Link href="/" className="flex items-center gap-2 text-[15px] tracking-tight text-[var(--color-fg)]">
               <Diamond />
               <span>talise</span>
             </Link>
-            <span className="text-[var(--color-fg-dim)]">·</span>
-            <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
-              Pre-launch · Built on Sui
+            <span aria-hidden className="hidden text-[var(--color-fg-dim)] sm:inline">·</span>
+            <span className="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              Built on
+              <SuiDrop />
             </span>
           </div>
 
@@ -942,8 +1142,9 @@ function SiteFooter() {
           </nav>
         </div>
 
-        {/* Tiny social row + copyright */}
-        <div className="mt-8 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        {/* Tiny social row + copyright. Stacks on mobile with the
+            copyright above the social icons; sits side-by-side on sm+. */}
+        <div className="mt-8 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
             © {new Date().getFullYear()} Talise, Inc.
           </div>
@@ -1119,6 +1320,24 @@ function PersonaCard({
  * which would render invisible on the dark page bg). The viewBox /
  * sizing is preserved so the visual scale matches the original asset.
  */
+function SuiDrop() {
+  // Sui brand droplet, lifted verbatim from the iOS app asset
+  // (ios/Talise/Resources/Assets.xcassets/sui-drop.imageset/sui-drop.svg).
+  // currentColor so it inherits the parent text color cleanly.
+  return (
+    <svg
+      width="11"
+      height="14"
+      viewBox="0 0 13.764 17.9995"
+      fill="currentColor"
+      aria-hidden
+      style={{ display: "inline-block", verticalAlign: "-2px" }}
+    >
+      <path d="M11.012 7.50751C11.7589 8.46651 12.163 9.64801 12.16 10.8635C12.1612 12.0972 11.7454 13.295 10.98 14.2625L10.916 14.3415L10.901 14.2355C10.8857 14.1484 10.868 14.0617 10.848 13.9755C10.478 12.3195 9.28102 10.8955 7.30102 9.74151C5.96702 8.96851 5.19902 8.03651 4.99802 6.97851C4.88958 6.3187 4.94417 5.64239 5.15702 5.00851C5.30702 4.51451 5.54202 4.04851 5.85102 3.63251L6.62402 2.66951C6.65523 2.63088 6.69469 2.59973 6.73951 2.57833C6.78432 2.55692 6.83335 2.54581 6.88302 2.54581C6.93268 2.54581 6.98171 2.55692 7.02653 2.57833C7.07134 2.59973 7.1108 2.63088 7.14202 2.66951L11.012 7.50751ZM12.229 6.54451L7.07302 0.0915108C7.05025 0.0629638 7.02135 0.0399125 6.98846 0.0240698C6.95557 0.00822703 6.91953 0 6.88302 0C6.84651 0 6.81046 0.00822703 6.77757 0.0240698C6.74468 0.0399125 6.71578 0.0629638 6.69302 0.0915108L1.53502 6.54951L1.51902 6.56551C0.531779 7.82089 -0.00337607 9.37245 1.60268e-05 10.9695C0.00101603 14.8495 3.08302 17.9995 6.88302 17.9995C10.683 17.9995 13.764 14.8495 13.764 10.9695C13.7674 9.37245 13.2323 7.82089 12.245 6.56551L12.229 6.54451ZM2.76902 7.48651L3.23002 6.90951L3.24602 7.01551L3.28302 7.26951C3.58502 8.87351 4.64902 10.2075 6.43302 11.2395C7.98302 12.1445 8.88302 13.1825 9.14302 14.3205C9.24902 14.7965 9.27002 15.2625 9.22302 15.6705V15.6965L9.20102 15.7065C8.48102 16.0665 7.68802 16.2535 6.88302 16.2525C3.97102 16.2525 1.60502 13.8385 1.60502 10.8635C1.60502 9.58851 2.03802 8.41351 2.76902 7.48651Z" />
+    </svg>
+  );
+}
+
 function Diamond() {
   return (
     <svg width="24" height="22" viewBox="0 0 583 533" aria-hidden>
