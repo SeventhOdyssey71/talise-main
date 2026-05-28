@@ -3,7 +3,7 @@ import "server-only";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { PaymentKitClient } from "@mysten/payment-kit";
-import { sui, suiJsonRpc } from "./sui";
+import { sui } from "./sui";
 import { memoTtl } from "./perf-cache";
 
 const REGISTRY_NAME = "talise";
@@ -28,20 +28,16 @@ export async function ensurePaymentRegistry() {
   // again for the life of this Node process. Effectively a singleton.
   return memoTtl("pk:registry:exists", 24 * 60 * 60 * 1000, async () => {
     const client = sui();
-    // JSON-RPC fallback: legacy `getObject({id, options}).data.objectId`
-    // and `executeTransactionBlock` shapes. PaymentKit itself is fine with
-    // the gRPC client (uses the unified `core.*` surface).
-    const jsonRpcClient = suiJsonRpc();
     const pk = new PaymentKitClient({ client: client as never });
     const registryId = pk.getRegistryIdFromName(REGISTRY_NAME);
 
     // Fast path: registry already exists on chain (idempotent across procs).
+    // gRPC `getObject` THROWS when an object doesn't exist (JSON-RPC
+    // returned `{ data: null }`); we treat any error as "not found" and
+    // fall through to mint.
     try {
-      const existing = await jsonRpcClient.getObject({
-        id: registryId,
-        options: { showType: true },
-      });
-      if (existing?.data?.objectId) {
+      const existing = await client.getObject({ objectId: registryId });
+      if (existing.object?.objectId) {
         return { ok: true as const, minted: false };
       }
     } catch {
@@ -85,22 +81,52 @@ export async function ensurePaymentRegistry() {
     const bytes = await tx.build({ client: client as never });
     const { signature } = await operator.signTransaction(bytes);
 
-    const result = await jsonRpcClient.executeTransactionBlock({
-      transactionBlock: bytes,
-      signature,
-      options: { showEffects: true },
-    });
+    // gRPC `executeTransaction` — discriminated-union response.
+    const result = (await client.executeTransaction({
+      transaction: bytes,
+      signatures: [signature],
+      include: { effects: true },
+    })) as Record<string, unknown>;
 
-    if (result.effects?.status?.status !== "success") {
+    if ((result.$kind as string | undefined) === "FailedTransaction") {
+      const failed = result.FailedTransaction as
+        | { effects?: { status?: { error?: unknown } } }
+        | undefined;
+      const err = failed?.effects?.status?.error;
       throw new Error(
         `ensurePaymentRegistry: mint failed — ${
-          result.effects?.status?.error ?? "unknown"
+          (typeof err === "string" && err) ||
+          (typeof err === "object" &&
+            err !== null &&
+            "message" in err &&
+            (err as { message?: string }).message) ||
+          "unknown"
+        }`
+      );
+    }
+
+    const txInner = result.Transaction as
+      | {
+          digest?: string;
+          effects?: { status?: { success?: boolean; error?: unknown } };
+        }
+      | undefined;
+    if (txInner?.effects?.status && txInner.effects.status.success === false) {
+      const err = txInner.effects.status.error;
+      throw new Error(
+        `ensurePaymentRegistry: mint failed — ${
+          (typeof err === "string" && err) ||
+          (typeof err === "object" &&
+            err !== null &&
+            "message" in err &&
+            (err as { message?: string }).message) ||
+          "unknown"
         }`
       );
     }
 
     console.log(
-      `[pk-bootstrap] minted PaymentRegistry "${REGISTRY_NAME}" (digest=${result.digest})`
+      `[pk-bootstrap] minted PaymentRegistry "${REGISTRY_NAME}" (digest=${txInner?.digest ?? ""})`
     );
     return { ok: true as const, minted: true };
   });

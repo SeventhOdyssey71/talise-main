@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import path from "node:path";
 
 /**
  * Vitest config for SLOW, network-dependent integration tests against Sui
@@ -6,6 +7,19 @@ import { defineConfig } from "vitest/config";
  * package script.
  */
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Stub Next.js `server-only` so server-bound libs (e.g.
+      // `lib/activity.ts`) can be imported under Vitest without the
+      // "Cannot find package 'server-only'" runtime error. The marker
+      // package has no runtime code in production either — it just
+      // throws at build time if pulled into a client module.
+      "server-only": path.resolve(__dirname, "__tests__/sui/server-only-stub.ts"),
+      // Mirror the `tsconfig.json` `@/*` path alias so server-only
+      // libs that import via `@/lib/...` resolve inside Vitest.
+      "@": path.resolve(__dirname, "."),
+    },
+  },
   test: {
     include: ["__tests__/sui/**/*.test.ts"],
     testTimeout: 30_000,

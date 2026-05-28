@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { vaultPackageIds, VaultNotDeployedError } from "@/lib/vault";
-import { suiJsonRpc } from "@/lib/sui";
+import { sui } from "@/lib/sui";
 import {
   gql,
   VAULT_AND_CAPS_QUERY,
@@ -167,6 +167,31 @@ type SharedCapRow = {
 };
 
 /**
+ * GraphQL query: paginated `events` filtered by event type. gRPC's
+ * subscriptionService.subscribeEvents is forward-streaming only — historical
+ * walks must go through GraphQL. We request `contents.json` so the parsed
+ * Move struct (cap_id, owner, new_cap_id) is available without a second BCS
+ * decode.
+ */
+const EVENTS_BY_TYPE_QUERY = /* GraphQL */ `
+  query EventsByType($type: String!, $first: Int!, $after: String) {
+    events(filter: { type: $type }, first: $first, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        contents { json }
+      }
+    }
+  }
+`;
+
+type GraphQLEventsByTypeResponse = {
+  events: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    nodes: Array<{ contents: { json: unknown } | null }>;
+  } | null;
+};
+
+/**
  * Find every Shared `AutoSwapCap<T>` minted by `owner` via the v3
  * `enable_auto_swap` path. The cron uses the same shape — keeping the
  * UI in sync means a freshly-minted shared cap shows up as "Active"
@@ -180,64 +205,58 @@ async function readSharedCapsForOwner(
   packageId: string,
   owner: string
 ): Promise<SharedCapRow[]> {
-  const client = suiJsonRpc();
+  const client = sui();
   const out: SharedCapRow[] = [];
   const seen = new Set<string>();
 
-  let cursor: unknown = null;
+  let cursor: string | null = null;
   let scanned = 0;
   while (scanned < MAX_EVENTS_SCAN) {
-    const page = await (
-      client as unknown as {
-        queryEvents: (a: {
-          query: { MoveEventType: string };
-          cursor?: unknown;
-          limit?: number;
-          order?: "ascending" | "descending";
-        }) => Promise<{
-          data: Array<{ parsedJson?: { cap_id?: string; owner?: string } }>;
-          nextCursor: unknown;
-          hasNextPage: boolean;
-        }>;
+    const page: GraphQLEventsByTypeResponse = await gql<GraphQLEventsByTypeResponse>(
+      EVENTS_BY_TYPE_QUERY,
+      {
+        type: `${packageId}::auto_swap::AutoSwapEnabled`,
+        first: 50,
+        after: cursor,
       }
-    ).queryEvents({
-      query: { MoveEventType: `${packageId}::auto_swap::AutoSwapEnabled` },
-      cursor,
-      limit: 50,
-      order: "descending",
-    });
-    for (const ev of page.data ?? []) {
+    );
+    if (!page.events) break;
+    for (const ev of page.events.nodes ?? []) {
       scanned++;
-      const p = ev.parsedJson ?? {};
+      const p = (ev.contents?.json ?? {}) as {
+        cap_id?: string;
+        owner?: string;
+      };
       if (p.owner !== owner) continue;
       const capId = p.cap_id;
       if (!capId || seen.has(capId)) continue;
       seen.add(capId);
 
       try {
+        // gRPC `getObject` with `include.json: true` materializes the
+        // Move struct fields as a JS record. `type`, `owner`, and `json`
+        // are all top-level on the response's `.object`.
         const obj = await client.getObject({
-          id: capId,
-          options: { showOwner: true, showType: true, showContent: true },
+          objectId: capId,
+          include: { json: true },
         });
-        const d = obj.data;
+        const d = obj.object;
         if (!d) continue;
         // Only surface SHARED caps here. Address-owned caps are surfaced
         // via the GraphQL path below (with needsMigration: true).
-        const isShared = Boolean(
-          (d.owner as unknown as { Shared?: unknown })?.Shared
-        );
-        if (!isShared) continue;
+        // gRPC owner is discriminated — `$kind === "Shared"` for shared
+        // objects (legacy `owner.Shared` key is also present on the
+        // SharedOwner shape, but reading `$kind` is the documented path).
+        if (d.owner?.$kind !== "Shared") continue;
 
         const t = d.type;
         if (!t || !t.startsWith(`${packageId}::auto_swap::AutoSwapCap<`)) continue;
         const inner = extractCapInnerType(t);
         if (!inner) continue;
 
-        const content = d.content;
-        if (!content || content.dataType !== "moveObject") continue;
-        const fields = extractCapFields(
-          (content as unknown as { fields: unknown }).fields
-        );
+        // gRPC: `json` IS the parsed fields directly (no `dataType` /
+        // `fields` indirection that JSON-RPC had).
+        const fields = extractCapFields(d.json);
         out.push({
           id: capId,
           sourceType: inner,
@@ -250,8 +269,9 @@ async function readSharedCapsForOwner(
         // Burned, schema-skewed, or transient RPC error — skip silently.
       }
     }
-    if (!page.hasNextPage) break;
-    cursor = page.nextCursor;
+    if (!page.events.pageInfo.hasNextPage) break;
+    cursor = page.events.pageInfo.endCursor;
+    if (!cursor) break;
   }
   return out;
 }
@@ -270,42 +290,32 @@ async function readSharedV2CapsForOwner(
   packageId: string,
   owner: string
 ): Promise<SharedCapRow[]> {
-  const client = suiJsonRpc();
+  const client = sui();
   const out: SharedCapRow[] = [];
   const seen = new Set<string>();
 
-  let cursor: unknown = null;
+  let cursor: string | null = null;
   let scanned = 0;
   while (scanned < MAX_EVENTS_SCAN) {
-    let page: {
-      data: Array<{ parsedJson?: { new_cap_id?: string; owner?: string } }>;
-      nextCursor: unknown;
-      hasNextPage: boolean;
-    };
+    let page: GraphQLEventsByTypeResponse;
     try {
-      page = await (
-        client as unknown as {
-          queryEvents: (a: {
-            query: { MoveEventType: string };
-            cursor?: unknown;
-            limit?: number;
-            order?: "ascending" | "descending";
-          }) => Promise<typeof page>;
-        }
-      ).queryEvents({
-        query: { MoveEventType: `${packageId}::auto_swap::CapUpgradedToV2` },
-        cursor,
-        limit: 50,
-        order: "descending",
+      page = await gql<GraphQLEventsByTypeResponse>(EVENTS_BY_TYPE_QUERY, {
+        type: `${packageId}::auto_swap::CapUpgradedToV2`,
+        first: 50,
+        after: cursor,
       });
     } catch {
       // Pre-v7 deploys won't have the event type registered. Bail.
       break;
     }
+    if (!page.events) break;
 
-    for (const ev of page.data ?? []) {
+    for (const ev of page.events.nodes ?? []) {
       scanned++;
-      const p = ev.parsedJson ?? {};
+      const p = (ev.contents?.json ?? {}) as {
+        new_cap_id?: string;
+        owner?: string;
+      };
       if (p.owner !== owner) continue;
       const capId = p.new_cap_id;
       if (!capId || seen.has(capId)) continue;
@@ -313,15 +323,12 @@ async function readSharedV2CapsForOwner(
 
       try {
         const obj = await client.getObject({
-          id: capId,
-          options: { showOwner: true, showType: true, showContent: true },
+          objectId: capId,
+          include: { json: true },
         });
-        const d = obj.data;
+        const d = obj.object;
         if (!d) continue;
-        const isShared = Boolean(
-          (d.owner as unknown as { Shared?: unknown })?.Shared
-        );
-        if (!isShared) continue;
+        if (d.owner?.$kind !== "Shared") continue;
 
         const t = d.type;
         if (!t || !t.startsWith(`${packageId}::auto_swap::AutoSwapCapV2<`)) {
@@ -330,11 +337,7 @@ async function readSharedV2CapsForOwner(
         const inner = extractCapInnerType(t);
         if (!inner) continue;
 
-        const content = d.content;
-        if (!content || content.dataType !== "moveObject") continue;
-        const fields = extractCapFields(
-          (content as unknown as { fields: unknown }).fields
-        );
+        const fields = extractCapFields(d.json);
         out.push({
           id: capId,
           sourceType: inner,
@@ -347,8 +350,9 @@ async function readSharedV2CapsForOwner(
         // Burned, schema-skewed, or transient RPC error — skip silently.
       }
     }
-    if (!page.hasNextPage) break;
-    cursor = page.nextCursor;
+    if (!page.events.pageInfo.hasNextPage) break;
+    cursor = page.events.pageInfo.endCursor;
+    if (!cursor) break;
   }
   return out;
 }

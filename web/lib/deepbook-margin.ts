@@ -16,13 +16,9 @@
  * other than the lending-pool key map.
  */
 
-import {
-  SuiJsonRpcClient,
-  getJsonRpcFullnodeUrl,
-} from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { DeepBookClient } from "@mysten/deepbook-v3";
-import { network } from "./sui";
+import { network, sui } from "./sui";
 
 /**
  * Lending pool object ids by coin key. Verified against Surflux
@@ -58,12 +54,10 @@ const USDSUI_DECIMALS = 6;
 
 function dbClient(address: string): DeepBookClient {
   const net = network();
-  const sc = new SuiJsonRpcClient({
-    url: getJsonRpcFullnodeUrl(net),
-    network: net,
-  });
+  // Reuse the shared gRPC client — DeepBookClient hits the unified
+  // BaseClient surface under the hood, so passing `sui()` is fine.
   return new DeepBookClient({
-    client: sc as never,
+    client: sui() as never,
     address,
     network: net,
   });
@@ -113,17 +107,14 @@ export async function fetchSupplierCapId(
   address: string
 ): Promise<string | null> {
   try {
-    const net = network();
-    const client = new SuiJsonRpcClient({
-      url: getJsonRpcFullnodeUrl(net),
-      network: net,
-    });
-    const objs = await client.getOwnedObjects({
+    // gRPC `listOwnedObjects` filters by exact type via the `type`
+    // string param (the canonical tag of the SupplierCap struct).
+    const objs = await sui().listOwnedObjects({
       owner: address,
-      filter: { StructType: SUPPLIER_CAP_TYPE },
-      options: { showContent: true },
+      type: SUPPLIER_CAP_TYPE,
+      limit: 50,
     });
-    return objs.data[0]?.data?.objectId ?? null;
+    return objs.objects[0]?.objectId ?? null;
   } catch {
     return null;
   }

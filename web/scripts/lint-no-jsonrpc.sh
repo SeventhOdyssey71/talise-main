@@ -18,19 +18,26 @@ PATTERN='SuiJsonRpcClient\|@mysten/sui/jsonRpc'
 
 # Allowlist of EXISTING JSON-RPC sites (paths relative to repo root).
 # DO NOT ADD new entries. Phase 5 will whittle this list to zero.
+#
+# Sub-plan 1.10 dropped: deepbook-margin.ts, navi-supply.ts,
+# suins-lookup.ts, suins-operator.ts, zkclient.ts (and the vault/state
+# event walks moved to GraphQL).
+#
+# Remaining call sites cluster into the still-pending sub-plans:
+#   • web/lib/sui.ts                 → exports `suiJsonRpc()`. Phase 5 deletes it.
+#   • web/lib/payment-kit.ts         → comment-only reference; deleted with Phase 5.
+#   • web/lib/coins.ts               → coin-metadata read path (separate sub-plan).
+#   • web/lib/t2000.ts               → T2000 SDK init helper.
+#   • web/lib/yield.ts               → DeFi-yield read path.
+#   • web/components/FixSubnameBanner.tsx → Phase 2 client refactor.
+#   • web/scripts/*                  → operator scripts, migrated en masse in Phase 5.
 ALLOWLIST=(
   "web/components/FixSubnameBanner.tsx"
-  "web/lib/activity.ts"
   "web/lib/coins.ts"
-  "web/lib/deepbook-margin.ts"
-  "web/lib/navi-supply.ts"
   "web/lib/payment-kit.ts"
   "web/lib/sui.ts"
-  "web/lib/suins-lookup.ts"
-  "web/lib/suins-operator.ts"
   "web/lib/t2000.ts"
   "web/lib/yield.ts"
-  "web/lib/zkclient.ts"
   "web/scripts/bootstrap-payment-registry.mjs"
   "web/scripts/debug-navi-earned.mjs"
   "web/scripts/recover-stranded.mjs"

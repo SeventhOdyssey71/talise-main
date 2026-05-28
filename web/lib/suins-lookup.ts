@@ -1,9 +1,6 @@
 import "server-only";
 
-import {
-  SuiJsonRpcClient,
-  getJsonRpcFullnodeUrl,
-} from "@mysten/sui/jsonRpc";
+import { sui } from "./sui";
 import { memoTtl } from "./perf-cache";
 
 /**
@@ -22,16 +19,6 @@ import { memoTtl } from "./perf-cache";
  */
 
 const PARENT_SUFFIX = ".talise.sui";
-
-let _client: SuiJsonRpcClient | null = null;
-function client(): SuiJsonRpcClient {
-  if (_client) return _client;
-  _client = new SuiJsonRpcClient({
-    url: getJsonRpcFullnodeUrl("mainnet"),
-    network: "mainnet",
-  });
-  return _client;
-}
 
 export type OwnedSubname = {
   /** Bare username, no parent suffix: e.g. "sele". */
@@ -53,53 +40,47 @@ export type OwnedSubnameWithTarget = OwnedSubname & {
   targetAddress: string | null;
 };
 
+/**
+ * Extract a display name from a gRPC Object's display.output map.
+ * Display v2 emits `{ output: { name: "...", ... } | null, errors }`.
+ */
+function readDisplayName(
+  display: { output: Record<string, unknown> | null; errors: unknown } | null | undefined
+): string {
+  const v = display?.output?.name;
+  return typeof v === "string" ? v : "";
+}
+
 export async function findAllTaliseSubnamesForOwner(
   owner: string
 ): Promise<OwnedSubnameWithTarget[]> {
   const all: OwnedSubname[] = [];
+  const client = sui();
   try {
     let cursor: string | null = null;
     for (let page = 0; page < 4; page++) {
-      const r: {
-        data?: Array<{
-          data?: {
-            objectId?: string;
-            type?: string;
-            display?: { data?: Record<string, string> } | null;
-          };
-        }>;
-        nextCursor?: string | null;
-        hasNextPage?: boolean;
-      } = await (client() as unknown as {
-        getOwnedObjects: (args: unknown) => Promise<{
-          data?: Array<{
-            data?: {
-              objectId?: string;
-              type?: string;
-              display?: { data?: Record<string, string> } | null;
-            };
-          }>;
-          nextCursor?: string | null;
-          hasNextPage?: boolean;
-        }>;
-      }).getOwnedObjects({
+      const r: Awaited<
+        ReturnType<typeof client.listOwnedObjects<{ display: true }>>
+      > = await client.listOwnedObjects({
         owner,
-        options: { showType: true, showDisplay: true },
+        limit: 50,
         cursor,
+        include: { display: true },
       });
-      for (const o of r.data ?? []) {
-        const t = o.data?.type ?? "";
+      for (const o of r.objects ?? []) {
+        const t = o.type ?? "";
         if (!/subdomain_registration::SubDomainRegistration/.test(t)) continue;
-        const name = o.data?.display?.data?.name ?? "";
+        const name = readDisplayName(o.display);
         if (!name.endsWith(PARENT_SUFFIX)) continue;
         all.push({
           username: name.slice(0, -PARENT_SUFFIX.length),
           fullName: name,
-          nftId: o.data?.objectId ?? "",
+          nftId: o.objectId ?? "",
         });
       }
-      if (!r.hasNextPage || !r.nextCursor) break;
-      cursor = r.nextCursor;
+      // gRPC: no `hasNextPage` flag — stop when cursor is null.
+      if (!r.cursor) break;
+      cursor = r.cursor;
     }
 
     // Resolve each name's target address. Stale ones come back as null.
@@ -107,7 +88,7 @@ export async function findAllTaliseSubnamesForOwner(
     if (all.length === 0) return [];
     const { SuinsClient } = await import("@mysten/suins");
     const suins = new SuinsClient({
-      client: client() as never,
+      client: client as never,
       network: "mainnet",
     });
     const out: OwnedSubnameWithTarget[] = [];
@@ -129,7 +110,7 @@ export async function findAllTaliseSubnamesForOwner(
  * Cached lookup. Subname ownership + targetAddress changes are rare
  * (a user claims once and never again, or repoints during the vault
  * migration). A 5-minute TTL means the activity feed's per-counterparty
- * reverse-lookup (N counterparties × 4-page `getOwnedObjects` + a
+ * reverse-lookup (N counterparties × 4-page `listOwnedObjects` + a
  * SuinsClient.getNameRecord each) costs a few RPC round-trips only on
  * the cold first request, then nothing for the next 5 minutes.
  *
@@ -164,53 +145,34 @@ async function _findTaliseSubnameForOwnerUncached(
   // name. We refuse to surface broken handles so Home shows the
   // "Claim your name" CTA and the user can re-claim cleanly.
   const owned: OwnedSubname[] = [];
+  const client = sui();
   try {
     let cursor: string | null = null;
     for (let page = 0; page < 4; page++) {
-      const r: {
-        data?: Array<{
-          data?: {
-            objectId?: string;
-            type?: string;
-            display?: { data?: Record<string, string> } | null;
-          };
-        }>;
-        nextCursor?: string | null;
-        hasNextPage?: boolean;
-      } = await (client() as unknown as {
-        getOwnedObjects: (args: unknown) => Promise<{
-          data?: Array<{
-            data?: {
-              objectId?: string;
-              type?: string;
-              display?: { data?: Record<string, string> } | null;
-            };
-          }>;
-          nextCursor?: string | null;
-          hasNextPage?: boolean;
-        }>;
-      }).getOwnedObjects({
+      const r: Awaited<
+        ReturnType<typeof client.listOwnedObjects<{ display: true }>>
+      > = await client.listOwnedObjects({
         owner,
-        options: { showType: true, showDisplay: true },
+        limit: 50,
         cursor,
+        include: { display: true },
       });
-
-      for (const o of r.data ?? []) {
-        const t = o.data?.type ?? "";
+      for (const o of r.objects ?? []) {
+        const t = o.type ?? "";
         // Subdomain NFTs are the only SuiNS objects that resolve via
         // SubDomainRegistration; the main suins_registration is the parent.
         if (!/subdomain_registration::SubDomainRegistration/.test(t)) continue;
-        const name = o.data?.display?.data?.name ?? "";
+        const name = readDisplayName(o.display);
         if (!name.endsWith(PARENT_SUFFIX)) continue;
         owned.push({
           username: name.slice(0, -PARENT_SUFFIX.length),
           fullName: name,
-          nftId: o.data?.objectId ?? "",
+          nftId: o.objectId ?? "",
         });
       }
 
-      if (!r.hasNextPage || !r.nextCursor) break;
-      cursor = r.nextCursor;
+      if (!r.cursor) break;
+      cursor = r.cursor;
     }
   } catch {
     return null;
@@ -226,7 +188,7 @@ async function _findTaliseSubnameForOwnerUncached(
   try {
     const { SuinsClient } = await import("@mysten/suins");
     const suins = new SuinsClient({
-      client: client() as never,
+      client: client as never,
       network: "mainnet",
     });
     for (const cand of owned) {
