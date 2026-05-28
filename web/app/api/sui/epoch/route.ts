@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { suiJsonRpc } from "@/lib/sui";
+import { getCurrentEpoch } from "@/lib/sui-epoch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,12 +8,16 @@ export const dynamic = "force-dynamic";
  * Returns the current Sui epoch. Used client-side to choose a sane maxEpoch
  * when generating the ephemeral key pair, without bundling the Sui SDK on
  * the public landing.
+ *
+ * Backed by the shared `getCurrentEpoch()` helper (gRPC `LedgerService`).
+ * The legacy JSON-RPC `getLatestSuiSystemState` call was retired in sub-plan
+ * 1.1; the response shape (`{ epoch: "<string>" }`) is preserved so iOS
+ * clients keep parsing it the same way.
  */
 export async function GET() {
   try {
-    // `getLatestSuiSystemState` is JSON-RPC only — no gRPC equivalent.
-    const state = await suiJsonRpc().getLatestSuiSystemState();
-    return NextResponse.json({ epoch: state.epoch });
+    const epoch = await getCurrentEpoch();
+    return NextResponse.json({ epoch: String(epoch) });
   } catch (err) {
     console.warn(`[api/sui/epoch] RPC failed: ${(err as Error).message}`);
     return NextResponse.json(

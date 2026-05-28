@@ -1,12 +1,9 @@
 import "server-only";
 
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import {
-  SuiJsonRpcClient,
-  getJsonRpcFullnodeUrl,
-} from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { SuinsClient, SuinsTransaction } from "@mysten/suins";
+import { sui } from "./sui";
 
 /**
  * SuiNS operator — server-side helper that owns the `talise.sui` parent name
@@ -31,7 +28,6 @@ import { SuinsClient, SuinsTransaction } from "@mysten/suins";
 const PACKAGE_NETWORK = "mainnet" as const;
 
 let _operator: Ed25519Keypair | null = null;
-let _client: SuiJsonRpcClient | null = null;
 let _suins: SuinsClient | null = null;
 
 function operator(): Ed25519Keypair {
@@ -46,17 +42,10 @@ function operator(): Ed25519Keypair {
   return _operator;
 }
 
-function sui(): SuiJsonRpcClient {
-  if (_client) return _client;
-  _client = new SuiJsonRpcClient({
-    url: getJsonRpcFullnodeUrl(PACKAGE_NETWORK),
-    network: PACKAGE_NETWORK,
-  });
-  return _client;
-}
-
 export function suins(): SuinsClient {
   if (_suins) return _suins;
+  // SuinsClient accepts any client conforming to the unified core surface;
+  // passing the shared gRPC client keeps every read path on one transport.
   _suins = new SuinsClient({
     client: sui() as never,
     network: PACKAGE_NETWORK,
@@ -127,31 +116,74 @@ export async function mintSubname(opts: {
   const bytes = await tx.build({ client: client as never });
   const { signature } = await kp.signTransaction(bytes);
 
-  const result = await client.executeTransactionBlock({
-    transactionBlock: bytes,
-    signature,
-    options: { showEffects: true, showObjectChanges: true },
-  });
+  // gRPC executeTransaction returns a discriminated union:
+  //   { $kind: "Transaction",       Transaction:       { digest, effects, objectTypes, ... } }
+  //   { $kind: "FailedTransaction", FailedTransaction: { digest, effects, ... } }
+  // We request `effects` to check status and `objectTypes` so we can
+  // identify the freshly-minted SubDomainRegistration without a follow-up
+  // round trip (effects.changedObjects carries the ids; objectTypes maps
+  // id → fully-qualified Move type).
+  const result = (await client.executeTransaction({
+    transaction: bytes,
+    signatures: [signature],
+    include: { effects: true, objectTypes: true },
+  })) as Record<string, unknown>;
 
-  if (result.effects?.status?.status !== "success") {
-    const reason = result.effects?.status?.error ?? "unknown failure";
+  if ((result.$kind as string | undefined) === "FailedTransaction") {
+    const failed = result.FailedTransaction as
+      | { effects?: { status?: { error?: unknown } } }
+      | undefined;
+    const err = failed?.effects?.status?.error;
+    const reason =
+      (typeof err === "string" && err) ||
+      (typeof err === "object" &&
+        err !== null &&
+        "message" in err &&
+        (err as { message?: string }).message) ||
+      "unknown failure";
+    throw new Error(`subname mint failed: ${reason}`);
+  }
+
+  const txInner = result.Transaction as
+    | {
+        digest?: string;
+        effects?: {
+          status?: { success?: boolean; error?: unknown };
+          changedObjects?: Array<{
+            objectId: string;
+            idOperation: "Unknown" | "None" | "Created" | "Deleted";
+          }>;
+        };
+        objectTypes?: Record<string, string>;
+      }
+    | undefined;
+
+  if (txInner?.effects?.status && txInner.effects.status.success === false) {
+    const err = txInner.effects.status.error;
+    const reason =
+      (typeof err === "string" && err) ||
+      (typeof err === "object" &&
+        err !== null &&
+        "message" in err &&
+        (err as { message?: string }).message) ||
+      "unknown failure";
     throw new Error(`subname mint failed: ${reason}`);
   }
 
   // The created NFT is the SubDomainRegistration / SuinsRegistration object
-  // owned by the user. Extract its id from the object changes.
+  // owned by the user. Walk `effects.changedObjects` for objects whose
+  // idOperation === "Created" and check the type via `objectTypes`.
   let subnameNftId: string | null = null;
-  for (const ch of result.objectChanges ?? []) {
-    const c = ch as { type?: string; objectType?: string; objectId?: string };
-    if (
-      c.type === "created" &&
-      c.objectId &&
-      /SubDomainRegistration|SuinsRegistration/.test(c.objectType ?? "")
-    ) {
-      subnameNftId = c.objectId;
+  const changed = txInner?.effects?.changedObjects ?? [];
+  const types = txInner?.objectTypes ?? {};
+  for (const ch of changed) {
+    if (ch.idOperation !== "Created" || !ch.objectId) continue;
+    const ty = types[ch.objectId] ?? "";
+    if (/SubDomainRegistration|SuinsRegistration/.test(ty)) {
+      subnameNftId = ch.objectId;
       break;
     }
   }
 
-  return { digest: result.digest, subnameNftId };
+  return { digest: txInner?.digest ?? "", subnameNftId };
 }

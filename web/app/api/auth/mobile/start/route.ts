@@ -5,7 +5,7 @@ import { sign, redirectUriFromRequest } from "@/lib/auth";
 import { Ed25519PublicKey } from "@mysten/sui/keypairs/ed25519";
 import { fromBase64 } from "@mysten/sui/utils";
 import { generateNonce } from "@mysten/sui/zklogin";
-import { suiJsonRpc } from "@/lib/sui";
+import { getCurrentEpoch } from "@/lib/sui-epoch";
 
 export const runtime = "nodejs";
 
@@ -67,9 +67,10 @@ export async function GET(req: Request) {
   // requires a real epoch value.
   let maxEpoch: number;
   try {
-    // `getLatestSuiSystemState` is JSON-RPC only — no gRPC equivalent.
-    const state = await suiJsonRpc().getLatestSuiSystemState();
-    maxEpoch = Number(state.epoch) + MAX_EPOCH_HORIZON;
+    // Shared gRPC-backed helper (`LedgerService.getServiceInfo`); see
+    // web/lib/sui-epoch.ts. Sub-plan 1.1 retired the JSON-RPC call here.
+    const currentEpoch = await getCurrentEpoch();
+    maxEpoch = currentEpoch + MAX_EPOCH_HORIZON;
     if (!Number.isFinite(maxEpoch) || maxEpoch <= 0) {
       throw new Error("invalid epoch");
     }

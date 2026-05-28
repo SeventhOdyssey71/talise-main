@@ -13,7 +13,7 @@
  * It rotates on every fresh sign-in (the user closes/reopens the tab).
  */
 
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { fromBase64, toBase64 } from "@mysten/sui/utils";
@@ -182,14 +182,17 @@ function clientNetwork(): "mainnet" | "testnet" {
   return v === "testnet" ? "testnet" : "mainnet";
 }
 
-let _sui: SuiJsonRpcClient | null = null;
-function suiClient(): SuiJsonRpcClient {
+let _sui: SuiGrpcClient | null = null;
+function suiClient(): SuiGrpcClient {
   if (_sui) return _sui;
   const net = clientNetwork();
-  _sui = new SuiJsonRpcClient({
-    url: getJsonRpcFullnodeUrl(net),
-    network: net,
-  });
+  // gRPC fullnode endpoint — same host as JSON-RPC, port 443.
+  // Mirrors `defaultGrpcBaseUrl` in lib/sui.ts (server-side equivalent).
+  const baseUrl =
+    net === "mainnet"
+      ? "https://fullnode.mainnet.sui.io:443"
+      : "https://fullnode.testnet.sui.io:443";
+  _sui = new SuiGrpcClient({ network: net, baseUrl });
   return _sui;
 }
 
@@ -386,19 +389,51 @@ export async function signAndSubmit(
   }
   const { zkLoginSignature } = await r.json();
 
-  // Submit to Sui RPC.
-  const result = await client.executeTransactionBlock({
-    transactionBlock: txBytes,
-    signature: zkLoginSignature,
-    options: { showEffects: true, showObjectChanges: true },
-  });
+  // Submit to Sui RPC via gRPC. The discriminated-union response is
+  // either `{ $kind: "Transaction", Transaction: { digest, effects, ... } }`
+  // or `{ $kind: "FailedTransaction", FailedTransaction: { ... } }`.
+  const exec = (await client.executeTransaction({
+    transaction: txBytes,
+    signatures: [zkLoginSignature],
+    include: { effects: true },
+  })) as Record<string, unknown>;
 
-  if (result.effects?.status?.status !== "success") {
-    const reason = result.effects?.status?.error ?? "unknown failure";
+  if ((exec.$kind as string | undefined) === "FailedTransaction") {
+    const failed = exec.FailedTransaction as
+      | { effects?: { status?: { error?: unknown } } }
+      | undefined;
+    const errField = failed?.effects?.status?.error;
+    const reason =
+      (typeof errField === "string" && errField) ||
+      (typeof errField === "object" &&
+        errField !== null &&
+        "message" in errField &&
+        (errField as { message?: string }).message) ||
+      "unknown failure";
     throw new Error(`transaction failed: ${reason}`);
   }
 
-  return { digest: result.digest, created: groupCreated(result.objectChanges) };
+  const txInner = exec.Transaction as
+    | { digest?: string; effects?: { status?: { success?: boolean; error?: unknown } } }
+    | undefined;
+  // gRPC `ExecutionStatus` is `{ success: true, error: null } | { success: false, error }`.
+  if (txInner?.effects?.status && txInner.effects.status.success === false) {
+    const errField = txInner.effects.status.error;
+    const reason =
+      (typeof errField === "string" && errField) ||
+      (typeof errField === "object" &&
+        errField !== null &&
+        "message" in errField &&
+        (errField as { message?: string }).message) ||
+      "unknown failure";
+    throw new Error(`transaction failed: ${reason}`);
+  }
+
+  const digest = txInner?.digest ?? (exec.digest as string | undefined) ?? "";
+  // Object changes not requested on the include set here — keep parity
+  // with the sponsored path's empty-array behavior. If the caller needs
+  // created object ids it should poll `getTransaction(digest)` separately.
+  return { digest, created: groupCreated(undefined) };
 }
 
 /**
@@ -557,21 +592,26 @@ export function buildUsdsuiTransfer(opts: {
     // No-op MoveCall so the PTB satisfies Onara's sponsor policy.
     tx.moveCall({ target: "0x1::option::none", typeArguments: ["address"] });
     const client = suiClient();
-    const coinsRes = await client.getCoins({
+    // gRPC `listCoins` returns `{ objects: Coin[], hasNextPage, cursor }`.
+    // Each Coin has `objectId`, `balance`, `type`, etc. Default limit is
+    // 50 — bumped to 200 here since one wallet may hold many small dust
+    // coins after a NAVI withdraw and we want the merge to succeed.
+    const coinsRes = await client.listCoins({
       owner: opts.senderAddress,
       coinType: USDSUI_COIN_TYPE,
+      limit: 200,
     });
-    const coins = (coinsRes.data ?? []).slice().sort((a, b) =>
+    const coins = (coinsRes.objects ?? []).slice().sort((a, b) =>
       BigInt(b.balance) - BigInt(a.balance) > 0n ? 1 : -1
     );
     if (coins.length === 0) {
       throw new Error("No USDsui in wallet. Fund the address first.");
     }
-    const primary = tx.object(coins[0].coinObjectId);
+    const primary = tx.object(coins[0].objectId);
     if (coins.length > 1) {
       tx.mergeCoins(
         primary,
-        coins.slice(1).map((c) => tx.object(c.coinObjectId))
+        coins.slice(1).map((c) => tx.object(c.objectId))
       );
     }
     const [out] = tx.splitCoins(primary, [opts.amountMicro]);

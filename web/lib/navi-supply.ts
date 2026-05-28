@@ -1,13 +1,9 @@
 import "server-only";
 
 import { coinWithBalance, type Transaction } from "@mysten/sui/transactions";
-import {
-  SuiJsonRpcClient,
-  getJsonRpcFullnodeUrl,
-} from "@mysten/sui/jsonRpc";
 import { NaviAdapter } from "@t2000/sdk";
 import { USDSUI_TYPE, isUsdsui } from "./usdsui";
-import { USDSUI_DECIMALS } from "./sui";
+import { USDSUI_DECIMALS, sui } from "./sui";
 import { memoTtl } from "./perf-cache";
 
 /**
@@ -41,11 +37,12 @@ async function adapter(): Promise<NaviAdapter> {
   if (_adapterReady) return _adapterReady;
   _adapterReady = (async () => {
     const a = new NaviAdapter();
-    const client = new SuiJsonRpcClient({
-      url: getJsonRpcFullnodeUrl("mainnet"),
-      network: "mainnet",
-    });
-    await a.init(client as never);
+    // NaviAdapter.init() is typed against the legacy JSON-RPC client
+    // but internally only touches the unified `core.*` surface that the
+    // gRPC client also exposes — verified at runtime against
+    // @t2000/sdk 2.11. Pass the shared gRPC client so the rest of the
+    // app stays on one transport.
+    await a.init(sui() as never);
     _adapter = a;
     return a;
   })();

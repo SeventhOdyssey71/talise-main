@@ -1,15 +1,11 @@
 import "server-only";
 
-import {
-  SuiJsonRpcClient,
-  getJsonRpcFullnodeUrl,
-} from "@mysten/sui/jsonRpc";
 import { USDSUI_TYPE } from "./usdsui";
 import { findTaliseSubnameForOwner } from "./suins-lookup";
 import { formatHandle } from "./handle";
 import { globalRegistryId, namespaceObjectId } from "./payment-kit";
 import { parsePaymentKitNonce, type ParsedTaliseMemo } from "./intents/wrap-payment-kit";
-import { batchCoinMetadata } from "./sui-graphql";
+import { batchCoinMetadata, suiGraphQL } from "./sui-graphql";
 import { vaultPackageIds, VaultNotDeployedError } from "./vault";
 
 /**
@@ -195,14 +191,247 @@ const SPONSOR_ADDRESSES = new Set<string>([
   "0x8a319488de2a8043a7b503d4a906ce5feedb793787bdb9a63bc6327d46310cdb",
 ]);
 
-let _client: SuiJsonRpcClient | null = null;
-function client(): SuiJsonRpcClient {
-  if (_client) return _client;
-  _client = new SuiJsonRpcClient({
-    url: getJsonRpcFullnodeUrl("mainnet"),
-    network: "mainnet",
-  });
-  return _client;
+/**
+ * Single GraphQL query that fetches the user's recent tx history
+ * (both sent + received in ONE call, via `affectedAddress`).
+ *
+ * Pre-migration this site issued TWO `suix_queryTransactionBlocks`
+ * calls in parallel (FromAddress + ToAddress) and unioned the results,
+ * then merged in two more `suix_queryEvents` walks for vault deposits
+ * / auto-swaps. GraphQL collapses the tx history into ONE round-trip;
+ * the event walks each become ONE GraphQL paged loop instead of N
+ * cursor-paged JSON-RPC calls.
+ *
+ * Field selection notes:
+ *   - `effects.balanceChangesJson` and `transactionJson` return the
+ *     same shape JSON-RPC emitted (balanceChanges[] and
+ *     transaction.data.transaction.{inputs,transactions}), which lets
+ *     the downstream classifier consume the result unchanged once we
+ *     bolt the pieces back together into a `RawTx`.
+ *   - `effects.objectChanges.nodes[].outputState.owner` is read as the
+ *     `Owner` union — we project ObjectOwner / AddressOwner / Shared
+ *     and an `objectType` via `asMoveObject.contents.type.repr`.
+ */
+const TX_HISTORY_QUERY = /* GraphQL */ `
+  query ActivityHistory(
+    $addr: SuiAddress!
+    $first: Int!
+    $after: String
+  ) {
+    transactionBlocks(
+      filter: { affectedAddress: $addr }
+      first: $first
+      after: $after
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        digest
+        transactionJson
+        effects {
+          status
+          timestamp
+          balanceChangesJson
+          objectChanges(first: 50) {
+            nodes {
+              idCreated
+              idDeleted
+              outputState {
+                address
+                owner {
+                  __typename
+                  ... on AddressOwner {
+                    address {
+                      address
+                    }
+                  }
+                  ... on ObjectOwner {
+                    address {
+                      address
+                    }
+                  }
+                }
+                asMoveObject {
+                  contents {
+                    type {
+                      repr
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+type GraphQLActivityNode = {
+  digest: string;
+  transactionJson: unknown | null;
+  effects: {
+    status: string | null;
+    timestamp: string | null;
+    balanceChangesJson: unknown | null;
+    objectChanges: {
+      nodes: Array<{
+        idCreated: boolean | null;
+        idDeleted: boolean | null;
+        outputState: {
+          address: string;
+          owner:
+            | { __typename: "AddressOwner"; address: { address: string } | null }
+            | { __typename: "ObjectOwner"; address: { address: string } | null }
+            | { __typename: string }
+            | null;
+          asMoveObject: {
+            contents: { type: { repr: string } | null } | null;
+          } | null;
+        } | null;
+      }>;
+    } | null;
+  } | null;
+};
+
+type GraphQLActivityResponse = {
+  transactionBlocks: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    nodes: Array<GraphQLActivityNode>;
+  } | null;
+};
+
+/**
+ * One GraphQL query for paginated event history, used by the vault-
+ * event walk to pull `VaultDeposit` and `VaultAutoSwap` rows.
+ *
+ * The Sui GraphQL filter `eventType` accepts a full
+ * `0x<pkg>::module::Event` string and matches exactly — same precision
+ * as JSON-RPC's `MoveEventType` filter, with one round-trip per page.
+ */
+const EVENTS_BY_TYPE_QUERY = /* GraphQL */ `
+  query EventsByType(
+    $eventType: String!
+    $first: Int!
+    $after: String
+  ) {
+    events(
+      filter: { eventType: $eventType }
+      first: $first
+      after: $after
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        timestamp
+        contents {
+          json
+        }
+        transaction {
+          digest
+        }
+      }
+    }
+  }
+`;
+
+type GraphQLEventsResponse<P> = {
+  events: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    nodes: Array<{
+      timestamp: string | null;
+      contents: { json: P | null } | null;
+      transaction: { digest: string } | null;
+    }>;
+  } | null;
+};
+
+/**
+ * Adapt a single `transactionBlocks` node into the legacy `RawTx` shape
+ * the classifier downstream already understands. We deliberately keep
+ * the existing `RawTx` contract so the (long, well-tested) classifier
+ * code doesn't need to be ported — we just rebuild the input it
+ * expects.
+ *
+ * Two notable mappings:
+ *   - `effects.status` is the GraphQL enum (`"SUCCESS"`/`"FAILURE"`)
+ *     vs JSON-RPC's lowercase `"success"`. Normalize back to the
+ *     lowercase form the classifier compares against.
+ *   - `effects.timestamp` is RFC3339; convert to epoch-ms string to
+ *     match the legacy `timestampMs` shape.
+ */
+function adaptGraphQLNodeToRawTx(node: GraphQLActivityNode): RawTx {
+  const txJson = (node.transactionJson ?? {}) as Record<string, unknown>;
+  const balanceChangesJson = (node.effects?.balanceChangesJson ??
+    []) as RawTx["balanceChanges"];
+
+  const statusRaw = (node.effects?.status ?? "").toString().toLowerCase();
+  const ts = node.effects?.timestamp ? Date.parse(node.effects.timestamp) : 0;
+  const tsMs = Number.isFinite(ts) ? ts : 0;
+
+  // Project objectChanges into the JSON-RPC-style shape:
+  //   { objectType, objectId, owner: { AddressOwner | ObjectOwner } }
+  const objectChanges: RawObjectChange[] = [];
+  for (const oc of node.effects?.objectChanges?.nodes ?? []) {
+    const out = oc.outputState;
+    if (!out) continue;
+    const objectId = out.address;
+    const objectType = out.asMoveObject?.contents?.type?.repr ?? undefined;
+    let owner: RawObjectChange["owner"] = undefined;
+    if (out.owner && typeof out.owner === "object") {
+      if (out.owner.__typename === "AddressOwner") {
+        const a = (out.owner as { address: { address: string } | null }).address
+          ?.address;
+        if (a) owner = { AddressOwner: a };
+      } else if (out.owner.__typename === "ObjectOwner") {
+        const a = (out.owner as { address: { address: string } | null }).address
+          ?.address;
+        if (a) owner = { ObjectOwner: a };
+      } else if (out.owner.__typename === "Shared") {
+        owner = { Shared: {} };
+      }
+    }
+    objectChanges.push({
+      type: oc.idCreated ? "created" : oc.idDeleted ? "deleted" : "mutated",
+      objectId,
+      objectType,
+      owner,
+    });
+  }
+
+  // `transactionJson` comes back as the Sui GraphQL JSON
+  // representation. The shape closely tracks JSON-RPC's
+  // `transaction.data.transaction.{inputs, transactions}` but is
+  // sometimes nested at the top level (no `.data` wrapper). Probe both
+  // shapes so we work against either schema revision.
+  type TxInner = {
+    kind?: string;
+    inputs?: RawSuiCallArg[];
+    transactions?: RawTransactionInput[];
+  };
+  const txInner: TxInner =
+    (txJson.transaction as TxInner | undefined) ?? (txJson as TxInner);
+
+  return {
+    digest: node.digest,
+    timestampMs: tsMs ? String(tsMs) : "0",
+    effects: { status: { status: statusRaw === "success" ? "success" : statusRaw } },
+    balanceChanges: balanceChangesJson,
+    objectChanges,
+    transaction: {
+      data: {
+        transaction: {
+          kind: typeof txInner?.kind === "string" ? txInner.kind : undefined,
+          inputs: (txInner?.inputs ?? []) as RawSuiCallArg[],
+          transactions: (txInner?.transactions ?? []) as RawTransactionInput[],
+        },
+      },
+    },
+  };
 }
 
 type RawObjectChange = {
@@ -627,15 +856,6 @@ async function getVaultEventActivity(
   limit: number,
   packageId: string
 ): Promise<ActivityEntry[]> {
-  type RawEventPage<P> = {
-    data: Array<{
-      id?: { txDigest?: string; eventSeq?: string };
-      timestampMs?: string;
-      parsedJson?: P;
-    }>;
-    nextCursor: unknown;
-    hasNextPage: boolean;
-  };
   type DepositJson = {
     vault_id?: string;
     coin_type?: string | number[];
@@ -649,15 +869,6 @@ async function getVaultEventActivity(
     from_amount?: string | number;
     to_amount?: string | number;
     ts_ms?: string | number;
-  };
-
-  const c = client() as unknown as {
-    queryEvents: <P>(a: {
-      query: { MoveEventType: string };
-      cursor?: unknown;
-      limit?: number;
-      order?: "ascending" | "descending";
-    }) => Promise<RawEventPage<P>>;
   };
 
   const vaultNormalized = vaultId.toLowerCase();
@@ -698,29 +909,33 @@ async function getVaultEventActivity(
     accept: (p: P) => boolean
   ): Promise<Array<{ digest: string; timestampMs: number; parsedJson: P }>> {
     const out: Array<{ digest: string; timestampMs: number; parsedJson: P }> = [];
-    let cursor: unknown = null;
+    let cursor: string | null = null;
     let scanned = 0;
+    const c = suiGraphQL();
     while (scanned < MAX_SCAN) {
-      const page: RawEventPage<P> = await c.queryEvents<P>({
-        query: { MoveEventType: moveEventType },
-        cursor,
-        limit: Math.min(FETCH_LIMIT, MAX_SCAN - scanned),
-        order: "descending",
+      const pageLimit = Math.min(FETCH_LIMIT, MAX_SCAN - scanned);
+      const res: { data?: GraphQLEventsResponse<P> } = await c.query({
+        query: EVENTS_BY_TYPE_QUERY,
+        variables: { eventType: moveEventType, first: pageLimit, after: cursor },
       });
-      for (const ev of page.data ?? []) {
+      const page = res.data?.events;
+      if (!page) break;
+      for (const ev of page.nodes ?? []) {
         scanned++;
-        if (!ev.parsedJson) continue;
-        if (!accept(ev.parsedJson)) continue;
-        const digest = ev.id?.txDigest;
+        const parsed = ev.contents?.json;
+        if (!parsed) continue;
+        if (!accept(parsed)) continue;
+        const digest = ev.transaction?.digest;
         if (!digest) continue;
+        const tsMs = ev.timestamp ? Date.parse(ev.timestamp) : 0;
         out.push({
           digest,
-          timestampMs: Number(ev.timestampMs ?? 0),
-          parsedJson: ev.parsedJson,
+          timestampMs: Number.isFinite(tsMs) ? tsMs : 0,
+          parsedJson: parsed,
         });
       }
-      if (!page.hasNextPage || !page.nextCursor) break;
-      cursor = page.nextCursor;
+      if (!page.pageInfo.hasNextPage || !page.pageInfo.endCursor) break;
+      cursor = page.pageInfo.endCursor;
     }
     return out;
   }
@@ -903,43 +1118,26 @@ export async function getRecentActivity(
   limit = 12,
   opts: { includeNonTalise?: boolean; vaultId?: string | null } = {}
 ): Promise<ActivityEntry[]> {
-  const c = client();
-  const options = {
-    showEffects: true,
-    showBalanceChanges: true,
-    showObjectChanges: true,
-    showInput: true,
-  };
-  type Resp = { data?: RawTx[]; nextCursor?: string | null; hasNextPage?: boolean };
   // We filter out non-Talise transactions client-side, so over-fetch by a
   // healthy margin to avoid an empty feed when a user has lots of unrelated
   // chain activity (NFT mints, random transfers, etc).
   const fetchLimit = Math.max(limit * 4, 50);
   let raw: RawTx[];
   try {
-    const [from, to] = await Promise.all([
-      (
-        c as unknown as {
-          queryTransactionBlocks: (a: unknown) => Promise<Resp>;
-        }
-      ).queryTransactionBlocks({
-        filter: { FromAddress: address },
-        options,
-        limit: fetchLimit,
-        order: "descending",
-      }),
-      (
-        c as unknown as {
-          queryTransactionBlocks: (a: unknown) => Promise<Resp>;
-        }
-      ).queryTransactionBlocks({
-        filter: { ToAddress: address },
-        options,
-        limit: fetchLimit,
-        order: "descending",
-      }),
-    ]);
-    raw = [...(from.data ?? []), ...(to.data ?? [])];
+    // Pre-migration this site issued TWO `suix_queryTransactionBlocks`
+    // calls in parallel (FromAddress + ToAddress) and unioned the
+    // results client-side. Sui GraphQL's `affectedAddress` filter
+    // returns BOTH sides in a single query — half the round-trips,
+    // same coverage. The downstream classifier still consumes the
+    // legacy `RawTx` shape; `adaptGraphQLNodeToRawTx` rebuilds it from
+    // the `transactionJson` + `balanceChangesJson` + `objectChanges`
+    // pieces.
+    const res: { data?: GraphQLActivityResponse } = await suiGraphQL().query({
+      query: TX_HISTORY_QUERY,
+      variables: { addr: address, first: fetchLimit, after: null },
+    });
+    const nodes = res.data?.transactionBlocks?.nodes ?? [];
+    raw = nodes.map(adaptGraphQLNodeToRawTx);
   } catch {
     return [];
   }
