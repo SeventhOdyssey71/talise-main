@@ -1,8 +1,4 @@
 import { SuiGrpcClient } from "@mysten/sui/grpc";
-import {
-  SuiJsonRpcClient,
-  getJsonRpcFullnodeUrl,
-} from "@mysten/sui/jsonRpc";
 import { USDSUI_TYPE } from "./usdsui";
 
 export type Network = "testnet" | "mainnet";
@@ -61,37 +57,10 @@ export function sui(): SuiGrpcClient {
   return _grpc;
 }
 
-// ─── JSON-RPC fallback ────────────────────────────────────────────────────────
-// Some legacy reads have no gRPC equivalent or use a response shape we
-// haven't migrated yet:
-//   • `queryTransactionBlocks` — not exposed on `SuiGrpcClient` at all
-//     (gRPC's analog is event-based subscription, not a paginated query).
-//   • `getTransactionBlock` — JSON-RPC's shape (`transaction.data.sender`,
-//     `objectChanges[]` with `type: "created"`, `effects.status.status`)
-//     is what our verify paths walk. gRPC's `getTransaction` returns a
-//     proto-shaped struct we'd have to re-map.
-//   • `getOwnedObjects` — JSON-RPC version returns `data[].data.type` plus
-//     `showContent` payload our code reads directly.
-//   • `getDynamicFields` — JSON-RPC version returns `data[].name.value` as
-//     UTF-8 byte arrays our code decodes inline.
-//   • `getAllCoins`, `multiGetObjects`, `getLatestSuiSystemState` — also
-//     no clean gRPC counterpart in the current `@mysten/sui` build.
-//
-// `suiJsonRpc()` is the escape hatch for these. Keep its use limited to
-// the legacy call sites — new code should default to `sui()`.
-
-let _jsonRpc: SuiJsonRpcClient | null = null;
-let _jsonRpcKey = "";
-
-export function suiJsonRpc(): SuiJsonRpcClient {
-  const net = network();
-  const url = getJsonRpcFullnodeUrl(net);
-  const key = `${net}:${url}`;
-  if (_jsonRpc && _jsonRpcKey === key) return _jsonRpc;
-  _jsonRpc = new SuiJsonRpcClient({ url, network: net });
-  _jsonRpcKey = key;
-  return _jsonRpc;
-}
+// JSON-RPC was removed in Phase 5 of the Sui RPC migration. All point reads,
+// executions, and lookups go through `sui()` (gRPC). Paginated history and
+// multi-entity reads go through `suiGraphQL()` in `./sui-graphql.ts`. See
+// `docs/sui-rpc-migration/migration-plan.md` for the full transport map.
 
 /** Canonical coin types on Sui mainnet (and equivalents on testnet). */
 export const COIN_TYPES = {

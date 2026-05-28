@@ -197,6 +197,8 @@ The biggest single piece of work. iOS currently has one direct Sui call (`ZkLogi
 
 # Phase 5 — JSON-RPC removal (½ day)
 
+**Phase 5 status:** completed 2026-05-27 except sub-plan 5.6 (pending iOS deploy-target decision). The iOS JSON-RPC fallback in `ZkLoginCoordinator.fetchEpochViaMainnetRPC` remains in place; it is excluded from the lint sweep via `git grep` path filter, not the lint allowlist.
+
 Final cleanup, gated on Phases 1-4 green.
 
 - Delete `suiJsonRpc()` from `lib/sui.ts`

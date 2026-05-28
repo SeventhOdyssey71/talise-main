@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # lint-no-jsonrpc.sh
-# Fails if any NEW file (outside the allowlist) imports SuiJsonRpcClient
-# or @mysten/sui/jsonRpc. Phase 5 will shrink the allowlist to zero.
+# Fails if any NEW file (outside the allowlist) imports SuiJsonRpcClient,
+# from @mysten/sui/jsonRpc, or references the legacy `suiJsonRpc()` helper.
+# The Phase 5 migration removed JSON-RPC from the targeted call sites; this
+# gate prevents regression. The allowlist is restricted to operator scripts
+# and SDK-init helpers that the Phase 5 scope explicitly DID NOT cover.
 #
 # Usage (from repo root or web/):
 #   bash web/scripts/lint-no-jsonrpc.sh
@@ -14,28 +17,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 WEB_DIR="${REPO_ROOT}/web"
 
-PATTERN='SuiJsonRpcClient\|@mysten/sui/jsonRpc'
+# Three patterns: the SDK class, the import surface, and the now-deleted
+# `suiJsonRpc()` helper (still grepped to catch stale references in PRs).
+PATTERN='SuiJsonRpcClient|@mysten/sui/jsonRpc|\bsuiJsonRpc\b'
 
-# Allowlist of EXISTING JSON-RPC sites (paths relative to repo root).
-# DO NOT ADD new entries. Phase 5 will whittle this list to zero.
+# Allowlist (paths relative to repo root). Post-Phase-5 the allowlist is
+# the MINIMUM SET of files that intentionally still touch JSON-RPC:
 #
-# Sub-plan 1.10 dropped: deepbook-margin.ts, navi-supply.ts,
-# suins-lookup.ts, suins-operator.ts, zkclient.ts (and the vault/state
-# event walks moved to GraphQL).
+#   • web/lib/coins.ts                → SDK wraps SuiJsonRpcClient internally for
+#                                       coin metadata + getAllCoins; no gRPC analog
+#                                       in @mysten/sui ^2.16.
+#   • web/lib/t2000.ts                → T2000 SDK only accepts a JSON-RPC URL;
+#                                       SDK constructs its own client internally.
+#   • web/lib/yield.ts                → Same — @t2000/sdk's getFinancialSummary
+#                                       requires a JSON-RPC client surface.
+#   • web/lib/payment-kit.ts          → Doc-comment only; no import. Kept until
+#                                       comment is rewritten in a follow-up.
+#   • web/scripts/*                   → Operator/debug scripts; not part of any
+#                                       runtime path. Out of Phase 5 scope.
 #
-# Remaining call sites cluster into the still-pending sub-plans:
-#   • web/lib/sui.ts                 → exports `suiJsonRpc()`. Phase 5 deletes it.
-#   • web/lib/payment-kit.ts         → comment-only reference; deleted with Phase 5.
-#   • web/lib/coins.ts               → coin-metadata read path (separate sub-plan).
-#   • web/lib/t2000.ts               → T2000 SDK init helper.
-#   • web/lib/yield.ts               → DeFi-yield read path.
-#   • web/components/FixSubnameBanner.tsx → Phase 2 client refactor.
-#   • web/scripts/*                  → operator scripts, migrated en masse in Phase 5.
+# Deferred (NOT in allowlist; documented elsewhere):
+#   • ios/Talise/Auth/ZkLoginCoordinator.swift — sub-plan 5.6 parked pending
+#     iOS deploy-target decision. Excluded from the sweep, not the lint.
 ALLOWLIST=(
-  "web/components/FixSubnameBanner.tsx"
   "web/lib/coins.ts"
   "web/lib/payment-kit.ts"
-  "web/lib/sui.ts"
   "web/lib/t2000.ts"
   "web/lib/yield.ts"
   "web/scripts/bootstrap-payment-registry.mjs"
@@ -66,7 +72,7 @@ HITS_RAW="$(cd "${REPO_ROOT}" && grep -rl \
     --exclude-dir=dist \
     --exclude-dir=.turbo \
     --exclude-dir=out \
-    -E 'SuiJsonRpcClient|@mysten/sui/jsonRpc' \
+    -E "${PATTERN}" \
     web 2>/dev/null | sed 's|//*|/|g' | sort -u)"
 
 VIOLATIONS=""
@@ -96,7 +102,7 @@ if (( VCOUNT > 0 )); then
     echo "  - ${v}"
   done
   echo ""
-  echo "Banned patterns: SuiJsonRpcClient, @mysten/sui/jsonRpc"
+  echo "Banned patterns: SuiJsonRpcClient, @mysten/sui/jsonRpc, suiJsonRpc"
   exit 1
 fi
 

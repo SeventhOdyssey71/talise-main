@@ -793,8 +793,9 @@ type AccumulatorBalance = {
  * same URL. Likely an SDK normalization issue with the vault's 64-char
  * address not matching the SDK's internal canonicalization. This is
  * a one-off HTTP POST, not a JSON-RPC client construction — it doesn't
- * count toward the `suiJsonRpc` migration surface and isn't exercised
- * by the lint allowlist.
+ * count toward the SDK-client migration surface (no SDK import) and
+ * isn't exercised by the lint allowlist. Tracked separately for a
+ * future raw-fetch cleanup pass.
  */
 async function readVaultAccumulatorBalances(
   vaultId: string,
