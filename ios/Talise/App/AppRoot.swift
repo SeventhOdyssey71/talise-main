@@ -73,14 +73,13 @@ struct MainTabView: View {
     @State private var tab: Tab = .home
     @State private var depositCoverVisible = false
     @State private var withdrawCoverVisible = false
+    @State private var sendCoverVisible = false
     @State private var claimSheetVisible = false
 
     /// True whenever ANY sheet/cover is being presented over the tab
-    /// content. Drives the blur applied to the underlying tab — the
-    /// system sheet only dims by default; this makes the background
-    /// read as a true glass blur, matching the Figma's depth treatment.
+    /// content. Drives the blur applied to the underlying tab.
     private var anySheetUp: Bool {
-        depositCoverVisible || withdrawCoverVisible || claimSheetVisible
+        depositCoverVisible || withdrawCoverVisible || sendCoverVisible || claimSheetVisible
     }
 
     var body: some View {
@@ -117,6 +116,15 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: $withdrawCoverVisible) {
             WithdrawFlowView(onClose: { withdrawCoverVisible = false })
         }
+        // "Onchain Send" inside the Withdraw flow dismisses the
+        // Withdraw cover and posts `.taliseRequestSendCover`, which we
+        // catch here. Hosting Send as its OWN cover (not embedded
+        // inside the Withdraw NavigationStack) preserves the working
+        // multi-step amount → recipient → review → sending → complete
+        // path — embedding it caused nav-stack nesting issues.
+        .fullScreenCover(isPresented: $sendCoverVisible) {
+            SendView(onDone: { sendCoverVisible = false })
+        }
         .sheet(isPresented: $claimSheetVisible) {
             ClaimHandleSheet()
                 .presentationDetents([.medium, .large])
@@ -128,6 +136,9 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestWithdrawCover)) { _ in
             withdrawCoverVisible = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestSendCover)) { _ in
+            sendCoverVisible = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestClaimSheet)) { _ in
             claimSheetVisible = true
         }
@@ -137,6 +148,11 @@ struct MainTabView: View {
 extension Notification.Name {
     static let taliseRequestDepositCover = Notification.Name("io.talise.requestDepositCover")
     static let taliseRequestWithdrawCover = Notification.Name("io.talise.requestWithdrawCover")
+    /// Direct-to-Send full cover. Used by the Withdraw flow's "Onchain
+    /// Send" option (which dismisses itself then posts this) so the
+    /// existing multi-step `SendView` runs as the root cover, not
+    /// nested inside the Withdraw NavigationStack.
+    static let taliseRequestSendCover = Notification.Name("io.talise.requestSendCover")
     static let taliseRequestClaimSheet = Notification.Name("io.talise.requestClaimSheet")
 }
 

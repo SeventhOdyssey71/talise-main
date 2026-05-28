@@ -20,53 +20,65 @@ struct DepositFlowView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    NavigationLink {
-                        DepositOnrampView()
-                    } label: {
-                        OptionCardRow(
-                            icon: "creditcard.fill",
-                            title: "Deposit into account",
-                            subtitle: "Fund your wallet with your bank card or transfer.",
-                            badge: nil
-                        )
-                    }
-                    .buttonStyle(.plain)
+            VStack(spacing: 0) {
+                inlineHeader
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        NavigationLink {
+                            DepositOnrampView()
+                        } label: {
+                            OptionCardRow(
+                                icon: "creditcard.fill",
+                                title: "Deposit into account",
+                                subtitle: "Fund your wallet with your bank card or transfer.",
+                                badge: nil
+                            )
+                        }
+                        .buttonStyle(.plain)
 
-                    NavigationLink {
-                        DepositOnchainView()
-                    } label: {
-                        OptionCardRow(
-                            icon: "qrcode",
-                            title: "Onchain Deposit",
-                            subtitle: "Get paid in USDsui via your Talise QR or address.",
-                            badge: "No fee"
-                        )
+                        NavigationLink {
+                            DepositOnchainView()
+                        } label: {
+                            OptionCardRow(
+                                icon: "qrcode",
+                                title: "Onchain Deposit",
+                                subtitle: "Get paid in USDsui via your Talise QR or address.",
+                                badge: "No fee"
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
             }
             .background(TaliseColor.bg.ignoresSafeArea())
-            .navigationTitle("Deposit")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(TaliseColor.fg)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(TaliseColor.surfaceGlass))
-                    }
-                }
-            }
-            .toolbarBackground(TaliseColor.bg, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
         }
         .tint(TaliseColor.fg)
+    }
+
+    /// Inline page title — Talise heading font, medium weight, 26pt.
+    /// Replaces the system large-title which read as too heavy / too
+    /// large against the rest of the surface.
+    private var inlineHeader: some View {
+        HStack(alignment: .center) {
+            Text("Deposit")
+                .font(TaliseFont.heading(26, weight: .medium))
+                .kerning(-0.6)
+                .foregroundStyle(TaliseColor.fg)
+            Spacer()
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(TaliseColor.surfaceGlass))
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
     }
 }
 
