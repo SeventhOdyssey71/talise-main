@@ -1,17 +1,13 @@
 // SuiGrpcClient.swift
 //
-// Skeleton for the Sui fullnode gRPC client. This file establishes
-// the singleton + import surface so the generated stubs under
-// ios/Talise/Network/SuiProto/Generated/ are referenced and the
-// project compiles against grpc-swift v2.
+// gRPC client for Sui fullnode (sui.rpc.v2.*) built on grpc-swift v2.
+// Method bodies were filled in by sub-plans 3.4–3.7; retry + timeout +
+// telemetry come from sub-plan 3.10.
 //
-// The four method bodies are intentionally fatalError() stubs — they
-// are filled in by sub-plans 3.4–3.7. Do not implement them here.
-//
-// grpc-swift v2 APIs are only available on iOS 18+ / macOS 15+, so
-// this whole type is gated behind that availability. Sub-plan 3.8
-// wires it into ZkLoginCoordinator behind an `if #available` check
-// (the app's deployment target is iOS 17.0).
+// grpc-swift v2 APIs are only available on iOS 18+ / macOS 15+, so this
+// whole type is gated behind that availability. Sub-plan 3.8 wires it
+// into ZkLoginCoordinator behind an `if #available` check (the app's
+// deployment target is iOS 17.0).
 
 import Foundation
 import GRPCCore
@@ -22,45 +18,164 @@ import SwiftProtobuf
 @available(iOS 18.0, macOS 15.0, *)
 @MainActor
 final class SuiGrpcClient {
-    static let shared = SuiGrpcClient(baseUrl: "https://fullnode.mainnet.sui.io:443")
+    static let shared = SuiGrpcClient(host: "fullnode.mainnet.sui.io", port: 443)
 
-    private let baseUrl: String
+    private let host: String
+    private let port: Int
 
-    // Channel/transport state lives here once sub-plans 3.4–3.7 build
-    // it out — likely a long-lived `GRPCClient<HTTP2ClientTransport.Posix>`
-    // launched in a Task at first use and re-used for the app's lifetime.
+    /// Per-request deadline. Matches the JSON-RPC fallback's 8s budget.
+    private let perRequestTimeout: Duration = .seconds(8)
 
-    private init(baseUrl: String) {
-        self.baseUrl = baseUrl
+    // MARK: - Channel lifecycle (lazy, long-lived)
+    //
+    // The first call opens an `HTTP2ClientTransport.Posix` to the mainnet
+    // fullnode and spawns a detached Task running `client.runConnections()`
+    // — that task owns the connection for the rest of the process lifetime.
+    // Subsequent calls reuse the same `GRPCClient`. There is no public
+    // shutdown hook; the OS reclaims it when the app exits.
+
+    private var grpcClient: GRPCClient<HTTP2ClientTransport.Posix>?
+    private var connectionTask: Task<Void, Never>?
+
+    private init(host: String, port: Int) {
+        self.host = host
+        self.port = port
     }
 
-    // MARK: - Method stubs (filled in by sub-plans 3.4–3.7)
+    private func client() throws -> GRPCClient<HTTP2ClientTransport.Posix> {
+        if let c = grpcClient { return c }
+        let transport = try HTTP2ClientTransport.Posix(
+            target: .dns(host: host, port: port),
+            transportSecurity: .tls
+        )
+        let c = GRPCClient(transport: transport)
+        grpcClient = c
+        connectionTask = Task.detached(priority: .utility) {
+            // runConnections() returns only on graceful shutdown; we never
+            // shut down, so this Task lives for the lifetime of the app.
+            try? await c.runConnections()
+        }
+        return c
+    }
 
-    /// Returns the current epoch summary from `LedgerService.GetEpoch`.
+    // MARK: - Retry / timeout / telemetry
+
+    /// Single retry on transient failures (DEADLINE_EXCEEDED, UNAVAILABLE)
+    /// with an 8s per-attempt timeout. Logs one NSLog line per call:
+    ///   `[SuiGrpc] <method> ms=<n> result=<ok|error:<code>>`
+    private func withRetry<T>(
+        _ method: String,
+        _ body: (CallOptions) async throws -> T
+    ) async throws -> T {
+        var options = CallOptions.defaults
+        options.timeout = perRequestTimeout
+
+        let start = DispatchTime.now().uptimeNanoseconds
+        func elapsedMs() -> Int {
+            Int((DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000)
+        }
+
+        do {
+            let result = try await body(options)
+            NSLog("[SuiGrpc] %@ ms=%d result=ok", method, elapsedMs())
+            return result
+        } catch let err as RPCError where err.code == .deadlineExceeded || err.code == .unavailable {
+            NSLog("[SuiGrpc] %@ ms=%d result=retry:%@", method, elapsedMs(), String(describing: err.code))
+            do {
+                let result = try await body(options)
+                NSLog("[SuiGrpc] %@ ms=%d result=ok", method, elapsedMs())
+                return result
+            } catch let err2 as RPCError {
+                NSLog("[SuiGrpc] %@ ms=%d result=error:%@", method, elapsedMs(), String(describing: err2.code))
+                throw err2
+            } catch {
+                NSLog("[SuiGrpc] %@ ms=%d result=error:%@", method, elapsedMs(), String(describing: error))
+                throw error
+            }
+        } catch let err as RPCError {
+            NSLog("[SuiGrpc] %@ ms=%d result=error:%@", method, elapsedMs(), String(describing: err.code))
+            throw err
+        } catch {
+            NSLog("[SuiGrpc] %@ ms=%d result=error:%@", method, elapsedMs(), String(describing: error))
+            throw error
+        }
+    }
+
+    // MARK: - RPCs
+
+    /// LedgerService.GetEpoch — current epoch (no `epoch` field on request
+    /// means "latest"). Returns the full Epoch (includes referenceGasPrice,
+    /// committee, system_state, etc.) so 3.5 can reuse the same call.
     /// Implemented by sub-plan 3.4.
     func getLatestEpoch() async throws -> Sui_Rpc_V2_Epoch {
-        fatalError("SuiGrpcClient.getLatestEpoch not yet implemented (sub-plan 3.4)")
+        let client = try client()
+        let ledger = Sui_Rpc_V2_LedgerService.Client(wrapping: client)
+        let req = Sui_Rpc_V2_GetEpochRequest()
+        return try await withRetry("GetEpoch") { options in
+            try await ledger.getEpoch(req, options: options) { response in
+                try response.message.epoch
+            }
+        }
     }
 
-    /// Returns the current reference gas price from the latest epoch.
+    /// Reference gas price for the current epoch.
     /// Implemented by sub-plan 3.5.
     func getReferenceGasPrice() async throws -> UInt64 {
-        fatalError("SuiGrpcClient.getReferenceGasPrice not yet implemented (sub-plan 3.5)")
+        let epoch = try await getLatestEpoch()
+        return epoch.referenceGasPrice
     }
 
-    /// Returns the balance of `coinType` owned by `address` from
-    /// `StateService.GetBalance`. Implemented by sub-plan 3.6.
+    /// StateService.GetBalance — total balance of one coin type for one owner.
+    /// Implemented by sub-plan 3.6.
     func getBalance(address: String, coinType: String) async throws -> Sui_Rpc_V2_Balance {
-        fatalError("SuiGrpcClient.getBalance not yet implemented (sub-plan 3.6)")
+        let client = try client()
+        let state = Sui_Rpc_V2_StateService.Client(wrapping: client)
+        var req = Sui_Rpc_V2_GetBalanceRequest()
+        req.owner = address
+        req.coinType = coinType
+        return try await withRetry("GetBalance") { options in
+            try await state.getBalance(req, options: options) { response in
+                try response.message.balance
+            }
+        }
     }
 
-    /// Submits a signed transaction via
-    /// `TransactionExecutionService.ExecuteTransaction`.
+    /// TransactionExecutionService.ExecuteTransaction — submit a signed
+    /// transaction. `transactionBcs` is the raw BCS-encoded TransactionData;
+    /// `signatures` are raw BCS-encoded user signatures (flag||sig||pubkey
+    /// for ed25519, or the multisig/zkLogin envelope).
     /// Implemented by sub-plan 3.7.
     func executeTransaction(
         transactionBcs: Data,
         signatures: [Data]
     ) async throws -> Sui_Rpc_V2_ExecuteTransactionResponse {
-        fatalError("SuiGrpcClient.executeTransaction not yet implemented (sub-plan 3.7)")
+        let client = try client()
+        let exec = Sui_Rpc_V2_TransactionExecutionService.Client(wrapping: client)
+
+        var txBcs = Sui_Rpc_V2_Bcs()
+        txBcs.name = "TransactionData"
+        txBcs.value = transactionBcs
+
+        var tx = Sui_Rpc_V2_Transaction()
+        tx.bcs = txBcs
+
+        let userSigs: [Sui_Rpc_V2_UserSignature] = signatures.map { sig in
+            var bcs = Sui_Rpc_V2_Bcs()
+            bcs.name = "UserSignature"
+            bcs.value = sig
+            var us = Sui_Rpc_V2_UserSignature()
+            us.bcs = bcs
+            return us
+        }
+
+        var req = Sui_Rpc_V2_ExecuteTransactionRequest()
+        req.transaction = tx
+        req.signatures = userSigs
+
+        return try await withRetry("ExecuteTransaction") { options in
+            try await exec.executeTransaction(req, options: options) { response in
+                try response.message
+            }
+        }
     }
 }

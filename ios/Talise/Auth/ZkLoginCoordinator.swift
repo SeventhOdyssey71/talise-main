@@ -450,8 +450,25 @@ final class ZkLoginCoordinator {
     ///      state; either source returns the same value.
     private func fetchMaxEpoch() async -> Int? {
         if let v = await fetchEpochViaBackend() { return v + 2 }
-        if let v = await fetchEpochViaMainnetRPC() { return v + 2 }
+        if let v = await fetchEpochViaMainnetGrpcOrRPC() { return v + 2 }
         return nil
+    }
+
+    /// gRPC on iOS 18+ (sub-plan 3.8), JSON-RPC fallback on iOS 17.
+    /// Same source-of-truth (the public mainnet fullnode), same value.
+    private func fetchEpochViaMainnetGrpcOrRPC() async -> Int? {
+        if #available(iOS 18, *) {
+            do {
+                let epoch = try await SuiGrpcClient.shared.getLatestEpoch()
+                return Int(epoch.epoch)
+            } catch {
+                // Fall through to JSON-RPC on any gRPC failure — keeps
+                // sign-in working if the fullnode's gRPC port is hiccupping.
+                return await fetchEpochViaMainnetRPC()
+            }
+        } else {
+            return await fetchEpochViaMainnetRPC()
+        }
     }
 
     private func fetchEpochViaBackend() async -> Int? {
