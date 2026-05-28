@@ -1,16 +1,16 @@
 import SwiftUI
 
-/// Animated check used by `SendCompleteView`. Matches the
-/// `AnimatedPaperPlane` aesthetic: gradient-stroke ring + check,
-/// gentle floating motion, soft drop-shadow for depth. No expanding
-/// halo / glow — the previous pulsing ring read as a system
-/// notification instead of a confirmed transfer.
+/// Wireframe "3D" check used by `SendCompleteView`. No outer ring,
+/// no halo — just the check itself drawn as a ribbon-extrusion
+/// outline with an inner crease line at the vertex, exactly the
+/// same construction logic the `AnimatedPaperPlane` uses to imply
+/// depth (outer silhouette + interior fold line). Gradient stroke,
+/// gentle float, soft drop-shadow.
 struct SendSuccessAnimation: View {
-    var size: CGFloat = 120
+    var size: CGFloat = 140
     var color: Color = TaliseColor.accent
 
-    @State private var ringProgress: CGFloat = 0
-    @State private var checkProgress: CGFloat = 0
+    @State private var drawProgress: CGFloat = 0
     @State private var float = false
 
     private var strokeGradient: LinearGradient {
@@ -22,40 +22,79 @@ struct SendSuccessAnimation: View {
     }
 
     var body: some View {
-        ZStack {
-            Circle()
-                .trim(from: 0, to: ringProgress)
-                .stroke(
-                    strokeGradient,
-                    style: StrokeStyle(lineWidth: 2.6, lineCap: .round)
+        Check3DShape()
+            .trim(from: 0, to: drawProgress)
+            .stroke(
+                strokeGradient,
+                style: StrokeStyle(
+                    lineWidth: 2.4,
+                    lineCap: .round,
+                    lineJoin: .round
                 )
-                .rotationEffect(.degrees(-90))
-                .frame(width: size, height: size)
-
-            CheckmarkPath()
-                .trim(from: 0, to: checkProgress)
-                .stroke(
-                    strokeGradient,
-                    style: StrokeStyle(
-                        lineWidth: 3.2,
-                        lineCap: .round,
-                        lineJoin: .round
-                    )
-                )
-                .frame(width: size * 0.50, height: size * 0.50)
-        }
-        .rotationEffect(.degrees(float ? -2 : 2))
-        .offset(y: float ? -3 : 3)
-        .shadow(color: color.opacity(0.35), radius: 14, x: 0, y: 6)
-        .onAppear { runIn() }
+            )
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(float ? -3 : 3))
+            .offset(y: float ? -3 : 3)
+            .shadow(color: color.opacity(0.35), radius: 14, x: 0, y: 6)
+            .onAppear { runIn() }
     }
 
     private func runIn() {
-        withAnimation(.easeOut(duration: 0.55)) { ringProgress = 1 }
-        withAnimation(.easeOut(duration: 0.45).delay(0.45)) { checkProgress = 1 }
+        withAnimation(.easeInOut(duration: 1.1)) { drawProgress = 1 }
         withAnimation(
             .easeInOut(duration: 1.6).repeatForever(autoreverses: true)
         ) { float.toggle() }
+    }
+}
+
+/// Ribbon-extrusion checkmark Shape. Two parallel check strokes
+/// (offset perpendicular to the visual direction) form the front and
+/// back edges of a thin band; the start and end caps close the
+/// ribbon, and an interior fold line at the vertex gives the 3D
+/// "folded paper" feel that matches `SendPaperPlane`.
+///
+/// Tuned by eye for a 140pt frame. All coordinates are fractions of
+/// the bounding rect so it scales cleanly.
+struct Check3DShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let w = rect.width
+        let h = rect.height
+
+        // Front (top) edge of the check ribbon — runs from start →
+        // vertex → end.
+        let startFront  = CGPoint(x: w * 0.14, y: h * 0.48)
+        let vertexFront = CGPoint(x: w * 0.42, y: h * 0.74)
+        let endFront    = CGPoint(x: w * 0.86, y: h * 0.22)
+
+        // Back (bottom) edge — same path, offset down-right to imply
+        // depth. Constant offset works at this angle; perpendicular
+        // math would be overkill for a 3D-icon glyph.
+        let dx: CGFloat = w * 0.045
+        let dy: CGFloat = h * 0.055
+        let startBack  = CGPoint(x: startFront.x  + dx, y: startFront.y  + dy)
+        let vertexBack = CGPoint(x: vertexFront.x + dx, y: vertexFront.y + dy)
+        let endBack    = CGPoint(x: endFront.x    + dx, y: endFront.y    + dy)
+
+        // Outer outline: front edge → end cap → back edge (reversed)
+        // → start cap. Single closed subpath so the trim animation
+        // draws the whole silhouette in one continuous sweep.
+        p.move(to: startFront)
+        p.addLine(to: vertexFront)
+        p.addLine(to: endFront)
+        p.addLine(to: endBack)
+        p.addLine(to: vertexBack)
+        p.addLine(to: startBack)
+        p.closeSubpath()
+
+        // Interior fold line at the vertex — same role as
+        // `SendPaperPlane`'s nose→belly crease. This is what makes
+        // the check read as a folded ribbon rather than a flat
+        // outline.
+        p.move(to: vertexFront)
+        p.addLine(to: vertexBack)
+
+        return p
     }
 }
 
