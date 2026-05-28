@@ -39,63 +39,37 @@ export default function WaitlistPage() {
         </Link>
         <Link
           href="/"
-          className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-surface-2)] px-5 py-2.5 text-[14px] text-[var(--color-fg)] transition hover:bg-[var(--color-surface)]"
+          className="inline-flex items-center rounded-full bg-[var(--color-surface-2)] px-5 py-2.5 text-[14px] text-[var(--color-fg)] transition hover:bg-[var(--color-surface)]"
         >
-          <span aria-hidden>←</span>
           Back to home
         </Link>
       </header>
 
-      {/* Hero body. flex-1 lets the section grow to fill the viewport
-          between header and footer so vertical centering looks balanced
-          on tall laptop screens. */}
-      <section className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-6 pb-8 pt-6 text-center sm:pt-10">
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1.5">
-          <span className="relative inline-flex h-1.5 w-1.5">
-            <span className="absolute inset-0 animate-ping rounded-full bg-[var(--color-accent)]/60" />
-            <span className="relative h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
-          </span>
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-white/70">
-            Private beta. Joining is by invite.
-          </span>
-        </div>
-
+      {/* Hero body. flex-1 + items/justify-center keeps the form
+          vertically centered between header and footer regardless of
+          viewport height. Symmetric `py-8` padding so the visual
+          weight reads as centered (was `pt-6 pb-8` which biased the
+          content downward on tall screens). */}
+      <section className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-6 py-8 text-center">
         <h1 className="text-[clamp(2rem,4.5vw,2.75rem)] font-medium leading-[1.04] tracking-[-0.025em]">
           Get an{" "}
-          <span className="italic" style={{ fontFamily: "var(--font-serif)" }}>
+          <span
+            className="italic text-[var(--color-accent)]"
+            style={{ fontFamily: "var(--font-serif)" }}
+          >
             @handle
-          </span>
+          </span>{" "}
           <br className="hidden sm:block" />
           that holds dollars.
         </h1>
 
-        <p className="mt-4 max-w-[480px] text-[15px] leading-[1.55] text-white/65">
-          Talise turns <span className="text-white">@yourname</span> into a Sui
-          address that auto-converts every inbound coin to USDsui. Hold
-          dollars, send home in seconds, earn on idle balance.
+        <p className="mt-4 max-w-[420px] text-[15px] leading-[1.55] text-white/65">
+          Hold dollars. Send home in seconds. Earn on idle balance.
         </p>
 
         <div className="mt-6 w-full max-w-[460px]">
           <WaitlistForm />
         </div>
-
-        {/* Compressed reassurance line. Three trust signals on a
-            single row so the page still fits in 1280x800. */}
-        <div className="mt-6 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.18em] text-white/45">
-          <span>Early access</span>
-          <span aria-hidden className="text-white/20">·</span>
-          <span>No spam</span>
-          <span aria-hidden className="text-white/20">·</span>
-          <span>Easy out</span>
-        </div>
-
-        <Link
-          href="/litepaper"
-          className="mt-5 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-white/55 hover:text-white"
-        >
-          Read the litepaper while you wait
-          <span aria-hidden>→</span>
-        </Link>
       </section>
 
       {/* Minimal footer, matches landing. */}
