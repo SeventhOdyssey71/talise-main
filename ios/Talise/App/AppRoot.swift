@@ -71,16 +71,16 @@ struct MainTabView: View {
     // is ready — but it shouldn't ship to users half-baked.
     enum Tab: Hashable { case home, invest, rewards, profile }
     @State private var tab: Tab = .home
-    @State private var sendSheetVisible = false
-    @State private var receiveSheetVisible = false
+    @State private var depositCoverVisible = false
+    @State private var withdrawCoverVisible = false
     @State private var claimSheetVisible = false
 
-    /// True whenever ANY sheet is being presented over the tab content.
-    /// Drives the blur applied to the underlying tab — the system sheet
-    /// only dims by default; this makes the background read as a true
-    /// glass blur, matching the Figma's depth treatment.
+    /// True whenever ANY sheet/cover is being presented over the tab
+    /// content. Drives the blur applied to the underlying tab — the
+    /// system sheet only dims by default; this makes the background
+    /// read as a true glass blur, matching the Figma's depth treatment.
     private var anySheetUp: Bool {
-        sendSheetVisible || receiveSheetVisible || claimSheetVisible
+        depositCoverVisible || withdrawCoverVisible || claimSheetVisible
     }
 
     var body: some View {
@@ -106,30 +106,27 @@ struct MainTabView: View {
                 .blur(radius: anySheetUp ? 14 : 0)
                 .animation(.easeInOut(duration: 0.22), value: anySheetUp)
         }
-        // Send is a full-page push, not a bottom-up sheet — multi-step
-        // flows (amount → recipient → review → sending → complete) read
-        // wrong with a drag handle at the top, and the dismiss-by-swipe
-        // gesture mid-flight can land the user on a half-confirmed
-        // state. `.fullScreenCover` gives the takeover feel of a new
-        // page while still letting AppRoot own the dismiss state.
-        .fullScreenCover(isPresented: $sendSheetVisible) {
-            SendView(onDone: { sendSheetVisible = false })
+        // Deposit and Withdraw are full-page flows with their own
+        // internal NavigationStack so sub-pages PUSH from the trailing
+        // edge instead of slide up. `.fullScreenCover` is the only
+        // initial bottom-up motion; everything beyond it is a normal
+        // push.
+        .fullScreenCover(isPresented: $depositCoverVisible) {
+            DepositFlowView(onClose: { depositCoverVisible = false })
         }
-        .sheet(isPresented: $receiveSheetVisible) {
-            ReceiveView()
-                .presentationDetents([.medium, .large])
-                .presentationBackground(TaliseColor.bg)
+        .fullScreenCover(isPresented: $withdrawCoverVisible) {
+            WithdrawFlowView(onClose: { withdrawCoverVisible = false })
         }
         .sheet(isPresented: $claimSheetVisible) {
             ClaimHandleSheet()
                 .presentationDetents([.medium, .large])
                 .presentationBackground(TaliseColor.bg)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestSendSheet)) { _ in
-            sendSheetVisible = true
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestDepositCover)) { _ in
+            depositCoverVisible = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestReceiveSheet)) { _ in
-            receiveSheetVisible = true
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestWithdrawCover)) { _ in
+            withdrawCoverVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestClaimSheet)) { _ in
             claimSheetVisible = true
@@ -138,7 +135,8 @@ struct MainTabView: View {
 }
 
 extension Notification.Name {
-    static let taliseRequestReceiveSheet = Notification.Name("io.talise.requestReceiveSheet")
+    static let taliseRequestDepositCover = Notification.Name("io.talise.requestDepositCover")
+    static let taliseRequestWithdrawCover = Notification.Name("io.talise.requestWithdrawCover")
     static let taliseRequestClaimSheet = Notification.Name("io.talise.requestClaimSheet")
 }
 

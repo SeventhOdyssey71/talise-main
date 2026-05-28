@@ -192,7 +192,9 @@ struct HomeView: View {
                     }
                 }
                 actionButton(systemName: "plus") {
-                    Task { await openOnramp() }
+                    NotificationCenter.default.post(
+                        name: .taliseRequestDepositCover, object: nil
+                    )
                 }
                 // "Move to wallet" — only painted when the user has
                 // something to pull out of the vault. Auto-swap drops
@@ -211,7 +213,7 @@ struct HomeView: View {
                 // vertical and lost the directional cue.
                 actionButton(systemName: "paperplane", rotated: 0) {
                     NotificationCenter.default.post(
-                        name: .taliseRequestSendSheet, object: nil
+                        name: .taliseRequestWithdrawCover, object: nil
                     )
                 }
             }
@@ -589,19 +591,7 @@ struct HomeView: View {
         TaliseFormat.usd(v)
     }
 
-    /// The "+" deposit button. Until the Stripe Onramp flow has a
-    /// one-time bearer→cookie bridge wired (so Safari can carry the
-    /// iOS auth across to /api/onramp/session), this button opens the
-    /// Receive sheet — the user can copy their address / share the
-    /// QR with anyone holding USDsui (another Talise user, an exchange,
-    /// a hot wallet) and have funds delivered without leaving the app.
-    private func openOnramp() async {
-        NotificationCenter.default.post(
-            name: .taliseRequestReceiveSheet, object: nil
-        )
-    }
-
-    // MARK: - Sweep to USDsui (Onara-sponsored, Cetus route)
+// MARK: - Sweep to USDsui (Onara-sponsored, Cetus route)
 
     /// Renders when the wallet holds non-USDsui coins worth more than
     /// dust. Tap → confirmation alert → POST /api/sweep/prepare with
@@ -898,8 +888,11 @@ struct ContactsSheet: View {
             // Tiny delay so the sheet dismiss completes before the next
             // sheet presentation request fires.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                // Surface the Withdraw flow; the user can then tap
+                // "Onchain Send" which inherits the prefilled
+                // recipient via the UserDefaults bridge set above.
                 NotificationCenter.default.post(
-                    name: .taliseRequestSendSheet, object: nil
+                    name: .taliseRequestWithdrawCover, object: nil
                 )
             }
         } label: {
@@ -950,9 +943,9 @@ struct ContactsSheet: View {
 }
 
 extension Notification.Name {
-    /// Posted by HomeView when the paperplane action is tapped. MainTabView
-    /// observes this and presents the Send sheet over the active tab.
-    static let taliseRequestSendSheet = Notification.Name("io.talise.requestSendSheet")
+    // Note: taliseRequestDepositCover + taliseRequestWithdrawCover are
+    // declared in AppRoot.swift (mounted from MainTabView). The +/
+    // paperplane buttons post those — no name lives here anymore.
 
     /// Posted by SendView / EarnView once a sponsored tx returns a
     /// digest. HomeView listens, prepends an optimistic row, and
