@@ -16,8 +16,8 @@ import GRPCProtobuf
 import SwiftProtobuf
 
 @MainActor
-final class SuiGrpcClient {
-    static let shared = SuiGrpcClient(host: "fullnode.mainnet.sui.io", port: 443)
+public final class SuiGrpcClient {
+    public static let shared = SuiGrpcClient(host: "fullnode.mainnet.sui.io", port: 443)
 
     private let host: String
     private let port: Int
@@ -106,7 +106,7 @@ final class SuiGrpcClient {
     /// means "latest"). Returns the full Epoch (includes referenceGasPrice,
     /// committee, system_state, etc.) so 3.5 can reuse the same call.
     /// Implemented by sub-plan 3.4.
-    func getLatestEpoch() async throws -> Sui_Rpc_V2_Epoch {
+    public func getLatestEpoch() async throws -> Sui_Rpc_V2_Epoch {
         let client = try client()
         let ledger = Sui_Rpc_V2_LedgerService.Client(wrapping: client)
         let req = Sui_Rpc_V2_GetEpochRequest()
@@ -119,14 +119,14 @@ final class SuiGrpcClient {
 
     /// Reference gas price for the current epoch.
     /// Implemented by sub-plan 3.5.
-    func getReferenceGasPrice() async throws -> UInt64 {
+    public func getReferenceGasPrice() async throws -> UInt64 {
         let epoch = try await getLatestEpoch()
         return epoch.referenceGasPrice
     }
 
     /// StateService.GetBalance — total balance of one coin type for one owner.
     /// Implemented by sub-plan 3.6.
-    func getBalance(address: String, coinType: String) async throws -> Sui_Rpc_V2_Balance {
+    public func getBalance(address: String, coinType: String) async throws -> Sui_Rpc_V2_Balance {
         let client = try client()
         let state = Sui_Rpc_V2_StateService.Client(wrapping: client)
         var req = Sui_Rpc_V2_GetBalanceRequest()
@@ -144,7 +144,7 @@ final class SuiGrpcClient {
     /// `signatures` are raw BCS-encoded user signatures (flag||sig||pubkey
     /// for ed25519, or the multisig/zkLogin envelope).
     /// Implemented by sub-plan 3.7.
-    func executeTransaction(
+    public func executeTransaction(
         transactionBcs: Data,
         signatures: [Data]
     ) async throws -> Sui_Rpc_V2_ExecuteTransactionResponse {
