@@ -422,3 +422,58 @@ export function decodeBagKeyVectorU8(value: unknown): string {
   }
   return "";
 }
+
+// ─── SDK GraphQL client (singleton) ───────────────────────────────────────────
+// Everything above this line is the hand-rolled fetch + cache layer that backs
+// `/api/vault/state`, `lib/activity.ts`, and `/api/balances`. The exports below
+// are a thin singleton wrapper around `@mysten/sui/graphql`'s `SuiGraphQLClient`
+// so new call sites can use the typed SDK surface (`gql.tada`-style documents)
+// without each one paying for client construction. Mirrors the `sui()` /
+// `suiJsonRpc()` pattern in `./sui.ts` — same network resolution, same
+// process-wide cache key (network + url) so a single
+// `NEXT_PUBLIC_SUI_NETWORK` env var keeps every client in lockstep.
+
+import { SuiGraphQLClient } from "@mysten/sui/graphql";
+import { network, type Network } from "./sui";
+
+/**
+ * Re-export the `graphql` tagged-template helper from
+ * `@mysten/sui/graphql/schema` so callers can author typed GraphQL documents
+ * alongside the client they grab from this module.
+ */
+export { graphql } from "@mysten/sui/graphql/schema";
+
+/**
+ * Default GraphQL endpoint for a given Sui network. Mysten's hosted indexer
+ * serves both mainnet and testnet at well-known URLs. An env override
+ * (`SUI_GRAPHQL_URL` / `NEXT_PUBLIC_SUI_GRAPHQL_URL`) lets us point at a
+ * private endpoint without code changes, mirroring `defaultGrpcBaseUrl` in
+ * `./sui.ts`. We share the env var with the fetch-based layer above so
+ * overrides apply to both.
+ */
+function defaultGraphQLUrl(net: Network): string {
+  const fromEnv =
+    process.env.SUI_GRAPHQL_URL ?? process.env.NEXT_PUBLIC_SUI_GRAPHQL_URL;
+  if (fromEnv && fromEnv.trim().length > 0) return fromEnv.trim();
+  return net === "mainnet"
+    ? "https://graphql.mainnet.sui.io/graphql"
+    : "https://graphql.testnet.sui.io/graphql";
+}
+
+let _gqlClient: SuiGraphQLClient | null = null;
+let _gqlClientKey = "";
+
+/**
+ * Cached `SuiGraphQLClient` for the active network. Prefer this over hand-
+ * rolled `fetch` for new call sites — it integrates with `graphql` typed
+ * documents and matches the singleton ergonomics of `sui()` /`suiJsonRpc()`.
+ */
+export function suiGraphQL(): SuiGraphQLClient {
+  const net = network();
+  const url = defaultGraphQLUrl(net);
+  const key = `${net}:${url}`;
+  if (_gqlClient && _gqlClientKey === key) return _gqlClient;
+  _gqlClient = new SuiGraphQLClient({ url, network: net });
+  _gqlClientKey = key;
+  return _gqlClient;
+}
