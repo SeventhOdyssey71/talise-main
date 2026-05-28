@@ -1,4 +1,4 @@
-import { sui } from "./sui";
+import { suiGrpcWithFallback } from "./sui-endpoints";
 import { memoTtl } from "./perf-cache";
 
 /**
@@ -35,7 +35,17 @@ const MAX_EPOCH_HORIZON = 2;
  */
 export async function getCurrentEpoch(): Promise<number> {
   return memoTtl("sui:current-epoch", EPOCH_TTL_MS, async () => {
-    const res = await sui().ledgerService.getServiceInfo({});
+    // Multi-endpoint fallback — try Mysten's fullnode first, then
+    // archival, then any configured paid providers (Shinami, Dwellir,
+    // QuickNode). Catches today's Mysten outage shape
+    // (`no_healthy_upstream` / 503 / `UNAVAILABLE`) and walks the chain.
+    const res = await suiGrpcWithFallback(async (client) => {
+      // `getServiceInfo` returns a UnaryCall which is thenable —
+      // await it to resolve, then the `.response` field holds the
+      // typed body. Wrapping in `async` keeps TS happy about the
+      // Promise<T> contract.
+      return await client.ledgerService.getServiceInfo({});
+    });
     const epoch = res.response?.epoch;
     if (epoch == null) {
       throw new Error("ledgerService.getServiceInfo returned no epoch");
