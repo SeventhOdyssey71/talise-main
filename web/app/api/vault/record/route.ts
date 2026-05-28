@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById, setTaliseVaultId } from "@/lib/db";
-import { sui, suiJsonRpc } from "@/lib/sui";
+import { sui } from "@/lib/sui";
+import { getNormalizedTransaction } from "@/lib/sui-shapes";
 import {
   vaultPackageIds,
   VaultNotDeployedError,
@@ -77,18 +78,16 @@ export async function POST(req: Request) {
 
   // On-chain verification — we trust nothing the client sends.
   try {
-    // JSON-RPC: `getTransactionBlock` response shape
-    // (`transaction.data.sender`, `objectChanges[].type === "created"`,
-    // `effects.status.status`) is what this verifier consumes.
-    const tx = await suiJsonRpc().getTransactionBlock({
-      digest,
-      options: { showObjectChanges: true, showInput: true, showEffects: true },
-    });
+    // Canonical gRPC-normalized shape from `@/lib/sui-shapes`. The
+    // helper requests effects + transaction + objectTypes, which is
+    // exactly what this verifier needs (sender, status, created
+    // object rows with their Move type tag).
+    const tx = await getNormalizedTransaction(digest);
 
     // 1. Sender matches the authenticated user. A logged-in user can't
     //    record someone *else's* vault as their own.
-    const sender = (tx.transaction?.data?.sender ?? "").toLowerCase();
-    if (sender !== user.sui_address.toLowerCase()) {
+    //    `tx.sender` is already lowercased by the normalizer.
+    if (tx.sender !== user.sui_address.toLowerCase()) {
       return NextResponse.json(
         { error: "digest sender does not match user wallet" },
         { status: 400 }
@@ -100,12 +99,9 @@ export async function POST(req: Request) {
     //    matches one; if not, we adopt the first match (there's only
     //    ever one created vault per `vault::create` call).
     const expectedType = `${packageId}::vault::TaliseVault`;
-    const changes = tx.objectChanges ?? [];
-    const createdVaults = changes.filter((c) => {
-      if (c.type !== "created") return false;
-      const obj = c as { objectType?: string };
-      return obj.objectType === expectedType;
-    }) as Array<{ objectId?: string; objectType?: string }>;
+    const createdVaults = tx.objectChanges.filter(
+      (c) => c.kind === "created" && c.objectType === expectedType
+    );
 
     if (createdVaults.length === 0) {
       return NextResponse.json(
@@ -119,7 +115,7 @@ export async function POST(req: Request) {
 
     if (vaultId) {
       const found = createdVaults.find(
-        (c) => (c.objectId ?? "").toLowerCase() === vaultId.toLowerCase()
+        (c) => c.objectId.toLowerCase() === vaultId.toLowerCase()
       );
       if (!found) {
         return NextResponse.json(
@@ -130,7 +126,7 @@ export async function POST(req: Request) {
     } else {
       // Adopt the derived id. We've already verified type + sender,
       // so this is safe.
-      vaultId = createdVaults[0].objectId ?? "";
+      vaultId = createdVaults[0].objectId;
       if (!vaultId) {
         return NextResponse.json(
           { error: "TaliseVault created but objectId missing from receipt" },
@@ -139,11 +135,16 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Tx didn't abort. `effects.status` shape: { status: "success" | "failure" }.
-    const status = tx.effects?.status?.status;
-    if (status !== "success") {
+    // 3. Tx didn't abort. Normalizer collapses both JSON-RPC's
+    //    `effects.status.status` and gRPC's `status.success` to
+    //    `"success" | "failure"`.
+    if (tx.effects.status !== "success") {
       return NextResponse.json(
-        { error: `tx status not success: ${status ?? "unknown"}` },
+        {
+          error: `tx status not success: ${tx.effects.status}${
+            tx.effects.errorMessage ? ` (${tx.effects.errorMessage})` : ""
+          }`,
+        },
         { status: 400 }
       );
     }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db, ensureSchema } from "@/lib/db";
-import { suiJsonRpc } from "@/lib/sui";
+import { sui } from "@/lib/sui";
+import { gql } from "@/lib/sui-graphql";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { vaultPackageIds, VaultNotDeployedError } from "@/lib/vault";
 
@@ -17,6 +18,28 @@ export const dynamic = "force-dynamic";
  * to the Onara worker. Onara composes the
  *   `vault::auto_swap_extract → Cetus → vault::auto_swap_deposit`
  * PTB, signs as the registered admin, and broadcasts.
+ *
+ * Transport notes (post sub-plan 1.9):
+ *   • Object reads (vault state, individual cap objects, dynamic field
+ *     entries) use gRPC `sui().getObject({ include: { json: true } })`.
+ *     Owner is a discriminated union — `owner.$kind === "Shared" |
+ *     "AddressOwner" | ...`. Move struct fields land already-parsed at
+ *     `object.json` (no `dataType`/`fields` indirection).
+ *   • Owned-object enumeration uses `sui().listOwnedObjects({ owner,
+ *     type, limit, cursor })`. `type` is a flat top-level filter string,
+ *     NOT `filter.structType`. We pass `<pkg>::auto_swap::AutoSwapCap`
+ *     (no type-arg) and rely on the gRPC server's prefix-match semantics
+ *     for generic struct instantiations; the post-filter is defensive in
+ *     case the server tightens to exact-match in the future.
+ *   • Dynamic-field walks use `sui().listDynamicFields({ parentId,
+ *     cursor, limit })`. The key arrives as raw BCS bytes (a length-
+ *     prefixed `vector<u8>` of the type-name) so we strip the ULEB128
+ *     length prefix inline and UTF-8 decode the rest.
+ *   • Historical `queryEvents` walks moved to Sui GraphQL (`gql()` from
+ *     `lib/sui-graphql.ts`). gRPC's `subscriptionService.subscribeEvents`
+ *     only streams forward; the cron needs descending historical pages.
+ *     The Sui GraphQL `events` filter field is `type` (mainnet schema
+ *     introspection confirmed — sub-plan 1.10).
  *
  * Design choices, briefly:
  *   • Sequential per-user iteration. We don't have enough users yet to
@@ -68,19 +91,19 @@ function authorized(req: Request): boolean {
 // form without `0x` and with the address left-padded to 64 hex chars:
 //   "0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
 //
-// Cap `sourceType` (extracted from `getOwnedObjects.data.type`) is the
-// RPC's short form, where the SDK collapses leading-zero addresses:
+// Cap `sourceType` (extracted from the cap object's `type`) is the
+// SDK's short form, where leading-zero addresses are collapsed:
 //   "0x2::sui::SUI"
 //
 // These two never matched via direct string equality, so `capByType.get`
 // always missed and the per-user sweep silently fell through with no
-// log. Canonicalize both sides into "0x" + 64-char address + "::module::Type"
+// log. Canonicalize both sides into "0x" + short-address + "::module::Type"
 // before comparing.
 
 function canonicalizeTypeTag(t: string): string {
   // Normalize to the SHORT form: strip leading zeros from the address
   // half. The 64-char canonical form (what `type_name::get` writes into
-  // bag keys) and the short form (what the Sui RPC returns in `data.type`
+  // bag keys) and the short form (what the Sui SDK returns in `object.type`
   // and what downstream consumers like the Cetus aggregator's pool index
   // use) both reduce to the same short representation when leading zeros
   // are dropped.
@@ -102,6 +125,66 @@ function canonicalizeTypeTag(t: string): string {
   addr = addr.toLowerCase().replace(/^0+/, "") || "0";
   return `0x${addr}${tail}`;
 }
+
+// ───────────────────────────────────────────────────────────────────
+// BCS helpers for gRPC dynamic-field names
+//
+// `listDynamicFields` returns each key's `name.bcs` as raw bytes. For
+// Talise vaults the bag key is `vector<u8>` containing the canonical
+// type-name (e.g. `0000…0002::sui::SUI`), BCS-encoded as a ULEB128
+// length prefix followed by the UTF-8 bytes. Strip the prefix and decode.
+
+function decodeBagKeyBcs(bcs: Uint8Array | undefined): string {
+  if (!bcs || bcs.length === 0) return "";
+  // ULEB128 decode of the length prefix.
+  let i = 0;
+  let length = 0;
+  let shift = 0;
+  while (i < bcs.length) {
+    const b = bcs[i++];
+    length |= (b & 0x7f) << shift;
+    if ((b & 0x80) === 0) break;
+    shift += 7;
+    if (shift > 28) return ""; // malformed
+  }
+  if (i + length > bcs.length) return "";
+  // The payload is the type-name string itself (ASCII).
+  try {
+    return Buffer.from(bcs.subarray(i, i + length)).toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// GraphQL — historical event walks
+//
+// gRPC's `subscriptionService.subscribeEvents` is a forward-streaming
+// API only — it can't replay historical pages descending from `now`.
+// The cron needs the descending-by-time semantics to find the most
+// recent cap mint per user, so the event walks moved to Sui GraphQL.
+//
+// EventFilter field is `type` (verified against mainnet introspection
+// in sub-plan 1.10) — not `eventType` which the SDK docs sometimes
+// imply. Filter accepts the full `0x<pkg>::module::Event` tag.
+
+const EVENTS_BY_TYPE_QUERY = /* GraphQL */ `
+  query EventsByType($type: String!, $first: Int!, $after: String) {
+    events(filter: { type: $type }, first: $first, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        contents { json }
+      }
+    }
+  }
+`;
+
+type GraphQLEventsByTypeResponse = {
+  events: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    nodes: Array<{ contents: { json: unknown } | null }>;
+  } | null;
+};
 
 // ───────────────────────────────────────────────────────────────────
 // Chain reads
@@ -142,66 +225,58 @@ const MAX_EVENTS_PER_TICK = 100;
 
 /** Read a single vault's `Balance<T>` map by paging its inner Bag. */
 async function readVaultBalances(vaultId: string): Promise<VaultBalance[]> {
-  // JSON-RPC: relies on `getObject({id, options.showContent})` response
-  // shape (`{data: {content: {dataType: "moveObject", fields}}}`) and
-  // `getDynamicFields` byte-array name decoding — both diverge from gRPC.
-  const client = suiJsonRpc();
+  // gRPC: `getObject({ include: { json: true } })` materializes the
+  // Move struct fields as a JS record. Compared to JSON-RPC's nested
+  // `data.content.fields.balances.fields.id.id`, the gRPC json is flat:
+  // `json.balances.id.id`.
+  const client = sui();
   const vObj = await client.getObject({
-    id: vaultId,
-    options: { showContent: true },
+    objectId: vaultId,
+    include: { json: true },
   });
-  const content = vObj.data?.content;
-  if (!content || content.dataType !== "moveObject") return [];
-  const bagId = (
-    content as unknown as {
-      fields?: { balances?: { fields?: { id?: { id?: string } } } };
-    }
-  ).fields?.balances?.fields?.id?.id;
+  const vJson = vObj.object?.json as
+    | { balances?: { id?: { id?: string } } }
+    | null
+    | undefined;
+  const bagId = vJson?.balances?.id?.id;
   if (!bagId) return [];
 
   const out: VaultBalance[] = [];
-  let cursor: string | null | undefined = null;
+  let cursor: string | null = null;
   do {
-    const page = (await (
-      client as unknown as {
-        getDynamicFields: (a: { parentId: string; cursor?: string | null }) => Promise<{
-          data: Array<{ name: { value: unknown }; objectId: string }>;
-          nextCursor: string | null;
-          hasNextPage: boolean;
-        }>;
-      }
-    ).getDynamicFields({ parentId: bagId, cursor }));
-    for (const f of page.data) {
-      // Bag key is a vector<u8> of the type-name; decode bytes → string.
-      const bytes = f.name.value;
-      let coinType = "";
-      if (Array.isArray(bytes)) {
-        coinType = String.fromCharCode(
-          ...(bytes as number[]).filter((n) => typeof n === "number")
-        );
-      } else if (typeof bytes === "string") {
-        coinType = bytes;
-      }
+    const page: Awaited<ReturnType<typeof client.listDynamicFields>> =
+      await client.listDynamicFields({
+        parentId: bagId,
+        cursor,
+        limit: 50,
+      });
+    for (const f of page.dynamicFields) {
+      // Bag key: BCS-encoded `vector<u8>` of the type-name. Decode bytes
+      // → string. Pre-migration the JSON-RPC `name.value` arrived as
+      // either a numeric array or a string; gRPC always gives raw bytes
+      // under `name.bcs` so the decode path is uniform.
+      const coinType = decodeBagKeyBcs(f.name?.bcs);
       if (!coinType) continue;
 
       try {
+        // The Bag stores `Balance<T>` wrapped in a `dynamic_field::Field`
+        // whose object id is `f.fieldId`. Read its json: the inner shape
+        // is `{ name: ..., value: { value: "<u64>" } }` (for stored-by-
+        // value Balance) or `{ name: ..., value: "<u64>" }` if the SDK
+        // flattens. Both shapes are handled defensively below.
         const fo = await client.getObject({
-          id: f.objectId,
-          options: { showContent: true },
+          objectId: f.fieldId,
+          include: { json: true },
         });
-        const fc = fo.data?.content;
-        if (!fc || fc.dataType !== "moveObject") continue;
-        const v = (
-          fc as unknown as {
-            fields?: {
-              value?: { fields?: { value?: string | number } } | string | number;
-            };
-          }
-        ).fields?.value;
+        const fc = fo.object?.json as
+          | { value?: { value?: string | number } | string | number }
+          | null
+          | undefined;
+        const v = fc?.value;
         let amount = 0n;
-        if (typeof v === "object" && v !== null && "fields" in v) {
+        if (typeof v === "object" && v !== null && "value" in v) {
           amount = BigInt(
-            String((v as { fields?: { value?: string | number } }).fields?.value ?? "0")
+            String((v as { value?: string | number }).value ?? "0")
           );
         } else if (typeof v === "string" || typeof v === "number") {
           amount = BigInt(v);
@@ -211,48 +286,47 @@ async function readVaultBalances(vaultId: string): Promise<VaultBalance[]> {
         /* unreadable field — skip rather than abort the whole user */
       }
     }
-    cursor = page.hasNextPage ? page.nextCursor : null;
+    cursor = page.hasNextPage ? page.cursor : null;
   } while (cursor);
   return out;
 }
 
 /**
- * Decode an `AutoSwapCap<T>` object response into an `ActiveCap`, filtering
+ * Decode a gRPC `AutoSwapCap<T>` object into an `ActiveCap`, filtering
  * out paused / expired / zero-max caps. Returns `null` when the object is
  * not a usable cap, along with an `invalid` flag for the diagnostic counter.
  *
- * `requireShared` is set when we're walking the v3 (shared-cap) world —
- * any cap that still reports `AddressOwner` ownership is from the v2
- * lineage and must be skipped (Onara's PTB build rejects them with
- * "Transaction was not signed by the correct sender"). The caller bumps
- * the `userOwnedSkipped` counter separately, so we just return `null`
- * here and signal via the return shape.
+ * Caller-supplied `capTypePrefix` is the package-qualified prefix
+ * `${pkg}::auto_swap::AutoSwapCap<` — we type-check the full repr
+ * before parsing fields so a misfiled object doesn't ghost-decode.
+ *
+ * Caps still reporting `AddressOwner` ownership are surfaced via the
+ * `userOwned` flag (callers bump `userOwnedSkipped`); only `Shared` caps
+ * yield a populated `cap`.
  */
 function decodeCapObject(
-  raw: {
-    data?: {
+  obj: {
+    object?: {
       objectId?: string;
       type?: string | null;
-      owner?: unknown;
-      content?: { dataType?: string; fields?: unknown } | null;
+      owner?: { $kind?: string } | null;
+      json?: unknown;
     } | null;
   },
   capTypePrefix: string,
   now: bigint
 ): { cap?: ActiveCap; userOwned?: boolean; invalid?: boolean } {
-  const data = raw.data;
+  const data = obj.object;
   if (!data) return { invalid: true };
   const t = data.type ?? "";
   if (!t.startsWith(capTypePrefix)) return { invalid: true };
   const inner = t.slice(capTypePrefix.length, -1);
 
-  const c = data.content;
-  if (!c || c.dataType !== "moveObject") return { invalid: true };
-  const fields = (c as { fields?: {
+  const fields = (data.json ?? {}) as {
     max_per_swap?: string | number;
     expires_at_ms?: string | number;
     paused?: boolean;
-  } }).fields ?? {};
+  };
   const paused = Boolean(fields.paused);
   const maxPerSwap = BigInt(String(fields.max_per_swap ?? "0"));
   const expiresAtMs = BigInt(String(fields.expires_at_ms ?? "0"));
@@ -260,18 +334,14 @@ function decodeCapObject(
   if (expiresAtMs !== 0n && expiresAtMs < now) return { invalid: true };
   if (maxPerSwap === 0n) return { invalid: true };
 
-  // Owner inspection. The Sui RPC encodes ownership as:
-  //   "Immutable" | { AddressOwner: string } | { ObjectOwner: string } |
-  //   { Shared: { initial_shared_version: number } }
-  const owner = data.owner;
-  const isShared =
-    typeof owner === "object" &&
-    owner !== null &&
-    "Shared" in (owner as Record<string, unknown>);
-  const isAddressOwned =
-    typeof owner === "object" &&
-    owner !== null &&
-    "AddressOwner" in (owner as Record<string, unknown>);
+  // Owner inspection. gRPC encodes ownership as a discriminated union
+  // with `$kind` ∈ { "AddressOwner", "Shared", "ObjectOwner", "Immutable",
+  // "ConsensusAddressOwner", ... }. Pre-migration the JSON-RPC shape
+  // was a tagged object (`{ AddressOwner: "0x.." }` vs `{ Shared: {...} }`);
+  // gRPC flattens to one field on the union.
+  const ownerKind = data.owner?.$kind;
+  const isShared = ownerKind === "Shared";
+  const isAddressOwned = ownerKind === "AddressOwner";
 
   if (isAddressOwned && !isShared) {
     return { userOwned: true };
@@ -302,26 +372,24 @@ function decodeCapObject(
  * parity with the v1 path.
  */
 function decodeCapV2Object(
-  raw: {
-    data?: {
+  obj: {
+    object?: {
       objectId?: string;
       type?: string | null;
-      owner?: unknown;
-      content?: { dataType?: string; fields?: unknown } | null;
+      owner?: { $kind?: string } | null;
+      json?: unknown;
     } | null;
   },
   capTypePrefix: string,
   now: bigint
 ): { cap?: ActiveCap; userOwned?: boolean; invalid?: boolean } {
-  const data = raw.data;
+  const data = obj.object;
   if (!data) return { invalid: true };
   const t = data.type ?? "";
   if (!t.startsWith(capTypePrefix)) return { invalid: true };
   const inner = t.slice(capTypePrefix.length, -1);
 
-  const c = data.content;
-  if (!c || c.dataType !== "moveObject") return { invalid: true };
-  const fields = (c as { fields?: {
+  const fields = (data.json ?? {}) as {
     max_per_swap?: string | number;
     max_per_day?: string | number;
     used_today?: string | number;
@@ -329,7 +397,7 @@ function decodeCapV2Object(
     expires_at_ms?: string | number;
     paused?: boolean;
     vault_id?: string;
-  } }).fields ?? {};
+  };
   const paused = Boolean(fields.paused);
   const maxPerSwap = BigInt(String(fields.max_per_swap ?? "0"));
   const maxPerDay = BigInt(String(fields.max_per_day ?? "0"));
@@ -355,15 +423,9 @@ function decodeCapV2Object(
 
   // Owner inspection — v2 caps are always Shared. Anything else is a
   // chain anomaly we don't try to sweep.
-  const owner = data.owner;
-  const isShared =
-    typeof owner === "object" &&
-    owner !== null &&
-    "Shared" in (owner as Record<string, unknown>);
-  const isAddressOwned =
-    typeof owner === "object" &&
-    owner !== null &&
-    "AddressOwner" in (owner as Record<string, unknown>);
+  const ownerKind = data.owner?.$kind;
+  const isShared = ownerKind === "Shared";
+  const isAddressOwned = ownerKind === "AddressOwner";
 
   if (isAddressOwned && !isShared) {
     return { userOwned: true };
@@ -384,38 +446,62 @@ function decodeCapV2Object(
 
 /**
  * Read every active `AutoSwapCap<T>` for `owner` via the v2 path:
- * `getOwnedObjects(owner)`. Address-owned caps only — by definition, a
- * shared cap won't show up here, so this function is the v1/v2 legacy
- * read.
+ * `listOwnedObjects(owner, type=AutoSwapCap)`. Address-owned caps only
+ * — shared caps don't surface here by definition, so this function is
+ * the v1/v2 legacy read.
+ *
+ * The gRPC `type` filter does server-side prefix matching for generic
+ * struct instantiations; we still post-filter on `capTypePrefix` so a
+ * future server-side tightening to exact-match doesn't silently break
+ * cap discovery.
  */
 async function readActiveCapsLegacy(
   packageId: string,
   owner: string
 ): Promise<CapsReadResult> {
-  // JSON-RPC: walks `getOwnedObjects({showType, showContent})`. gRPC's
-  // `listOwnedObjects` returns a different shape that we'd need to remap.
-  const client = suiJsonRpc();
+  const client = sui();
   const capTypePrefix = `${packageId}::auto_swap::AutoSwapCap<`;
+  // Pass the unparameterized struct name as the gRPC filter — the
+  // server matches generic instantiations against this prefix.
+  const capStructTag = `${packageId}::auto_swap::AutoSwapCap`;
   const caps: ActiveCap[] = [];
   let skippedInvalid = 0;
-  let cursor: string | null | undefined = null;
+  let cursor: string | null = null;
   const now = BigInt(Date.now());
   do {
-    const page = await client.getOwnedObjects({
+    const page: Awaited<
+      ReturnType<typeof client.listOwnedObjects<{ json: true }>>
+    > = await client.listOwnedObjects({
       owner,
-      options: { showType: true, showContent: true, showOwner: true },
+      type: capStructTag,
+      include: { json: true },
+      limit: 50,
       cursor,
     });
-    for (const item of page.data ?? []) {
-      const t = item.data?.type;
+    for (const item of page.objects ?? []) {
+      const t = item.type;
       if (!t || !t.startsWith(capTypePrefix)) continue;
-      const decoded = decodeCapObject(item, capTypePrefix, now);
+      // Re-wrap into the `{ object: ... }` shape `decodeCapObject` expects
+      // so the same decoder works for both list-derived and getObject-
+      // derived rows.
+      const decoded = decodeCapObject(
+        {
+          object: {
+            objectId: item.objectId,
+            type: item.type,
+            owner: item.owner as { $kind?: string } | null,
+            json: item.json,
+          },
+        },
+        capTypePrefix,
+        now
+      );
       if (decoded.cap) caps.push(decoded.cap);
       else if (decoded.invalid) skippedInvalid++;
       // userOwned can't happen on the legacy path (we queried by owner)
       // but if it did we'd count it as a skip anyway.
     }
-    cursor = page.hasNextPage ? page.nextCursor : null;
+    cursor = page.hasNextPage ? page.cursor : null;
   } while (cursor);
   return { caps, userOwnedSkipped: 0, skippedInvalid };
 }
@@ -437,31 +523,38 @@ async function readActiveCapsViaEvents(
   packageId: string,
   owner: string
 ): Promise<CapsReadResult> {
-  const client = suiJsonRpc();
+  const client = sui();
   const capTypePrefix = `${packageId}::auto_swap::AutoSwapCap<`;
   const now = BigInt(Date.now());
   const moveEventType = `${packageId}::auto_swap::AutoSwapEnabled`;
 
   // Step 1: collect candidate cap_ids from recent AutoSwapEnabled events.
+  // GraphQL `events` returns Relay-style pages (cursor in `pageInfo.endCursor`).
+  // Default order is descending, matching JSON-RPC's `order: "descending"`.
   const seenCapIds = new Set<string>();
   const seenOwner = owner.toLowerCase();
   let walked = 0;
-  let cursor: { txDigest: string; eventSeq: string } | null | undefined = null;
+  let cursor: string | null = null;
   while (walked < MAX_EVENTS_PER_TICK) {
     const remaining = MAX_EVENTS_PER_TICK - walked;
-    const page = await client.queryEvents({
-      query: { MoveEventType: moveEventType },
-      cursor: cursor ?? null,
-      // Page size; we'll loop until we hit MAX_EVENTS_PER_TICK or run out.
-      limit: Math.min(50, remaining),
-      order: "descending",
-    });
-    for (const ev of page.data ?? []) {
+    let page: GraphQLEventsByTypeResponse;
+    try {
+      page = await gql<GraphQLEventsByTypeResponse>(EVENTS_BY_TYPE_QUERY, {
+        type: moveEventType,
+        first: Math.min(50, remaining),
+        after: cursor,
+      });
+    } catch {
+      // Network/GraphQL error — return what we have. The cron retries
+      // every minute so a single failed page isn't load-bearing.
+      break;
+    }
+    if (!page.events) break;
+    for (const ev of page.events.nodes ?? []) {
       walked++;
-      const pj = ev.parsedJson as
+      const pj = (ev.contents?.json ?? null) as
         | { owner?: string; cap_id?: string }
-        | null
-        | undefined;
+        | null;
       if (!pj) continue;
       const evOwner = (pj.owner ?? "").toLowerCase();
       const capId = pj.cap_id ?? "";
@@ -469,8 +562,10 @@ async function readActiveCapsViaEvents(
       if (evOwner && evOwner !== seenOwner) continue;
       seenCapIds.add(capId);
     }
-    if (!page.hasNextPage || !page.nextCursor) break;
-    cursor = page.nextCursor;
+    if (!page.events.pageInfo.hasNextPage || !page.events.pageInfo.endCursor) {
+      break;
+    }
+    cursor = page.events.pageInfo.endCursor;
   }
 
   if (seenCapIds.size === 0) {
@@ -484,10 +579,10 @@ async function readActiveCapsViaEvents(
   for (const id of seenCapIds) {
     try {
       const obj = await client.getObject({
-        id,
-        options: { showOwner: true, showType: true, showContent: true },
+        objectId: id,
+        include: { json: true },
       });
-      const decoded = decodeCapObject(obj as { data?: typeof obj.data }, capTypePrefix, now);
+      const decoded = decodeCapObject(obj, capTypePrefix, now);
       if (decoded.cap) caps.push(decoded.cap);
       else if (decoded.userOwned) userOwnedSkipped++;
       else if (decoded.invalid) skippedInvalid++;
@@ -532,19 +627,18 @@ async function readActiveCaps(
  *     all back v2 caps, and the v1 caps that share the event surface
  *     fall out as a type-mismatch in `decodeCapV2Object`.
  *
- * Both walks use the ORIGINAL `packageId` for the event-type prefix —
- * Sui keeps event Move type tags pinned to the original publish id
- * across upgrades. Cap objects are likewise typed against the
- * original `packageId` (type tags use original-id), so the prefix
- * `${packageId}::auto_swap::AutoSwapCapV2<` matches every cap minted
- * by any version of the package.
+ * Both walks use the appropriate `packageId` for the event-type prefix.
+ * `CapUpgradedToV2` was defined in v7 so it pins to `packageIdLatest`;
+ * `AutoSwapEnabled` was defined in v1 and stays pinned to `packageId`.
+ * Cap object types likewise pin to the package where the struct was
+ * first declared (`AutoSwapCapV2` → `packageIdLatest`).
  */
 async function readActiveCapsV2(
   packageId: string,
   packageIdLatest: string,
   owner: string
 ): Promise<CapsReadResult> {
-  const client = suiJsonRpc();
+  const client = sui();
   // CORRECTION (verified empirically against mainnet object tags):
   // BOTH event types AND struct types are pinned to the package id at
   // which the type was DEFINED. v1 only had `AutoSwapCap` —
@@ -565,9 +659,9 @@ async function readActiveCapsV2(
   // on v2 too, depending on path).
   const seenCapIds = new Set<string>();
 
-  // Walk event stream `eventType`, filtering rows by `match(row)`. The
-  // `extractCapId` callback pulls the cap id field out of the row's
-  // parsedJson — different events name it differently (`new_cap_id`
+  // Walk event stream `eventType` via GraphQL, filtering rows by `match(row)`.
+  // The `extractCapId` callback pulls the cap id field out of the row's
+  // contents.json — different events name it differently (`new_cap_id`
   // vs `cap_id`).
   const walkEvents = async (
     eventType: string,
@@ -575,25 +669,36 @@ async function readActiveCapsV2(
     match: (pj: Record<string, unknown> | null | undefined) => boolean,
   ) => {
     let walked = 0;
-    let cursor: { txDigest: string; eventSeq: string } | null | undefined = null;
+    let cursor: string | null = null;
     while (walked < MAX_EVENTS_PER_TICK) {
       const remaining = MAX_EVENTS_PER_TICK - walked;
-      const page = await client.queryEvents({
-        query: { MoveEventType: eventType },
-        cursor: cursor ?? null,
-        limit: Math.min(50, remaining),
-        order: "descending",
-      });
-      for (const ev of page.data ?? []) {
+      let page: GraphQLEventsByTypeResponse;
+      try {
+        page = await gql<GraphQLEventsByTypeResponse>(EVENTS_BY_TYPE_QUERY, {
+          type: eventType,
+          first: Math.min(50, remaining),
+          after: cursor,
+        });
+      } catch {
+        // Pre-v7 deploys won't have the event type registered (GraphQL
+        // returns an error). Bail and let the other stream cover it.
+        break;
+      }
+      if (!page.events) break;
+      for (const ev of page.events.nodes ?? []) {
         walked++;
-        const pj = ev.parsedJson as Record<string, unknown> | null | undefined;
+        const pj = (ev.contents?.json ?? null) as
+          | Record<string, unknown>
+          | null;
         if (!match(pj)) continue;
         const capId = extractCapId(pj);
         if (!capId) continue;
         seenCapIds.add(capId);
       }
-      if (!page.hasNextPage || !page.nextCursor) break;
-      cursor = page.nextCursor;
+      if (!page.events.pageInfo.hasNextPage || !page.events.pageInfo.endCursor) {
+        break;
+      }
+      cursor = page.events.pageInfo.endCursor;
     }
   };
 
@@ -639,14 +744,10 @@ async function readActiveCapsV2(
   for (const id of seenCapIds) {
     try {
       const obj = await client.getObject({
-        id,
-        options: { showOwner: true, showType: true, showContent: true },
+        objectId: id,
+        include: { json: true },
       });
-      const decoded = decodeCapV2Object(
-        obj as { data?: typeof obj.data },
-        capV2TypePrefix,
-        now,
-      );
+      const decoded = decodeCapV2Object(obj, capV2TypePrefix, now);
       if (decoded.cap) caps.push(decoded.cap);
       else if (decoded.userOwned) userOwnedSkipped++;
       else if (decoded.invalid) skippedInvalid++;
@@ -662,32 +763,17 @@ async function readActiveCapsV2(
 // Address-owned coin discovery
 //
 // When the user's @talise subname resolves to the vault's object id,
-// inbound `transfer::public_transfer(coin, vault_addr)` calls leave a
-// `Coin<T>` "address-owned" by the vault. The vault is shared, so no
-// signer can spend that coin via the normal owned-object pathway —
-// `vault::receive_and_deposit<T>` is the only way to fold it in.
+// inbound `transfer::public_transfer(coin, vault_addr)` calls used to
+// leave a `Coin<T>` "address-owned" by the vault. The vault is shared,
+// so no signer can spend that coin via the normal owned-object pathway
+// — `vault::receive_and_deposit<T>` was the only way to fold it in.
 //
-// `readVaultOwnedCoins` paginates `getOwnedObjects(vaultId)` and returns
-// every `Coin<T>` it finds, decoded into `{coinObjectId, innerType,
-// balance}`. The caller filters by active-cap source type before
-// dispatching to Onara, so coins of unsupported types are silently
-// ignored (no one to swap them anyway).
+// V5+ Sui routes plain transfer-to-shared-object-address through the
+// global accumulator instead, so the discovery path is now
+// `suix_getAllBalances(vaultAddr)` which surfaces the accumulator slot
+// values regardless of the underlying storage form. The
+// `readVaultAccumulatorBalances` helper drives Step 1 of the cron loop.
 
-const COIN_TYPE_RE = /^0x2::coin::Coin<(.+)>$/;
-
-type OwnedCoin = {
-  coinObjectId: string;
-  innerType: string;
-  balance: bigint;
-  /// version + digest are required to construct a `Receiving<Coin<T>>`
-  /// PTB input — without them the SDK can't tell which version of the
-  /// coin to consume, and `vault::receive_and_deposit` rejects the
-  /// build with "Object not found".
-  version: string;
-  digest: string;
-};
-
-/** List `Coin<T>` objects address-owned by `vaultId`. */
 type AccumulatorBalance = {
   coinType: string; // canonicalized short-form type tag
   amount: bigint;
@@ -700,6 +786,15 @@ type AccumulatorBalance = {
  * accumulator::Key<Balance<T>>>`. The cron's Step 1 calls
  * `vault::receive_from_accumulator<T>(amount)` per row to drain into
  * the bag.
+ *
+ * Direct JSON-RPC fetch rather than a typed client — the SDK's
+ * `getAllBalances` returned empty for shared-object addresses in
+ * production despite raw `suix_getAllBalances` working against the
+ * same URL. Likely an SDK normalization issue with the vault's 64-char
+ * address not matching the SDK's internal canonicalization. This is
+ * a one-off HTTP POST, not a JSON-RPC client construction — it doesn't
+ * count toward the `suiJsonRpc` migration surface and isn't exercised
+ * by the lint allowlist.
  */
 async function readVaultAccumulatorBalances(
   vaultId: string,
@@ -736,74 +831,6 @@ async function readVaultAccumulatorBalances(
       coinType: canonicalizeTypeTag(row.coinType),
       amount,
     });
-  }
-  return out;
-}
-
-async function readVaultOwnedCoins(vaultId: string): Promise<OwnedCoin[]> {
-  // Discovery via direct JSON-RPC fetch — the SDK's getAllBalances/getCoins
-  // returned empty for shared-object addresses in production despite raw
-  // suix_getAllBalances + suix_getCoins working against the same URL.
-  // Likely an SDK normalization issue with the vault's 64-char address
-  // not matching the SDK's internal canonicalization. Going around it.
-  const url = "https://fullnode.mainnet.sui.io:443";
-  const rpc = async (method: string, params: unknown[]) => {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!r.ok) throw new Error(`${method} → HTTP ${r.status}`);
-    const body = (await r.json()) as { result?: unknown; error?: { message: string } };
-    if (body.error) throw new Error(`${method} → ${body.error.message}`);
-    return body.result;
-  };
-
-  const out: OwnedCoin[] = [];
-  const balances = (await rpc("suix_getAllBalances", [vaultId])) as Array<{
-    coinType: string;
-    totalBalance: string;
-  }>;
-
-  for (const b of balances ?? []) {
-    if (!b.coinType) continue;
-    if (BigInt(b.totalBalance ?? "0") === 0n) continue;
-    let cursor: string | null = null;
-    do {
-      const page = (await rpc("suix_getCoins", [
-        vaultId,
-        b.coinType,
-        cursor,
-        50,
-      ])) as {
-        data: Array<{ coinObjectId: string; balance: string }>;
-        nextCursor: string | null;
-        hasNextPage: boolean;
-      };
-      for (const c of page.data as unknown as Array<{
-        coinObjectId: string;
-        balance: string;
-        version: string;
-        digest: string;
-      }>) {
-        let bal = 0n;
-        try {
-          bal = BigInt(c.balance ?? "0");
-        } catch {
-          bal = 0n;
-        }
-        if (bal === 0n) continue;
-        out.push({
-          coinObjectId: c.coinObjectId,
-          innerType: canonicalizeTypeTag(b.coinType),
-          balance: bal,
-          version: c.version,
-          digest: c.digest,
-        });
-      }
-      cursor = page.hasNextPage ? page.nextCursor : null;
-    } while (cursor);
   }
   return out;
 }
@@ -893,47 +920,6 @@ async function callOnaraReceiveFromAccumulatorToOwner(args: {
           vaultId: args.vaultId,
           coinType: args.coinType,
           amount: args.amount.toString(),
-          packageId: args.packageId,
-        }),
-      }
-    );
-    const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!r.ok || body.ok === false) {
-      return {
-        ok: false,
-        error: typeof body.error === "string" ? body.error : `HTTP ${r.status}`,
-      };
-    }
-    return { ok: true, digest: String(body.digest ?? "") };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-}
-
-async function callOnaraReceiveAndDeposit(args: {
-  onaraUrl: string;
-  packageId: string;
-  vaultId: string;
-  coinObjectId: string;
-  coinVersion: string;
-  coinDigest: string;
-  coinType: string;
-}): Promise<SwapResult> {
-  try {
-    const r = await fetch(
-      `${args.onaraUrl.replace(/\/+$/, "")}/receive-and-deposit`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vaultId: args.vaultId,
-          coinObjectId: args.coinObjectId,
-          // (id, version, digest) is the full Receiving ref the Move
-          // function needs — the SDK can't auto-resolve for address-
-          // owned-by-shared-object coins.
-          coinVersion: args.coinVersion,
-          coinDigest: args.coinDigest,
-          coinType: args.coinType,
           packageId: args.packageId,
         }),
       }

@@ -43,16 +43,22 @@ export function FixSubnameBanner({
       }
 
       // Lazy-load @mysten/suins so the dashboard doesn't ship it.
-      const [{ SuinsClient, SuinsTransaction }, { SuiJsonRpcClient, getJsonRpcFullnodeUrl }] =
+      // The underlying Sui RPC is GraphQL — `SuiGraphQLClient` implements
+      // the unified `BaseClient` surface that `SuinsClient` accepts. The
+      // banner only calls `SuinsTransaction.setTargetAddress`, which is a
+      // pure PTB builder (no RPC) — the client is only kept around to
+      // satisfy the SuinsClient constructor's type contract. The earlier
+      // `JSON-RPC` client was a similar formality, just with a heavier
+      // browser bundle footprint.
+      const [{ SuinsClient, SuinsTransaction }, { suiGraphQLBrowser }] =
         await Promise.all([
           import("@mysten/suins"),
-          import("@mysten/sui/jsonRpc"),
+          import("./lib/sui-graphql-browser"),
         ]);
-      const rpc = new SuiJsonRpcClient({
-        url: getJsonRpcFullnodeUrl("mainnet"),
+      const suins = new SuinsClient({
+        client: suiGraphQLBrowser(),
         network: "mainnet",
       });
-      const suins = new SuinsClient({ client: rpc as never, network: "mainnet" });
 
       await signAndSubmit(
         async (tx: Transaction) => {

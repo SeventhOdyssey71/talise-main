@@ -7,7 +7,7 @@ import {
   db,
   ensureSchema,
 } from "@/lib/db";
-import { suiJsonRpc } from "@/lib/sui";
+import { getNormalizedTransaction } from "@/lib/sui-shapes";
 import { vaultPackageIds, VaultNotDeployedError } from "@/lib/vault";
 
 export const runtime = "nodejs";
@@ -85,35 +85,27 @@ export async function POST(req: Request) {
       return { ok: false, error: "vaultId malformed" };
     }
     try {
-      // JSON-RPC: `getTransactionBlock` response shape
-      // (`transaction.data.sender`, `objectChanges[].type === "created"`,
-      // `effects.status.status`) is what these verifiers consume.
-      const tx = await suiJsonRpc().getTransactionBlock({
-        digest,
-        options: { showObjectChanges: true, showInput: true, showEffects: true },
-      });
-      const sender = (tx.transaction?.data?.sender ?? "").toLowerCase();
-      if (sender !== user.sui_address.toLowerCase()) {
+      // gRPC: normalized shape from `sui-shapes.ts` — `sender`,
+      // `objectChanges[].kind === "created"`, `status` are the canonical
+      // fields the verifiers consume.
+      const tx = await getNormalizedTransaction(digest);
+      if (tx.sender !== user.sui_address.toLowerCase()) {
         return { ok: false, error: "create-tx sender mismatch" };
       }
       const expectedType = `${packageId}::vault::TaliseVault`;
-      const changes = tx.objectChanges ?? [];
-      const match = changes.find((c) => {
-        if (c.type !== "created") return false;
-        const obj = c as { objectId?: string; objectType?: string };
-        return (
-          (obj.objectId ?? "").toLowerCase() ===
-            expectedVaultId.toLowerCase() &&
-          obj.objectType === expectedType
-        );
-      });
+      const match = tx.objectChanges.find(
+        (c) =>
+          c.kind === "created" &&
+          c.objectId === expectedVaultId.toLowerCase() &&
+          c.objectType === expectedType
+      );
       if (!match) {
         return { ok: false, error: "vaultId not created in tx" };
       }
-      if (tx.effects?.status?.status !== "success") {
+      if (tx.status !== "success") {
         return {
           ok: false,
-          error: `create tx status: ${tx.effects?.status?.status ?? "unknown"}`,
+          error: `create tx status: ${tx.errorMessage ?? tx.status}`,
         };
       }
       return { ok: true };
@@ -126,21 +118,16 @@ export async function POST(req: Request) {
     digest: string
   ): Promise<{ ok: true } | { ok: false; error: string }> => {
     try {
-      // JSON-RPC: `getTransactionBlock` response shape
-      // (`transaction.data.sender`, `objectChanges[].type === "created"`,
-      // `effects.status.status`) is what these verifiers consume.
-      const tx = await suiJsonRpc().getTransactionBlock({
-        digest,
-        options: { showInput: true, showEffects: true },
-      });
-      const sender = (tx.transaction?.data?.sender ?? "").toLowerCase();
-      if (sender !== user.sui_address.toLowerCase()) {
+      // gRPC: normalized shape from `sui-shapes.ts` — `sender` and `status`
+      // are the canonical fields the repoint verifier consumes.
+      const tx = await getNormalizedTransaction(digest);
+      if (tx.sender !== user.sui_address.toLowerCase()) {
         return { ok: false, error: "repoint-tx sender mismatch" };
       }
-      if (tx.effects?.status?.status !== "success") {
+      if (tx.status !== "success") {
         return {
           ok: false,
-          error: `repoint tx status: ${tx.effects?.status?.status ?? "unknown"}`,
+          error: `repoint tx status: ${tx.errorMessage ?? tx.status}`,
         };
       }
       return { ok: true };

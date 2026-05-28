@@ -7,7 +7,7 @@ import {
   setInvoiceReceiptObjectId,
   userById,
 } from "@/lib/db";
-import { suiJsonRpc } from "@/lib/sui";
+import { getNormalizedTransaction } from "@/lib/sui-shapes";
 import { isUsdsui } from "@/lib/usdsui";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 
@@ -221,41 +221,23 @@ async function verifyAndCloseInvoice(input: {
 
   let tx;
   try {
-    tx = await suiJsonRpc().getTransactionBlock({
-      digest: input.digest,
-      options: {
-        showEffects: true,
-        showBalanceChanges: true,
-        showInput: false,
-        showEvents: false,
-      },
-    });
+    tx = await getNormalizedTransaction(input.digest);
   } catch (e) {
     return { ok: false, reason: `tx fetch failed: ${(e as Error).message}` };
   }
 
-  const status = tx?.effects?.status?.status;
-  if (status !== "success") {
-    return { ok: false, reason: `tx status is ${status ?? "unknown"}` };
+  if (tx.status !== "success") {
+    return { ok: false, reason: `tx status is ${tx.status}` };
   }
 
   // Walk balanceChanges: the merchant address must end with a
   // USDsui positive delta >= invoice canonical amount.
-  const changes = tx.balanceChanges ?? [];
   let merchantReceivedMicro = 0n;
-  for (const c of changes) {
-    const owner = typeof c.owner === "object" && c.owner && "AddressOwner" in c.owner
-      ? (c.owner.AddressOwner as string).toLowerCase()
-      : null;
-    if (!owner || owner !== merchantAddress) continue;
+  for (const c of tx.balanceChanges) {
+    if (c.ownerAddress !== merchantAddress) continue;
     if (!isUsdsui(c.coinType)) continue;
-    // amount is a string signed integer (raw u64 minor units).
-    try {
-      const delta = BigInt(c.amount);
-      if (delta > 0n) merchantReceivedMicro += delta;
-    } catch {
-      // ignore malformed amounts
-    }
+    // amount is a signed bigint (raw u64 minor units), already parsed by the normalizer.
+    if (c.amount > 0n) merchantReceivedMicro += c.amount;
   }
 
   if (merchantReceivedMicro < expectedMicro) {

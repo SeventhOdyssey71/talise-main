@@ -56,6 +56,8 @@ ios/*.xcuserstate
 ios/*.xcworkspace/xcuserdata/
 ios/*/xcuserdata/
 ios/Pods/
+# Cached protoc-gen-swift binary built by ios/scripts/regen-proto.sh.
+ios/.toolchain/
 
 # ── Move build ────────────────────────────────────────────────────────
 move/**/build/
