@@ -1,8 +1,31 @@
 import "server-only";
 
-import { Transaction } from "@mysten/sui/transactions";
-import { paymentKitClient, globalRegistryId } from "@/lib/payment-kit";
+import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
+import { globalRegistryId } from "@/lib/payment-kit";
 import { USDSUI_TYPE } from "@/lib/usdsui";
+
+/**
+ * Mainnet Payment Kit package address. Pulled from
+ * `@mysten/payment-kit/dist/constants.mjs::MAINNET_PAYMENT_KIT_PACKAGE_CONFIG`.
+ *
+ * Why we hard-code this here instead of relying on
+ * `client.calls.processRegistryPayment(...)`:
+ *
+ * The SDK's contract binding accepts `options.package` and defaults to the
+ * unresolved MVR name `"@mysten/payment-kit"`. The SDK's higher-level
+ * `PaymentKitCalls.processRegistryPayment` does NOT forward
+ * `packageConfig.packageId` into that `options.package` field — so the
+ * underlying `tx.moveCall` ends up with `package: "@mysten/payment-kit"`.
+ * The `@mysten/sui` build path then needs an MVR resolver to translate
+ * the literal into the real address; ours doesn't have one wired, so the
+ * call serializes as a zero-padded garbage address and the validator
+ * silently drops it (the rest of the PTB still executes — that's why
+ * the user's send appeared to succeed but the chain has no
+ * PaymentRecord). Build the MoveCall directly with the real package
+ * address and we get a tx that actually emits the receipt.
+ */
+const PAYMENT_KIT_PACKAGE_MAINNET =
+  "0xbc126f1535fba7d641cb9150ad9eae93b104972586ba20f3c60bfe0e53b69bc6";
 
 /**
  * Universal Payment Kit receipt wrapper — Plan B item 1.
@@ -290,17 +313,44 @@ export function appendPaymentKitReceipt(
     refs: opts.refs,
   });
 
-  const client = paymentKitClient();
-  tx.add(
-    client.calls.processRegistryPayment({
-      registryId: globalRegistryId(),
-      nonce,
-      amount: amountMicro,
-      receiver,
-      coinType: USDSUI_TYPE,
-      sender,
+  // Pull the exact USDsui amount from the sender via coinWithBalance — same
+  // pattern the SDK uses internally, but driven by us so we can hand the
+  // resulting coin straight into a hand-built MoveCall with the EXPLICIT
+  // package address (the SDK uses the unresolved MVR literal — see the
+  // PAYMENT_KIT_PACKAGE_MAINNET comment above).
+  const coin = tx.add(
+    coinWithBalance({
+      type: USDSUI_TYPE,
+      balance: amountMicro,
+      useGasCoin: false,
     })
   );
+
+  // Wrap the receiver address in Option::Some via 0x1::option::some<address>.
+  // The contract binding declares the receiver as Option<address>; passing
+  // a bare address argument would mis-encode at BCS time.
+  const receiverOpt = tx.moveCall({
+    target: "0x1::option::some",
+    typeArguments: ["address"],
+    arguments: [tx.pure.address(receiver)],
+  });
+
+  // process_registry_payment<T>(registry, nonce, amount, coin, receiver, clock, ctx).
+  // `ctx` is auto-supplied by Sui; the binding declares only the 6 args above.
+  tx.moveCall({
+    package: PAYMENT_KIT_PACKAGE_MAINNET,
+    module: "payment_kit",
+    function: "process_registry_payment",
+    typeArguments: [USDSUI_TYPE],
+    arguments: [
+      tx.object(globalRegistryId()),
+      tx.pure.string(nonce),
+      tx.pure.u64(amountMicro),
+      coin,
+      receiverOpt,
+      tx.object("0x6"), // Clock — well-known shared object
+    ],
+  });
 
   return { nonce };
 }
