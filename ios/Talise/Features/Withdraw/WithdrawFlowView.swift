@@ -20,66 +20,76 @@ struct WithdrawFlowView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    NavigationLink {
-                        BankWithdrawView()
-                    } label: {
-                        OptionCardRow(
-                            icon: "building.columns.fill",
-                            title: "Withdraw to Bank",
-                            subtitle: "Cash out to a Nigerian bank account in NGN.",
-                            badge: nil
-                        )
-                    }
-                    .buttonStyle(.plain)
+            VStack(spacing: 0) {
+                inlineHeader
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        NavigationLink {
+                            BankWithdrawView()
+                        } label: {
+                            OptionCardRow(
+                                icon: "building.columns.fill",
+                                title: "Withdraw to Bank",
+                                subtitle: "Cash out to a Nigerian bank account in NGN.",
+                                badge: nil
+                            )
+                        }
+                        .buttonStyle(.plain)
 
-                    NavigationLink {
-                        OnchainSendDestination(onComplete: onClose)
-                    } label: {
-                        OptionCardRow(
-                            icon: "paperplane.fill",
-                            title: "Onchain Send",
-                            subtitle: "Send USDsui to any Talise user, @handle, or Sui address.",
-                            badge: "No fee"
-                        )
+                        // Onchain Send hand-off: dismiss the Withdraw
+                        // cover, then post the Send-cover notification
+                        // with a 220ms delay so the cover dismiss has
+                        // time to settle before the next one slides up.
+                        // We can't push SendFlowView inside this stack
+                        // — its own NavigationStack would nest and the
+                        // multi-step path breaks.
+                        Button {
+                            onClose()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                NotificationCenter.default.post(
+                                    name: .taliseRequestSendCover, object: nil
+                                )
+                            }
+                        } label: {
+                            OptionCardRow(
+                                icon: "paperplane.fill",
+                                title: "Onchain Send",
+                                subtitle: "Send USDsui to any Talise user, @handle, or Sui address.",
+                                badge: "No fee"
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
             }
             .background(TaliseColor.bg.ignoresSafeArea())
-            .navigationTitle("Withdraw")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(TaliseColor.fg)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(TaliseColor.surfaceGlass))
-                    }
-                }
-            }
-            .toolbarBackground(TaliseColor.bg, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
         }
         .tint(TaliseColor.fg)
     }
-}
 
-/// Hosts `SendFlowView` inside the Withdraw stack. SendFlowView has its
-/// own NavigationStack so we'd end up with stacks-in-stacks — present
-/// it inline without wrapping. `onDone` closes the entire Withdraw
-/// flow once a send completes so the user returns to Home cleanly.
-private struct OnchainSendDestination: View {
-    var onComplete: () -> Void
-
-    var body: some View {
-        SendFlowView(onDone: onComplete)
-            .toolbar(.hidden, for: .navigationBar)
+    /// Custom inline header instead of the system large title. Lets us
+    /// use the app's Talise sans font, lighter weight, smaller size.
+    private var inlineHeader: some View {
+        HStack(alignment: .center) {
+            Text("Withdraw")
+                .font(TaliseFont.heading(26, weight: .medium))
+                .kerning(-0.6)
+                .foregroundStyle(TaliseColor.fg)
+            Spacer()
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(TaliseColor.surfaceGlass))
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
     }
 }
 
