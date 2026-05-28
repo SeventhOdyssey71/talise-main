@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import SuiGrpcKit
 
 /// Orchestrates the full zkLogin pipeline against the Talise backend.
 ///

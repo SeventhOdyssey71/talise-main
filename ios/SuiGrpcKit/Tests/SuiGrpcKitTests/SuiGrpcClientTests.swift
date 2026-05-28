@@ -18,7 +18,7 @@
 
 import XCTest
 import GRPCCore
-@testable import Talise
+@testable import SuiGrpcKit
 
 final class SuiGrpcClientTests: XCTestCase {
 

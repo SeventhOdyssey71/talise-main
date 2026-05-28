@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Regenerates Swift bindings for the vendored Sui gRPC protobuf
-# definitions under ios/Talise/Network/SuiProto/proto/.
+# definitions under SuiGrpcKit/Proto/.
 #
-# Outputs to ios/Talise/Network/SuiProto/Generated/, mirroring the
-# proto/ directory structure (flattened with `FileNaming=PathToUnderscores`).
+# Outputs to SuiGrpcKit/Sources/SuiGrpcKit/Generated/, mirroring the
+# Proto/ directory structure (flattened with `FileNaming=PathToUnderscores`).
 #
 # Idempotent: running this twice produces byte-identical output. The
 # entire Generated/ tree is rewritten on each run so stale files never
@@ -29,10 +29,10 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROTO_ROOT="$REPO_ROOT/Talise/Network/SuiProto/proto"
-OUT_ROOT="$REPO_ROOT/Talise/Network/SuiProto/Generated"
-TOOLCHAIN_ROOT="$REPO_ROOT/.toolchain"
+PKG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROTO_ROOT="$PKG_ROOT/Proto"
+OUT_ROOT="$PKG_ROOT/Sources/SuiGrpcKit/Generated"
+TOOLCHAIN_ROOT="$PKG_ROOT/.toolchain"
 
 PINNED_SWIFT_PROTOBUF_TAG="1.31.2"
 PINNED_SWIFT_PROTOBUF_DIR="$TOOLCHAIN_ROOT/swift-protobuf-${PINNED_SWIFT_PROTOBUF_TAG}"

@@ -32,20 +32,28 @@ import GRPCCore
 /// providers (QuickNode) callers paste the entire URL into the relevant
 /// Keychain item; `requiresAuth` stays `true` so the wrapper still gates on
 /// the key being present.
-struct SuiEndpoint {
-    let url: String
-    let provider: String
-    let requiresAuth: Bool
+public struct SuiEndpoint: Sendable {
+    public let url: String
+    public let provider: String
+    public let requiresAuth: Bool
     /// Keychain item identifier holding the API key for this provider (when
     /// `requiresAuth` is true). The follow-up cohort wires
     /// `KeychainHelper.read(_:)` against these identifiers.
-    let keychainKey: String?
+    public let keychainKey: String?
     /// Header name to send the API key under (e.g. `x-api-key`). nil when
     /// the key is baked into the URL.
-    let apiKeyHeader: String?
+    public let apiKeyHeader: String?
+
+    public init(url: String, provider: String, requiresAuth: Bool, keychainKey: String?, apiKeyHeader: String?) {
+        self.url = url
+        self.provider = provider
+        self.requiresAuth = requiresAuth
+        self.keychainKey = keychainKey
+        self.apiKeyHeader = apiKeyHeader
+    }
 }
 
-enum SuiEndpoints {
+public enum SuiEndpoints {
 
     /// Ordered Sui MAINNET gRPC endpoints, preferred first.
     ///
@@ -53,7 +61,7 @@ enum SuiEndpoints {
     /// already have a working key for. Anything paid-without-a-key is
     /// listed for completeness but skipped at runtime when the Keychain
     /// item is missing.
-    static let mainnetGrpcEndpoints: [SuiEndpoint] = [
+    public static let mainnetGrpcEndpoints: [SuiEndpoint] = [
         SuiEndpoint(
             url: "https://fullnode.mainnet.sui.io:443",
             provider: "mysten-fullnode",
@@ -106,7 +114,7 @@ enum SuiEndpoints {
     /// (`DEADLINE_EXCEEDED` = 4). Plain `NSError` / `URLError` from the
     /// TLS/HTTP2 transport surface a 503 message; we treat those as
     /// transient too.
-    static func isFallbackEligible(_ error: Error) -> Bool {
+    public static func isFallbackEligible(_ error: Error) -> Bool {
         if let rpc = error as? RPCError {
             return rpc.code == .unavailable || rpc.code == .deadlineExceeded
         }
@@ -129,7 +137,7 @@ enum SuiEndpoints {
     /// modifying `SuiGrpcClient.swift` in this change. The fallback walk
     /// over `mainnetGrpcEndpoints` becomes meaningful in the next cohort
     /// (see top-of-file note).
-    static func withFallback<T>(
+    public static func withFallback<T>(
         call: (SuiGrpcClient) async throws -> T
     ) async throws -> T {
         var lastError: Error = NSError(
