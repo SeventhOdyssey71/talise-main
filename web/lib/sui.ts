@@ -1,5 +1,10 @@
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { USDSUI_TYPE } from "./usdsui";
+import {
+  MAINNET_GRPC_ENDPOINTS,
+  buildClientForEndpoint,
+  suiGrpcWithFallback,
+} from "./sui-endpoints";
 
 export type Network = "testnet" | "mainnet";
 
@@ -39,32 +44,146 @@ function defaultGrpcBaseUrl(net: Network): string {
 }
 
 // ─── gRPC (default) ───────────────────────────────────────────────────────────
-// `sui()` is the canonical client. Reads that map cleanly onto the unified
-// `BaseClient` surface (`getBalance`, `getCoinMetadata`, `getObject`,
-// `listOwnedObjects`, `listCoins`, `getTransaction`, `listDynamicFields`,
-// SDK pass-throughs that consume the same surface) use this.
+// `sui()` returns a Proxy-wrapped `SuiGrpcClient` that transparently routes
+// every method call through `suiGrpcWithFallback` (lib/sui-endpoints.ts). The
+// fallback chain tries Mysten primary → Mysten archival → Shinami → Dwellir
+// → QuickNode in order, walking past any endpoint that returns
+// UNAVAILABLE / DEADLINE_EXCEEDED / 5xx. On the happy path (Mysten healthy)
+// it's a single network call — the fallback only kicks in on failure.
+//
+// This replaces the prior single-endpoint singleton + the `SUI_GRPC_URL`
+// env-override band-aid we shipped during the 2026-05-28 Mysten outage.
+// Callers don't change: `sui().getBalance(...)`, `sui().ledgerService.getEpoch(...)`,
+// `tx.build({ client: sui() })` — all still work because the proxy
+// preserves the shape of the underlying client.
 
 let _grpc: SuiGrpcClient | null = null;
-let _grpcKey = "";
+
+/**
+ * Whitelist of top-level RPC method names on `SuiGrpcClient` that should be
+ * routed through the fallback chain. Any other property access (including
+ * SDK-internal hooks like `resolveTransactionPlugin`, `transport`, `network`,
+ * etc.) passes through to the underlying client UNMODIFIED — wrapping those
+ * breaks the SDK's `client?.X ?? defaultX` fallback patterns (which is what
+ * `tx.build()` uses to look up `resolveTransactionPlugin`).
+ */
+const TOP_LEVEL_RPC_METHODS = new Set<string>([
+  "getBalance",
+  "getCoinMetadata",
+  "getObject",
+  "getObjects",
+  "listOwnedObjects",
+  "listCoins",
+  "listBalances",
+  "listDynamicFields",
+  "getDynamicField",
+  "getTransaction",
+  "simulateTransaction",
+  "executeTransaction",
+  "waitForTransaction",
+  "signAndExecuteTransaction",
+  "getReferenceGasPrice",
+]);
+
+/**
+ * Service-level properties whose methods are all async RPC calls. Accessing
+ * one of these on the proxy returns a nested proxy that wraps each method
+ * call.
+ *
+ * `core` is INTENTIONALLY EXCLUDED. The SDK's `core` is the unified
+ * BaseClient with a mix of sync helpers (`resolveTransactionPlugin()` is the
+ * load-bearing one for `tx.build()`) and async RPCs. Wrapping it
+ * unconditionally turns the sync helpers into Promises and breaks the SDK's
+ * `client.core?.X() ?? defaultX` fallback pattern. Our codebase doesn't
+ * use `sui().core.X` directly, so passing it through is safe.
+ */
+const SERVICE_NAMES = new Set<string>([
+  "ledgerService",
+  "stateService",
+  "transactionExecutionService",
+  "movePackageService",
+  "subscriptionService",
+  "signatureVerificationService",
+  "nameService",
+]);
+
+function buildFallbackProxy(): SuiGrpcClient {
+  // Template client for shape probing — picks the first non-empty entry
+  // from the registry. Methods are never CALLED through this instance;
+  // it's only used so `Reflect.get(target, prop)` returns the right shape
+  // for properties OUTSIDE our whitelist. Actual RPC calls go through
+  // `suiGrpcWithFallback`, which constructs its own client per attempt.
+  const net = network();
+  let template: SuiGrpcClient | null = null;
+  for (const ep of MAINNET_GRPC_ENDPOINTS) {
+    template = buildClientForEndpoint(ep, net);
+    if (template) break;
+  }
+  if (!template) {
+    throw new Error(
+      "sui(): no gRPC endpoint URL available — every entry in MAINNET_GRPC_ENDPOINTS was empty or missing its API key"
+    );
+  }
+
+  // Cache nested service proxies so repeated `sui().ledgerService` access
+  // returns the same object identity. Some callers cache the service
+  // reference; respecting identity keeps their cache effective.
+  const serviceProxyCache = new Map<string, unknown>();
+
+  return new Proxy(template, {
+    get(target, prop, receiver) {
+      // Symbols + Promise-related properties: pass through untouched so we
+      // don't accidentally make this look like a thenable.
+      if (typeof prop === "symbol") {
+        return Reflect.get(target, prop, receiver);
+      }
+      const name = prop as string;
+
+      // Whitelisted top-level RPC method — wrap with fallback.
+      if (TOP_LEVEL_RPC_METHODS.has(name)) {
+        return async (...args: unknown[]) => {
+          return suiGrpcWithFallback(async (c) => {
+            const fn = (c as unknown as Record<string, unknown>)[name] as (
+              ...a: unknown[]
+            ) => Promise<unknown>;
+            return fn.call(c, ...args);
+          });
+        };
+      }
+
+      // Service-level property — return a nested proxy where every method
+      // call goes through the fallback chain.
+      if (SERVICE_NAMES.has(name)) {
+        if (serviceProxyCache.has(name)) {
+          return serviceProxyCache.get(name);
+        }
+        const serviceProxy = new Proxy({}, {
+          get(_svc, methodName) {
+            if (typeof methodName === "symbol") return undefined;
+            return async (...args: unknown[]) => {
+              return suiGrpcWithFallback(async (c) => {
+                const svc = (c as unknown as Record<string, unknown>)[
+                  name
+                ] as Record<string, (...a: unknown[]) => Promise<unknown>>;
+                return svc[methodName as string](...args);
+              });
+            };
+          },
+        });
+        serviceProxyCache.set(name, serviceProxy);
+        return serviceProxy;
+      }
+
+      // Anything else (SDK internals like resolveTransactionPlugin,
+      // transport, network, options, etc.): pass through unmodified.
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
 
 export function sui(): SuiGrpcClient {
-  const net = network();
-  const baseUrl = defaultGrpcBaseUrl(net);
-  // Optional auth header — used when SUI_GRPC_URL points at a paid
-  // provider that requires an API key (Shinami uses X-Api-Key,
-  // Dwellir uses x-api-key, etc.). The grpcweb transport forwards
-  // `meta` as HTTP headers.
-  const authHeader = process.env.SUI_GRPC_AUTH_HEADER?.trim();
-  const authValue = process.env.SUI_GRPC_AUTH_VALUE?.trim();
-  const meta = authHeader && authValue ? { [authHeader]: authValue } : undefined;
-  const key = `${net}:${baseUrl}:${authHeader ?? ""}`;
-  if (_grpc && _grpcKey === key) return _grpc;
-  _grpc = new SuiGrpcClient({
-    network: net,
-    baseUrl,
-    ...(meta ? { meta } : {}),
-  });
-  _grpcKey = key;
+  if (_grpc) return _grpc;
+  _grpc = buildFallbackProxy();
   return _grpc;
 }
 
