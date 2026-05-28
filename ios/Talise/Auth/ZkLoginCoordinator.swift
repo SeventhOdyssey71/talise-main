@@ -343,7 +343,14 @@ final class ZkLoginCoordinator {
             throw CoordinatorError.exchangeFailed("no proof cache — sign in again")
         }
 
-        // 1. Combined build + sponsor in a single server-side call.
+        // 1. Combined build + (sponsor OR gasless decision) in a
+        //    single server-side call. The server returns `mode`:
+        //      - "gasless"   → submit via /api/send/gasless-submit
+        //                       (no Onara, no gas, Sui's
+        //                       0x2::coin::send_funds path)
+        //      - "sponsored" → submit via /api/zk/sponsor-execute
+        //                       (Onara as gas owner, full PaymentKit
+        //                       + optional NAVI round-up leg)
         let prep = try await postAuthenticated(
             path: "/api/send/sponsor-prepare",
             body: [
@@ -356,8 +363,10 @@ final class ZkLoginCoordinator {
               let txBytesData = Data(base64Encoded: bytesB64) else {
             throw CoordinatorError.sponsorFailed("malformed sponsor-prepare response")
         }
+        let mode = (prep["mode"] as? String) ?? "sponsored"
         // Server-blessed round-up amount, forwarded to sponsor-execute
-        // so the rewards engine credits the auto-save leg too.
+        // so the rewards engine credits the auto-save leg too. Gasless
+        // mode never has round-up (round-up disqualifies gasless).
         let serverRoundupUsd = prep["roundupUsd"] as? Double ?? 0
 
         // 2. Sign locally — Sui intent prefix + BLAKE2b digest, Ed25519.
@@ -404,8 +413,14 @@ final class ZkLoginCoordinator {
             ProofCache.shared.proofRaw = nil
         }
 
+        // Route by mode. Gasless skips Onara entirely — direct
+        // fullnode broadcast via /api/send/gasless-submit. Saves the
+        // Onara round-trip (~300-500ms) on plain USDsui sends.
+        let executePath = mode == "gasless"
+            ? "/api/send/gasless-submit"
+            : "/api/zk/sponsor-execute"
         let exec = try await postAuthenticated(
-            path: "/api/zk/sponsor-execute",
+            path: executePath,
             body: executeBody
         )
         if let err = exec["error"] as? String {

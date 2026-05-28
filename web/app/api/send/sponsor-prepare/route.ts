@@ -4,6 +4,7 @@ import { userById } from "@/lib/db";
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { sui, network, COIN_TYPES, USDSUI_DECIMALS } from "@/lib/sui";
+import { USDSUI_TYPE } from "@/lib/usdsui";
 import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 import { getRoundupConfig } from "@/lib/rewards/roundup";
 import { appendNaviSupply } from "@/lib/navi-supply";
@@ -102,6 +103,89 @@ export async function POST(req: Request) {
   const onchain = BigInt(Math.round(amountNum * 10 ** decimals));
   if (onchain <= 0n) {
     return NextResponse.json({ error: "amount too small" }, { status: 400 });
+  }
+
+  // ── Decide gasless vs sponsored BEFORE building the PTB ──────────
+  // Plain USDsui sends with no round-up qualify for Sui's gasless
+  // stablecoin transfer (PTB must be ONLY `0x2::coin::send_funds`).
+  // Anything else (round-up enabled, SUI transfer, future legs) needs
+  // Onara sponsorship.
+  let isGasless = false;
+  let roundupUsdGasless = 0;
+  if (asset === "USDsui") {
+    try {
+      const cfg = await getRoundupConfig(userId);
+      const computed =
+        cfg.enabled && cfg.percentage > 0
+          ? Math.min((amountNum * cfg.percentage) / 100, amountNum)
+          : 0;
+      const microUnits = Math.round(computed * 1e6);
+      if (microUnits <= 0) {
+        isGasless = true;
+      } else {
+        roundupUsdGasless = computed;
+      }
+    } catch {
+      // Defensive — if the roundup config read throws, fall through to
+      // the sponsored path. We never want a config error to block sends.
+      isGasless = false;
+    }
+  }
+
+  if (isGasless) {
+    try {
+      const t0 = Date.now();
+      const client = sui();
+      const tx = new Transaction();
+      tx.setSender(user.sui_address);
+
+      // Pull the exact send amount out of the user's USDsui balance
+      // as a Coin<USDSUI>. `useGasCoin: false` is mandatory — we
+      // can't reuse the gas coin in a gasless tx (there is no gas
+      // coin), and the type isn't SUI anyway.
+      const coin = tx.add(
+        coinWithBalance({
+          type: USDSUI_TYPE,
+          balance: onchain,
+          useGasCoin: false,
+        })
+      );
+      // `0x2::coin::send_funds<T>(coin, recipient)` is the
+      // gasless-eligible primitive per Sui's allowlist (USDsui is one
+      // of the seven supported stablecoins). Validators accept this
+      // tx with no gas payment and no gas owner.
+      tx.moveCall({
+        target: "0x2::coin::send_funds",
+        typeArguments: [USDSUI_TYPE],
+        arguments: [coin, tx.pure.address(to)],
+      });
+      // Per Sui docs: JSON-RPC builds must explicitly setGasPrice(0)
+      // (gRPC/GraphQL clients auto-detect, but our `sui()` is JSON-RPC).
+      tx.setGasPrice(0n);
+
+      const bytes = await tx.build({ client: client as never });
+      const tBuild = Date.now();
+      console.log(
+        `[send/sponsor-prepare gasless] total=${tBuild - t0}ms amount=${amountNum} USDsui`
+      );
+
+      return NextResponse.json({
+        bytes: toBase64(bytes),
+        mode: "gasless",
+        asset,
+        amount: amountNum,
+        to,
+        roundupUsd: 0,
+      });
+    } catch (err) {
+      // If the gasless build trips on something (network glitch,
+      // edge-case insufficient AB, etc.) fall through to the sponsored
+      // path rather than failing the user's send outright. Onara is
+      // always there as the safety net.
+      console.warn(
+        `[send/sponsor-prepare] gasless build failed, falling back to sponsored: ${(err as Error).message}`
+      );
+    }
   }
 
   try {
@@ -218,6 +302,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       bytes: toBase64(bytes),
+      mode: "sponsored",
       asset,
       amount: amountNum,
       to,
