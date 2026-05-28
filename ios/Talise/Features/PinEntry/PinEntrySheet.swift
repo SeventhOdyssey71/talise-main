@@ -21,37 +21,38 @@ struct PinEntrySheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            iconBadge
-                .padding(.top, 12)
+            // Title block — no icon badge. The header padding here is
+            // intentionally tight so the eye lands on the dots, not on
+            // an oversized chrome.
             Text(titleText)
-                .font(TaliseFont.heading(22, weight: .medium))
+                .font(TaliseFont.heading(20, weight: .medium))
                 .foregroundStyle(TaliseColor.fg)
-                .padding(.top, 16)
+                .padding(.top, 18)
             Text(subtitleText)
                 .font(TaliseFont.body(13))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-                .padding(.top, 6)
+                .padding(.top, 4)
 
-            pinBoxes
-                .padding(.top, 22)
+            pinDots
+                .padding(.top, 24)
                 .modifier(ShakeEffect(trigger: shakeTrigger))
 
             if let msg = failureMessage {
                 Text(msg)
                     .font(TaliseFont.body(12))
                     .foregroundStyle(TaliseColor.danger)
-                    .padding(.top, 8)
+                    .padding(.top, 10)
             } else {
-                Spacer().frame(height: 24)
+                Spacer().frame(height: 26)
             }
 
             Spacer(minLength: 0)
 
             numpad
-                .padding(.horizontal, 28)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 40)
+                .padding(.bottom, 4)
 
             if request.mode == .verify {
                 Button(action: request.onForgot) {
@@ -62,23 +63,12 @@ struct PinEntrySheet: View {
                         .padding(.vertical, 10)
                 }
                 .padding(.bottom, 4)
+            } else {
+                Spacer().frame(height: 14)
             }
         }
         .frame(maxWidth: .infinity)
         .background(TaliseColor.bg.ignoresSafeArea())
-    }
-
-    // MARK: - Header
-
-    private var iconBadge: some View {
-        ZStack {
-            Circle()
-                .fill(TaliseColor.accent.opacity(0.18))
-                .frame(width: 56, height: 56)
-            Image(systemName: "lock.fill")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(TaliseColor.accent)
-        }
     }
 
     private var titleText: String {
@@ -103,31 +93,32 @@ struct PinEntrySheet: View {
 
     // MARK: - PIN dots
 
-    private var pinBoxes: some View {
-        HStack(spacing: 14) {
+    /// Apple-lockscreen-style filled/hollow circles. No box outlines —
+    /// just four dots that fill in white as you type. Cleaner read than
+    /// the rounded-rect outlines we had before, and the focal point
+    /// becomes the digits themselves rather than the chrome.
+    private var pinDots: some View {
+        HStack(spacing: 22) {
             ForEach(0..<pinLength, id: \.self) { idx in
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(TaliseColor.line, lineWidth: 1)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(TaliseColor.surface)
+                Circle()
+                    .strokeBorder(TaliseColor.fgDim, lineWidth: 1.2)
+                    .background(
+                        Circle().fill(
+                            idx < entry.count ? TaliseColor.fg : Color.clear
                         )
-                        .frame(width: 56, height: 56)
-                    if idx < entry.count {
-                        Circle()
-                            .fill(TaliseColor.fg)
-                            .frame(width: 14, height: 14)
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                }
+                    )
+                    .frame(width: 14, height: 14)
+                    .animation(.spring(response: 0.22, dampingFraction: 0.7), value: entry)
             }
         }
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: entry)
     }
 
     // MARK: - Numpad
 
+    /// Native-feeling keypad: large numerals, no per-key chrome. Tap
+    /// targets are still 64pt tall (well over Apple's 44pt minimum) so
+    /// the buttons remain accessible; we just hide the capsule fill
+    /// because it was making the whole grid look heavy.
     private var numpad: some View {
         let rows: [[NumpadKey]] = [
             [.digit("1"), .digit("2"), .digit("3")],
@@ -135,9 +126,9 @@ struct PinEntrySheet: View {
             [.digit("7"), .digit("8"), .digit("9")],
             [.blank,      .digit("0"), .delete],
         ]
-        return VStack(spacing: 10) {
+        return VStack(spacing: 6) {
             ForEach(rows.indices, id: \.self) { r in
-                HStack(spacing: 10) {
+                HStack(spacing: 0) {
                     ForEach(rows[r].indices, id: \.self) { c in
                         keyView(rows[r][c])
                     }
@@ -152,22 +143,21 @@ struct PinEntrySheet: View {
         case .digit(let d):
             Button { tapDigit(d) } label: {
                 Text(d)
-                    .font(TaliseFont.heading(26, weight: .regular))
+                    .font(.system(size: 32, weight: .regular, design: .rounded))
                     .foregroundStyle(TaliseColor.fg)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(TaliseColor.surface.opacity(0.6))
-                    .clipShape(Capsule())
+                    .frame(height: 64)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(KeyPressStyle())
         case .delete:
             Button { tapDelete() } label: {
                 Image(systemName: "delete.left")
                     .font(.system(size: 22, weight: .regular))
                     .foregroundStyle(TaliseColor.fg)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(Color.clear)
+                    .frame(height: 64)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         case .blank:
@@ -246,8 +236,22 @@ struct PinEntrySheet: View {
     }
 }
 
+/// Tap feedback for the numpad keys: a brief background flash on press,
+/// no border / no capsule chrome. Mimics Apple's lockscreen keypad feel.
+private struct KeyPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                Circle()
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.08 : 0))
+                    .frame(width: 72, height: 72)
+                    .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            )
+    }
+}
+
 /// Horizontal-shake modifier driven by an incrementing trigger. Wraps the
-/// PIN-boxes whenever a verify fails or a confirm-step mismatches.
+/// PIN dots whenever a verify fails or a confirm-step mismatches.
 private struct ShakeEffect: ViewModifier {
     let trigger: Int
     @State private var offset: CGFloat = 0
