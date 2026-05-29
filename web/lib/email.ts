@@ -107,7 +107,7 @@ export async function sendWaitlistConfirmation(opts: {
   );
 
   const subject = opts.claimedHandle
-    ? `@${opts.claimedHandle}.talise.sui is yours.`
+    ? `${opts.claimedHandle}@talise.sui is yours.`
     : "You are on the Talise waitlist.";
 
   const fromAddr =

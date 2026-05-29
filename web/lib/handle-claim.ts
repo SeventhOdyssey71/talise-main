@@ -122,18 +122,53 @@ async function isReservedInDb(handle: string): Promise<boolean> {
 }
 
 /**
+ * In-memory TTL cache for `isMintedOnChain` lookups. The SuiNS
+ * `getNameRecord` RPC is the dominant cost in the live-availability
+ * path (each debounced keystroke costs 1–2s). We cache aggressively:
+ *
+ *   • positive (minted=true)  — 24h. Minted names don't unmint.
+ *   • negative (minted=false) — 60s. A free name can flip to taken
+ *     any moment (someone else claims or mints directly), so we
+ *     keep the negative window short.
+ *
+ * Module-scope `Map` is per-instance. Sufficient for a single Node
+ * worker; not coherent across a horizontally-scaled deploy.
+ *
+ * AUDIT_PENDING: for multi-instance deploys (Vercel functions /
+ * Railway replicas), swap this Map for Upstash Redis with the same
+ * TTL split (60s negative / 24h positive). Keep the DB-first
+ * short-circuit in `isWaitlistHandleAvailable` so we never even
+ * pay the Redis round-trip on a DB hit.
+ */
+const MINTED_TTL_MS = 24 * 60 * 60 * 1000;
+const FREE_TTL_MS = 60 * 1000;
+const _mintedCache: Map<string, { until: number; minted: boolean }> = new Map();
+
+/**
  * Internal: does `<handle>.talise.sui` already exist on chain? If the
  * SuiNS NameRecord lookup throws (object not found), the name is free.
+ *
+ * Cached via `_mintedCache` (see comment above). All callers benefit.
  */
 async function isMintedOnChain(handle: string): Promise<boolean> {
+  const now = Date.now();
+  const hit = _mintedCache.get(handle);
+  if (hit && hit.until > now) return hit.minted;
+
+  let minted = false;
   try {
     const rec = await suins().getNameRecord(`${handle}.talise.sui`);
     // A record exists. Even if targetAddress is null (broken/partial
     // mint) the name slot is taken — we won't mint again.
-    return !!rec;
+    minted = !!rec;
   } catch {
-    return false;
+    minted = false;
   }
+  _mintedCache.set(handle, {
+    minted,
+    until: now + (minted ? MINTED_TTL_MS : FREE_TTL_MS),
+  });
+  return minted;
 }
 
 export type AvailabilityVerdict =
