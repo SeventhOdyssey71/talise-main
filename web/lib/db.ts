@@ -18,6 +18,51 @@ import postgres, { type Sql } from "postgres";
  * fallback path can still be flipped on for local dev if needed later.
  */
 
+/**
+ * Table map (last updated 2026-05-29). One line each: what it stores +
+ * primary writer. New tables: add a row here when you add to ensureSchema().
+ *
+ *   users               Canonical account row (zkLogin sub → Sui address,
+ *                       profile, referral, points, vault id).
+ *                       Primary writer: web/lib/db.ts (upsertUser).
+ *
+ *   tx_history          One row per on-chain tx surfaced in the activity
+ *                       feed. Deduped by digest.
+ *                       Primary writer: web/app/api/tx/record/route.ts.
+ *
+ *   invoices            Merchant-issued USDC invoices (B2C checkout).
+ *                       Primary writer: web/app/api/invoices/route.ts.
+ *
+ *   rewards_events      Append-only ledger of points-awarding events
+ *                       (referrals, sends, roundups, redemptions).
+ *                       Primary writer: web/lib/rewards/earn.ts.
+ *
+ *   savings_goals       User-defined savings buckets w/ target + progress.
+ *                       Primary writer: web/lib/rewards/goals.ts.
+ *
+ *   redemptions         Points-spending requests (gift cards, perks).
+ *                       Primary writer: web/lib/rewards/redeem.ts.
+ *
+ *   waitlist            DEAD as of 2026-05-29. Original pre-launch email
+ *                       capture; superseded by waitlist_signups. Kept so
+ *                       prod rows are reachable for a future export.
+ *                       Safe to drop in a P2 cleanup once exported.
+ *
+ *   waitlist_signups    Canonical waitlist + handle-claim. Email is PK;
+ *                       claimed_handle reserves a *.talise.sui SuiNS name
+ *                       bound to the user's wallet on first sign-in.
+ *                       Primary writer: web/app/api/waitlist/route.ts +
+ *                       web/lib/handle-claim.ts.
+ *
+ *   paga_offramps       Paga USDsui → NGN bank payout state machine.
+ *                       Primary writer: web/app/api/offramp/paga/*.
+ *
+ *   mobile_sessions     Opaque bearer tokens for the iOS client.
+ *                       Created in lib/mobile-sessions.ts; CREATE TABLE
+ *                       lives there too, this file only widens its int4
+ *                       timestamp columns.
+ */
+
 // ───────────────────────────────────────────────────────────────────
 // Adapter — libsql-shaped API on top of postgres.js
 
@@ -213,7 +258,23 @@ export function ensureSchema(): Promise<void> {
 
 async function doEnsureSchema(): Promise<void> {
   const c = db();
-  const tables: string[] = [
+
+  // The schema below is grouped into sections. Within each section:
+  //   1. CREATE TABLE IF NOT EXISTS for every table the section owns.
+  //   2. ALTER TABLE ADD COLUMN IF NOT EXISTS in chronological order
+  //      (each ALTER is harmless on a fresh DB because the CREATE above
+  //      already includes the column — they exist for old deployments).
+  //   3. CREATE INDEX IF NOT EXISTS, scoped to this section's tables.
+  //
+  // Every statement is idempotent — ensureSchema() is called on every
+  // cold start and from dbHealth() repeatedly.
+  const stmts: string[] = [
+    // ─── auth / users ────────────────────────────────────────────────
+    // Canonical account row. One per Google sub. `sui_address` is the
+    // user's zkLogin-derived address; `salt` is fetched from Shinami on
+    // mainnet and never leaves the server in plaintext. Profile and
+    // monetization columns (referral, points, vault id) are bolted on
+    // via ALTER — see below.
     `CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       google_sub TEXT UNIQUE NOT NULL,
@@ -232,8 +293,48 @@ async function doEnsureSchema(): Promise<void> {
       business_industry TEXT,
       talise_username TEXT UNIQUE
     )`,
+    // Account-type + business profile.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS business_name TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS business_handle TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS business_industry TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS interests TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_on_receive INTEGER`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS spot_bm_id TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_username TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_registry_id TEXT`,
+    // Referral + points.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id INTEGER`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_count INTEGER DEFAULT 0`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS points_total INTEGER DEFAULT 0`,
+    // Round-up + lifetime tallies.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_enabled INTEGER DEFAULT 0`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_percentage INTEGER DEFAULT 2`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_sent_usd DOUBLE PRECISION DEFAULT 0`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_saved_usd DOUBLE PRECISION DEFAULT 0`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_saved_usd DOUBLE PRECISION DEFAULT 0`,
+    // TaliseVault + AutoSwap Path-C. `talise_vault_id` is the user's
+    // shared-object vault id, set after they sign the `vault::create()`
+    // tx via `/api/vault/record`. The repointed flag tracks whether
+    // their `@talise` SuiNS subname target has been moved from their
+    // plain wallet address to the vault id — a separate (heavier)
+    // on-chain step that happens lazily.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_id TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_subname_repointed INTEGER DEFAULT 0`,
+    // Indexes on hot read paths. UNIQUE constraints above already cover
+    // google_sub / sui_address / business_handle / talise_username
+    // lookups; these add coverage for the non-unique reads.
     `CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`,
     `CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at)`,
+    // Unique on columns added via ALTER (CREATE TABLE can't mark them).
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_talise_username ON users(talise_username)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)`,
+
+    // ─── tx history / activity feed ──────────────────────────────────
+    // One row per on-chain tx we surface in the activity feed. Deduped
+    // by digest (UNIQUE). Hot reads: `userTxs()` (by user_id, recent
+    // first).
     `CREATE TABLE IF NOT EXISTS tx_history (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -248,6 +349,12 @@ async function doEnsureSchema(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_tx_user ON tx_history(user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_tx_created ON tx_history(created_at DESC)`,
+    // Composite covers `WHERE user_id = ? ORDER BY created_at DESC` —
+    // the only shape `userTxs()` and the activity routes issue. Without
+    // it Postgres falls back to idx_tx_user + a sort.
+    `CREATE INDEX IF NOT EXISTS idx_tx_user_created ON tx_history(user_id, created_at DESC)`,
+
+    // ─── invoices (merchant B2C checkout) ────────────────────────────
     `CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
       business_user_id INTEGER NOT NULL REFERENCES users(id),
@@ -261,8 +368,17 @@ async function doEnsureSchema(): Promise<void> {
       paid_digest TEXT,
       paid_by_address TEXT
     )`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS receipt_object_id TEXT`,
+    // P1-3: explicit audit trail of the verified on-chain digest that
+    // closed each invoice.
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_digest TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_by_address TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_invoice_biz ON invoices(business_user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_invoice_slug ON invoices(slug)`,
+
+    // ─── rewards: events / goals / redemptions ───────────────────────
+    // Append-only ledger of points-awarding events. UI reads "20 most
+    // recent for this user".
     `CREATE TABLE IF NOT EXISTS rewards_events (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -271,8 +387,7 @@ async function doEnsureSchema(): Promise<void> {
       metadata TEXT,
       created_at BIGINT NOT NULL
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_rewards_user ON rewards_events(user_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_rewards_created ON rewards_events(created_at DESC)`,
+    // User-defined savings buckets.
     `CREATE TABLE IF NOT EXISTS savings_goals (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -284,7 +399,7 @@ async function doEnsureSchema(): Promise<void> {
       created_at BIGINT NOT NULL,
       archived INTEGER NOT NULL DEFAULT 0
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_goals_user ON savings_goals(user_id, archived)`,
+    // Points-spending requests.
     `CREATE TABLE IF NOT EXISTS redemptions (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -295,10 +410,20 @@ async function doEnsureSchema(): Promise<void> {
       created_at BIGINT NOT NULL,
       fulfilled_at BIGINT
     )`,
+    `CREATE INDEX IF NOT EXISTS idx_rewards_user ON rewards_events(user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_rewards_created ON rewards_events(created_at DESC)`,
+    // Covers `SELECT … FROM rewards_events WHERE user_id = ? ORDER BY
+    // created_at DESC LIMIT 20` (rewards summary).
+    `CREATE INDEX IF NOT EXISTS idx_rewards_user_created ON rewards_events(user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_goals_user ON savings_goals(user_id, archived)`,
     `CREATE INDEX IF NOT EXISTS idx_redemptions_user ON redemptions(user_id, created_at DESC)`,
-    // Marketing waitlist — emails dropped on the /waitlist page while
-    // the app is in private beta. Anonymized: no IP, no fingerprint —
-    // just email + when. Used for invite-batch outbound.
+
+    // ─── waitlist (legacy + canonical) ───────────────────────────────
+    // DEAD as of 2026-05-29; superseded by `waitlist_signups` below.
+    // No queries remain in web/app or web/lib (verified by grep). Kept
+    // in ensureSchema() because pre-launch prod rows are still present —
+    // safe to drop in a P2 cleanup once the export is taken.
+    // AUDIT_PENDING: confirm zero new writes for 30 days, then DROP.
     `CREATE TABLE IF NOT EXISTS waitlist (
       id SERIAL PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
@@ -306,12 +431,18 @@ async function doEnsureSchema(): Promise<void> {
       source TEXT,
       invited_at BIGINT
     )`,
+    `ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS name TEXT`,
+    `ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS country TEXT`,
+    `ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS reason TEXT`,
+    `ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS confirmation_sent_at BIGINT`,
+    `ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS confirmation_message_id TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_waitlist_created ON waitlist(created_at DESC)`,
-    // New canonical waitlist table. Email is the natural PK so dup
-    // detection is a one-line `ON CONFLICT (email) DO NOTHING RETURNING
-    // email` in the API route. `ip` / `user_agent` are captured for
-    // light abuse triage. `confirmation_sent` flips true only after the
-    // Resend send returns ok within the 4s timeout window.
+
+    // Canonical waitlist. Email is the natural PK so dup detection is a
+    // one-line `ON CONFLICT (email) DO NOTHING RETURNING email` in the
+    // API route. `ip` / `user_agent` are captured for light abuse
+    // triage. `confirmation_sent` flips true only after the Resend send
+    // returns ok within the 4s timeout window.
     `CREATE TABLE IF NOT EXISTS waitlist_signups (
       email TEXT PRIMARY KEY,
       created_at BIGINT NOT NULL,
@@ -320,28 +451,30 @@ async function doEnsureSchema(): Promise<void> {
       confirmation_sent BOOLEAN NOT NULL DEFAULT false,
       confirmation_sent_at BIGINT
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_waitlist_signups_created ON waitlist_signups(created_at DESC)`,
-    // Waitlist handle claim — Strategy A (reserve-in-DB).
-    // `suins-operator.ts` ships only `mintSubname()` (one PTB: mint + set
-    // target + transfer to user). It does NOT have a "mint to operator
-    // now, transfer later" helper, which would be needed for Strategy B.
-    // So at claim time we reserve in DB; the actual on-chain mint runs
-    // on first sign-in when we know the user's Sui address — zero gas
-    // until users actually show up.
+    // Handle-claim columns — Strategy A (reserve-in-DB).
+    // `suins-operator.ts` ships only `mintSubname()` (one PTB: mint +
+    // set target + transfer to user). It does NOT have a "mint to
+    // operator now, transfer later" helper, which would be needed for
+    // Strategy B. So at claim time we reserve in DB; the actual
+    // on-chain mint runs on first sign-in when we know the user's Sui
+    // address — zero gas until users actually show up.
     `ALTER TABLE waitlist_signups ADD COLUMN IF NOT EXISTS claimed_handle TEXT`,
     `ALTER TABLE waitlist_signups ADD COLUMN IF NOT EXISTS handle_claimed_at BIGINT`,
     `ALTER TABLE waitlist_signups ADD COLUMN IF NOT EXISTS handle_object_id TEXT`,
     `ALTER TABLE waitlist_signups ADD COLUMN IF NOT EXISTS handle_bound_user_id TEXT`,
     `ALTER TABLE waitlist_signups ADD COLUMN IF NOT EXISTS handle_bound_at BIGINT`,
+    `CREATE INDEX IF NOT EXISTS idx_waitlist_signups_created ON waitlist_signups(created_at DESC)`,
     // Partial-unique on `claimed_handle` so the index ignores the NULL
     // rows (most signups won't claim a handle) but enforces "one handle
     // per claim" the moment a non-NULL value is written.
     `CREATE UNIQUE INDEX IF NOT EXISTS uniq_waitlist_claimed_handle
        ON waitlist_signups (claimed_handle) WHERE claimed_handle IS NOT NULL`,
-    // Paga offramp — one row per "USDsui → NGN bank account" payout. The
-    // row carries the locked quote (fxRate, ngn/usdsui amounts), the
-    // user-provided bank coordinates, the Paga reference once we hand
-    // off, and the state-machine status. See `docs/offramp/paga-integration.md`.
+
+    // ─── paga offramp (USDsui → NGN bank payouts) ────────────────────
+    // One row per "USDsui → NGN bank account" payout. The row carries
+    // the locked quote (fxRate, ngn/usdsui amounts), the user-provided
+    // bank coordinates, the Paga reference once we hand off, and the
+    // state-machine status. See `docs/offramp/paga-integration.md`.
     `CREATE TABLE IF NOT EXISTS paga_offramps (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -362,67 +495,20 @@ async function doEnsureSchema(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_paga_offramps_user ON paga_offramps(user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_paga_offramps_status ON paga_offramps(status, created_at DESC)`,
   ];
-  for (const stmt of tables) {
-    await c.execute(stmt);
-  }
 
-  // Idempotent column additions for older deployments. Postgres lacks the
-  // `IF NOT EXISTS` clause on `ADD COLUMN` until 9.6+, but pxxl runs 16 so
-  // we can rely on it. Keeps the migration narrative readable.
-  for (const sql of [
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_name TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_handle TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS business_industry TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS interests TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_on_receive INTEGER",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS spot_bm_id TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_username TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_registry_id TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id INTEGER",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_count INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS points_total INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_enabled INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_percentage INTEGER DEFAULT 2",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_sent_usd DOUBLE PRECISION DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_saved_usd DOUBLE PRECISION DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_saved_usd DOUBLE PRECISION DEFAULT 0",
-    // TaliseVault + AutoSwap Path-C columns. `talise_vault_id` is the
-    // user's shared-object vault id, set after they sign the
-    // `vault::create()` tx via `/api/vault/record`. The repointed flag
-    // tracks whether their `@talise` SuiNS subname target has been
-    // moved from their plain wallet address to the vault id — a
-    // separate (heavier) on-chain step that happens lazily.
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_id TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_subname_repointed INTEGER DEFAULT 0",
-    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS receipt_object_id TEXT",
-    // P1-3: explicit audit trail of the verified on-chain digest that
-    // closed each invoice. CREATE TABLE already includes the column on
-    // fresh DBs; the ALTER covers any pre-existing deploy.
-    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_digest TEXT",
-    "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_by_address TEXT",
-    // Waitlist signup form expansion. Name, country, and reason are
-    // optional fields captured alongside the email. The confirmation
-    // columns track whether the Resend transactional mail went out and
-    // its message id (for traceability in the Resend dashboard).
-    "ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS name TEXT",
-    "ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS country TEXT",
-    "ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS reason TEXT",
-    "ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS confirmation_sent_at BIGINT",
-    "ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS confirmation_message_id TEXT",
-  ]) {
+  for (const stmt of stmts) {
     try {
-      await c.execute(sql);
+      await c.execute(stmt);
     } catch {
-      /* idempotent; ignore */
+      /* idempotent; ALTERs against missing tables on first cold start
+         will throw harmlessly — the CREATE above eventually wins. */
     }
   }
 
-  // Widen any int4 timestamp columns to int8. The original Postgres
-  // migration shipped briefly with `INTEGER` for ms-precision timestamps;
-  // `Date.now()` is ~1.78 trillion today, well beyond int4's ~2.15B limit,
-  // so inserts blow up with
+  // ─── int4 → int8 widener (cross-section migration) ─────────────────
+  // The original Postgres migration shipped briefly with `INTEGER` for
+  // ms-precision timestamps; `Date.now()` is ~1.78 trillion today, well
+  // beyond int4's ~2.15B limit, so inserts blow up with:
   //   ERROR: value "1779729508821" is out of range for type integer
   // `CREATE TABLE IF NOT EXISTS` won't fix an already-narrow column —
   // need an explicit ALTER. Gate each on `information_schema.columns`
@@ -439,9 +525,9 @@ async function doEnsureSchema(): Promise<void> {
     ["savings_goals", "deadline_ms"],
     ["redemptions", "created_at"],
     ["redemptions", "fulfilled_at"],
-    // mobile_sessions is created out-of-band in lib/mobile-sessions.ts but
-    // suffers from the same int4 issue — fold it in here so the widener
-    // covers it on first cold start.
+    // mobile_sessions is created out-of-band in lib/mobile-sessions.ts
+    // but suffers from the same int4 issue — fold it in here so the
+    // widener covers it on first cold start.
     ["mobile_sessions", "created_at"],
     ["mobile_sessions", "expires_at"],
     ["mobile_sessions", "max_epoch"],
@@ -462,23 +548,6 @@ async function doEnsureSchema(): Promise<void> {
     } catch {
       /* table not yet created — fresh DBs get BIGINT from CREATE above */
     }
-  }
-
-  // Unique indexes for columns added via ALTER. `CREATE UNIQUE INDEX IF NOT
-  // EXISTS` is safe to call repeatedly.
-  try {
-    await c.execute(
-      "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_talise_username ON users(talise_username)"
-    );
-  } catch {
-    /* ignore */
-  }
-  try {
-    await c.execute(
-      "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)"
-    );
-  } catch {
-    /* ignore */
   }
 }
 
