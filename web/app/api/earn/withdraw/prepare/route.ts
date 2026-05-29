@@ -20,39 +20,78 @@ export const runtime = "nodejs";
  * frame and both wedge at once. Returns `fallback` on timeout / error
  * and logs `[earn/withdraw-prepare] <leg> timed out after Nms`.
  */
+/**
+ * Tagged result so the route can distinguish a TIMEOUT (transient, "try
+ * again later" is the right answer) from an ERROR (hard failure, the
+ * actual message is the right answer) from OK. The previous
+ * implementation collapsed both timeout and rejection into the same
+ * fallback value, which meant a NAVI SDK exception ("no NAVI USDsui
+ * position", an oracle update failure, etc.) surfaced to iOS as
+ * "Withdraw is taking longer than usual — try again in a few seconds."
+ * — misleading and unhelpful: retrying didn't fix the underlying error.
+ */
+type LegResult<T> =
+  | { kind: "ok"; value: T }
+  | { kind: "timeout"; leg: string; ms: number }
+  | { kind: "error"; leg: string; ms: number; message: string };
+
 function withTimeout<T>(
   p: Promise<T>,
   ms: number,
-  leg: string,
-  fallback: T
-): Promise<T> {
+  leg: string
+): Promise<LegResult<T>> {
   const start = Date.now();
-  return new Promise<T>((resolve) => {
+  return new Promise<LegResult<T>>((resolve) => {
     const timer = setTimeout(() => {
+      const elapsed = Date.now() - start;
       console.warn(
-        `[earn/withdraw-prepare] ${leg} timed out after ${Date.now() - start}ms`
+        `[earn/withdraw-prepare] ${leg} timed out after ${elapsed}ms`
       );
-      resolve(fallback);
+      resolve({ kind: "timeout", leg, ms: elapsed });
     }, ms);
     p.then(
       (v) => {
         clearTimeout(timer);
-        resolve(v);
+        resolve({ kind: "ok", value: v });
       },
       (e) => {
         clearTimeout(timer);
+        const elapsed = Date.now() - start;
+        const message = (e as Error).message ?? String(e);
         console.warn(
-          `[earn/withdraw-prepare] ${leg} failed after ${Date.now() - start}ms: ${(e as Error).message}`
+          `[earn/withdraw-prepare] ${leg} ERRORED after ${elapsed}ms: ${message}`
         );
-        resolve(fallback);
+        resolve({ kind: "error", leg, ms: elapsed, message });
       }
     );
   });
 }
 
-// Sentinel — distinguishes "build timed out / threw" from "build returned
-// an empty buffer". Tested by reference equality in the route below.
-const BUILD_FAILED: Uint8Array = new Uint8Array(0);
+/**
+ * Map a verbatim NAVI / chain error string to a user-friendly message.
+ * The defaults catch the failure modes we've actually seen in
+ * production logs; everything else falls through to a generic copy
+ * with the raw detail logged in Vercel for diagnosis.
+ */
+function mapNaviError(raw: string): string {
+  const s = raw.toLowerCase();
+  if (/no navi usdsui position/i.test(s) || /no position/i.test(s)) {
+    return "You don't have a NAVI position to withdraw from.";
+  }
+  if (/pyth/i.test(s) || /oracle/i.test(s)) {
+    return "NAVI's price oracle update failed. Try again in a few seconds.";
+  }
+  if (/health/i.test(s) || /under.?collateral/i.test(s)) {
+    return "Withdrawal would leave your position undercollateralized. Reduce the amount or repay first.";
+  }
+  if (/insufficient/i.test(s)) {
+    return "Insufficient supplied balance to withdraw that amount. Try a smaller value or 'Withdraw all + rewards'.";
+  }
+  if (/package|module/i.test(s)) {
+    return "NAVI package version mismatch. The Talise team has been notified.";
+  }
+  return "NAVI rejected the withdraw. Try again or contact support.";
+}
 
 /**
  * POST /api/earn/withdraw/prepare
@@ -143,32 +182,58 @@ export async function POST(req: Request) {
         // URLSession default.
         const wrappedAmount =
           amountNum && amountNum > 0 ? amountNum : undefined;
-        const ok = await withTimeout(
+        const res = await withTimeout(
           appendNaviWithdraw(tx, user.sui_address, wrappedAmount).then(
             () => true
           ),
           9_000,
-          "navi-position",
-          false
+          "navi-position"
         );
         tPosition = Date.now();
-        if (!ok) {
+        if (res.kind === "timeout") {
           return NextResponse.json(
             {
               error:
-                "Withdraw is taking longer than usual — try again in a few seconds.",
+                "NAVI is responding slowly. Try again in a few seconds.",
+              code: "NAVI_TIMEOUT",
             },
             { status: 504 }
           );
         }
+        if (res.kind === "error") {
+          // Surface the actual NAVI failure to iOS verbatim (truncated)
+          // instead of pretending it was a transient timeout. Common
+          // shapes: "no NAVI USDsui position to withdraw" (user has 0
+          // supplied), Pyth oracle update failure, position-health
+          // check fail, package address mismatch, etc.
+          const friendly = mapNaviError(res.message);
+          return NextResponse.json(
+            {
+              error: friendly,
+              detail: res.message.slice(0, 400),
+              code: "NAVI_WITHDRAW_FAILED",
+            },
+            { status: 502 }
+          );
+        }
       } else {
-        const capId = await withTimeout(
+        const capRes = await withTimeout(
           fetchSupplierCapId(user.sui_address),
           5_000,
-          "deepbook-cap",
-          null
+          "deepbook-cap"
         );
         tPosition = Date.now();
+        if (capRes.kind === "timeout") {
+          return NextResponse.json(
+            {
+              error: "DeepBook is responding slowly. Try again in a few seconds.",
+              code: "DEEPBOOK_TIMEOUT",
+            },
+            { status: 504 }
+          );
+        }
+        const capId =
+          capRes.kind === "ok" ? capRes.value : null;
         if (!capId) {
           return NextResponse.json(
             { error: "you don't have a DeepBook position to withdraw" },
@@ -193,25 +258,36 @@ export async function POST(req: Request) {
         refs: { venue },
       });
 
-      const kind = await withTimeout(
+      const buildRes = await withTimeout(
         tx.build({
           client: sui() as never,
           onlyTransactionKind: true,
         }),
         5_000,
-        "tx-build",
-        BUILD_FAILED
+        "tx-build"
       );
       tBuild = Date.now();
-      if (kind === BUILD_FAILED) {
+      if (buildRes.kind === "timeout") {
         return NextResponse.json(
           {
             error:
-              "Withdraw is taking longer than usual — try again in a few seconds.",
+              "Building the withdraw transaction is taking longer than usual. Try again in a few seconds.",
+            code: "BUILD_TIMEOUT",
           },
           { status: 504 }
         );
       }
+      if (buildRes.kind === "error") {
+        return NextResponse.json(
+          {
+            error: "Couldn't build the withdraw transaction.",
+            detail: buildRes.message.slice(0, 400),
+            code: "BUILD_FAILED",
+          },
+          { status: 502 }
+        );
+      }
+      const kind = buildRes.value;
 
       console.log(
         `[earn/withdraw-prepare] position=${tPosition - t0}ms rewards=0ms build=${tBuild - tPosition}ms total=${tBuild - t0}ms venue=${venue}`
