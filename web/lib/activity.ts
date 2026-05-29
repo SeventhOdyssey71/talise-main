@@ -1307,22 +1307,43 @@ export async function getRecentActivity(
   // healthy margin to avoid an empty feed when a user has lots of unrelated
   // chain activity (NFT mints, random transfers, etc).
   const fetchLimit = Math.max(limit * 4, 50);
-  let raw: RawTx[];
+  // Sui GraphQL caps `first` at 50 (server-enforced
+  // `Page size is too large: N > 50` validation error). Any `first` > 50
+  // throws a GraphQL validation error which our broad try/catch below
+  // swallowed, returning [] — that was the root cause of the
+  // "Nothing yet" / `decoded 0 entries` bug for addresses with a healthy
+  // tx history when iOS asked for limit=20 (fetchLimit=80).
+  //
+  // Cap the per-page request at 50 and page forward until we either hit
+  // the desired `fetchLimit` or exhaust the user's history. One extra
+  // round-trip in the worst case; zero extra for users with <50 txs.
+  const PAGE_MAX = 50;
+  let raw: RawTx[] = [];
   try {
-    // Pre-migration this site issued TWO `suix_queryTransactionBlocks`
-    // calls in parallel (FromAddress + ToAddress) and unioned the
-    // results client-side. Sui GraphQL's `affectedAddress` filter
-    // returns BOTH sides in a single query — half the round-trips,
-    // same coverage. The downstream classifier still consumes the
-    // legacy `RawTx` shape; `adaptGraphQLNodeToRawTx` rebuilds it from
-    // the `transactionJson` + `balanceChangesJson` + `objectChanges`
-    // pieces.
-    const res: { data?: GraphQLActivityResponse } = await suiGraphQL().query({
-      query: TX_HISTORY_QUERY,
-      variables: { addr: address, first: fetchLimit, after: null },
-    });
-    const nodes = res.data?.transactions?.nodes ?? [];
-    raw = nodes.map(adaptGraphQLNodeToRawTx);
+    let after: string | null = null;
+    let collected = 0;
+    while (collected < fetchLimit) {
+      const remaining = fetchLimit - collected;
+      const pageSize = Math.min(PAGE_MAX, remaining);
+      // Pre-migration this site issued TWO `suix_queryTransactionBlocks`
+      // calls in parallel (FromAddress + ToAddress) and unioned the
+      // results client-side. Sui GraphQL's `affectedAddress` filter
+      // returns BOTH sides in a single query — half the round-trips,
+      // same coverage. The downstream classifier still consumes the
+      // legacy `RawTx` shape; `adaptGraphQLNodeToRawTx` rebuilds it from
+      // the `transactionJson` + `balanceChangesJson` + `objectChanges`
+      // pieces.
+      const res: { data?: GraphQLActivityResponse } = await suiGraphQL().query({
+        query: TX_HISTORY_QUERY,
+        variables: { addr: address, first: pageSize, after },
+      });
+      const page = res.data?.transactions;
+      const nodes = page?.nodes ?? [];
+      for (const n of nodes) raw.push(adaptGraphQLNodeToRawTx(n));
+      collected += nodes.length;
+      if (!page?.pageInfo.hasNextPage || !page.pageInfo.endCursor) break;
+      after = page.pageInfo.endCursor;
+    }
   } catch {
     return [];
   }
