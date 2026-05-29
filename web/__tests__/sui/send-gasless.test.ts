@@ -149,6 +149,11 @@ vi.mock("@mysten/sui/transactions", async () => {
     moveCall = vi.fn(() => ({ kind: "Result" }));
     transferObjects = vi.fn();
     object = vi.fn(() => ({ kind: "Input" }));
+    // Canonical gasless primitive — pulls amount from Address Balance
+    // accumulator. The route uses `tx.withdrawal({ amount, type })` as
+    // the first argument to `0x2::balance::send_funds<T>`. Stub returns
+    // an Argument-shaped value so `moveCall` accepts it.
+    withdrawal = vi.fn(() => ({ kind: "Withdrawal" }));
     pure = {
       address: vi.fn(() => ({ kind: "Input" })),
     };
