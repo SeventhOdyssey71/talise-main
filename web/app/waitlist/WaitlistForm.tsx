@@ -147,9 +147,45 @@ function HandleClaim({ email }: { email: string }) {
   const [claim, setClaim] = useState<ClaimStatus>("idle");
   const [claimedHandle, setClaimedHandle] = useState<string | null>(null);
   const [claimError, setClaimError] = useState("");
+  // Welcome-back: if this email is already a Talise user with a bound
+  // handle (admin testers, returning beta users), skip the claim UI
+  // entirely. `phase` gates the whole render.
+  const [phase, setPhase] = useState<"checking" | "existing" | "claim">("checking");
+  const [existingHandle, setExistingHandle] = useState<string | null>(null);
   const seqRef = useRef(0);
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/waitlist/handle/existing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        if (cancelled) return;
+        const body = (await r.json().catch(() => ({}))) as {
+          existing?: { handle: string } | null;
+        };
+        if (body.existing?.handle) {
+          setExistingHandle(body.existing.handle);
+          setPhase("existing");
+        } else {
+          setPhase("claim");
+        }
+      } catch {
+        // Fall through to claim UI on any error — better to over-show
+        // the claim screen than to hide it incorrectly.
+        if (!cancelled) setPhase("claim");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [email]);
+
+  useEffect(() => {
+    if (phase !== "claim") return;
     if (claim === "claimed" || claim === "skipped") return;
     const trimmed = handle.trim();
     if (!trimmed) {
@@ -208,7 +244,7 @@ function HandleClaim({ email }: { email: string }) {
     }, 350);
 
     return () => clearTimeout(t);
-  }, [handle, email, claim]);
+  }, [handle, email, claim, phase]);
 
   async function onClaim() {
     if (avail.kind !== "available") return;
@@ -234,6 +270,40 @@ function HandleClaim({ email }: { email: string }) {
       setClaim("error");
       setClaimError((err as Error).message);
     }
+  }
+
+  // Initial probe — quick muted spinner so the form doesn't flash empty.
+  if (phase === "checking") {
+    return (
+      <div
+        className="flex flex-col items-center gap-1.5 rounded-2xl border border-white/10 bg-white/[0.04] px-6 py-5 text-center"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="text-[12px] text-white/55">Checking your account…</div>
+      </div>
+    );
+  }
+
+  // Welcome-back: this email already owns a *.talise.sui name (admin
+  // testers, returning beta users). Skip the claim flow entirely — they
+  // just need to sign in on iOS to access the handle they already have.
+  if (phase === "existing" && existingHandle) {
+    return (
+      <div
+        className="flex flex-col items-center gap-1.5 rounded-2xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/[0.06] px-6 py-5 text-center"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="text-[15px] font-medium text-white">
+          Welcome back. You already have @{existingHandle}.
+        </div>
+        <div className="text-[12px] text-white/55">
+          Sign in on iOS with{" "}
+          <span className="text-white/75">{email}</span> to use it right away.
+        </div>
+      </div>
+    );
   }
 
   if (claim === "claimed" && claimedHandle) {
