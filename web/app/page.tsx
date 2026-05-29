@@ -189,26 +189,34 @@ function AppleGlyph() {
 }
 
 function PhoneCollage() {
+  // Two-stage entrance:
+  //   - The green radial wash fades + scales in first (slow, soft) so the
+  //     stage is set before the artwork lands.
+  //   - The collage itself drops in with a small upward translate + 6%
+  //     scale-from-down — gentle, no hover noise, no shake.
+  // `talise-collage-*` keyframes are defined in `globals.css`; they
+  // respect prefers-reduced-motion by collapsing to identity transforms.
   return (
     <div className="motion-collage relative mx-auto mt-14 w-full max-w-[1100px] md:mt-20">
-      {/* soft green wash behind the artwork */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-[80%] max-w-[900px] blur-3xl"
+        className="talise-collage-glow pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-[80%] max-w-[900px] blur-3xl"
         style={{
           background:
             "radial-gradient(60% 55% at 50% 50%, color-mix(in srgb, var(--color-accent) 28%, transparent), transparent 70%)",
         }}
       />
-      <Image
-        src="/talise-app-collage.png"
-        alt="Talise iOS app: Earn and Home screens shown side by side"
-        width={2208}
-        height={1242}
-        priority
-        sizes="(max-width: 768px) 100vw, 1100px"
-        className="mx-auto h-auto w-full"
-      />
+      <div className="talise-collage-art">
+        <Image
+          src="/talise-app-collage.png"
+          alt="Talise iOS app: Earn and Home screens shown side by side"
+          width={2208}
+          height={1242}
+          priority
+          sizes="(max-width: 768px) 100vw, 1100px"
+          className="mx-auto h-auto w-full"
+        />
+      </div>
     </div>
   );
 }
@@ -414,18 +422,24 @@ function SecuritySection() {
  * than slogans alone.
  */
 function ByTheNumbers() {
+  // Four selling points. Tightened headlines + shorter captions so the
+  // copy fits a 4-card row without truncation on lg viewports.
   const stats: Array<{ value: string; caption: string }> = [
     {
-      value: "Fast transactions",
-      caption: "Sui finality. Sent and confirmed before the screen finishes its swipe.",
+      value: "Fast",
+      caption: "Sui finality. Sent and confirmed before the swipe finishes.",
     },
     {
-      value: "0%",
-      caption: "Gas paid by you on stablecoin transfers. Talise covers the network fee.",
+      value: "0% gas",
+      caption: "Stablecoin transfers are sponsored. Talise covers every fee.",
     },
     {
-      value: "Onchain finance reach",
-      caption: "Trade a wide range of assets on-chain — stablecoins, blue chips, and DeFi yield.",
+      value: "Onchain reach",
+      caption: "Stablecoins, blue chips, DeFi yield — all in one app.",
+    },
+    {
+      value: "Built for Africa",
+      caption: "Naira, cedis, shillings, rand. Native rails, local cash out.",
     },
   ];
 
@@ -448,17 +462,17 @@ function ByTheNumbers() {
         </h2>
       </Reveal>
 
-      <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((s, i) => (
           <Reveal key={s.value} delay={0.12 + i * 0.06}>
-            <div className="talise-glass h-full rounded-2xl px-6 py-7">
+            <div className="talise-glass h-full rounded-2xl px-5 py-6">
               <div
-                className="text-[clamp(36px,4vw,48px)] font-medium leading-none tracking-[-0.02em] text-[var(--color-fg)]"
+                className="text-[clamp(22px,2.4vw,30px)] font-medium leading-[1.05] tracking-[-0.015em] text-[var(--color-fg)]"
                 style={{ fontVariantNumeric: "tabular-nums" }}
               >
                 {s.value}
               </div>
-              <div className="mt-4 text-[12px] leading-[1.55] text-[var(--color-fg-muted)]">
+              <div className="mt-3 text-[12px] leading-[1.55] text-[var(--color-fg-muted)]">
                 {s.caption}
               </div>
             </div>
@@ -1125,14 +1139,12 @@ function SiteFooter() {
           </div>
 
           <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] text-[var(--color-fg-muted)]">
-            <a href="#" className="transition hover:text-[var(--color-fg)]">Privacy</a>
-            <a href="#" className="transition hover:text-[var(--color-fg)]">Terms</a>
-            <a href="#" className="transition hover:text-[var(--color-fg)]">Litepaper</a>
+            <a href="/litepaper" className="transition hover:text-[var(--color-fg)]">Litepaper</a>
             <a
-              href="mailto:hello@talise.io"
+              href="mailto:team@talise.io"
               className="transition hover:text-[var(--color-fg)]"
             >
-              hello@talise.io
+              team@talise.io
             </a>
           </nav>
         </div>

@@ -30,14 +30,9 @@ export function SiteFooter() {
           </Item>
         </Group>
 
-        <Group title="Trust">
-          <Item href="#" disabled>
-            Privacy (soon)
-          </Item>
-          <Item href="#" disabled>
-            Terms (soon)
-          </Item>
-          <Item href="mailto:hello@talise.io">hello@talise.io</Item>
+        <Group title="Contact">
+          <Item href="mailto:team@talise.io">team@talise.io</Item>
+          <Item href="/litepaper">Litepaper</Item>
         </Group>
       </div>
       <div className="border-t border-[var(--color-line)] px-6 py-6 md:px-8">
