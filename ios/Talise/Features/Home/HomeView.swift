@@ -57,9 +57,13 @@ struct HomeView: View {
                         .padding(.horizontal, 32)
                         .padding(.top, 18)
                 }
-                AutoSwapMigrationBanner()
-                    .padding(.horizontal, 32)
-                    .padding(.top, 14)
+                // Autoswap archived 2026-05-29 — AutoSwapMigrationBanner moved to
+                // web/_archive/autoswap-2026-05-29/ios/. The Home surface that
+                // replaces it is the per-row "Swap to USDsui" CTA driven from
+                // the activity feed (see HistoryRow). When the user receives a
+                // non-USDsui coin (USDC, DEEP, etc.), the activity row now
+                // shows the explicit swap affordance instead of relying on the
+                // dormant auto-swap cron.
                 usernameCard
                     .padding(.horizontal, 32)
                     .padding(.top, 24)
@@ -98,19 +102,10 @@ struct HomeView: View {
                 .presentationDetents([.large])
                 .presentationBackground(TaliseColor.bg)
         }
-        .sheet(isPresented: $vaultWithdrawSheetVisible) {
-            VaultWithdrawSheet(onWithdrew: {
-                // After a successful vault withdraw the spendable
-                // wallet just grew; refresh balances + activity and
-                // re-poll the vault so the pill disappears if it's
-                // now drained.
-                Task {
-                    await loadAll(force: true)
-                    await loadVaultPresence()
-                }
-            })
-            .presentationBackground(TaliseColor.bg)
-        }
+        // Autoswap archived 2026-05-29 — VaultWithdrawSheet moved to
+        // web/_archive/autoswap-2026-05-29/ios/. `vaultWithdrawSheetVisible`
+        // is preserved as a no-op so any latent setter doesn't break the
+        // compile; the trigger sites have been removed.
     }
 
     // MARK: - Top bar
@@ -476,36 +471,18 @@ struct HomeView: View {
             group.addTask { await loadBalance() }
             group.addTask { await loadActivity() }
             group.addTask { await loadSweepPreview() }
-            group.addTask { await loadVaultPresence() }
             group.addTask { await loadWalletCoinBalances() }
-            // Pull-to-refresh / manual reload triggers an instant
-            // sweep so any pending @handle deposit is reflected in
-            // the next loadBalance / loadActivity pass. The cron is
-            // 60s-bound; this collapses that to "as fast as the chain
-            // confirms." Fire-and-forget — never blocks the UI.
-            if force {
-                group.addTask { await VaultAPI.sweepNow() }
-            }
+            // Autoswap archived 2026-05-29 — the post-pull `VaultAPI.sweepNow()`
+            // fire-and-forget is gone alongside the vault routes.
+            _ = force
         }
     }
 
-    /// Lightweight `/api/vault/state` ping that just sets the boolean
-    /// driving the "Move to wallet" pill. We don't decode balances here
-    /// — `VaultWithdrawSheet` owns the full state read when the sheet
-    /// opens. Failure (incl. 503 when the package isn't deployed) is
-    /// silent: the pill stays hidden.
+    /// Vault presence check archived 2026-05-29. Stays as a no-op so the
+    /// `vaultHasFunds` state cell (still read in a few UI gates lower in
+    /// this file) stays trivially `false`.
     private func loadVaultPresence() async {
-        do {
-            let s: VaultStateResponse = try await VaultAPI.getState()
-            let hasFunds = (s.vault?.balances ?? []).contains(where: {
-                (UInt64($0.amount) ?? 0) > 0
-            })
-            vaultHasFunds = hasFunds
-        } catch {
-            if !APIError.isCancellation(error) {
-                vaultHasFunds = false
-            }
-        }
+        vaultHasFunds = false
     }
 
     private func loadBalance() async {

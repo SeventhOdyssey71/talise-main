@@ -6,7 +6,21 @@ import { formatHandle } from "./handle";
 import { globalRegistryId, namespaceObjectId } from "./payment-kit";
 import { parsePaymentKitNonce, type ParsedTaliseMemo } from "./intents/wrap-payment-kit";
 import { batchCoinMetadata, suiGraphQL } from "./sui-graphql";
-import { vaultPackageIds, VaultNotDeployedError } from "./vault";
+// Autoswap vault archived 2026-05-29 — see `web/_archive/autoswap-2026-05-29/`.
+// The vault-event walk below is now dormant: `opts.vaultId` is read from
+// `users.talise_vault_id` which is no longer populated. We keep the merge
+// path intact so historical rows already classified with direction:"autoswap"
+// continue to dedupe correctly. The two stubs below replace the archived
+// `./vault` imports so the runtime branch falls through as VaultNotDeployed.
+class VaultNotDeployedError extends Error {
+  constructor() {
+    super("autoswap vault archived");
+    this.name = "VaultNotDeployedError";
+  }
+}
+function vaultPackageIds(): { packageId: string } {
+  throw new VaultNotDeployedError();
+}
 
 /**
  * On-chain activity feed.

@@ -185,39 +185,42 @@ export async function POST(req: Request) {
       const tx = new Transaction();
       tx.setSender(user.sui_address);
 
-      // Docs-canonical gasless PTB using the SDK's `tx.balance({type,
-      // balance})` helper. Per the SDK's own comment at
-      // node_modules/@mysten/sui/dist/transactions/Transaction.mjs:200:
-      //   "Sourced from address balance when available, falling back
-      //    to owned coins."
+      // ───────────────────────────────────────────────────────────────
+      // DIRECTIVE (2026-05-29): clean 2-call accumulator pattern ONLY.
       //
-      // That auto-fallback is the magic: when the user's accumulator
-      // alone can't cover the requested amount, the SDK transparently
-      // pulls additional balance from owned Coin<T> objects to make
-      // up the difference, packs the necessary FundsWithdrawal +
-      // redeem_funds + (where needed) coin-into-balance MoveCalls
-      // into the same PTB, and the validator still accepts the result
-      // as gasless because every command stays inside the allowlisted
-      // (balance, coin, mergeCoins, splitCoins) set on stablecoin
-      // types.
+      // We previously used `tx.balance({type, balance})`, whose SDK
+      // implementation transparently falls back to owned Coin<T>
+      // objects when the accumulator can't cover the requested amount.
+      // That fallback emitted up-to-5-command PTBs (MergeCoins +
+      // SplitCoins + coin::into_balance + balance::send_funds + a
+      // trailing transfer) on the user's first send — see the
+      // mainnet reference tx B9oaCA7G…tbxz, which is a clean 2-call
+      // PTB and is what we want to mirror verbatim.
       //
-      // Verified via dryRun against this exact route's user
-      // (0xb9aad…866c, 3,788 µ accumulator + 666,928 µ in Coin
-      // objects):
-      //   amount=10,000 µ … 670,716 µ → status: success,
-      //                                  net SUI cost = 0
-      //   amount<10,000 µ → validator rejects ("minimum transfer
-      //                     balance of 0.01 USDsui", docs-confirmed)
+      // The new shape is exactly:
       //
-      // Ref:
-      //   https://docs.sui.io/develop/transaction-payment/gasless-stablecoin-transfers
+      //   Input[1] = FundsWithdrawal { MaxAmountU64, Sender, USDSUI }
+      //   MoveCall: 0x2::balance::redeem_funds<USDSUI>(Input[1])
+      //                                                 → Balance<USDSUI>
+      //   MoveCall: 0x2::balance::send_funds<USDSUI>(redeemed, recipient)
+      //   gas: { price: 0, budget: 0, payment: [] }
+      //
+      // Coin<USDsui>-only balance state can NOT take this path; those
+      // users must first move funds into the accumulator via the new
+      // manual swap CTA (see /api/swap/prepare stub) or a top-up.
+      // We surface that as ACCUMULATOR_UNDERFUNDED below — iOS no
+      // longer offers the consolidation reconciliation UX (removed
+      // 2026-05-29 alongside the autoswap archive).
+      // ───────────────────────────────────────────────────────────────
+      const redeemed = tx.moveCall({
+        target: "0x2::balance::redeem_funds",
+        typeArguments: [USDSUI_TYPE],
+        arguments: [tx.withdrawal({ amount: onchain, type: USDSUI_TYPE })],
+      });
       tx.moveCall({
         target: "0x2::balance::send_funds",
         typeArguments: [USDSUI_TYPE],
-        arguments: [
-          tx.balance({ type: USDSUI_TYPE, balance: onchain }),
-          tx.pure.address(to),
-        ],
+        arguments: [redeemed, tx.pure.address(to)],
       });
       // Both gasPrice AND gasBudget must be explicitly 0; the validator's
       // gasless gate rejects auto-picked budgets even when the price is 0.
@@ -388,112 +391,36 @@ export async function POST(req: Request) {
         // mode: "sponsored-coin-fallback".
       } else if (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) {
         console.warn(
-          `[send/sponsor-prepare] gasless unreachable for user=${userId} (Coin-only balance state); SnS off — returning ACCUMULATOR_UNDERFUNDED 400. detail=${msg.slice(0, 200)}`
+          `[send/sponsor-prepare] gasless unreachable for user=${userId} (accumulator underfunded); SnS off — returning ACCUMULATOR_UNDERFUNDED 400. detail=${msg.slice(0, 200)}`
         );
-        // Surface a hint so iOS can decide whether to offer the
-        // "Enable gasless balance" consolidation flow instead of
-        // showing the generic failure screen. Best-effort — if the
-        // balance probe throws (e.g. validator churn) we still
-        // return the 400 with `canConsolidate: false`. The probe
-        // hits a single `getBalance` (which surfaces both the
-        // accumulator and the Coin-object sum) so it's cheap.
-        //
-        // Shape (per docs/sui-rpc-migration/endpoints.md): gRPC
-        // `getBalance` returns
-        //   { balance: { balance, addressBalance, coinBalance } }
-        // — `coinBalance` is the sum across Coin<T> objects, which
-        // is exactly the "moves into accumulator on consolidate"
-        // figure we want iOS to display.
-        let coinBalance = "0";
-        let accumulatorBalance = "0";
-        let canConsolidate = false;
-        try {
-          const bal = await sui().getBalance({
-            owner: user.sui_address,
-            coinType: USDSUI_TYPE,
-          });
-          const b = (bal as unknown as {
-            balance?: {
-              balance?: string;
-              addressBalance?: string;
-              coinBalance?: string;
-            };
-          }).balance ?? {};
-          coinBalance = b.coinBalance ?? "0";
-          accumulatorBalance = b.addressBalance ?? "0";
-          canConsolidate = BigInt(coinBalance) > 0n;
-        } catch (probeErr) {
-          console.warn(
-            "[send/sponsor-prepare] hint-probe getBalance failed:",
-            (probeErr as Error).message
-          );
-        }
+        // The clean 2-call gasless pattern requires the requested amount
+        // to live in the user's Address Balance accumulator. Coin<T>
+        // objects can NOT fund this PTB (no auto-fallback, by design).
+        // The user-facing remediation is now: top up via Stripe (lands
+        // directly in the accumulator) OR use the manual swap CTA on
+        // Home to convert other coins to USDsui. We no longer surface
+        // a `canConsolidate` hint — the consolidation offer flow was
+        // removed alongside the autoswap archive (2026-05-29).
         return NextResponse.json(
           {
             error:
               "Your USDsui isn't in your Address Balance accumulator yet — gasless sends require accumulator funds. Top up via Deposit (Stripe onramp lands USDsui directly in your accumulator) and try again.",
             detail: msg,
             code: "ACCUMULATOR_UNDERFUNDED",
-            // iOS reads these to skip a re-fetch when deciding
-            // whether to show the consolidation offer.
-            canConsolidate,
-            coinBalance,
-            accumulatorBalance,
           },
           { status: 400 }
         );
       } else {
         // Anything else: surface as 400 so iOS does NOT silently land on
         // `mode=sponsored`. Real build bugs deserve a loud failure.
-        //
-        // Even for "uncategorized" errors we INCLUDE the consolidation
-        // hints — if the user has Coin<USDsui> objects (canConsolidate),
-        // the right product answer is the same as ACCUMULATOR_UNDERFUNDED:
-        // offer the one-tap consolidation. The error categorization is
-        // for diagnostics; the user-facing remediation doesn't change.
-        // This makes the offer screen show up no matter which exact
-        // validator string fires, as long as the user has funds to move.
         console.error(
           `[send/sponsor-prepare] gasless build failed with an uncategorized error; surfacing as 400: ${msg}`
         );
-        let coinBalance = "0";
-        let accumulatorBalance = "0";
-        let canConsolidate = false;
-        try {
-          const bal = await sui().getBalance({
-            owner: user.sui_address,
-            coinType: USDSUI_TYPE,
-          });
-          const b = (bal as unknown as {
-            balance?: {
-              balance?: string;
-              addressBalance?: string;
-              coinBalance?: string;
-            };
-          }).balance ?? {};
-          coinBalance = b.coinBalance ?? "0";
-          accumulatorBalance = b.addressBalance ?? "0";
-          canConsolidate = BigInt(coinBalance) > 0n;
-        } catch (probeErr) {
-          console.warn(
-            "[send/sponsor-prepare] hint-probe getBalance failed:",
-            (probeErr as Error).message
-          );
-        }
         return NextResponse.json(
           {
-            error: canConsolidate
-              ? "Your USDsui isn't in your Address Balance accumulator yet — gasless sends require accumulator funds. Top up via Deposit (Stripe onramp lands USDsui directly in your accumulator) and try again."
-              : "Gasless USDsui send is currently unavailable. Please try again in a moment.",
+            error: "Gasless USDsui send is currently unavailable. Please try again in a moment.",
             detail: msg,
-            // Surface as ACCUMULATOR_UNDERFUNDED when the user has Coin
-            // objects to move — iOS already routes that code to the
-            // consolidation offer. Keeps the recovery UX uniform across
-            // every "validator rejected my gasless PTB" failure mode.
-            code: canConsolidate ? "ACCUMULATOR_UNDERFUNDED" : "GASLESS_BUILD_FAILED",
-            canConsolidate,
-            coinBalance,
-            accumulatorBalance,
+            code: "GASLESS_BUILD_FAILED",
           },
           { status: 400 }
         );
