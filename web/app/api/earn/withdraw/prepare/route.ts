@@ -107,11 +107,13 @@ export async function POST(req: Request) {
     );
   }
 
-  // Outer 10s cap — same shape as `/api/activity`. If the whole
-  // pipeline below stalls (typically a NAVI position read going dark),
-  // we surface a clean 504 with a user-friendly message instead of
-  // iOS's NSURLErrorTimedOut at 60s.
-  const OUTER_CAP_MS = 10_000;
+  // Outer 12s cap. iOS APIClient.timeoutIntervalForRequest = 15s, so
+  // 12s gives us 3s of headroom to land a clean 504 + the response body
+  // before iOS sees an NSURLErrorTimedOut. Was 10s; the NAVI position
+  // leg routinely runs 6-7s on a sluggish Sui RPC + Pyth refresh, and
+  // the prior 5s/10s pair was too tight (user's screenshot showed the
+  // 504 firing on a wallet with a working position).
+  const OUTER_CAP_MS = 12_000;
   const TIMEOUT_MARKER = Symbol("withdraw-prepare-outer-timeout");
   let outerTimer: ReturnType<typeof setTimeout> | undefined;
   const outerTimeout = new Promise<typeof TIMEOUT_MARKER>((resolve) => {
@@ -134,16 +136,18 @@ export async function POST(req: Request) {
         //
         // `appendNaviWithdraw` is the slow leg in the wild — its
         // internal position lookup + Pyth refresh can take 4-8s on a
-        // sluggish RPC. Wrap in a 5s timeout: on miss, the route
+        // sluggish RPC. Was 5s; bumped to 9s so a normal-but-slow
+        // NAVI read doesn't trip the inner cap. Still ≤ outer 12s cap
+        // and ≤ iOS 15s URLSession request budget. On miss, the route
         // surfaces a clean 504 below rather than letting iOS hit its
-        // 60s URLSession default.
+        // URLSession default.
         const wrappedAmount =
           amountNum && amountNum > 0 ? amountNum : undefined;
         const ok = await withTimeout(
           appendNaviWithdraw(tx, user.sui_address, wrappedAmount).then(
             () => true
           ),
-          5_000,
+          9_000,
           "navi-position",
           false
         );
