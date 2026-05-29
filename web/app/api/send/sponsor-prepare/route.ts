@@ -343,6 +343,37 @@ export async function POST(req: Request) {
       // atomically supply to NAVI — that path legitimately needs
       // sponsorship for the bundled NAVI leg, and we fall through.
       const isSnsActive = deferredRoundupUsd > 0;
+      // Detect the "no address-owned input available" failure mode:
+      // after a user's Coin<USDsui> objects are all consolidated into
+      // the accumulator (which happens as a side-effect of the first
+      // successful gasless send via tx.balance()'s auto-fallback), the
+      // next gasless tx fails with:
+      //   "Invalid transaction expiration: Transactions must either
+      //    have address-owned inputs, or a ValidDuring expiration with
+      //    at most two epochs of validity"
+      // The Epoch / ValidDuring escape hatches are blocked by a
+      // validator-side gRPC encoding bug ("unknown
+      // TransactionExpirationKind") so we surface a precise 400
+      // explaining the dead-end + how to recover (receive any inbound
+      // USDsui to land a fresh Coin<T> object → next send works).
+      if (
+        /Invalid transaction expiration/i.test(msg) ||
+        /address-owned inputs/i.test(msg) ||
+        /ValidDuring expiration/i.test(msg)
+      ) {
+        console.warn(
+          `[send/sponsor-prepare] gasless requires address-owned input but user=${userId} has none (all USDsui in accumulator). detail=${msg.slice(0, 200)}`
+        );
+        return NextResponse.json(
+          {
+            error:
+              "All your USDsui is consolidated in your accumulator, but Sui's gasless rail needs at least one Coin object as an anchor input. Receive any inbound USDsui — even a tiny amount — to enable the next gasless send. (Tracking Sui's framework fix for this; see docs/sui-rpc-migration/gasless-notes.md.)",
+            detail: msg,
+            code: "GASLESS_NEEDS_ANCHOR",
+          },
+          { status: 400 }
+        );
+      }
       if (
         (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) &&
         isSnsActive
