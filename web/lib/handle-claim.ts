@@ -158,9 +158,53 @@ export async function isWaitlistHandleAvailable(
 }
 
 /**
+ * Welcome-back detector. Given an email, looks up whether a `users`
+ * row already exists for it AND already has a SuiNS handle bound
+ * (`talise_username`). The waitlist UI calls this right after a
+ * successful join: if the email belongs to a returning user with an
+ * existing handle, we skip the claim flow and show a "you already have
+ * @<handle>" card pointing them at iOS sign-in.
+ *
+ * Source of truth is `users.talise_username` — populated by the
+ * sign-in path's reverse SuiNS lookup. We do NOT live-query the chain
+ * here; the column is good enough for the UX gate and DB-fast.
+ */
+export async function getExistingUserHandle(
+  email: string
+): Promise<{ handle: string } | null> {
+  const e = (email ?? "").trim().toLowerCase();
+  if (!e) return null;
+  try {
+    const r = await db().execute({
+      sql: `SELECT talise_username FROM users
+              WHERE email = ?
+                AND talise_username IS NOT NULL
+              ORDER BY last_seen_at DESC
+              LIMIT 1`,
+      args: [e],
+    });
+    const handle = r.rows[0]?.talise_username as string | undefined;
+    if (!handle) return null;
+    return { handle };
+  } catch (err) {
+    console.warn(
+      `[handle-existing] lookup failed for ${e}: ${(err as Error).message}`
+    );
+    return null;
+  }
+}
+
+/**
  * Sign-in hook. Called from the mobile exchange route right after the
  * `users` row + Sui address exist. Idempotent — re-running for the
  * same email is a no-op once `handle_bound_user_id` is set.
+ *
+ * Short-circuit: if `users.talise_username` is already populated for
+ * this user, the admin/tester already owns a handle and we do NOT
+ * mint over the top of it. The waitlist row stays as-is (so we still
+ * know they "claimed" something during signup) but no on-chain action
+ * is taken — protects against the admin-tester case where someone
+ * with an existing handle joins the waitlist with a fresh name.
  *
  * Failure modes (mint races, RPC errors) are logged but never thrown:
  * sign-in MUST NOT block on this. Unbound rows can be replayed by
@@ -176,6 +220,22 @@ export async function bindWaitlistHandleIfAny(opts: {
 
   try {
     const c = db();
+
+    // Welcome-back short-circuit. If this user already has a handle
+    // bound (admin tester case), don't overwrite it. Reads from the
+    // canonical `users.talise_username` column.
+    const existing = await c.execute({
+      sql: "SELECT talise_username FROM users WHERE id = ? LIMIT 1",
+      args: [Number(opts.userId)],
+    });
+    const existingHandle = existing.rows[0]?.talise_username as string | undefined;
+    if (existingHandle) {
+      console.log(
+        `[handle-bind] skip; user=${opts.userId} already has @${existingHandle}`
+      );
+      return { bound: false };
+    }
+
     const row = await c.execute({
       sql: `SELECT claimed_handle FROM waitlist_signups
               WHERE email = ?
