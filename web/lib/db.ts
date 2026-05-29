@@ -307,6 +307,20 @@ async function doEnsureSchema(): Promise<void> {
       invited_at BIGINT
     )`,
     `CREATE INDEX IF NOT EXISTS idx_waitlist_created ON waitlist(created_at DESC)`,
+    // New canonical waitlist table. Email is the natural PK so dup
+    // detection is a one-line `ON CONFLICT (email) DO NOTHING RETURNING
+    // email` in the API route. `ip` / `user_agent` are captured for
+    // light abuse triage. `confirmation_sent` flips true only after the
+    // Resend send returns ok within the 4s timeout window.
+    `CREATE TABLE IF NOT EXISTS waitlist_signups (
+      email TEXT PRIMARY KEY,
+      created_at BIGINT NOT NULL,
+      ip TEXT,
+      user_agent TEXT,
+      confirmation_sent BOOLEAN NOT NULL DEFAULT false,
+      confirmation_sent_at BIGINT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_waitlist_signups_created ON waitlist_signups(created_at DESC)`,
   ];
   for (const stmt of tables) {
     await c.execute(stmt);
