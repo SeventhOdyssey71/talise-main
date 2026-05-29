@@ -29,6 +29,35 @@ final class ZkLoginCoordinator {
     static let shared = ZkLoginCoordinator()
     private init() {}
 
+    /// Dedicated URLSession for the zkLogin pipeline.
+    ///
+    /// Why not URLSession.shared? Two reasons:
+    ///
+    /// 1. `URLSession.shared` defaults to a 60s request timeout AND a 7-day
+    ///    resource timeout. Setting `URLRequest.timeoutInterval` only governs
+    ///    idle, not the total resource window — so when /api/zk/sponsor-execute
+    ///    hung (Onara upstream wedge), iOS still waited a full minute before
+    ///    surfacing `NSError -1001 "The request timed out."` That's exactly
+    ///    what the user just saw.
+    ///
+    /// 2. Even with an explicit `req.timeoutInterval = 30`, sharing
+    ///    URLSession.shared with the rest of the app means a slow proof
+    ///    mint sits in the same connection pool as image loads, etc.
+    ///
+    /// This session caps request=30s (server's outer cap is 25s, so the
+    /// server's clean JSON error wins the race) and resource=60s (last
+    /// resort safety net). Both are explicit, not implicit.
+    private static let zkSession: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForResource = 60
+        cfg.waitsForConnectivity = false
+        cfg.httpAdditionalHeaders = [
+            "Accept": "application/json",
+        ]
+        return URLSession(configuration: cfg)
+    }()
+
     struct SignInResult {
         let user: UserDTO
     }
@@ -156,7 +185,7 @@ final class ZkLoginCoordinator {
         ])
         req.timeoutInterval = 30
         do {
-            let (data, response) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await Self.zkSession.data(for: req)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 return
             }
@@ -528,7 +557,7 @@ final class ZkLoginCoordinator {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         req.timeoutInterval = 20
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await Self.zkSession.data(for: req)
         guard let http = response as? HTTPURLResponse else {
             throw CoordinatorError.exchangeFailed("no response")
         }
@@ -563,6 +592,8 @@ final class ZkLoginCoordinator {
         req.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization")
         let payload = try JSONSerialization.data(withJSONObject: body)
         req.httpBody = payload
+        // 30s here is the OUTER ceiling — the server caps the route at
+        // 25s, so a clean JSON `{error, code}` always wins this race.
         req.timeoutInterval = 30
         // Mirror APIClient: attach App Attest assertion + keyId hashed over
         // the exact JSON payload. The web side (/api/zk/sponsor-execute,
@@ -574,7 +605,7 @@ final class ZkLoginCoordinator {
         if let keyId = AppAttestService.shared.keyId {
             req.setValue(keyId, forHTTPHeaderField: "X-App-Attest-KeyId")
         }
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await Self.zkSession.data(for: req)
         guard let http = response as? HTTPURLResponse else {
             throw CoordinatorError.sponsorFailed("no response")
         }
