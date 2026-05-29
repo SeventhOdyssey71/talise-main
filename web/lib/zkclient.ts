@@ -162,8 +162,27 @@ export async function triggerOauthSignIn(opts?: { returnTo?: string }) {
   if (!r.ok) throw new Error("could not prepare state");
 
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-  const redirect = process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI;
-  if (!clientId || !redirect) throw new Error("OAuth env missing");
+  if (!clientId) throw new Error("OAuth env missing");
+
+  // Derive the redirect URI from the CURRENT origin so the authorize
+  // leg (this URL) matches the token-exchange leg
+  // (`redirectUriFromRequest(req)` in /auth/callback, which reads the
+  // incoming request's host). A static NEXT_PUBLIC env baked at build
+  // time gets out of sync when the same code is served from multiple
+  // hosts (`talise.io/waitlist` vs `app.talise.io` mobile bridge),
+  // which Google rejects as `redirect_uri_mismatch`. Falling back to
+  // the env only if `window` is missing (SSR — shouldn't happen here).
+  //
+  // NOTE: every host you serve from must be registered as an
+  // Authorized redirect URI in Google Cloud Console:
+  //   https://talise.io/auth/callback
+  //   https://app.talise.io/auth/callback
+  //   (plus any preview deploy hosts you actually use)
+  const redirect =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/auth/callback`
+      : process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI;
+  if (!redirect) throw new Error("OAuth redirect URI not resolvable");
 
   const u = new URL(GOOGLE_AUTH_URL);
   u.searchParams.set("response_type", "code");
