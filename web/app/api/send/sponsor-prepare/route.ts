@@ -244,8 +244,52 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
+      // The canonical `tx.withdrawal()` primitive pulls from the user's
+      // on-chain Address Balance accumulator ONLY — it has zero visibility
+      // into legacy `Coin<USDSUI>` objects sitting in the user's wallet.
+      // Users whose USDsui arrived via direct `Coin<T>` transfer (not via
+      // Payment Kit / accumulator deposit) will hit:
+      //
+      //   "Invalid withdraw reservation: Available amount in account for
+      //    object id 0x… is less than requested: N < M"
+      //
+      // The pre-8eae5fc swallow-and-fall-through pattern hid this — iOS
+      // silently landed on the sponsored rail and the user's "gasless"
+      // sends weren't actually gasless. Surface it loudly with a
+      // user-facing 400 so iOS shows the actionable message and we never
+      // re-introduce the silent regression.
+      //
+      // TODO(send-accumulator-prefix): prepend an `accumulator::deposit`
+      // call when the user has Coin<T> balance > accumulator balance so
+      // the canonical path "just works" without manual consolidation.
+      // Out of scope for this fix — surfacing the error is the immediate
+      // requirement.
+      if (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg)) {
+        return NextResponse.json(
+          {
+            error:
+              "Your USDsui isn't in your Address Balance accumulator yet — gasless sends require accumulator funds. Deposit your USDsui to your account balance and try again.",
+            detail: msg,
+            code: "ACCUMULATOR_UNDERFUNDED",
+          },
+          { status: 400 }
+        );
+      }
+      // Anything else: ALSO surface as 400 so iOS does NOT silently land
+      // on `mode=sponsored`. The user has been explicit: USDsui must be
+      // gasless. If gasless build genuinely fails for a reason we haven't
+      // categorized, fail loudly so the next debugging pass sees it.
       console.warn(
-        `[send/sponsor-prepare] gasless build failed with a non-balance error, falling back to sponsored: ${msg}`
+        `[send/sponsor-prepare] gasless build failed with an uncategorized error; surfacing as 400 (no silent sponsored fallback): ${msg}`
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Gasless USDsui send is currently unavailable. Please try again in a moment.",
+          detail: msg,
+          code: "GASLESS_BUILD_FAILED",
+        },
+        { status: 400 }
       );
     }
   }

@@ -170,6 +170,14 @@ vi.mock("@mysten/sui/transactions", async () => {
     moveCall = vi.fn(() => ({ kind: "Result" }));
     transferObjects = vi.fn();
     object = vi.fn(() => ({ kind: "Input" }));
+    // Canonical gasless primitive — pulls amount from the Address Balance
+    // accumulator. Stub returns an Argument-shaped value so the route's
+    // `moveCall({ target: "0x2::balance::send_funds", arguments: [...] })`
+    // accepts it. Without this the gasless try-block throws and the
+    // route's fail-loud catch returns 400 ("GASLESS_BUILD_FAILED"),
+    // breaking the sponsored-branch tests that expect the USDsui path
+    // to land on `mode:"gasless"`.
+    withdrawal = vi.fn(() => ({ kind: "Withdrawal" }));
     pure = {
       address: vi.fn(() => ({ kind: "Input" })),
     };

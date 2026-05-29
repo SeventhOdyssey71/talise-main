@@ -49,19 +49,20 @@ it("probe gasless build", async () => {
   const client = sui();
   const tx = new Transaction();
   tx.setSender(SENDER);
-  const coin = tx.add(
-    coinWithBalance({
-      type: USDSUI_TYPE,
-      balance: onchain,
-      useGasCoin: false,
-    })
-  );
+  // Canonical gasless PTB (matches sponsor-prepare/route.ts post-8eae5fc):
+  //   0x2::balance::send_funds<T>( tx.withdrawal({amount, type}), address )
   tx.moveCall({
-    target: "0x2::coin::send_funds",
+    target: "0x2::balance::send_funds",
     typeArguments: [USDSUI_TYPE],
-    arguments: [coin, tx.pure.address(RECIPIENT)],
+    arguments: [
+      tx.withdrawal({ amount: onchain, type: USDSUI_TYPE }),
+      tx.pure.address(RECIPIENT),
+    ],
   });
   tx.setGasPrice(0n);
+  // Reference coinWithBalance import kept for older PTB shapes during
+  // bisection; not used in the canonical path.
+  void coinWithBalance;
 
   try {
     const bytes = await tx.build({ client });
