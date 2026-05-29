@@ -50,6 +50,32 @@ async function adapter(): Promise<NaviAdapter> {
 }
 
 /**
+ * Pre-warm the NAVI adapter so the first round-up send doesn't pay the
+ * cold-start RPC cost inside `appendNaviSupply`. The adapter's
+ * `init()` fetches pool registry + reserve metadata from chain (one
+ * fat gRPC round-trip, ~400–900ms cold). After warm, subsequent
+ * `adapter()` calls return the cached instance synchronously.
+ *
+ * Intentionally NOT called at module load (it does RPC and would
+ * stall every cold start, including handlers that never touch NAVI).
+ * The right place to call it is `/api/zk/warmup`, which iOS hits on
+ * dashboard load — so the cost hides behind the user reading their
+ * balances, not behind the Send button.
+ *
+ * Returns true on successful warm, false on any failure (we never let
+ * a warmup failure surface to the user; the real send path will
+ * re-attempt and surface a clear error if NAVI is genuinely down).
+ */
+export async function initNaviAdapter(): Promise<boolean> {
+  try {
+    await adapter();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Build a NAVI USDsui supply step onto an existing Transaction.
  * Caller wraps with `tx.setSender(...)` + `onlyTransactionKind: true`
  * before handing to Onara.

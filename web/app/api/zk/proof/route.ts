@@ -62,7 +62,7 @@ export async function POST(req: Request) {
 
   try {
     const t0 = Date.now();
-    const proof = await mintZkProof({
+    const { proof } = await mintZkProof({
       ephemeralPubKeyB64,
       maxEpoch: maxEpochToUse,
       randomness: randomnessToUse,

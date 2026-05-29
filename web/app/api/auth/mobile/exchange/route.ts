@@ -147,13 +147,14 @@ export async function POST(req: Request) {
   // client will retry on first send and pay the cold-start latency then.
   let proof: unknown = null;
   try {
-    proof = await mintZkProof({
+    const minted = await mintZkProof({
       ephemeralPubKeyB64: body.ephemeralPubKeyB64,
       maxEpoch: body.maxEpoch,
       randomness: body.jwtRandomness,
       jwt: body.idToken,
       salt,
     });
+    proof = minted.proof;
   } catch (err) {
     console.warn(`[mobile/exchange] proof pre-mint skipped: ${(err as Error).message}`);
   }

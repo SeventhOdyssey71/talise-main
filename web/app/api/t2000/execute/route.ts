@@ -108,7 +108,7 @@ export async function POST(req: Request) {
         claims.aud
       ).toString();
 
-      const proof = await callProverWithFallback({
+      const { response: proof } = await callProverWithFallback({
         inputs: {
           jwt: signing.jwt,
           extendedEphemeralPublicKey,

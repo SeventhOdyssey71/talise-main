@@ -3,6 +3,8 @@ import { sui, network } from "@/lib/sui";
 import { onara } from "@/lib/onara";
 import { memoTtl } from "@/lib/perf-cache";
 import { ensurePaymentRegistry } from "@/lib/pk-bootstrap";
+import { initNaviAdapter } from "@/lib/navi-supply";
+import { getCurrentEpoch } from "@/lib/sui-epoch";
 
 export const runtime = "nodejs";
 
@@ -36,11 +38,25 @@ export async function POST() {
     // and adds <1ms. We don't `await` PK alongside the two fast checks —
     // we let it run separately so a missing operator key doesn't fail
     // the whole warmup (sends still work without receipts).
+    // Pre-warm everything the Send hot path consumes:
+    //   - Onara sponsor status (60s memo, ~200–500ms cold)
+    //   - Sui reference gas price (1.5s memo, ~150–300ms cold)
+    //   - Sui current epoch (memo'd inside getCurrentEpoch, ~150–300ms cold)
+    //   - NAVI adapter init (~400–900ms cold; only matters when round-up is
+    //     on, but pays for itself anyway since the adapter is shared with
+    //     the Earn screen)
+    //
+    // Each leg is independently `catch`ed so one slow upstream doesn't
+    // stall the whole warmup. The Send path will retry any miss anyway.
+    const naviPromise = initNaviAdapter().catch(() => false);
+    const epochPromise = getCurrentEpoch().catch(() => null);
     await Promise.all([
       memoTtl(`onara:status:${onaraUrl}`, 60_000, () => onaraClient.status()),
-      memoTtl(`sui:gasPrice:${net}`, 60_000, () =>
+      memoTtl(`sui:gas-price:${net}`, 1_500, () =>
         client.getReferenceGasPrice()
       ),
+      epochPromise,
+      naviPromise,
     ]);
     // Wait for the registry bootstrap so we can tell the client whether
     // Payment Kit receipts are safe to attach to the next send. A failure
@@ -54,10 +70,11 @@ export async function POST() {
         `[zk/warmup] ensurePaymentRegistry failed: ${(err as Error).message}`
       );
     }
+    const naviReady = await naviPromise;
     console.log(
-      `[zk/warmup] caches warmed in ${Date.now() - t0}ms · pkReady=${pkReady}`
+      `[zk/warmup] caches warmed in ${Date.now() - t0}ms · pkReady=${pkReady} · naviReady=${naviReady}`
     );
-    return NextResponse.json({ ok: true, pkReady });
+    return NextResponse.json({ ok: true, pkReady, naviReady });
   } catch {
     return NextResponse.json({ ok: false, pkReady: false });
   }

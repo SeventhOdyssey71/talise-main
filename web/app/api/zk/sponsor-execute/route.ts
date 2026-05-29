@@ -10,6 +10,7 @@ import { onara } from "@/lib/onara";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { recordSendLatency } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
 
@@ -161,7 +162,7 @@ export async function POST(req: Request) {
 
   try {
     const t0 = Date.now();
-    const { signature: zkLoginSignature, proof, isFresh } =
+    const { signature: zkLoginSignature, proof, isFresh, source } =
       await assembleZkLoginSignature({
         ephemeralPubKeyB64,
         maxEpoch: maxEpochToUse,
@@ -172,6 +173,17 @@ export async function POST(req: Request) {
         salt: signing.salt,
       });
     const tProof = Date.now();
+    // Tag the freshness with the prover backend so we can grep
+    // "FRESH-GPU" vs "FRESH-SHINAMI" vs "FRESH-CANARY" in production
+    // logs. Confirms ZK_PROVER_PRIMARY routing is actually winning —
+    // critical signal during the GPU cutover.
+    const freshTag = isFresh
+      ? source
+        ? `FRESH-${source.canary ? "CANARY-" : ""}${source.backend.toUpperCase()}${
+            source.role === "fallback" ? "-FALLBACK" : ""
+          }`
+        : "FRESH"
+      : "CACHED";
 
     const onaraClient = onara();
     // Optimistic broadcast: return the digest as soon as Onara ACKs
@@ -191,8 +203,21 @@ export async function POST(req: Request) {
 
     // Per-leg timing so we can see exactly where the latency goes.
     console.log(
-      `[zk/sponsor-execute] proof=${tProof - t0}ms (${isFresh ? "FRESH" : "CACHED"}) · onara+broadcast=${tDone - tProof}ms · total=${tDone - t0}ms`
+      `[zk/sponsor-execute] proof=${tProof - t0}ms (${freshTag}) · onara+broadcast=${tDone - tProof}ms · total=${tDone - t0}ms`
     );
+    recordSendLatency({
+      leg: "execute",
+      totalMs: tDone - t0,
+      atMs: Date.now(),
+      extras: {
+        proofMs: tProof - t0,
+        onaraMs: tDone - tProof,
+        proverSource: freshTag,
+        proverBackend: source?.backend,
+        proverRole: source?.role,
+        proverCanary: source?.canary,
+      },
+    });
 
     // Rewards earn — fire-and-forget. The user's money already moved;
     // if the points write fails (DB hiccup, etc.) we don't block the
