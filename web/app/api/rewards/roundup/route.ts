@@ -76,6 +76,13 @@ export async function POST(req: Request) {
 
   try {
     const cfg = await setRoundupConfig({ userId, ...patch });
+    // Bust the per-user 60s memo in sponsor-prepare so the next send
+    // sees the new enabled/percentage without waiting for the TTL to
+    // expire. Otherwise toggling SnS off and immediately sending hits
+    // the cached enabled=true and falls into the sponsored path even
+    // though the user is now eligible for the faster gasless rail.
+    const { invalidate } = await import("@/lib/perf-cache");
+    invalidate(`roundup:cfg:${userId}`);
     return NextResponse.json(cfg);
   } catch (err) {
     console.warn(
