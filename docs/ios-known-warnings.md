@@ -66,12 +66,62 @@ on the next runloop and the keystroke pipeline is unaffected.
 **Status**: benign. Indistinguishable from the same warning emitted by a
 stock SwiftUI text field in an isolated test app.
 
+## 4. `Failed to send CA Event for app launch measurements`
+
+**Example log line**
+
+```
+Failed to send CA Event for app launch measurements with error: …
+Error Domain=BiomeAgentErrorDomain Code=…
+```
+
+**When it fires**: once per cold launch of the app, emitted before our
+own `main` runs.
+
+**Root cause**: Apple's CoreAnalytics / Biome telemetry pipeline can't
+reach its on-device aggregation daemon during early launch (sandbox not
+fully set up yet, or the daemon hasn't been brought up since boot). The
+event is queued and retried by the OS — no observable effect on the
+app's launch path.
+
+**Confirmation we are not the cause**: we don't link CoreAnalytics, ship
+no `os_log` calls with the `CA` subsystem, and reproduce the same line
+identically in a stock SwiftUI single-window project. Apple framework
+emits this; we can't suppress it from app code.
+
+**Status**: benign. Filter via `process:Talise AND NOT message CONTAINS
+"CA Event for app launch"` in Console.app.
+
+## 5. `nw_connection_add_timestamp_locked_on_nw_queue [Cn] Hit maximum timestamp count, removing all timestamps`
+
+**When it fires**: on long-lived HTTP/2 connections to `app.talise.io`
+that have served many sequential requests (e.g. the
+`.task`/`.refreshable` race in HomeView burning through a dozen GETs in
+a few seconds).
+
+**Root cause**: Network.framework keeps a bounded ring of per-connection
+timestamps for its own RTT statistics. When the ring fills, it flushes
+and logs this notice. Connection stays open and continues to serve
+requests; the log is purely an internal "ring rotated" notification.
+
+**Confirmation we are not the cause**: we don't drive
+`NWConnection`/`Network.framework` directly — all networking goes
+through `URLSession` (see `ios/Talise/Network/APIClient.swift`). The
+warning is emitted by URLSession's underlying transport and is
+indistinguishable from the same line in an isolated test app that just
+hits any HTTPS endpoint repeatedly.
+
+**Status**: benign. Cannot be fixed from app code. Filter via `NOT
+message CONTAINS "Hit maximum timestamp count"`.
+
 ## Filtering tip for Console.app
 
-To hide all three at once while keeping app-relevant logs visible:
+To hide all five at once while keeping app-relevant logs visible:
 
 ```
 process:Talise AND NOT message CONTAINS "assistantHeight"
               AND NOT message CONTAINS "nw_connection_copy_connected_local_endpoint"
               AND NOT message CONTAINS "remoteTextInputSessionWithID"
+              AND NOT message CONTAINS "CA Event for app launch"
+              AND NOT message CONTAINS "Hit maximum timestamp count"
 ```

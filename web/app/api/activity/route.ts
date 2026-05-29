@@ -27,11 +27,19 @@ const ACTIVITY_CACHE_TTL_MS = 5_000;
  * `getRecentActivity` is already fenced with a per-leg timeout (see
  * `withTimeout` in `lib/activity.ts`), but we wrap the orchestrator
  * one more time so a runaway scheduler / event-loop stall can't push
- * the response past iOS's 60s URLSession default. 10s leaves enough
- * room for legs 1-4 to complete in series in the worst case (6+4+3+2)
- * while still ensuring we always answer well within the iOS deadline.
+ * the response past iOS's 15s URLSession request deadline.
+ *
+ * Why 8s (was 10s): iOS APIClient sets
+ * `timeoutIntervalForRequest = 15s`. A 10s outer cap left only a 5s
+ * cushion for Vercel cold-start + TLS + JSON round-trip, which under
+ * production load occasionally pushed the iOS receive window past 15s
+ * and surfaced as NSURLErrorTimedOut (-1001) on `/api/activity?limit=20`
+ * (see iOS console log forwarded 2026-05-29). 8s preserves 7s of
+ * end-to-end headroom — enough for cold start + handshake — while
+ * still letting the chain scan run to a useful depth (leg 1 takes
+ * 1-3s warm, ~4s cold).
  */
-const OUTER_CAP_MS = 10_000;
+const OUTER_CAP_MS = 8_000;
 
 function outerCap<T>(p: Promise<T>, fallback: T): Promise<T> {
   const start = Date.now();

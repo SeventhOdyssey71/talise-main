@@ -9,6 +9,17 @@ struct HomeView: View {
     @State private var activity: [ActivityEntryDTO] = []
     @State private var loadingBalance = true
     @State private var loadingActivity = true
+    /// True once `/api/activity` has returned at least one successful
+    /// response in the current view lifetime. Used to suppress the
+    /// loading skeleton on transient retries — we keep the prior rows
+    /// on screen instead of flashing back to a skeleton.
+    @State private var activityHasLoadedOnce = false
+    /// Toast banner shown above the History card when an activity
+    /// refresh fails (timeout, transport error). Auto-dismisses after
+    /// 4s. Drives the small "Couldn't refresh activity" pill — we
+    /// preserve the last successful entries underneath rather than
+    /// blanking the card.
+    @State private var activityRefreshFailed = false
     @State private var contactsSheetVisible = false
     @State private var sweepPreview: SweepPreviewDTO?
     @State private var sweepAlertVisible = false
@@ -377,6 +388,29 @@ struct HomeView: View {
                 }
             }
 
+            // Soft inline notice when /api/activity refresh fails. We
+            // keep the prior rows visible underneath; this pill is the
+            // only hint the user gets that the most recent refresh
+            // didn't make it. Auto-dismisses after 4s via the timer
+            // started in `loadActivity(isRetry:)`.
+            if activityRefreshFailed {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                    Text("Couldn't refresh activity")
+                        .font(TaliseFont.body(11, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule().fill(TaliseColor.surfaceGlass)
+                )
+                .transition(.opacity)
+            }
+
             if loadingActivity {
                 VStack(spacing: 10) {
                     ForEach(0..<3, id: \.self) { _ in activityRowSkeleton }
@@ -493,7 +527,31 @@ struct HomeView: View {
     }
 
     private func loadActivity() async {
-        loadingActivity = true
+        await loadActivity(isRetry: false)
+    }
+
+    /// Activity load with tolerance for transient failures.
+    ///
+    /// Behavior on error (non-cancellation):
+    ///   • Preserve the prior `activity` rows — do NOT zero them out.
+    ///     A stale row beats an empty card every time, and prevents
+    ///     the "20 entries → 0 entries" flicker we saw in the iOS log
+    ///     forwarded 2026-05-29.
+    ///   • If this is the FIRST attempt, surface a 4s auto-dismissing
+    ///     toast ("Couldn't refresh activity") and schedule one
+    ///     background retry 5s later. If the retry succeeds, it
+    ///     silently replaces the rows; if it fails too, we give up
+    ///     until the next foreground / pull-to-refresh.
+    ///   • If this is already the retry attempt, do not schedule
+    ///     another one — avoid a recursive retry loop on a wedged
+    ///     route.
+    ///
+    /// We skip the skeleton on retry (`activityHasLoadedOnce`) so the
+    /// user doesn't see a placeholder flash over their last-good rows.
+    private func loadActivity(isRetry: Bool) async {
+        if !activityHasLoadedOnce {
+            loadingActivity = true
+        }
         defer { loadingActivity = false }
         do {
             let r: ActivityResponse = try await APIClient.shared.get("/api/activity?limit=20")
@@ -501,17 +559,37 @@ struct HomeView: View {
             print("[activity] decoded \(r.entries.count) entries")
             #endif
             activity = r.entries
+            activityHasLoadedOnce = true
+            // Silently dismiss the toast if the retry succeeded.
+            activityRefreshFailed = false
         } catch {
             // Don't log cancellations — they're the dominant signal in
             // dev because SwiftUI's `.task` cancels its prior body
             // every time the view re-evaluates. Logging them used to
             // turn the dev console into unreadable `[activity] load
             // failed: …NSURLErrorDomain Code=-999 "cancelled"…` spam.
-            if !APIError.isCancellation(error) {
-                #if DEBUG
-                print("[activity] load failed: \(error)")
-                #endif
-                activity = []
+            if APIError.isCancellation(error) { return }
+            #if DEBUG
+            print("[activity] load failed: \(error)")
+            #endif
+            // Keep the last-known rows on screen. Only mark refresh
+            // failure if we have nothing to show — otherwise the user
+            // sees their prior history and a small "couldn't refresh"
+            // hint above it.
+            activityRefreshFailed = true
+            // Auto-dismiss the toast after 4s.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 4 * NSEC_PER_SEC)
+                activityRefreshFailed = false
+            }
+            // Single background retry on first failure. Don't recurse
+            // further — a second failure means the route is wedged
+            // and we should wait for an explicit user refresh.
+            if !isRetry {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 5 * NSEC_PER_SEC)
+                    await loadActivity(isRetry: true)
+                }
             }
         }
     }
