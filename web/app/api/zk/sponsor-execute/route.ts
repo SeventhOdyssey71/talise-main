@@ -150,7 +150,12 @@ export async function POST(req: Request) {
      * own points balance, never anyone else's money.
      */
     meta?: {
-      kind?: "send" | "invest" | "withdraw" | "roundup" | "goal";
+      // `consolidate` is the one-time "Enable gasless balance" tap that
+      // burns the user's Coin<USDsui> objects into their accumulator.
+      // The kind is accepted here so the request validates, but the
+      // ALLOWED earn-trigger set below does NOT include it — we don't
+      // credit points for a wallet-setup operation.
+      kind?: "send" | "invest" | "withdraw" | "roundup" | "goal" | "consolidate";
       amountUsd?: number;
       venue?: string;
       /**

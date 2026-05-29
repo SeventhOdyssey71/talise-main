@@ -83,6 +83,22 @@ struct SendFlowView: View {
                         onDone: { close() }
                     )
                     .navigationBarBackButtonHidden(true)
+                case .consolidationOffered:
+                    SendConsolidationOfferView(
+                        draft: draft,
+                        coinBalanceMicros: draft.coinBalanceMicros,
+                        onEnable: {
+                            Task { await runConsolidationAndResubmit() }
+                        },
+                        onCancel: {
+                            // User declined consolidation — fall
+                            // through to the regular failure screen
+                            // with whatever error message we already
+                            // captured.
+                            path = [.recipient, .review, .failure]
+                        }
+                    )
+                    .navigationBarBackButtonHidden(true)
                 }
             }
         }
@@ -148,6 +164,17 @@ struct SendFlowView: View {
         // network round-trip.
         path.append(.sending)
 
+        await performSend(intentLabel: intentLabel, resolved: resolved)
+    }
+
+    /// Performs the actual sponsor-prepare → sign → submit pipeline.
+    /// Extracted so it can be re-invoked after a successful one-tap
+    /// consolidation runs (the user shouldn't have to manually retry
+    /// after enabling gasless balance).
+    private func performSend(
+        intentLabel: String,
+        resolved: RecipientResolution
+    ) async {
         do {
             // Combined build+sponsor in one call (was prepare + sponsor,
             // two round-trips). Server returns sponsor-ready bytes
@@ -218,12 +245,62 @@ struct SendFlowView: View {
             // signOut() dismisses the whole send sheet.
             draft.errorMessage = "Sign in again, your session needs a refresh."
             session.signOut()
+        } catch let ZkLoginCoordinator.CoordinatorError.structured(message, code, hints)
+            where code == "ACCUMULATOR_UNDERFUNDED"
+                && (hints["canConsolidate"] as? Bool) == true {
+            // Special-case: user's USDsui is in Coin objects, not the
+            // accumulator. Offer the one-tap "Enable gasless balance"
+            // flow instead of dropping them on the failure screen.
+            // SendConsolidationOfferView reads `coinBalanceMicros` to
+            // show the amount that will move.
+            draft.errorMessage = message
+            draft.coinBalanceMicros = hints["coinBalance"] as? String
+            draft.accumulatorBalanceMicros = hints["accumulatorBalance"] as? String
+            path = [.recipient, .review, .consolidationOffered]
         } catch {
             // Any thrown error means the send did NOT land on chain:
             // 4xx like ACCUMULATOR_UNDERFUNDED from sponsor-prepare,
             // 5xx, network/transport errors, missing-digest checks in
             // the coordinator. All of these go to the failure screen —
             // NEVER to .complete, which renders the green success UI.
+            draft.errorMessage = error.localizedDescription
+            path = [.recipient, .review, .failure]
+        }
+    }
+
+    /// One-tap "Enable gasless balance" handler. Runs the Onara-
+    /// sponsored consolidation tx (user pays nothing), then immediately
+    /// re-invokes `performSend` with the same draft so the user lands
+    /// on the success screen as if their original send had just worked.
+    /// On consolidation failure, falls through to the regular failure
+    /// screen with the underlying error.
+    private func runConsolidationAndResubmit() async {
+        guard let resolved = draft.resolved else {
+            path = [.recipient, .review, .failure]
+            return
+        }
+        // Swap back to the in-flight page so the user sees the spinner
+        // while consolidation runs. The screen text doesn't differentiate
+        // between consolidation-in-flight and send-in-flight — to the
+        // user this is one continuous "settling" operation.
+        path = [.recipient, .review, .sending]
+        do {
+            let result = try await ZkLoginCoordinator.shared.consolidateToAccumulator(
+                asset: "USDsui"
+            )
+            // `alreadyGasless: true` means there was nothing to move
+            // (race: another tab consolidated, or the server's view of
+            // the chain is stale). Treat as success and try the send
+            // again — the accumulator may now be fully funded.
+            if result.alreadyGasless || !result.digest.isEmpty {
+                draft.errorMessage = nil
+                let intentLabel = "Send \(draft.currency.symbol)\(draft.rawAmount)"
+                await performSend(intentLabel: intentLabel, resolved: resolved)
+                return
+            }
+            draft.errorMessage = "Consolidation didn't land on chain."
+            path = [.recipient, .review, .failure]
+        } catch {
             draft.errorMessage = error.localizedDescription
             path = [.recipient, .review, .failure]
         }

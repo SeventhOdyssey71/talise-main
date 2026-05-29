@@ -334,12 +334,55 @@ export async function POST(req: Request) {
         console.warn(
           `[send/sponsor-prepare] gasless unreachable for user=${userId} (Coin-only balance state); SnS off — returning ACCUMULATOR_UNDERFUNDED 400. detail=${msg.slice(0, 200)}`
         );
+        // Surface a hint so iOS can decide whether to offer the
+        // "Enable gasless balance" consolidation flow instead of
+        // showing the generic failure screen. Best-effort — if the
+        // balance probe throws (e.g. validator churn) we still
+        // return the 400 with `canConsolidate: false`. The probe
+        // hits a single `getBalance` (which surfaces both the
+        // accumulator and the Coin-object sum) so it's cheap.
+        //
+        // Shape (per docs/sui-rpc-migration/endpoints.md): gRPC
+        // `getBalance` returns
+        //   { balance: { balance, addressBalance, coinBalance } }
+        // — `coinBalance` is the sum across Coin<T> objects, which
+        // is exactly the "moves into accumulator on consolidate"
+        // figure we want iOS to display.
+        let coinBalance = "0";
+        let accumulatorBalance = "0";
+        let canConsolidate = false;
+        try {
+          const bal = await sui().getBalance({
+            owner: user.sui_address,
+            coinType: USDSUI_TYPE,
+          });
+          const b = (bal as unknown as {
+            balance?: {
+              balance?: string;
+              addressBalance?: string;
+              coinBalance?: string;
+            };
+          }).balance ?? {};
+          coinBalance = b.coinBalance ?? "0";
+          accumulatorBalance = b.addressBalance ?? "0";
+          canConsolidate = BigInt(coinBalance) > 0n;
+        } catch (probeErr) {
+          console.warn(
+            "[send/sponsor-prepare] hint-probe getBalance failed:",
+            (probeErr as Error).message
+          );
+        }
         return NextResponse.json(
           {
             error:
               "Your USDsui isn't in your Address Balance accumulator yet — gasless sends require accumulator funds. Top up via Deposit (Stripe onramp lands USDsui directly in your accumulator) and try again.",
             detail: msg,
             code: "ACCUMULATOR_UNDERFUNDED",
+            // iOS reads these to skip a re-fetch when deciding
+            // whether to show the consolidation offer.
+            canConsolidate,
+            coinBalance,
+            accumulatorBalance,
           },
           { status: 400 }
         );
