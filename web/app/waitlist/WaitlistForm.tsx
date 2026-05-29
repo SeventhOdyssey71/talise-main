@@ -287,7 +287,7 @@ function HandleClaim({ email }: { email: string }) {
 
   // Welcome-back: this email already owns a *.talise.sui name (admin
   // testers, returning beta users). Skip the claim flow entirely — they
-  // just need to sign in on iOS to access the handle they already have.
+  // just need to sign in to access the handle they already have.
   if (phase === "existing" && existingHandle) {
     return (
       <div
@@ -317,7 +317,7 @@ function HandleClaim({ email }: { email: string }) {
           @{claimedHandle} is reserved for you.
         </div>
         <div className="text-[12px] leading-[1.55] text-white/55">
-          It mints to your wallet on-chain the first time you sign in on iOS
+          It mints to your wallet on-chain the first time you sign in
           with{" "}
           <span className="text-white/75">{email}</span>. Until then it's held
           off-chain in your name.
@@ -353,7 +353,7 @@ function HandleClaim({ email }: { email: string }) {
           Now claim your @handle.
         </div>
         <div className="mt-1 text-[12px] text-white/55">
-          It will be ready the moment you sign in on iOS.
+          It will be ready the moment you sign in.
         </div>
       </div>
 
