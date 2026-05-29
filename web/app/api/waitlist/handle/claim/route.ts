@@ -102,7 +102,7 @@ export async function POST(req: Request) {
     const prior = row.rows[0]?.claimed_handle as string | null | undefined;
     if (prior) {
       return NextResponse.json(
-        { error: `You already claimed @${prior}.`, prior },
+        { error: `You already claimed ${prior}@talise.sui.`, prior },
         { status: 409 }
       );
     }
