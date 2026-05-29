@@ -75,8 +75,15 @@ final class ZkLoginCoordinator {
         var errorDescription: String? {
             switch self {
             case .exchangeFailed(let s): return "Sign-in exchange failed: \(s)"
-            case .sponsorFailed(let s): return "Sponsorship failed: \(s)"
-            case .executeFailed(let s): return "Execute failed: \(s)"
+            // The .sponsorFailed name is historical. It carries every
+            // send-prepare or sponsor-related error. The SendFailureView
+            // already says "Send failed" as the headline; we pass the
+            // server's message through verbatim so the user sees their
+            // actionable text (e.g. "Top up via Deposit and try again")
+            // without a misleading "Sponsorship failed:" prefix on
+            // transfers that didn't need sponsorship in the first place.
+            case .sponsorFailed(let s): return s
+            case .executeFailed(let s): return s
             case .noEphemeralKey: return "Ephemeral key missing."
             }
         }
@@ -618,7 +625,23 @@ final class ZkLoginCoordinator {
                (parsed["code"] as? String) == "session_rebind_required" {
                 throw SessionError.rebindRequired
             }
-            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            // Surface the server's friendly `error` field rather than
+            // dumping the raw JSON envelope into the failure screen.
+            // Server routes uniformly respond with
+            //   { "error": "<user-facing>", "detail": "<technical>",
+            //     "code": "<TOKEN>" }
+            // on every 4xx/5xx — we only want the first field for UX.
+            // Fallback to the raw body if parsing fails or no `error`
+            // is present (defense in depth, never blank).
+            let msg: String
+            if
+                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let friendly = parsed["error"] as? String, !friendly.isEmpty
+            {
+                msg = friendly
+            } else {
+                msg = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            }
             throw CoordinatorError.sponsorFailed(msg)
         }
         guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
