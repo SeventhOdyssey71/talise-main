@@ -157,28 +157,29 @@ export async function POST(req: Request) {
       const tx = new Transaction();
       tx.setSender(user.sui_address);
 
-      // Pull the exact send amount out of the user's USDsui balance
-      // as a Coin<USDSUI>. `useGasCoin: false` is mandatory — we
-      // can't reuse the gas coin in a gasless tx (there is no gas
-      // coin), and the type isn't SUI anyway.
-      const coin = tx.add(
-        coinWithBalance({
-          type: USDSUI_TYPE,
-          balance: onchain,
-          useGasCoin: false,
-        })
-      );
-      // `0x2::coin::send_funds<T>(coin, recipient)` is the
-      // gasless-eligible primitive per Sui's allowlist (USDsui is one
-      // of the seven supported stablecoins). Validators accept this
-      // tx with no gas payment and no gas owner.
+      // Canonical Sui-docs pattern for gasless stablecoin transfer:
+      //   0x2::balance::send_funds<T>(Balance<T>, address)
+      // The first arg is a `Balance<T>` minted by `tx.withdrawal({ amount,
+      // type })` which pulls the amount directly from the sender's
+      // Address Balance accumulator. Using `0x2::coin::send_funds` (an
+      // older internal primitive that operates on a Coin<T> wrapper) is
+      // NOT on the validators' gasless allowlist — submissions without
+      // gas payment get rejected, which is exactly the silent regression
+      // that kept landing iOS users on the sponsored path.
+      //
+      // Ref: https://docs.sui.io/develop/transaction-payment/gasless-stablecoin-transfers
       tx.moveCall({
-        target: "0x2::coin::send_funds",
+        target: "0x2::balance::send_funds",
         typeArguments: [USDSUI_TYPE],
-        arguments: [coin, tx.pure.address(to)],
+        arguments: [
+          tx.withdrawal({ amount: onchain, type: USDSUI_TYPE }),
+          tx.pure.address(to),
+        ],
       });
-      // Per Sui docs: JSON-RPC builds must explicitly setGasPrice(0)
-      // (gRPC/GraphQL clients auto-detect, but our `sui()` is JSON-RPC).
+      // gRPC + GraphQL clients auto-detect gasless eligibility during
+      // simulate and set gasPrice/gasBudget to 0. JSON-RPC clients
+      // require this manual setGasPrice(0). Our `sui()` proxy is gRPC,
+      // so this is belt-and-suspenders but harmless.
       tx.setGasPrice(0n);
 
       const bytes = await tx.build({ client: client as never });
