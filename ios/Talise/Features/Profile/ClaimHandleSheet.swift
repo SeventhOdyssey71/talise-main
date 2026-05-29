@@ -220,9 +220,7 @@ struct ClaimHandleSheet: View {
             // send to" — exactly when "always hold USDsui at that
             // handle" reads as a natural next step rather than a
             // surprise upsell.
-            autoSwapCTA
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
+            // autoSwapCTA removed 2026-05-29 alongside the autoswap archive.
 
             Spacer()
             Button {
@@ -240,22 +238,7 @@ struct ClaimHandleSheet: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
         }
-        // Pushes a full-screen AutoSwapSettings on tap. Sheet-over-sheet
-        // has known interaction quirks on iOS 17, so we use the
-        // existing in-sheet navigation surface — the user lands on the
-        // settings screen with a Done button at the top to come back.
-        .sheet(isPresented: $showAutoSwap) {
-            NavigationStack {
-                AutoSwapSettings()
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showAutoSwap = false }
-                                .foregroundStyle(TaliseColor.accent)
-                        }
-                    }
-            }
-            .presentationBackground(TaliseColor.bg)
-        }
+        // AutoSwapSettings sheet removed 2026-05-29 alongside the autoswap archive.
     }
 
     /// Always-hold-USDsui card on the claim success screen. Renders

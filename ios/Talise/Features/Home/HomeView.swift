@@ -504,7 +504,16 @@ struct HomeView: View {
     }
 
     private func loadActivity() async {
-        await loadActivity(isRetry: false)
+        await loadActivity(isRetry: false, freshBypass: false)
+    }
+
+    /// Cache-bypassing variant used by `applyOptimisticTx`. Appends
+    /// `?fresh=1` so the server skips its 5s memoTtl on this one call
+    /// — without it, the post-send reconcile can hit a cache slice
+    /// computed pre-tx, wiping the optimistic row off screen until the
+    /// next pull-to-refresh. See /api/activity/route.ts.
+    private func loadActivityFresh() async {
+        await loadActivity(isRetry: false, freshBypass: true)
     }
 
     /// Activity load with tolerance for transient failures.
@@ -525,13 +534,19 @@ struct HomeView: View {
     ///
     /// We skip the skeleton on retry (`activityHasLoadedOnce`) so the
     /// user doesn't see a placeholder flash over their last-good rows.
-    private func loadActivity(isRetry: Bool) async {
+    private func loadActivity(isRetry: Bool, freshBypass: Bool = false) async {
         if !activityHasLoadedOnce {
             loadingActivity = true
         }
         defer { loadingActivity = false }
         do {
-            let r: ActivityResponse = try await APIClient.shared.get("/api/activity?limit=20")
+            // `fresh=1` skips the server's 5s memoTtl — used by the
+            // post-tx reconcile so a freshly-landed digest isn't masked
+            // by a cached pre-tx slice.
+            let path = freshBypass
+                ? "/api/activity?limit=20&fresh=1"
+                : "/api/activity?limit=20"
+            let r: ActivityResponse = try await APIClient.shared.get(path)
             #if DEBUG
             print("[activity] decoded \(r.entries.count) entries")
             #endif
@@ -630,15 +645,44 @@ struct HomeView: View {
             )
         }
 
-        // Reconcile against canonical chain state. 1.5s is empirically
-        // enough for the fullnode's queryTransactionBlocks index to
-        // catch up after Onara's broadcast-and-wait completes; if it
-        // hasn't, the optimistic row simply stays on screen until the
-        // next pull-to-refresh picks it up (it's the same digest, so
-        // there's no dupe).
+        // Reconcile against canonical chain state. We use the
+        // cache-bypass `fresh=1` path so the server's 5s memoTtl can't
+        // serve a stale pre-tx slice that would wipe the synthetic row
+        // we just prepended. Then we re-attempt at 4s for a second
+        // chance — the fullnode's queryTransactionBlocks index
+        // sometimes needs the extra beat. If both passes miss the
+        // digest, the optimistic row simply stays on screen (the
+        // dedupe filter prevents duplicates).
+        let pendingDigest = ev.digest
         Task {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
-            await loadAll(force: true)
+            await loadBalance()
+            await loadActivityFresh()
+            // If the server response doesn't yet contain the new tx,
+            // re-prepend the optimistic stub so the user keeps seeing
+            // their action at the top of History.
+            if !activity.contains(where: { $0.digest == pendingDigest }) {
+                let stub = ActivityEntryDTO(
+                    digest: ev.digest,
+                    timestampMs: Date().timeIntervalSince1970 * 1000,
+                    direction: ev.direction,
+                    amountUsdsui: ev.amountUsdsui,
+                    amountSui: nil,
+                    counterparty: ev.counterparty,
+                    counterpartyName: ev.counterpartyName,
+                    venue: ev.venue,
+                    otherCoin: nil
+                )
+                activity = [stub] + activity.filter { $0.digest != ev.digest }
+                // Second reconcile pass — the fullnode index usually
+                // catches up within another 2-3s. After this we stop
+                // retrying so a wedged route can't loop forever.
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                await loadActivityFresh()
+                if !activity.contains(where: { $0.digest == pendingDigest }) {
+                    activity = [stub] + activity.filter { $0.digest != ev.digest }
+                }
+            }
         }
     }
 

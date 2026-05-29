@@ -41,9 +41,11 @@ struct EarnView: View {
                         .font(TaliseFont.body(12, weight: .light))
                         .foregroundStyle(TaliseColor.danger)
                 }
-                if let success {
-                    successBanner(success)
-                }
+                // "Now earning" success state intentionally NOT rendered
+                // here — it appears INSIDE supplyCard (replacing the
+                // input form) so the user sees the confirmation where
+                // they tapped, not at the bottom of the scroll below
+                // RoundupCard / Goals / Insights. See `supplyCard`.
                 Spacer(minLength: 120)
             }
             .padding(.horizontal, 24)
@@ -203,8 +205,19 @@ struct EarnView: View {
     // MARK: - Supply card
 
     private var supplyCard: some View {
+        // Success state takes over the entire card so the user sees
+        // confirmation exactly where they tapped "Start earning",
+        // instead of as a banner at the bottom of the Earn scroll
+        // (which read as "appeared in History" — bug report 2026-05-29).
+        // The card auto-clears the success state after ~2s so the
+        // user returns to the input form ready to supply more, and
+        // the Home tab's activity feed already optimistically inserts
+        // the row via `.taliseTxCompleted` (see HomeView.applyOptimisticTx).
+        if let success {
+            return AnyView(supplySuccessCard(digest: success))
+        }
         let currency = CurrencySettings.shared.current
-        return VStack(alignment: .leading, spacing: 14) {
+        return AnyView(VStack(alignment: .leading, spacing: 14) {
             MicroLabel(text: "Amount", color: TaliseColor.fgDim).kerning(1.5)
             HStack {
                 // Symbol prefix so the value reads naturally (₦12,000
@@ -242,7 +255,46 @@ struct EarnView: View {
             .disabled(!canSupply)
         }
         .padding(20)
-        .taliseGlass(cornerRadius: 25)
+        .taliseGlass(cornerRadius: 25))
+    }
+
+    /// Post-tap celebration that REPLACES the supply input form in
+    /// place. Lives inside `supplyCard` so the user reads the success
+    /// confirmation exactly where they triggered it — not as an inline
+    /// banner at the bottom of the Earn scroll. Auto-clears after 2s.
+    private func supplySuccessCard(digest: String) -> some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle().fill(TaliseColor.accent.opacity(0.18))
+                    .frame(width: 56, height: 56)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(TaliseColor.accent)
+            }
+            VStack(spacing: 4) {
+                Text("Now earning")
+                    .font(TaliseFont.heading(18, weight: .medium))
+                    .kerning(-0.4)
+                    .foregroundStyle(TaliseColor.fg)
+                MicroLabel(
+                    text: digest.prefix(20) + "…",
+                    color: TaliseColor.fgDim
+                )
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .padding(.horizontal, 20)
+        .taliseGlass(cornerRadius: 25, tint: TaliseColor.accent)
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        .task {
+            // Brief celebration, then drop back to the input form so
+            // the user can supply again. The Home tab already shows
+            // the new tx via the optimistic-insert pipeline, so we
+            // don't need to keep the banner up.
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            success = nil
+        }
     }
 
     private var canSupply: Bool {
@@ -348,21 +400,10 @@ struct EarnView: View {
         return "Earn \(TaliseFormat.local2(amountUsd))"
     }
 
-    private func successBanner(_ digest: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(TaliseColor.accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Now earning")
-                    .font(TaliseFont.body(13, weight: .light))
-                    .foregroundStyle(TaliseColor.fg)
-                MicroLabel(text: digest.prefix(20) + "…", color: TaliseColor.fgDim)
-            }
-            Spacer()
-        }
-        .padding(14)
-        .taliseGlass(cornerRadius: 16, tint: TaliseColor.accent)
-    }
+    // The inline `successBanner` was removed 2026-05-29 — the
+    // "Now earning" celebration now renders inside `supplyCard` via
+    // `supplySuccessCard(digest:)` so it surfaces where the user
+    // tapped, not at the bottom of the Earn scroll.
 
     // MARK: - Data
 

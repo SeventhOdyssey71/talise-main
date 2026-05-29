@@ -112,16 +112,31 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const rawLimit = Number(url.searchParams.get("limit") ?? 20);
   const limit = Math.max(1, Math.min(50, Number.isFinite(rawLimit) ? rawLimit : 20));
+  // `fresh=1` bypasses the 5s memoTtl cache. iOS sets this on the
+  // post-send/supply/swap reconcile call so a tx that just landed
+  // isn't hidden behind a stale cache slice. Without this flag, the
+  // optimistic row inserted by `applyOptimisticTx` would be clobbered
+  // by a `loadActivity()` that hit the cached pre-tx list. See
+  // HomeView.applyOptimisticTx → reconcile loop (iOS).
+  const bypassCache = url.searchParams.get("fresh") === "1";
 
   try {
     // Mobile feed shows every USDsui/SUI movement, not just Talise
     // payment-kit txs — users want to see incoming funding from any
     // wallet, not a curated subset.
-    const entries = await cachedActivity(
-      user.sui_address,
-      limit,
-      user.talise_vault_id ?? null
-    );
+    const entries = bypassCache
+      ? await outerCap(
+          getRecentActivity(user.sui_address, limit, {
+            includeNonTalise: true,
+            vaultId: user.talise_vault_id ?? null,
+          }),
+          [] as ActivityEntry[]
+        )
+      : await cachedActivity(
+          user.sui_address,
+          limit,
+          user.talise_vault_id ?? null
+        );
     return NextResponse.json(
       {
         entries: entries.map((e) => ({
