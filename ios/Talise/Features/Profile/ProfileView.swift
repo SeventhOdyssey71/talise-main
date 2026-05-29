@@ -48,21 +48,9 @@ struct ProfileView: View {
         .refreshable { await loadRewards() }
         .taliseScreenBackground()
         .task { await loadRewards() }
-        .sheet(isPresented: $showAutoSwap) {
-            // Wrap in a NavigationStack so the user has a Done button
-            // to dismiss. AutoSwapSettings itself is the full feature
-            // surface — `taliseScreenBackground()` provides the TopGlow.
-            NavigationStack {
-                AutoSwapSettings()
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showAutoSwap = false }
-                                .foregroundStyle(TaliseColor.accent)
-                        }
-                    }
-            }
-            .presentationBackground(TaliseColor.bg)
-        }
+        // AutoSwapSettings archived 2026-05-29 — sheet removed alongside
+        // the autoswap system. The Preferences row that opened it has been
+        // neutralized to a no-op (search showAutoSwap below).
         .alert("Sign out?", isPresented: $signOutConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Sign out", role: .destructive) { session.signOut() }
@@ -300,8 +288,7 @@ struct ProfileView: View {
             VStack(spacing: 0) {
                 currencyRow
                 sectionDivider
-                autoSwapRow
-                sectionDivider
+                // autoSwapRow removed 2026-05-29 alongside the autoswap archive.
                 notifyRow
                 if let err = settingsError {
                     sectionDivider

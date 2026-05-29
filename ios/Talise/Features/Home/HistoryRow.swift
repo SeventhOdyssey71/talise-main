@@ -13,6 +13,23 @@ import SwiftUI
 struct HistoryRow: View {
     let entry: ActivityEntryDTO
     let onTap: () -> Void
+    /// Optional callback fired when the user taps the "Swap to USDsui"
+    /// CTA that appears on inbound non-USDsui coin rows (2026-05-29 —
+    /// replaces the archived auto-swap cron). When nil, the CTA is
+    /// hidden and the row behaves as before.
+    var onSwapToUsdsui: (() -> Void)? = nil
+
+    /// True when the inbound coin on this row should surface the
+    /// "Swap to USDsui" affordance. Triggers on:
+    ///   • direction == "received"
+    ///   • otherCoin present (i.e. NOT a plain USDsui/SUI receive)
+    ///   • otherCoin.symbol is not already USDsui
+    private var showsSwapCTA: Bool {
+        guard onSwapToUsdsui != nil else { return false }
+        guard entry.direction == "received" else { return false }
+        guard let other = entry.otherCoin else { return false }
+        return other.symbol.uppercased() != "USDSUI"
+    }
 
     var body: some View {
         Button(action: onTap) {
@@ -37,6 +54,26 @@ struct HistoryRow: View {
                         .foregroundStyle(TaliseColor.fg)
                     MicroLabel(text: subtitle, color: TaliseColor.fgDim)
                         .kerning(-0.32)
+                    if showsSwapCTA {
+                        // "Swap to USDsui" — small, accent-tinted CTA
+                        // shown directly under the subtitle on inbound
+                        // non-USDsui coin rows. Replaces the archived
+                        // auto-swap cron. POSTs `/api/swap/prepare` via
+                        // the caller-supplied `onSwapToUsdsui` handler.
+                        Button {
+                            onSwapToUsdsui?()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text("Swap to USDsui")
+                                    .font(TaliseFont.body(11, weight: .medium))
+                            }
+                            .foregroundStyle(TaliseColor.accent)
+                            .padding(.top, 2)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 Spacer()
                 // Amount only — the whole row is tappable so the
