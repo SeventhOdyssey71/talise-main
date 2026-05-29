@@ -230,6 +230,12 @@ export async function POST(req: Request) {
     console.log(
       `[earn/withdraw-earned-prepare] position=${tPosition - t0}ms rewards=${tRewards - tPosition}ms build=${tBuild - tRewards}ms total=${tBuild - t0}ms`
     );
+    // Verification log — per the 2026-05-29 sponsorship-matrix directive.
+    // gasOwner + gasPrice get set in /api/zk/sponsor (see its log line
+    // with the full `mode=sponsored sponsor=<addr> gasPrice=<n>` shape).
+    console.log(
+      `[earn/withdraw-earned-prepare] mode=sponsored venue=${venue} earned=${detail.earned}`
+    );
 
     return NextResponse.json({
       transactionKindB64: toBase64(kind),
