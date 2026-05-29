@@ -51,6 +51,9 @@ struct SendReviewView: View {
     // MARK: - Header
 
     private var header: some View {
+        // Dropped the centered "REVIEW" eyebrow — the big "Review send"
+        // title block carries the screen identity; this row only needs
+        // the back chevron.
         HStack {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
@@ -60,9 +63,6 @@ struct SendReviewView: View {
                     .background(Circle().fill(TaliseColor.surfaceGlass))
             }
             Spacer()
-            MicroLabel(text: "Review", color: TaliseColor.fgDim).kerning(1.5)
-            Spacer()
-            Color.clear.frame(width: 36, height: 36)
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -71,21 +71,14 @@ struct SendReviewView: View {
     // MARK: - Title
 
     private var titleBlock: some View {
-        VStack(spacing: 6) {
-            // Sui txs are public on chain — "privately" was misleading.
-            // The honest framing is that gas is sponsored and the user's
-            // wallet identity is the only thing visible. The receipt is
-            // queryable but who's paying gas isn't.
-            Text("Review send")
-                .font(TaliseFont.heading(24, weight: .medium))
-                .kerning(-0.5)
-                .foregroundStyle(TaliseColor.fg)
-            Text("Confirm the details. Settles on Sui in a few seconds.")
-                .font(TaliseFont.body(13, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
+        // Dropped the subtitle ("Confirm the details. Settles on Sui in
+        // a few seconds.") — the screen IS a review and the from/to
+        // cards make the action self-evident.
+        Text("Review send")
+            .font(TaliseFont.heading(24, weight: .medium))
+            .kerning(-0.5)
+            .foregroundStyle(TaliseColor.fg)
+            .frame(maxWidth: .infinity)
     }
 
     // MARK: - From card

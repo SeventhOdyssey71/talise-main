@@ -123,7 +123,7 @@ struct RoundupCard: View {
     /// toggle is off we still show the default 2% to telegraph what
     /// the user is opting INTO — same copy the prompt called out.
     private var subtitleCopy: String {
-        "Auto-save \(percentage)% of every send to Navi at 5% APY"
+        "Auto-save \(percentage)% of every send and earn ~5% APY"
     }
 
     // MARK: - Slider (% picker)
@@ -188,7 +188,7 @@ struct RoundupCard: View {
                 .font(TaliseFont.mono(10, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .kerning(1.2)
-            Text("Every time you send money, we sweep your chosen percentage to Navi at ~5% APY. Funds stay in your wallet — and you earn 5 pts per $1 saved.")
+            Text("Every time you send money, we sweep your chosen percentage into your earning balance at ~5% APY. Funds stay in your wallet — and you earn 5 pts per $1 saved.")
                 .font(TaliseFont.body(11, weight: .light))
                 .foregroundStyle(TaliseColor.fgDim)
                 .fixedSize(horizontal: false, vertical: true)

@@ -180,7 +180,7 @@ struct ChatTabView: View {
     private static let suggested: [String] = [
         "Am I undercharging on fees?",
         "Where's most of my money going?",
-        "Should I move more to Navi?",
+        "Should I move more to earnings?",
     ]
 
     // MARK: - Input pill

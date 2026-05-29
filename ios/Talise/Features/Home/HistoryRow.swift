@@ -39,19 +39,14 @@ struct HistoryRow: View {
                         .kerning(-0.32)
                 }
                 Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(amountFormatted)
-                        .font(TaliseFont.body(14, weight: .light))
-                        .kerning(-0.56)
-                        .foregroundStyle(TaliseColor.fg)
-                    HStack(spacing: 2) {
-                        MicroLabel(text: "Details", color: TaliseColor.fgMuted)
-                            .kerning(-0.32)
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 8, weight: .regular))
-                            .foregroundStyle(TaliseColor.fgMuted)
-                    }
-                }
+                // Amount only — the whole row is tappable so the
+                // "Details ↗" eyebrow was visual filler. Subtitle
+                // already carries the "tap me" affordance via the
+                // row-press tint.
+                Text(amountFormatted)
+                    .font(TaliseFont.body(14, weight: .light))
+                    .kerning(-0.56)
+                    .foregroundStyle(TaliseColor.fg)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)

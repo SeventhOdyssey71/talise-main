@@ -245,7 +245,7 @@ private struct GoalActionSheet: View {
                 }
                 .disabled(busy || !canDeposit)
             }
-            Text("Tracking only — funds sit in your NAVI position. Each $1 earns 4 points.")
+            Text("Tracking only — funds sit in your earning balance. Each $1 earns 4 points.")
                 .font(TaliseFont.mono(10, weight: .light))
                 .foregroundStyle(TaliseColor.fgDim)
         }

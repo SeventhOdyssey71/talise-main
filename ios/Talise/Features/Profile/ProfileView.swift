@@ -110,63 +110,31 @@ struct ProfileView: View {
                 .frame(width: 88, height: 88)
                 .clipShape(Circle())
                 .overlay(
-                    // Same specular hairline the initials disc carries —
-                    // keeps the photo and the fallback visually consistent.
-                    Circle().strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.24),
-                                Color.white.opacity(0.04),
-                                Color.white.opacity(0.10),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
+                    Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.55), radius: 22, x: 0, y: 10)
-                .shadow(color: Color.black.opacity(0.32), radius: 3, x: 0, y: 1)
+                .shadow(color: Color.black.opacity(0.4), radius: 14, x: 0, y: 6)
             } else {
                 initialsDisc
             }
         }
     }
 
-    /// Avatar fallback — now a true frosted-glass disc instead of a flat
-    /// `surface2` circle. Matches the BottomNavPill recipe (material +
-    /// dark tint + specular hairline + dual shadow) so it sits *over* the
-    /// page background, not on it.
+    /// Avatar fallback — a frosted disc that sits *over* the page
+    /// background, not on it. Simple material + tint + single shadow;
+    /// the old gradient stroke + dual shadow added more chrome than
+    /// the rest of the screen earned.
     private var initialsDisc: some View {
         ZStack {
-            // 1. System glass blur
             Circle().fill(.ultraThinMaterial)
-            // 2. Dark tint — pulls material into dark mode
             Circle().fill(Color.black.opacity(0.42))
             Text(initials)
                 .font(TaliseFont.heading(32, weight: .medium))
                 .foregroundStyle(TaliseColor.fg)
         }
         .frame(width: 88, height: 88)
-        .overlay(
-            // 3. Specular highlight — top-bright, mid-dim, bottom-return
-            Circle().strokeBorder(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.24),
-                        Color.white.opacity(0.04),
-                        Color.white.opacity(0.10),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 1
-            )
-        )
+        .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
         .clipShape(Circle())
-        // 4. Dual-shadow for contact + depth
-        .shadow(color: Color.black.opacity(0.55), radius: 22, x: 0, y: 10)
-        .shadow(color: Color.black.opacity(0.32), radius: 3, x: 0, y: 1)
+        .shadow(color: Color.black.opacity(0.4), radius: 14, x: 0, y: 6)
     }
 
     /// `@alice.talise.sui` chip with the green check, or a "Claim
@@ -384,26 +352,8 @@ struct ProfileView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(
-                    ZStack {
-                        Capsule().fill(.ultraThinMaterial)
-                        Capsule().fill(Color.black.opacity(0.40))
-                    }
-                )
-                .overlay(
-                    Capsule().strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.22),
-                                Color.white.opacity(0.04),
-                                Color.white.opacity(0.10),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
-                )
+                .background(Capsule().fill(TaliseColor.surfaceGlass))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
                 .clipShape(Capsule())
             }
             .padding(.horizontal, 18)

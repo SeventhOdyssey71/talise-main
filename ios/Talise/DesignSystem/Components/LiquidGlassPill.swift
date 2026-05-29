@@ -45,22 +45,9 @@ struct LiquidGlassPill: View {
                     }
                 }
             )
-            .overlay(
-                Capsule().strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.22),
-                            Color.white.opacity(0.04),
-                            Color.white.opacity(0.10),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
-            )
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
             .clipShape(Capsule())
-            .shadow(color: Color.black.opacity(0.40), radius: 8, x: 0, y: 3)
+            .shadow(color: Color.black.opacity(0.3), radius: 6, x: 0, y: 2)
         }
         .buttonStyle(LiquidGlassPillPressStyle())
     }
