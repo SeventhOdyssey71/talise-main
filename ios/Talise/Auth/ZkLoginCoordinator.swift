@@ -375,6 +375,15 @@ final class ZkLoginCoordinator {
         )
         let tPrepareMs = msSince(t0)
         let tAfterPrepare = CFAbsoluteTimeGetCurrent()
+        // Explicit server-error check BEFORE the bytes guard. If
+        // postAuthenticated decoded a 2xx body that still contains an
+        // `error` field (e.g. ACCUMULATOR_UNDERFUNDED surfaced as 200
+        // by a misconfigured route), surface it as sponsorFailed with
+        // the server-provided message instead of falling through to a
+        // generic "malformed sponsor-prepare response".
+        if let serverErr = prep["error"] as? String, !serverErr.isEmpty {
+            throw CoordinatorError.sponsorFailed(serverErr)
+        }
         guard let bytesB64 = prep["bytes"] as? String,
               let txBytesData = Data(base64Encoded: bytesB64) else {
             throw CoordinatorError.sponsorFailed("malformed sponsor-prepare response")

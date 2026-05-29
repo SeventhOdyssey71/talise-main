@@ -68,6 +68,21 @@ struct SendFlowView: View {
                         // even if this call fails.
                         await VaultAPI.sweepNow()
                     }
+                case .failure:
+                    SendFailureView(
+                        draft: draft,
+                        onTryAgain: {
+                            // Drop back to the amount screen so the
+                            // user can correct the input (or top up
+                            // their accumulator) and retry. We clear
+                            // the error so it doesn't leak across
+                            // attempts.
+                            draft.errorMessage = nil
+                            path = []
+                        },
+                        onDone: { close() }
+                    )
+                    .navigationBarBackButtonHidden(true)
                 }
             }
         }
@@ -153,6 +168,17 @@ struct SendFlowView: View {
                 )
             )
 
+            // REAL success gate: the coordinator's success path requires
+            // a non-empty digest from gasless-submit or sponsor-execute.
+            // Defense in depth — if a future regression slips an empty
+            // digest past the coordinator, we still route to failure
+            // rather than flashing the green checkmark.
+            guard !result.digest.isEmpty else {
+                draft.errorMessage = "Send didn't land on chain. No funds moved."
+                path = [.recipient, .review, .failure]
+                return
+            }
+
             let success = SendSuccess(
                 digest: result.digest,
                 displayAmount: draft.rawAmount.isEmpty ? "0" : draft.rawAmount,
@@ -187,13 +213,19 @@ struct SendFlowView: View {
             path = [.recipient, .review, .complete]
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
             // Bearer predates the Poseidon-nonce binding; sign the user
-            // out so they re-auth and rebuild a valid session.
+            // out so they re-auth and rebuild a valid session. This is
+            // the only catch that bypasses the failure screen — the
+            // signOut() dismisses the whole send sheet.
             draft.errorMessage = "Sign in again, your session needs a refresh."
             session.signOut()
-            path = [.recipient, .review, .complete]
         } catch {
+            // Any thrown error means the send did NOT land on chain:
+            // 4xx like ACCUMULATOR_UNDERFUNDED from sponsor-prepare,
+            // 5xx, network/transport errors, missing-digest checks in
+            // the coordinator. All of these go to the failure screen —
+            // NEVER to .complete, which renders the green success UI.
             draft.errorMessage = error.localizedDescription
-            path = [.recipient, .review, .complete]
+            path = [.recipient, .review, .failure]
         }
     }
 

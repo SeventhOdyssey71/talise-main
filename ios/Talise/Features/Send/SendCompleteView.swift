@@ -44,6 +44,13 @@ struct SendCompleteView: View {
 
     @ViewBuilder
     private var receiptBlock: some View {
+        // SUCCESS-ONLY. Do NOT render an error fallback here — this
+        // view is reached only when a real on-chain digest landed, and
+        // the failure path now routes to SendFailureView. Previously
+        // this `else if let err` branch was the bug: a 4xx from
+        // sponsor-prepare populated draft.errorMessage AND the catch
+        // navigated here, so the user saw the green checkmark + "Sent"
+        // header with the server error stacked beneath it.
         if let s = draft.success {
             VStack(spacing: 6) {
                 Text("\(s.currency.symbol)\(s.displayAmount) → \(s.recipientDisplay)")
@@ -55,11 +62,6 @@ struct SendCompleteView: View {
                 )
                 .kerning(0.5)
             }
-        } else if let err = draft.errorMessage {
-            Text(err)
-                .font(TaliseFont.body(13, weight: .light))
-                .foregroundStyle(TaliseColor.danger)
-                .multilineTextAlignment(.center)
         }
     }
 
