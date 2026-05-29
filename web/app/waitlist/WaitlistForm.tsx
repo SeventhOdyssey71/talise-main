@@ -314,11 +314,13 @@ function HandleClaim({ email }: { email: string }) {
         aria-live="polite"
       >
         <div className="text-[15px] font-medium text-white">
-          @{claimedHandle} is yours.
+          @{claimedHandle} is reserved for you.
         </div>
-        <div className="text-[12px] text-white/55">
-          We will sync it to your account the moment you sign in on iOS with{" "}
-          <span className="text-white/75">{email}</span>.
+        <div className="text-[12px] leading-[1.55] text-white/55">
+          It mints to your wallet on-chain the first time you sign in on iOS
+          with{" "}
+          <span className="text-white/75">{email}</span>. Until then it's held
+          off-chain in your name.
         </div>
       </div>
     );
