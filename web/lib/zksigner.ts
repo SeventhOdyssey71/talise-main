@@ -252,21 +252,21 @@ export type ProverSource = {
 export async function callProverWithFallback(
   opts: WithFallbackOpts
 ): Promise<{ response: ProverResponse; source: ProverSource }> {
-  // Canary override: a deterministic bucket of users always gets GPU if
-  // configured, even when PRIMARY is still shinami. Use this for the 5%/25%
-  // ramp before flipping PRIMARY globally.
-  let primary = PRIMARY_BACKEND;
-  let canary = false;
-  if (
-    CANARY_PCT > 0 &&
-    GPU_URL &&
-    primary !== "gpu" &&
-    opts.canaryKey &&
-    bucket0_99(opts.canaryKey) < CANARY_PCT
-  ) {
-    primary = "gpu";
-    canary = true;
-  }
+  // Product directive (2026-05-29 evening): "just use my Shinami". Hard-pin
+  // the prover backend to Shinami here so neither the env nor the canary
+  // bucket can route a user to GPU/Mysten. Keeps the env vars in place for
+  // future re-rollouts but ignores them today.
+  //
+  // The canary code below is intentionally dead-on-purpose. To re-enable
+  // GPU routing later, swap these two lines back to PRIMARY_BACKEND +
+  // FALLBACK_BACKEND.
+  const primary: ProverBackend = "shinami";
+  const canary = false;
+  void CANARY_PCT;
+  void GPU_URL;
+  void opts.canaryKey;
+  void bucket0_99;
+  void PRIMARY_BACKEND;
 
   const order: ProverBackend[] = [primary];
   if (FALLBACK_BACKEND !== "none" && FALLBACK_BACKEND !== primary) {
@@ -462,3 +462,44 @@ export async function assembleZkLoginSignature(opts: {
 
   return { signature, proof, isFresh, source };
 }
+
+/**
+ * Cold-start TLS pre-warm. The first fetch to Shinami/GPU from a fresh
+ * lambda eats ~150-300ms on the TLS+HTTP/2 handshake; that's pure dead
+ * time on the user's first send. Firing a cheap HEAD/GET at module load
+ * primes the connection pool so the first real proof mint reuses an
+ * already-open socket.
+ *
+ * Fire-and-forget. Failures are silent — this is best-effort warmth, not
+ * a health check. The Node runtime keeps the socket alive on the HTTP
+ * agent for ~5 minutes which covers all but the coldest Vercel cold
+ * starts.
+ */
+function prewarmProverConnections(): void {
+  // Mysten / Shinami: hit the resolved PROVER_URL host. We don't care
+  // about the response — we just want the TCP+TLS+HTTP/2 round trip done.
+  try {
+    const u = new URL(PROVER_URL);
+    void fetch(`${u.origin}/`, {
+      method: "GET",
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
+  } catch {
+    // Malformed URL — ignore. Real calls will fail loudly with the
+    // actual error.
+  }
+  // GPU prover, when configured. Same logic.
+  if (GPU_URL) {
+    try {
+      const u = new URL(GPU_URL);
+      void fetch(`${u.origin}/`, {
+        method: "GET",
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+prewarmProverConnections();
