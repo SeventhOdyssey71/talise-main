@@ -10,7 +10,11 @@ import { getRoundupConfig } from "@/lib/rewards/roundup";
 import { appendNaviSupply } from "@/lib/navi-supply";
 import { onara } from "@/lib/onara";
 import { memoTtl } from "@/lib/perf-cache";
-import { ensurePaymentRegistry } from "@/lib/pk-bootstrap";
+// NOTE: ensurePaymentRegistry() is intentionally NOT imported here.
+// The registry has existed on chain for weeks; the only legitimate caller
+// is `/api/zk/warmup`, which runs once at dashboard load. Keeping it on
+// the prepare hot path paid a cold-start cost on the FIRST send per Node
+// process for no benefit.
 
 export const runtime = "nodejs";
 
@@ -110,25 +114,33 @@ export async function POST(req: Request) {
   // stablecoin transfer (PTB must be ONLY `0x2::coin::send_funds`).
   // Anything else (round-up enabled, SUI transfer, future legs) needs
   // Onara sponsorship.
+  // Roundup config is memo'd per-user for 60s. Toggling round-up is rare
+  // relative to send frequency, so a 60s staleness window is fine and lets
+  // subsequent sends within the window skip the DB round-trip entirely.
+  // Defensive fallback — if the read throws, treat as disabled so we never
+  // block a send on a config error.
+  const roundupCfg = await memoTtl(
+    `roundup:cfg:${userId}`,
+    60_000,
+    () =>
+      getRoundupConfig(userId).catch(() => ({
+        enabled: false,
+        percentage: 0,
+        savedUsd: 0,
+      }))
+  );
   let isGasless = false;
   let roundupUsdGasless = 0;
   if (asset === "USDsui") {
-    try {
-      const cfg = await getRoundupConfig(userId);
-      const computed =
-        cfg.enabled && cfg.percentage > 0
-          ? Math.min((amountNum * cfg.percentage) / 100, amountNum)
-          : 0;
-      const microUnits = Math.round(computed * 1e6);
-      if (microUnits <= 0) {
-        isGasless = true;
-      } else {
-        roundupUsdGasless = computed;
-      }
-    } catch {
-      // Defensive — if the roundup config read throws, fall through to
-      // the sponsored path. We never want a config error to block sends.
-      isGasless = false;
+    const computed =
+      roundupCfg.enabled && roundupCfg.percentage > 0
+        ? Math.min((amountNum * roundupCfg.percentage) / 100, amountNum)
+        : 0;
+    const microUnits = Math.round(computed * 1e6);
+    if (microUnits <= 0) {
+      isGasless = true;
+    } else {
+      roundupUsdGasless = computed;
     }
   }
 
@@ -194,16 +206,16 @@ export async function POST(req: Request) {
     const client = sui();
     const net = network();
 
-    // Kick off the three expensive remote lookups IN PARALLEL while
-    // we build the PTB in memory. By the time we need the sponsor /
-    // gas price values, both promises are already settled (or close).
-    // PaymentKit registry is fire-and-forget — we don't gate the build
-    // on it because the call is idempotent + memoized.
-    const ensureRegistry = ensurePaymentRegistry().catch((err) => {
-      console.warn(
-        `[send/sponsor-prepare] ensurePaymentRegistry failed: ${(err as Error).message}`
-      );
-    });
+    // Kick off the two expensive remote lookups IN PARALLEL while we build
+    // the PTB in memory. By the time we need the sponsor / gas price
+    // values, both promises are already settled (or close).
+    //
+    // ensurePaymentRegistry() lived here before — it was a fire-and-forget
+    // call that the Promise.all still awaited. After the first call per
+    // process it's a memoTtl hit, but the FIRST call paid an object lookup
+    // on the gRPC client. Since /api/zk/warmup already calls it on
+    // dashboard load and the registry has been live for weeks, we drop it
+    // from the prepare path entirely.
     const sponsorPromise = memoTtl(
       `onara:status:${onaraUrl}`,
       60_000,
@@ -226,6 +238,15 @@ export async function POST(req: Request) {
     let roundupUsd = 0;
     let receiptNonce: string | undefined;
 
+    // Per-step timing inside the ptb window so the next live send can
+    // pinpoint where the ~1900ms cold cost actually goes. Suspects on a
+    // cold process: NaviAdapter init (lazy on first round-up), Payment Kit
+    // receipt append, and the gas-price/onara round-trips below.
+    const tStepStart = Date.now();
+    let tPk = tStepStart;
+    let tRoundup = tStepStart;
+    let tNavi = tStepStart;
+
     if (asset === "USDsui") {
       const { nonce } = appendPaymentKitReceipt(tx, {
         kind: "send",
@@ -234,17 +255,19 @@ export async function POST(req: Request) {
         amountUsdsui: amountNum,
       });
       receiptNonce = nonce;
+      tPk = Date.now();
 
-      // Round-up & Save — atomic supply leg in the same PTB. If the
-      // user has toggled round-up on, we append a NAVI supply for
-      // `amount × percentage / 100` USDsui so send + save land in
-      // one signature. If the supply leg fails on chain (insufficient
-      // balance after the send), the WHOLE tx fails — better a clean
-      // error than a half-applied state.
+      // Round-up & Save — atomic supply leg in the same PTB. Reuses the
+      // cached `roundupCfg` from the gasless decision above (no second DB
+      // round-trip). If the user has toggled round-up on, we append a
+      // NAVI supply for `amount × percentage / 100` USDsui so send + save
+      // land in one signature. If the supply leg fails on chain
+      // (insufficient balance after the send), the WHOLE tx fails — better
+      // a clean error than a half-applied state.
+      tRoundup = Date.now();
       try {
-        const cfg = await getRoundupConfig(userId);
-        if (cfg.enabled && cfg.percentage > 0) {
-          const computed = (amountNum * cfg.percentage) / 100;
+        if (roundupCfg.enabled && roundupCfg.percentage > 0) {
+          const computed = (amountNum * roundupCfg.percentage) / 100;
           const cappedUsd = Math.min(computed, amountNum);
           const microUnits = Math.round(cappedUsd * 1e6);
           if (microUnits > 0) {
@@ -265,6 +288,7 @@ export async function POST(req: Request) {
         );
         roundupUsd = 0;
       }
+      tNavi = Date.now();
     } else {
       // SUI transfers can't use Payment Kit (registry is USDsui-only).
       // Use the legacy clock-MoveCall + split + transfer path.
@@ -277,14 +301,14 @@ export async function POST(req: Request) {
         coinWithBalance({ type: coinType, balance: onchain, useGasCoin: false })
       );
       tx.transferObjects([out], to);
+      tPk = tRoundup = tNavi = Date.now();
     }
     const tBuilt = Date.now();
 
-    // Now wait on the parallel lookups + registry bootstrap.
+    // Now wait on the parallel lookups.
     const [{ address: sponsor }, gasPrice] = await Promise.all([
       sponsorPromise,
       gasPricePromise,
-      ensureRegistry,
     ]);
     const tStatus = Date.now();
 
@@ -297,7 +321,10 @@ export async function POST(req: Request) {
     const tBuild = Date.now();
 
     console.log(
-      `[send/sponsor-prepare] ptb=${tBuilt - t0}ms · status+price(par)=${tStatus - tBuilt}ms · tx.build=${tBuild - tStatus}ms · total=${tBuild - t0}ms`
+      `[send/sponsor-prepare] ptb=${tBuilt - t0}ms ` +
+        `(pk=${tPk - tStepStart}ms roundup=${tRoundup - tPk}ms navi=${tNavi - tRoundup}ms) ` +
+        `· status+price(par)=${tStatus - tBuilt}ms ` +
+        `· tx.build=${tBuild - tStatus}ms · total=${tBuild - t0}ms`
     );
 
     return NextResponse.json({
