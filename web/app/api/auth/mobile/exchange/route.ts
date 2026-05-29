@@ -8,6 +8,7 @@ import {
 import { shinamiEnabled, shinamiGetWallet } from "@/lib/shinami";
 import { mintZkProof } from "@/lib/zksigner";
 import { issueMobileBearer } from "@/lib/mobile-sessions";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,20 @@ export const runtime = "nodejs";
  *    and serve fast; the cache is per Shinami's behavior, not ours).
  */
 export async function POST(req: Request) {
+  // Rate-limit: 5 exchanges per 60s per IP. Tight bound — each exchange
+  // mints a zkLogin proof and burns Shinami quota.
+  const rl = rateLimit({
+    key: `mobile-exchange:${getClientIp(req)}`,
+    limit: 5,
+    windowSec: 60,
+  });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } }
+    );
+  }
+
   let body: {
     idToken?: string;
     ephemeralPubKeyB64?: string;
