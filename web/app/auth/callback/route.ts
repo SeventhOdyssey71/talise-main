@@ -1,5 +1,9 @@
 import { NextResponse, after } from "next/server";
-import { exchangeCodeForTokens, redirectUriFromRequest } from "@/lib/auth";
+import {
+  exchangeCodeForTokens,
+  googleRedirectUri,
+  redirectUriFromRequest,
+} from "@/lib/auth";
 import { decodeJwt, deriveSuiAddress, generateSalt } from "@/lib/zklogin";
 import {
   upsertUser,
@@ -67,13 +71,20 @@ export async function GET(req: Request) {
   await clearStateCookie();
 
   try {
-    // Use the SAME redirect URI Google saw at auth-time. Since we derive
-    // it from the request host on both legs, app.talise.io ↔ app.talise.io
-    // and talise.io ↔ talise.io stay consistent — Google rejects mismatches
-    // with `invalid_grant`.
+    // Pick the redirect URI based on whether this is the mobile flow
+    // (state.startsWith("m1.")) or the web flow. Mobile derives from the
+    // request host (app.talise.io ↔ app.talise.io). Web uses the static
+    // GOOGLE_REDIRECT_URI env — has to be a single fixed string because
+    // Vercel may 307 the apex to www (or vice versa), changing
+    // req.host between authorize and callback. The env is the only
+    // thing guaranteed to match what the client used at authorize-time.
+    const isMobileCallback = state.startsWith("m1.");
+    const redirectUriForExchange = isMobileCallback
+      ? redirectUriFromRequest(req)
+      : googleRedirectUri();
     const { id_token } = await exchangeCodeForTokens(
       code,
-      redirectUriFromRequest(req)
+      redirectUriForExchange
     );
     const claims = decodeJwt(id_token);
 

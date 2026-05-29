@@ -178,11 +178,14 @@ export async function triggerOauthSignIn(opts?: { returnTo?: string }) {
   //   https://talise.io/auth/callback
   //   https://app.talise.io/auth/callback
   //   (plus any preview deploy hosts you actually use)
-  const redirect =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/auth/callback`
-      : process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI;
-  if (!redirect) throw new Error("OAuth redirect URI not resolvable");
+  // Use the static NEXT_PUBLIC_GOOGLE_REDIRECT_URI rather than
+  // window.location.origin — Vercel may have us on www.talise.io OR
+  // talise.io and Google rejects unregistered URIs. The env pins the
+  // ONE host that's registered in Google Cloud Console. The callback
+  // route reads the matching GOOGLE_REDIRECT_URI server-side for the
+  // token exchange, so the two legs always agree.
+  const redirect = process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI;
+  if (!redirect) throw new Error("NEXT_PUBLIC_GOOGLE_REDIRECT_URI not set");
 
   const u = new URL(GOOGLE_AUTH_URL);
   u.searchParams.set("response_type", "code");
