@@ -71,6 +71,12 @@ final class ZkLoginCoordinator {
         case sponsorFailed(String)
         case executeFailed(String)
         case noEphemeralKey
+        /// 4xx with a structured `code` + hints in the body. Currently
+        /// emitted only by `/api/send/sponsor-prepare` returning
+        /// `ACCUMULATOR_UNDERFUNDED` — SendFlowView reads `code` to
+        /// decide between the consolidation-offer screen and the
+        /// regular failure screen.
+        case structured(message: String, code: String, hints: [String: Any])
 
         var errorDescription: String? {
             switch self {
@@ -85,6 +91,7 @@ final class ZkLoginCoordinator {
             case .sponsorFailed(let s): return s
             case .executeFailed(let s): return s
             case .noEphemeralKey: return "Ephemeral key missing."
+            case .structured(let m, _, _): return m
             }
         }
     }
@@ -508,6 +515,125 @@ final class ZkLoginCoordinator {
         return SignedSubmission(digest: digestStr)
     }
 
+    /// Result of a one-time accumulator consolidation. `alreadyGasless`
+    /// is true when the server found zero `Coin<USDsui>` objects to move
+    /// — there was nothing to do, the user is already on the gasless
+    /// rail. `digest` will be empty in that case. On a real
+    /// consolidation, both `digest` is non-empty and `alreadyGasless` is
+    /// false.
+    struct ConsolidationResult {
+        let digest: String
+        let alreadyGasless: Bool
+        let coinCount: Int
+        let totalMicrosMoved: UInt64
+    }
+
+    /// One-time "Enable gasless balance" action. Calls
+    /// `/api/wallet/consolidate-prepare` to build an Onara-sponsored PTB
+    /// that consolidates every `Coin<USDsui>` object the user holds into
+    /// their Address Balance accumulator, signs the bytes locally, then
+    /// submits via the regular `/api/zk/sponsor-execute` path with
+    /// `meta.kind = "consolidate"`. After this lands, every future
+    /// gasless send works for amounts up to the new accumulator total.
+    ///
+    /// Mirrors `signAndSubmitSend` for the sign+submit dance — only the
+    /// prepare endpoint and the meta-kind differ. Onara pays the (~$0.001
+    /// SUI) gas; the user pays nothing.
+    ///
+    /// Idempotent on the server side: a second call after the user is
+    /// already fully consolidated returns `alreadyGasless: true` with no
+    /// digest. SendFlowView's auto-resubmit treats that as "good, retry
+    /// the original send".
+    func consolidateToAccumulator(asset: String = "USDsui") async throws -> ConsolidationResult {
+        guard let maxEpoch = ProofCache.shared.maxEpoch,
+              let jwtRandomness = ProofCache.shared.jwtRandomness else {
+            throw CoordinatorError.exchangeFailed("no proof cache — sign in again")
+        }
+
+        // 1. Server builds the PTB + filters out the accumulator-shadow
+        //    coin object. Response shape mirrors sponsor-prepare:
+        //    `{ bytes, mode: "consolidation", coinCount, totalMicrosMoved }`
+        //    or `{ alreadyGasless: true, ... }` on the no-op path.
+        let prep = try await postAuthenticated(
+            path: "/api/wallet/consolidate-prepare",
+            body: ["asset": asset]
+        )
+        if let alreadyGasless = prep["alreadyGasless"] as? Bool, alreadyGasless {
+            return ConsolidationResult(
+                digest: "",
+                alreadyGasless: true,
+                coinCount: 0,
+                totalMicrosMoved: 0
+            )
+        }
+        if let serverErr = prep["error"] as? String, !serverErr.isEmpty {
+            throw CoordinatorError.sponsorFailed(serverErr)
+        }
+        guard let bytesB64 = prep["bytes"] as? String,
+              let txBytesData = Data(base64Encoded: bytesB64) else {
+            throw CoordinatorError.sponsorFailed("malformed consolidate-prepare response")
+        }
+        let coinCount = (prep["coinCount"] as? Int) ?? 0
+        let totalMicrosMoved: UInt64 = {
+            if let s = prep["totalMicrosMoved"] as? String, let v = UInt64(s) { return v }
+            if let n = prep["totalMicrosMoved"] as? Double { return UInt64(n) }
+            return 0
+        }()
+
+        // 2. Sign locally — same intent prefix + BLAKE2b + Ed25519 as
+        //    every other money-moving leg. Identical to signAndSubmitSend.
+        let intentMessage = Data([0, 0, 0]) + txBytesData
+        let digest = Blake2b.hash256(intentMessage)
+        let key = try EphemeralKeyStore.shared.loadOrCreate()
+        let rawSig = try key.signature(for: digest)
+        let pubKey = key.publicKey.rawRepresentation
+        let pubKeyB64 = pubKey.base64EncodedString()
+        let userSig = (Data([0x00]) + rawSig + pubKey).base64EncodedString()
+
+        // 3. Submit through the regular sponsor-execute pipeline. The
+        //    only thing distinguishing this from a send is
+        //    `meta.kind = "consolidate"` — the server-side rewards
+        //    engine doesn't credit consolidations as transfers (kind is
+        //    not in its allowed earn set), and the analytics label
+        //    keeps the two flows separate.
+        var executeBody: [String: Any] = [
+            "bytesB64": bytesB64,
+            "ephemeralPubKeyB64": pubKeyB64,
+            "maxEpoch": maxEpoch,
+            "randomness": jwtRandomness,
+            "userSignature": userSig,
+            "meta": ["kind": "consolidate"],
+        ]
+        if let proofData = ProofCache.shared.proofRaw,
+           let proofJSON = try? JSONSerialization.jsonObject(with: proofData) as? [String: Any],
+           proofJSON["proofPoints"] is [String: Any] {
+            executeBody["cachedProof"] = proofJSON
+        } else {
+            ProofCache.shared.proofRaw = nil
+        }
+
+        let exec = try await postAuthenticated(
+            path: "/api/zk/sponsor-execute",
+            body: executeBody
+        )
+        if let err = exec["error"] as? String {
+            throw CoordinatorError.executeFailed(err)
+        }
+        guard let digestStr = exec["digest"] as? String, !digestStr.isEmpty else {
+            throw CoordinatorError.executeFailed("no digest in response")
+        }
+        if let fresh = exec["freshProof"],
+           JSONSerialization.isValidJSONObject(fresh) {
+            ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: fresh)
+        }
+        return ConsolidationResult(
+            digest: digestStr,
+            alreadyGasless: false,
+            coinCount: coinCount,
+            totalMicrosMoved: totalMicrosMoved
+        )
+    }
+
     // MARK: - Helpers
 
     /// Fetches the current Sui epoch and returns `epoch + 2` — the standard
@@ -633,14 +759,25 @@ final class ZkLoginCoordinator {
             // on every 4xx/5xx — we only want the first field for UX.
             // Fallback to the raw body if parsing fails or no `error`
             // is present (defense in depth, never blank).
+            let parsed = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+            let friendly = (parsed["error"] as? String) ?? ""
             let msg: String
-            if
-                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                let friendly = parsed["error"] as? String, !friendly.isEmpty
-            {
+            if !friendly.isEmpty {
                 msg = friendly
             } else {
                 msg = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            }
+            // If the server tagged the failure with a structured `code`
+            // (e.g. ACCUMULATOR_UNDERFUNDED with canConsolidate +
+            // coinBalance hints), surface that to the caller so the UI
+            // can branch on it. The caller falls back to `.sponsorFailed`
+            // for any 4xx/5xx without a code.
+            if let code = parsed["code"] as? String, !code.isEmpty {
+                throw CoordinatorError.structured(
+                    message: msg,
+                    code: code,
+                    hints: parsed
+                )
             }
             throw CoordinatorError.sponsorFailed(msg)
         }
