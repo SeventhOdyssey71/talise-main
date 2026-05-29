@@ -220,6 +220,24 @@ type WithFallbackOpts = {
 };
 
 /**
+ * Last prover backend + role that produced a successful proof in this
+ * process. Surfaced by `callProverWithFallback` and propagated up to
+ * `mintZkProof` so the execute handler can log the source ("FRESH-GPU"
+ * vs "FRESH-SHINAMI" vs "FRESH-CANARY"). Production rollout signal: if
+ * we see "FRESH-SHINAMI" on every call after `ZK_PROVER_PRIMARY=gpu` is
+ * flipped, the GPU box is down and we're paying the 2–4s Shinami round
+ * trip instead of the 250–500ms GPU path.
+ */
+export type ProverSource = {
+  backend: ProverBackend;
+  role: "primary" | "fallback";
+  /** True iff canary bucketing routed this user to GPU regardless of PRIMARY. */
+  canary: boolean;
+  /** Wall-clock ms of the winning attempt (excludes earlier failed attempts). */
+  ms: number;
+};
+
+/**
  * Unified entry-point that respects ZK_PROVER_PRIMARY / ZK_PROVER_FALLBACK /
  * ZK_PROVER_CANARY_PCT. Success path: primary returns 200 → done. 5xx or
  * timeout (AbortError): try the configured fallback once, then throw.
@@ -233,11 +251,12 @@ type WithFallbackOpts = {
  */
 export async function callProverWithFallback(
   opts: WithFallbackOpts
-): Promise<ProverResponse> {
+): Promise<{ response: ProverResponse; source: ProverSource }> {
   // Canary override: a deterministic bucket of users always gets GPU if
   // configured, even when PRIMARY is still shinami. Use this for the 5%/25%
   // ramp before flipping PRIMARY globally.
   let primary = PRIMARY_BACKEND;
+  let canary = false;
   if (
     CANARY_PCT > 0 &&
     GPU_URL &&
@@ -246,6 +265,7 @@ export async function callProverWithFallback(
     bucket0_99(opts.canaryKey) < CANARY_PCT
   ) {
     primary = "gpu";
+    canary = true;
   }
 
   const order: ProverBackend[] = [primary];
@@ -266,7 +286,10 @@ export async function callProverWithFallback(
       console.log(
         `[zk-prover] role=${role} backend=${backend} attempt=${attempt} status=200 ms=${ms}`
       );
-      return out;
+      return {
+        response: out,
+        source: { backend, role, canary: canary && i === 0, ms },
+      };
     } catch (err) {
       const ms = Date.now() - start;
       const status = (err as { status?: number }).status;
@@ -348,7 +371,7 @@ export async function mintZkProof(opts: {
   /** Mobile callers (no cookie) pass these directly. */
   jwt?: string;
   salt?: string;
-}): Promise<CachedZkProof> {
+}): Promise<{ proof: CachedZkProof; source: ProverSource }> {
   let jwt: string;
   let salt: string;
   if (opts.jwt && opts.salt) {
@@ -374,7 +397,7 @@ export async function mintZkProof(opts: {
     claims.aud
   ).toString();
 
-  const raw = await callProverWithFallback({
+  const { response: raw, source } = await callProverWithFallback({
     inputs: {
       jwt,
       extendedEphemeralPublicKey,
@@ -386,7 +409,7 @@ export async function mintZkProof(opts: {
     canaryKey: addressSeed,
   });
 
-  return { ...raw, addressSeed };
+  return { proof: { ...raw, addressSeed }, source };
 }
 
 /**
@@ -406,19 +429,28 @@ export async function assembleZkLoginSignature(opts: {
   /** Mobile callers (no cookie) pass these directly. */
   jwt?: string;
   salt?: string;
-}): Promise<{ signature: string; proof: CachedZkProof; isFresh: boolean }> {
+}): Promise<{
+  signature: string;
+  proof: CachedZkProof;
+  isFresh: boolean;
+  /** Populated only when `isFresh === true`. Undefined on cache hit. */
+  source?: ProverSource;
+}> {
   let proof: CachedZkProof;
   let isFresh = false;
+  let source: ProverSource | undefined;
   if (opts.cachedProof) {
     proof = opts.cachedProof;
   } else {
-    proof = await mintZkProof({
+    const minted = await mintZkProof({
       ephemeralPubKeyB64: opts.ephemeralPubKeyB64,
       maxEpoch: opts.maxEpoch,
       randomness: opts.randomness,
       jwt: opts.jwt,
       salt: opts.salt,
     });
+    proof = minted.proof;
+    source = minted.source;
     isFresh = true;
   }
 
@@ -428,5 +460,5 @@ export async function assembleZkLoginSignature(opts: {
     userSignature: opts.userSignature,
   });
 
-  return { signature, proof, isFresh };
+  return { signature, proof, isFresh, source };
 }

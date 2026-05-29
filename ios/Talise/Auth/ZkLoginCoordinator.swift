@@ -352,6 +352,19 @@ final class ZkLoginCoordinator {
         //      - "sponsored" → submit via /api/zk/sponsor-execute
         //                       (Onara as gas owner, full PaymentKit
         //                       + optional NAVI round-up leg)
+        //
+        // Per-step timing surfaced as one structured log line at the
+        // end (`[ios/send] prepare=Nms sign=Nms execute=Nms total=Nms`).
+        // We need this to read END-TO-END latency from the user's
+        // perspective — server-side logs miss the iOS→Vercel network
+        // hops (cold TLS, route latency, mobile carrier RTT). Uses
+        // `CFAbsoluteTimeGetCurrent` (monotonic seconds since 2001
+        // epoch — survives wall-clock adjustments mid-flight) so the
+        // numbers are stable even if NTP nudges the system clock.
+        func msSince(_ t: CFAbsoluteTime) -> Int {
+            Int(((CFAbsoluteTimeGetCurrent() - t) * 1000.0).rounded())
+        }
+        let t0 = CFAbsoluteTimeGetCurrent()
         let prep = try await postAuthenticated(
             path: "/api/send/sponsor-prepare",
             body: [
@@ -360,6 +373,8 @@ final class ZkLoginCoordinator {
                 "asset": asset,
             ]
         )
+        let tPrepareMs = msSince(t0)
+        let tAfterPrepare = CFAbsoluteTimeGetCurrent()
         guard let bytesB64 = prep["bytes"] as? String,
               let txBytesData = Data(base64Encoded: bytesB64) else {
             throw CoordinatorError.sponsorFailed("malformed sponsor-prepare response")
@@ -381,6 +396,8 @@ final class ZkLoginCoordinator {
         let pubKey = key.publicKey.rawRepresentation
         let pubKeyB64 = pubKey.base64EncodedString()
         let userSig = (Data([0x00]) + rawSig + pubKey).base64EncodedString()
+        let tSignMs = msSince(tAfterPrepare)
+        let tAfterSign = CFAbsoluteTimeGetCurrent()
 
         // 3. Build the execute body. Merge the server-blessed round-up
         //    into the rewards meta so the second-leg points credit.
@@ -434,6 +451,14 @@ final class ZkLoginCoordinator {
            JSONSerialization.isValidJSONObject(fresh) {
             ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: fresh)
         }
+        let tExecuteMs = msSince(tAfterSign)
+        let tTotalMs = msSince(t0)
+        // Single end-to-end log line so QA / production triage can read
+        // the user-perceived latency without piecing it together from
+        // Vercel logs. Grep `[ios/send]` in Console.app to histogram.
+        NSLog(
+            "[ios/send] prepare=\(tPrepareMs)ms sign=\(tSignMs)ms execute=\(tExecuteMs)ms total=\(tTotalMs)ms mode=\(mode)"
+        )
         _ = intent // currently unused server-side; kept in signature for parity with signAndSubmit
         return SignedSubmission(digest: digestStr)
     }

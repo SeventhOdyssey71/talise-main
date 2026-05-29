@@ -477,3 +477,15 @@ export function suiGraphQL(): SuiGraphQLClient {
   _gqlClientKey = key;
   return _gqlClient;
 }
+
+// Eagerly construct the GraphQL client singleton at module load so the
+// first request handler doesn't pay the (~30–80ms) one-time client
+// construction on the hot path. Mirrors the `void sui()` pre-warm
+// pattern in `./sui.ts`. Safe: `suiGraphQL()` is synchronous and only
+// builds the client object (no network). Wrapped in try/catch so a
+// missing env at build-time import doesn't crash module init.
+try {
+  void suiGraphQL();
+} catch {
+  /* deferred to first real call */
+}

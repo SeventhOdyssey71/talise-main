@@ -124,6 +124,8 @@ vi.mock("@/lib/intents/wrap-payment-kit", () => ({
 vi.mock("@/lib/perf-cache", () => ({
   memoTtl: <T,>(_k: string, _ttl: number, fn: () => Promise<T>) => fn(),
   invalidate: vi.fn(),
+  recordSendLatency: vi.fn(),
+  readSendLatencySamples: vi.fn(() => []),
 }));
 
 // The Sui client is consumed in two places:

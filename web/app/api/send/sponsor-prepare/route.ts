@@ -9,7 +9,7 @@ import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 import { getRoundupConfig } from "@/lib/rewards/roundup";
 import { appendNaviSupply } from "@/lib/navi-supply";
 import { onara } from "@/lib/onara";
-import { memoTtl } from "@/lib/perf-cache";
+import { memoTtl, recordSendLatency } from "@/lib/perf-cache";
 // NOTE: ensurePaymentRegistry() is intentionally NOT imported here.
 // The registry has existed on chain for weeks; the only legitimate caller
 // is `/api/zk/warmup`, which runs once at dashboard load. Keeping it on
@@ -180,6 +180,12 @@ export async function POST(req: Request) {
       console.log(
         `[send/sponsor-prepare gasless] total=${tBuild - t0}ms amount=${amountNum} USDsui`
       );
+      recordSendLatency({
+        leg: "prepare",
+        totalMs: tBuild - t0,
+        atMs: Date.now(),
+        extras: { mode: "gasless" },
+      });
 
       return NextResponse.json({
         bytes: toBase64(bytes),
@@ -221,9 +227,14 @@ export async function POST(req: Request) {
       60_000,
       () => onaraClient.status()
     );
+    // Gas price is per-epoch on Sui; a tight 1.5s memo window matches
+    // the natural reorg + epoch boundary and is safe to cache for tx
+    // building (the chain accepts a few seconds of staleness on the
+    // reference gas price). Aggressive memo here saves ~150–300ms on
+    // every send within the window.
     const gasPricePromise = memoTtl(
-      `sui:gasPrice:${net}`,
-      60_000,
+      `sui:gas-price:${net}`,
+      1_500,
       async () => {
         const r = await client.getReferenceGasPrice();
         return r.referenceGasPrice;
@@ -261,9 +272,14 @@ export async function POST(req: Request) {
       // cached `roundupCfg` from the gasless decision above (no second DB
       // round-trip). If the user has toggled round-up on, we append a
       // NAVI supply for `amount × percentage / 100` USDsui so send + save
-      // land in one signature. If the supply leg fails on chain
-      // (insufficient balance after the send), the WHOLE tx fails — better
-      // a clean error than a half-applied state.
+      // land in one signature.
+      //
+      // `appendNaviSupply` is async (the underlying adapter does a small
+      // amount of bookkeeping on the first call per process — pre-warmed
+      // by `/api/zk/warmup`). We await it INLINE here rather than in the
+      // status+price Promise.all because it MUTATES `tx`; running it in
+      // parallel with `tx.build()` would race the builder. The cost is
+      // typically <5ms once the adapter is warm, which is fine.
       tRoundup = Date.now();
       try {
         if (roundupCfg.enabled && roundupCfg.percentage > 0) {
@@ -326,6 +342,18 @@ export async function POST(req: Request) {
         `· status+price(par)=${tStatus - tBuilt}ms ` +
         `· tx.build=${tBuild - tStatus}ms · total=${tBuild - t0}ms`
     );
+    recordSendLatency({
+      leg: "prepare",
+      totalMs: tBuild - t0,
+      atMs: Date.now(),
+      extras: {
+        mode: "sponsored",
+        ptbMs: tBuilt - t0,
+        statusPriceMs: tStatus - tBuilt,
+        txBuildMs: tBuild - tStatus,
+        hasRoundup: roundupUsd > 0,
+      },
+    });
 
     return NextResponse.json({
       bytes: toBase64(bytes),
