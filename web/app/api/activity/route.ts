@@ -22,6 +22,42 @@ export const dynamic = "force-dynamic";
  */
 const ACTIVITY_CACHE_TTL_MS = 5_000;
 
+/**
+ * Outer hard cap on the chain scan. Every individual leg inside
+ * `getRecentActivity` is already fenced with a per-leg timeout (see
+ * `withTimeout` in `lib/activity.ts`), but we wrap the orchestrator
+ * one more time so a runaway scheduler / event-loop stall can't push
+ * the response past iOS's 60s URLSession default. 10s leaves enough
+ * room for legs 1-4 to complete in series in the worst case (6+4+3+2)
+ * while still ensuring we always answer well within the iOS deadline.
+ */
+const OUTER_CAP_MS = 10_000;
+
+function outerCap<T>(p: Promise<T>, fallback: T): Promise<T> {
+  const start = Date.now();
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => {
+      console.warn(
+        `[api/activity] outer cap hit at ${Date.now() - start}ms — serving fallback`
+      );
+      resolve(fallback);
+    }, OUTER_CAP_MS);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        console.warn(
+          `[api/activity] orchestrator failed after ${Date.now() - start}ms: ${(e as Error).message}`
+        );
+        resolve(fallback);
+      }
+    );
+  });
+}
+
 function cachedActivity(
   address: string,
   limit: number,
@@ -35,10 +71,13 @@ function cachedActivity(
     `activity:${address.toLowerCase()}:${limit}:${vaultKey}`,
     ACTIVITY_CACHE_TTL_MS,
     () =>
-      getRecentActivity(address, limit, {
-        includeNonTalise: true,
-        vaultId,
-      })
+      outerCap(
+        getRecentActivity(address, limit, {
+          includeNonTalise: true,
+          vaultId,
+        }),
+        [] as ActivityEntry[]
+      )
   );
 }
 
