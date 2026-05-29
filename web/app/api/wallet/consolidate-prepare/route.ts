@@ -80,25 +80,84 @@ export async function POST(req: Request) {
     const t0 = Date.now();
     const client = sui();
 
-    // 1. Enumerate Coin<USDSUI> objects the user owns. gRPC `listCoins`
-    //    returns `{ objects: [{ objectId, balance, type }], ... }`.
+    // 1. Enumerate Coin<USDSUI> objects + read the accumulator amount.
+    //    The accumulator-shadow detection requires BOTH:
+    //      a. `getBalance({owner, coinType}).fundsInAddressBalance` — the
+    //         µ amount sitting in the user's address-balance accumulator.
+    //      b. `listCoins({owner, coinType})` — every Coin<T> the user
+    //         owns PLUS one synthetic row representing the accumulator
+    //         surface. The synthetic row reports
+    //           type: 0x2::coin::Coin<USDSUI>
+    //           balance: <exactly fundsInAddressBalance>
+    //           version: much older than peer real coins
+    //         so a naive "filter on type or getObject" check passes it
+    //         through (it IS a real on-chain object — just not usable
+    //         as a PTB input). The PTB then fails the tx with
+    //         `Object … not found` at build/simulate time.
     //
-    //    NB: `listCoins` includes the user's accumulator-shadow object
-    //    (the surface the accumulator exposes for read APIs). The
-    //    shadow's `coinObjectId` is NOT a real Coin object on chain —
-    //    `getObject` returns "not found" for it. Using the shadow as a
-    //    PTB input fails the tx with `Object … not found`. We filter
-    //    it out via a per-object cross-check below.
-    const coinsRes = await client.listCoins({
+    //    Robust filter: drop the row whose `balance === fundsInAddressBalance`
+    //    AND whose version is dramatically older than the other coins
+    //    (the gap is millions of units in practice — empirically ~200M).
+    const balancesPromise = client.getBalance({
+      owner: user.sui_address,
+      coinType: USDSUI_TYPE,
+    });
+    const coinsPromise = client.listCoins({
       owner: user.sui_address,
       coinType: USDSUI_TYPE,
       limit: 200,
     });
-    const rawCoins = (coinsRes.objects ?? []).map((c) => ({
+    const [balancesRes, coinsRes] = await Promise.all([
+      balancesPromise,
+      coinsPromise,
+    ]);
+    // gRPC shapes: getBalance returns `{ balance: { addressBalance,
+    // coinBalance, balance, coinType } }`. The accumulator amount is
+    // `addressBalance` (µ); falls back to "0" if absent.
+    const accumulatorMicros = BigInt(
+      ((balancesRes as { balance?: { addressBalance?: string } }).balance
+        ?.addressBalance ?? "0") || "0"
+    );
+    type ListCoinObject = { objectId?: string; balance?: string; type?: string; version?: string | number };
+    const rawCoins = (
+      (coinsRes as { objects?: ListCoinObject[] }).objects ?? []
+    ).map((c) => ({
       objectId: c.objectId as string,
       balance: BigInt(c.balance ?? "0"),
       type: (c.type as string | undefined) ?? "",
+      version: BigInt(String(c.version ?? "0")),
     }));
+
+    // Drop the accumulator-shadow row.
+    //
+    // Two-signal detection (defense-in-depth):
+    //   • balance EXACTLY matches the accumulator amount, AND
+    //   • this row's version is at least 1,000,000 units older than the
+    //     largest version among the candidates (real Coin objects
+    //     trade hands frequently; the shadow doesn't).
+    //
+    // Only one of these alone is a false positive: a real Coin object
+    // can coincidentally have the same balance as the accumulator
+    // (rare but possible), and an old untouched Coin can have a very
+    // old version. Requiring BOTH signals together is robust.
+    const maxVersion = rawCoins.reduce(
+      (a, c) => (c.version > a ? c.version : a),
+      0n
+    );
+    const VERSION_GAP_THRESHOLD = 1_000_000n;
+    const filteredOfShadow = rawCoins.filter((c) => {
+      const balanceMatchesAccumulator =
+        accumulatorMicros > 0n && c.balance === accumulatorMicros;
+      const versionIsStale =
+        maxVersion - c.version > VERSION_GAP_THRESHOLD;
+      const isShadow = balanceMatchesAccumulator && versionIsStale;
+      if (isShadow) {
+        console.log(
+          `[consolidate-prepare] dropped accumulator-shadow ${c.objectId.slice(0, 18)}… bal=${c.balance} ver=${c.version} (accumulator=${accumulatorMicros}, maxVer=${maxVersion})`
+        );
+      }
+      return !isShadow;
+    });
 
     // Normalize: lowercase address part of USDSUI_TYPE so we don't reject
     // a valid `0x2::coin::Coin<0x44F838…>` for differing hex case.
@@ -116,7 +175,7 @@ export async function POST(req: Request) {
     //    window.
     const verified = (
       await Promise.all(
-        rawCoins.map(async (c) => {
+        filteredOfShadow.map(async (c) => {
           try {
             const res = await client.getObject({ objectId: c.objectId });
             const onChainType = (
@@ -138,7 +197,7 @@ export async function POST(req: Request) {
           }
         })
       )
-    ).filter((c): c is { objectId: string; balance: bigint; type: string } => c !== null);
+    ).filter((c): c is { objectId: string; balance: bigint; type: string; version: bigint } => c !== null);
 
     if (verified.length === 0) {
       // Nothing to consolidate. Either the user is already fully on the
