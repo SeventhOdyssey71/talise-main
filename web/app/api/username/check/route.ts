@@ -31,11 +31,15 @@ export async function GET(req: Request) {
     }
     return NextResponse.json({ available: true });
   } catch (e) {
-    // SuinsClient throws `ObjectError` when the dynamic field for the name
-    // doesn't exist. That means the name is unclaimed — available, not a
-    // failure. Any other error is a real RPC issue.
+    // SuinsClient throws when the dynamic field for the name doesn't
+    // exist on chain — that means the name is unclaimed AND available.
+    // The error message comes through in two shapes depending on
+    // transport / SDK version: "does not exist", "not exist", or
+    // "Object 0x… not found". All three signal the same thing: free.
+    // Without "not found" in the regex, free names fall through to
+    // `available: false, reason: "rpc"` and iOS reads it as taken.
     const msg = (e as Error).message ?? "";
-    if (/does not exist/i.test(msg) || /not exist/i.test(msg)) {
+    if (/(not exist|not found)/i.test(msg)) {
       return NextResponse.json({ available: true });
     }
     return NextResponse.json({ available: false, reason: "rpc" });

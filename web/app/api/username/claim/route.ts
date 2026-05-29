@@ -78,8 +78,11 @@ export async function POST(req: Request) {
   } catch (e) {
     // SuinsClient throws when the name isn't minted — that's the happy path
     // here, NOT an error. Real RPC errors get surfaced by the mint attempt.
+    // Error message arrives as either "does not exist", "not exist", or
+    // "Object 0x… not found" depending on transport / SDK version. Match
+    // any of those as "name is free".
     const msg = (e as Error).message ?? "";
-    if (!/not exist/i.test(msg)) {
+    if (!/(not exist|not found)/i.test(msg)) {
       // genuine RPC failure — log + continue; mint will surface it cleanly
     }
   }
