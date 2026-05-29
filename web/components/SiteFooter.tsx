@@ -1,38 +1,18 @@
 export function SiteFooter() {
   return (
     <footer className="border-t border-[var(--color-line)] bg-[var(--color-surface)]/20">
-      <div className="mx-auto grid max-w-7xl gap-10 px-6 py-14 md:grid-cols-4 md:px-8">
+      <div className="mx-auto grid max-w-7xl gap-10 px-6 py-14 md:grid-cols-2 md:px-8">
         <div>
           <div className="font-display text-2xl tracking-tight">talise</div>
           <p className="mt-3 max-w-xs text-[13px] leading-relaxed text-[var(--color-fg-muted)]">
-            Talise — money home, in seconds.
+            Talise — money home, in seconds. We&apos;re in private beta.
           </p>
         </div>
-
-        <Group title="Product">
-          <Item href="#how">How it works</Item>
-          <Item href="#personas">Who it&apos;s for</Item>
-          <Item href="#open-account">Sign in</Item>
-        </Group>
-
-        <Group title="Corridors">
-          <Item href="#" disabled>
-            UK → Nigeria
-          </Item>
-          <Item href="#" disabled>
-            US → Kenya
-          </Item>
-          <Item href="#" disabled>
-            EU → Ghana
-          </Item>
-          <Item href="#" disabled>
-            US → South Africa
-          </Item>
-        </Group>
 
         <Group title="Contact">
           <Item href="mailto:team@talise.io">team@talise.io</Item>
           <Item href="/litepaper">Litepaper</Item>
+          <Item href="/waitlist">Join waitlist</Item>
         </Group>
       </div>
       <div className="border-t border-[var(--color-line)] px-6 py-6 md:px-8">
