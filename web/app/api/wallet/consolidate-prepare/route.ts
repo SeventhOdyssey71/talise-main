@@ -23,8 +23,27 @@ export const runtime = "nodejs";
  *   0x2::balance::send_funds<USDSUI>(bal, sender)
  *
  * The Coin object is burned; its balance is deposited into the sender's
- * own Address Balance accumulator. After this tx lands, every future
- * gasless send works for amounts up to the new accumulator total.
+ * own Address Balance accumulator.
+ *
+ * IMPORTANT CAVEAT (2026-05-29): consolidation alone does NOT make
+ * future sends gasless. Sui's gasless rail requires every PTB to carry
+ * EITHER an address-owned Coin input OR a ValidDuring expiration. After
+ * consolidation the user has no Coin<USDsui> anchor — and the
+ * validator's ValidDuring path is broken upstream
+ * ("unknown TransactionExpirationKind" on gRPC). So a fully-consolidated
+ * wallet trips
+ * `GASLESS_NEEDS_ANCHOR` on the next send, which now falls through to
+ * `mode: "sponsored-anchor-fallback"` (Onara-sponsored Payment Kit) so
+ * the tx still lands.
+ *
+ * Practical use today: this route is useful for users whose USDsui is
+ * spread across many Coin<USDsui> objects and want a single
+ * accumulator total for accounting purposes — but it does NOT unblock
+ * gasless on its own. iOS no longer offers this as a "fix it to make
+ * sends gasless" tap. When Sui ships either (a) a public Coin→
+ * accumulator deposit on the gasless allowlist or (b) a working
+ * ValidDuring path, this route + its iOS surface can be re-enabled
+ * as the canonical "make every send gasless" path.
  *
  * Why Onara sponsorship?
  *   The PTB calls `0x2::coin::into_balance` which is NOT on the gasless

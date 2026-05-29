@@ -177,6 +177,13 @@ export async function POST(req: Request) {
   // See: docs/sui-rpc-migration/gasless-notes.md
   //   §"Proof: coin::send_funds is not gasless for Coin-object holders"
   let gaslessFellBack = false;
+  // Tracks whether the fall-through was triggered by the "no
+  // address-owned input" dead-end specifically (vs the older
+  // Coin-state mismatch). When true, response surfaces
+  // mode: "sponsored-anchor-fallback" instead of
+  // "sponsored-coin-fallback" so logs + iOS analytics can tell them
+  // apart.
+  let gaslessFellBackReason: "coin" | "anchor" = "coin";
 
   if (asset === "USDsui") {
     try {
@@ -364,19 +371,33 @@ export async function POST(req: Request) {
         /address-owned inputs/i.test(msg) ||
         /ValidDuring expiration/i.test(msg)
       ) {
+        // PRODUCT DECISION (per user's forensic analysis): when the
+        // user is fully consolidated into the accumulator (no Coin
+        // anchor available) and the validator's ValidDuring escape
+        // hatch is still broken upstream, the send MUST still land.
+        // Fall through to Onara-sponsored Payment Kit instead of
+        // refusing.
+        //
+        // Surfaced to iOS as `mode: "sponsored-anchor-fallback"` so
+        // analytics + logs can distinguish this specific dead-end
+        // from regular sponsored sends or the older
+        // `sponsored-coin-fallback`. The user "didn't get gasless"
+        // — that's documented honestly in the mode — but their
+        // tx LANDS, which is the higher-priority constraint when the
+        // alternative is "your send fails until a third party sends
+        // you USDsui via legacy primitives".
+        //
+        // When Sui ships the validator-side ValidDuring fix (or a
+        // public Balance→Coin escape hatch), this branch's fall-
+        // through becomes unnecessary and we can return to the 400.
         console.warn(
-          `[send/sponsor-prepare] gasless requires address-owned input but user=${userId} has none (all USDsui in accumulator). detail=${msg.slice(0, 200)}`
+          `[send/sponsor-prepare] gasless requires address-owned input but user=${userId} has none (all USDsui in accumulator); falling through to sponsored-anchor-fallback. detail=${msg.slice(0, 200)}`
         );
-        return NextResponse.json(
-          {
-            error:
-              "All your USDsui is consolidated in your accumulator, but Sui's gasless rail needs at least one Coin object as an anchor input. Receive any inbound USDsui — even a tiny amount — to enable the next gasless send. (Tracking Sui's framework fix for this; see docs/sui-rpc-migration/gasless-notes.md.)",
-            detail: msg,
-            code: "GASLESS_NEEDS_ANCHOR",
-          },
-          { status: 400 }
-        );
-      }
+        gaslessFellBack = true;
+        gaslessFellBackReason = "anchor";
+        // Intentional fall-through to the sponsored Payment Kit
+        // branch below.
+      } else
       if (
         (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) &&
         isSnsActive
@@ -569,7 +590,9 @@ export async function POST(req: Request) {
     // through identical PTB construction; only the analytics label and
     // the iOS-facing `mode` field differ.
     const effectiveMode = gaslessFellBack
-      ? "sponsored-coin-fallback"
+      ? gaslessFellBackReason === "anchor"
+        ? "sponsored-anchor-fallback"
+        : "sponsored-coin-fallback"
       : "sponsored";
     recordSendLatency({
       leg: "prepare",
