@@ -1,21 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
- * Waitlist form. Pure client component because the only behavior is
- * POST /api/waitlist + the success/error UI flip. No SSR concern.
- *
- * Single-row layout: email pill + Join waitlist button. The earlier
- * optional name/country/reason inputs were removed; the API still
- * accepts those fields and the DB columns are intact, so we can
- * re-introduce them later without a schema change.
+ * Waitlist form. After the email-success state, we transition to a
+ * second screen where the user can claim their `<handle>.talise.sui`
+ * subname. The claim is reserved in DB at this point; the actual
+ * SuiNS mint happens at first iOS sign-in via
+ * `bindWaitlistHandleIfAny`.
  */
-type Status = "idle" | "submitting" | "ok" | "dup" | "error";
+type EmailStatus = "idle" | "submitting" | "ok" | "dup" | "error";
+
+type HandleAvailability =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "available"; handle: string }
+  | { kind: "taken" }
+  | { kind: "invalid"; message: string }
+  | { kind: "error"; message: string };
+
+type ClaimStatus =
+  | "idle"
+  | "claiming"
+  | "claimed"
+  | "error"
+  | "skipped";
 
 export function WaitlistForm() {
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<Status>("idle");
+  const [status, setStatus] = useState<EmailStatus>("idle");
   const [error, setError] = useState("");
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -30,10 +43,10 @@ export function WaitlistForm() {
         body: JSON.stringify({ email, source: "landing" }),
       });
       if (r.status === 409) {
-        // Already on the list — surface as a muted inline note, not an
-        // error. Keep the form mounted so the user can re-enter a
-        // different email if they made a typo.
-        setStatus("dup");
+        // Already on the list — treat as success so the user can
+        // continue to claim their handle. The handle UI scopes its
+        // checks by email, not by "did we just insert".
+        setStatus("ok");
         return;
       }
       if (!r.ok) {
@@ -48,20 +61,7 @@ export function WaitlistForm() {
   }
 
   if (status === "ok") {
-    return (
-      <div
-        className="flex flex-col items-center gap-1.5 rounded-2xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/[0.06] px-6 py-5 text-center"
-        role="status"
-        aria-live="polite"
-      >
-        <div className="text-[15px] font-medium text-white">
-          You're on the list.
-        </div>
-        <div className="text-[12px] text-white/55">
-          Check your inbox. We sent a quick confirmation from hello@waitlist.talise.io.
-        </div>
-      </div>
-    );
+    return <HandleClaim email={email} />;
   }
 
   return (
@@ -71,11 +71,6 @@ export function WaitlistForm() {
       autoComplete="on"
       noValidate
     >
-      {/* Scoped autofill override. Chrome paints :-webkit-autofill
-          inputs with a yellow background that ignores the parent's
-          rounded pill, visually bleeding past the container corners.
-          Canonical fix: cancel the bg via a long transition delay,
-          force the fill color to white, scoped via .waitlist-form. */}
       <style>{`
         .waitlist-form input:-webkit-autofill,
         .waitlist-form input:-webkit-autofill:hover,
@@ -137,5 +132,237 @@ export function WaitlistForm() {
         </div>
       )}
     </form>
+  );
+}
+
+/**
+ * Handle claim sub-flow. Shown after a successful waitlist signup.
+ * Debounced availability check on each keystroke (350ms) → optimistic
+ * CTA enabled only when the server returns `available: true`. On
+ * claim success the form collapses to a confirmation banner.
+ */
+function HandleClaim({ email }: { email: string }) {
+  const [handle, setHandle] = useState("");
+  const [avail, setAvail] = useState<HandleAvailability>({ kind: "idle" });
+  const [claim, setClaim] = useState<ClaimStatus>("idle");
+  const [claimedHandle, setClaimedHandle] = useState<string | null>(null);
+  const [claimError, setClaimError] = useState("");
+  const seqRef = useRef(0);
+
+  useEffect(() => {
+    if (claim === "claimed" || claim === "skipped") return;
+    const trimmed = handle.trim();
+    if (!trimmed) {
+      setAvail({ kind: "idle" });
+      return;
+    }
+
+    // Debounce so we don't hit the API on every keystroke. 350ms is the
+    // sweet spot between feeling instant and saving round trips.
+    const mySeq = ++seqRef.current;
+    setAvail({ kind: "checking" });
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/waitlist/handle/availability", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, handle: trimmed }),
+        });
+        if (mySeq !== seqRef.current) return; // stale
+        const body = (await r.json().catch(() => ({}))) as {
+          available?: boolean;
+          normalized?: string;
+          error?: string;
+          reason?: string;
+        };
+        if (r.status === 400) {
+          setAvail({
+            kind: "invalid",
+            message: body.error || "Invalid handle.",
+          });
+          return;
+        }
+        if (r.status === 404 || r.status === 409) {
+          setAvail({
+            kind: "error",
+            message: body.error || "Could not check that handle.",
+          });
+          return;
+        }
+        if (!r.ok) {
+          setAvail({
+            kind: "error",
+            message: body.error || "Could not check that handle.",
+          });
+          return;
+        }
+        if (body.available && body.normalized) {
+          setAvail({ kind: "available", handle: body.normalized });
+        } else {
+          setAvail({ kind: "taken" });
+        }
+      } catch (err) {
+        if (mySeq !== seqRef.current) return;
+        setAvail({ kind: "error", message: (err as Error).message });
+      }
+    }, 350);
+
+    return () => clearTimeout(t);
+  }, [handle, email, claim]);
+
+  async function onClaim() {
+    if (avail.kind !== "available") return;
+    setClaim("claiming");
+    setClaimError("");
+    try {
+      const r = await fetch("/api/waitlist/handle/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, handle: avail.handle }),
+      });
+      const body = (await r.json().catch(() => ({}))) as {
+        ok?: boolean;
+        handle?: string;
+        error?: string;
+      };
+      if (!r.ok || !body.ok || !body.handle) {
+        throw new Error(body.error || "Couldn't claim that handle.");
+      }
+      setClaimedHandle(body.handle);
+      setClaim("claimed");
+    } catch (err) {
+      setClaim("error");
+      setClaimError((err as Error).message);
+    }
+  }
+
+  if (claim === "claimed" && claimedHandle) {
+    return (
+      <div
+        className="flex flex-col items-center gap-1.5 rounded-2xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/[0.06] px-6 py-5 text-center"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="text-[15px] font-medium text-white">
+          @{claimedHandle} is yours.
+        </div>
+        <div className="text-[12px] text-white/55">
+          We will sync it to your account the moment you sign in on iOS with{" "}
+          <span className="text-white/75">{email}</span>.
+        </div>
+      </div>
+    );
+  }
+
+  if (claim === "skipped") {
+    return (
+      <div
+        className="flex flex-col items-center gap-1.5 rounded-2xl border border-white/10 bg-white/[0.04] px-6 py-5 text-center"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="text-[15px] font-medium text-white">
+          You're on the list.
+        </div>
+        <div className="text-[12px] text-white/55">
+          You can claim a handle anytime by returning to this page with{" "}
+          <span className="text-white/75">{email}</span>.
+        </div>
+      </div>
+    );
+  }
+
+  const ctaEnabled = avail.kind === "available" && claim !== "claiming";
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="px-1 text-center">
+        <div className="text-[15px] font-medium text-white">
+          Now claim your @handle.
+        </div>
+        <div className="mt-1 text-[12px] text-white/55">
+          It will be ready the moment you sign in on iOS.
+        </div>
+      </div>
+
+      <div className="waitlist-form flex items-stretch gap-2 rounded-full border border-white/15 bg-white/[0.04] p-1.5 transition-colors focus-within:border-white/40">
+        <div className="flex flex-1 items-center pl-4 pr-1">
+          <span className="select-none text-[15px] text-white/55">@</span>
+          <input
+            id="waitlist-handle"
+            name="handle"
+            type="text"
+            required
+            autoComplete="off"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            placeholder="yourname"
+            value={handle}
+            onChange={(e) => {
+              const next = e.target.value.replace(/^@+/, "");
+              setHandle(next);
+              if (claim === "error") setClaim("idle");
+            }}
+            className="flex-1 bg-transparent px-2 py-1 text-[15px] text-white placeholder:text-white/40 focus:outline-none"
+            disabled={claim === "claiming"}
+            aria-describedby="handle-hint"
+            maxLength={32}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onClaim}
+          disabled={!ctaEnabled}
+          className="whitespace-nowrap rounded-full bg-white px-5 py-2.5 text-[14px] font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {claim === "claiming"
+            ? "Claiming…"
+            : avail.kind === "available"
+              ? `Claim @${avail.handle}`
+              : "Claim"}
+        </button>
+      </div>
+
+      <div id="handle-hint" className="px-4 text-[12px]" aria-live="polite">
+        {avail.kind === "idle" && (
+          <span className="text-white/45">
+            Letters, numbers, hyphens. 2-32 chars.
+          </span>
+        )}
+        {avail.kind === "checking" && (
+          <span className="text-white/55">Checking…</span>
+        )}
+        {avail.kind === "available" && (
+          <span className="text-[#86E1B1]">
+            @{avail.handle}.talise.sui is available.
+          </span>
+        )}
+        {avail.kind === "taken" && (
+          <span className="text-[#F0A99E]">Taken. Try another.</span>
+        )}
+        {avail.kind === "invalid" && (
+          <span className="text-white/55">{avail.message}</span>
+        )}
+        {avail.kind === "error" && (
+          <span className="text-[#F0A99E]">{avail.message}</span>
+        )}
+      </div>
+
+      {claim === "error" && claimError && (
+        <div className="px-4 text-[12px] text-[#F0A99E]" role="alert">
+          {claimError}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setClaim("skipped")}
+        disabled={claim === "claiming"}
+        className="self-center text-[12px] text-white/45 underline-offset-2 transition-colors hover:text-white/70 hover:underline disabled:opacity-50"
+      >
+        Skip for now
+      </button>
+    </div>
   );
 }

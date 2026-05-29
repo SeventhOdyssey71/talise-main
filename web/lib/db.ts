@@ -321,6 +321,46 @@ async function doEnsureSchema(): Promise<void> {
       confirmation_sent_at BIGINT
     )`,
     `CREATE INDEX IF NOT EXISTS idx_waitlist_signups_created ON waitlist_signups(created_at DESC)`,
+    // Waitlist handle claim — Strategy A (reserve-in-DB).
+    // `suins-operator.ts` ships only `mintSubname()` (one PTB: mint + set
+    // target + transfer to user). It does NOT have a "mint to operator
+    // now, transfer later" helper, which would be needed for Strategy B.
+    // So at claim time we reserve in DB; the actual on-chain mint runs
+    // on first sign-in when we know the user's Sui address — zero gas
+    // until users actually show up.
+    `ALTER TABLE waitlist_signups ADD COLUMN IF NOT EXISTS claimed_handle TEXT`,
+    `ALTER TABLE waitlist_signups ADD COLUMN IF NOT EXISTS handle_claimed_at BIGINT`,
+    `ALTER TABLE waitlist_signups ADD COLUMN IF NOT EXISTS handle_object_id TEXT`,
+    `ALTER TABLE waitlist_signups ADD COLUMN IF NOT EXISTS handle_bound_user_id TEXT`,
+    `ALTER TABLE waitlist_signups ADD COLUMN IF NOT EXISTS handle_bound_at BIGINT`,
+    // Partial-unique on `claimed_handle` so the index ignores the NULL
+    // rows (most signups won't claim a handle) but enforces "one handle
+    // per claim" the moment a non-NULL value is written.
+    `CREATE UNIQUE INDEX IF NOT EXISTS uniq_waitlist_claimed_handle
+       ON waitlist_signups (claimed_handle) WHERE claimed_handle IS NOT NULL`,
+    // Paga offramp — one row per "USDsui → NGN bank account" payout. The
+    // row carries the locked quote (fxRate, ngn/usdsui amounts), the
+    // user-provided bank coordinates, the Paga reference once we hand
+    // off, and the state-machine status. See `docs/offramp/paga-integration.md`.
+    `CREATE TABLE IF NOT EXISTS paga_offramps (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      usdsui_amount NUMERIC NOT NULL,
+      ngn_amount NUMERIC NOT NULL,
+      fx_rate NUMERIC NOT NULL,
+      bank_code TEXT NOT NULL,
+      bank_account_number TEXT NOT NULL,
+      bank_account_name TEXT,
+      paga_reference TEXT,
+      status TEXT NOT NULL,
+      status_reason TEXT,
+      created_at BIGINT NOT NULL,
+      debited_at BIGINT,
+      settled_at BIGINT,
+      failed_at BIGINT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_paga_offramps_user ON paga_offramps(user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_paga_offramps_status ON paga_offramps(status, created_at DESC)`,
   ];
   for (const stmt of tables) {
     await c.execute(stmt);

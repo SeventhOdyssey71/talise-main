@@ -86,6 +86,12 @@ export async function sendWelcomeEmailOnly(
 export async function sendWaitlistConfirmation(opts: {
   to: string;
   name?: string | null;
+  /**
+   * Bare handle (no `@`, no `.talise.sui`) the user just claimed.
+   * When set, the email renders a "your reserved handle" pill and the
+   * subject swaps to a handle-aware variant.
+   */
+  claimedHandle?: string | null;
 }): Promise<SendResult> {
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -93,8 +99,16 @@ export async function sendWaitlistConfirmation(opts: {
     "https://talise.io";
 
   const html = await render(
-    WaitlistConfirmation({ name: opts.name ?? null, appUrl })
+    WaitlistConfirmation({
+      name: opts.name ?? null,
+      appUrl,
+      claimedHandle: opts.claimedHandle ?? null,
+    })
   );
+
+  const subject = opts.claimedHandle
+    ? `@${opts.claimedHandle}.talise.sui is yours.`
+    : "You are on the Talise waitlist.";
 
   const fromAddr =
     process.env.WAITLIST_FROM_EMAIL || "Talise <waitlist@talise.io>";
@@ -120,7 +134,7 @@ export async function sendWaitlistConfirmation(opts: {
     const payload: Parameters<typeof r.emails.send>[0] = {
       from: fromAddr,
       to: [opts.to],
-      subject: "You are on the Talise waitlist.",
+      subject,
       html,
       ...(bcc ? { bcc: [bcc] } : {}),
       ...(replyTo ? { replyTo } : {}),

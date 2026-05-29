@@ -45,12 +45,12 @@ export default function WaitlistPage() {
         </Link>
       </header>
 
-      {/* Hero body. flex-1 + items/justify-center keeps the form
-          vertically centered between header and footer regardless of
-          viewport height. Symmetric `py-8` padding so the visual
-          weight reads as centered (was `pt-6 pb-8` which biased the
-          content downward on tall screens). */}
-      <section className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-6 py-8 text-center">
+      {/* Hero body. flex-1 + items/justify-center vertically centers
+          the form between header and footer. A small upward translate
+          biases the content above true-center so the headline sits in
+          the visually-heavier upper third (true-center reads slightly
+          low against a tall viewport — see screenshot 2026-05-29). */}
+      <section className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-6 py-8 text-center -translate-y-8 sm:-translate-y-12">
         <h1 className="text-[clamp(2rem,4.5vw,2.75rem)] font-medium leading-[1.04] tracking-[-0.025em]">
           Get an{" "}
           <span
