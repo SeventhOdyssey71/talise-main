@@ -273,7 +273,7 @@ export function WaitlistConfirmation({
                             fontWeight: 600,
                           }}
                         >
-                          @{handle}.talise.sui
+                          {handle}@talise.sui
                         </Text>
                         <Text
                           style={{

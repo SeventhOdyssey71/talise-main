@@ -296,7 +296,7 @@ function HandleClaim({ email }: { email: string }) {
         aria-live="polite"
       >
         <div className="text-[15px] font-medium text-white">
-          Welcome back. You already have @{existingHandle}.
+          Welcome back. You already have {existingHandle}@talise.sui.
         </div>
         <div className="text-[12px] text-white/55">
           Sign in on iOS with{" "}
@@ -314,7 +314,7 @@ function HandleClaim({ email }: { email: string }) {
         aria-live="polite"
       >
         <div className="text-[15px] font-medium text-white">
-          @{claimedHandle} is reserved for you.
+          {claimedHandle}@talise.sui is reserved for you.
         </div>
         <div className="text-[12px] leading-[1.55] text-white/55">
           It mints to your wallet on-chain the first time you sign in
@@ -407,7 +407,7 @@ function HandleClaim({ email }: { email: string }) {
         )}
         {avail.kind === "available" && (
           <span className="text-[#86E1B1]">
-            @{avail.handle}.talise.sui is available.
+            {avail.handle}@talise.sui is available.
           </span>
         )}
         {avail.kind === "taken" && (
