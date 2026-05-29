@@ -185,30 +185,32 @@ describe("POST /api/earn/withdraw/prepare (NAVI)", () => {
   //
   // Documented behaviour: PREPARE is purely a PTB build step — it does
   // NOT inspect the user's live supplied balance. If a user requests
-  // more than they've supplied, one of two things happens:
+  // more than they've supplied, one of three things happens:
   //
   //   (a) The NaviAdapter throws synchronously during build (it does
-  //       its own position-health check internally for some inputs),
-  //       which our route surfaces as a 500 with `error: "build failed: …"`.
+  //       its own position-health check internally for some inputs).
+  //       Post 2026-05-29 the NAVI append is wrapped in `withTimeout`
+  //       which converts thrown errors into a `false` fallback →
+  //       route returns 504 "try again" (we treat an adapter throw
+  //       and a wedged RPC as equivalent failure modes from the
+  //       caller's perspective — both mean "we couldn't build it").
   //   (b) Build succeeds and the chain rejects the actual withdraw at
   //       submit time (MoveAbort from NAVI's withdraw entry).
   //
   // The route can't tell these apart in advance — both are valid
   // outcomes depending on what data NAVI has cached in its adapter
-  // when build runs. The test asserts EITHER:
-  //   - we get a 500 "build failed" when the adapter throws, OR
-  //   - we get a 200 transactionKindB64 (caller proceeds, chain rejects).
+  // when build runs.
 
-  it("over-withdraw: either fails at build (500) or succeeds at PREPARE (chain rejects at submit)", async () => {
+  it("over-withdraw: either fails fast with 504 (adapter throw caught by withTimeout) or succeeds at PREPARE (chain rejects at submit)", async () => {
     simulateOverdraw = true;
     suppliedBalance = 50;
 
     const res = await postWithdraw({ venue: "navi", amount: 1_000_000 });
 
-    if (res.status === 500) {
-      // (a) Adapter caught it during PREPARE.
+    if (res.status === 504) {
+      // (a) Adapter throw caught by withTimeout → user-friendly 504.
       const json = (await res.json()) as { error: string };
-      expect(json.error).toMatch(/build failed/);
+      expect(json.error).toMatch(/longer than usual/i);
     } else {
       // (b) Build succeeded — chain would reject at submit.
       expect(res.status).toBe(200);

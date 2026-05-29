@@ -17,6 +17,43 @@ import { getEarnSnapshot } from "@/lib/yield";
 export const runtime = "nodejs";
 
 /**
+ * Per-leg timeout wrapper — mirrors `withTimeout` in `lib/activity.ts`
+ * and `withdraw/prepare/route.ts`. Returns `fallback` on timeout/error
+ * and logs which leg wedged.
+ */
+function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  leg: string,
+  fallback: T
+): Promise<T> {
+  const start = Date.now();
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => {
+      console.warn(
+        `[earn/withdraw-earned-prepare] ${leg} timed out after ${Date.now() - start}ms`
+      );
+      resolve(fallback);
+    }, ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        console.warn(
+          `[earn/withdraw-earned-prepare] ${leg} failed after ${Date.now() - start}ms: ${(e as Error).message}`
+        );
+        resolve(fallback);
+      }
+    );
+  });
+}
+
+const BUILD_FAILED: Uint8Array = new Uint8Array(0);
+
+/**
  * POST /api/earn/withdraw-earned/prepare
  *
  * Withdraws ONLY the accrued yield from the user's NAVI USDsui position,
@@ -60,19 +97,33 @@ export async function POST(req: Request) {
     );
   }
 
+  const OUTER_CAP_MS = 10_000;
+  const TIMEOUT_MARKER = Symbol("withdraw-earned-prepare-outer-timeout");
+  let outerTimer: ReturnType<typeof setTimeout> | undefined;
+  const outerTimeout = new Promise<typeof TIMEOUT_MARKER>((resolve) => {
+    outerTimer = setTimeout(() => resolve(TIMEOUT_MARKER), OUTER_CAP_MS);
+  });
+
+  const work = (async () => {
+    const t0 = Date.now();
   try {
-    // Fetch the position + activity in parallel. `getEarnSnapshot` is
-    // already memoized inside `@t2000/sdk`'s adapter; we also fall back
-    // to `fetchNaviCurrentValue` if the snapshot somehow lacks a value
-    // (shouldn't happen in practice but the guard is cheap).
+    // Fetch the position + activity in parallel. Each leg has its
+    // own timeout so a sluggish RPC on one leg doesn't drag the whole
+    // pipeline past the outer 10s cap. Fallbacks match the previous
+    // `.catch()` behaviour — empty / null / 0 — keeping the downstream
+    // math identical when a leg flakes.
     const [snap, apyLive, activity, fallbackCurrent] = await Promise.all([
-      getEarnSnapshot(user.sui_address).catch(() => null),
-      fetchNaviUsdsuiSupplyApy().catch(() => null),
-      getRecentActivity(user.sui_address, 200, { includeNonTalise: false }).catch(
-        () => []
+      withTimeout(getEarnSnapshot(user.sui_address), 5_000, "earn-snapshot", null),
+      withTimeout(fetchNaviUsdsuiSupplyApy(), 3_000, "navi-apy", null),
+      withTimeout(
+        getRecentActivity(user.sui_address, 200, { includeNonTalise: false }),
+        5_000,
+        "activity",
+        [] as Awaited<ReturnType<typeof getRecentActivity>>
       ),
-      fetchNaviCurrentValue(user.sui_address).catch(() => 0),
+      withTimeout(fetchNaviCurrentValue(user.sui_address), 5_000, "navi-current", 0),
     ]);
+    const tPosition = Date.now();
     const currentValue = snap?.supplied ?? fallbackCurrent;
     const apy = apyLive ?? snap?.apy ?? 0;
     if (currentValue <= 0) {
@@ -116,6 +167,8 @@ export async function POST(req: Request) {
       );
     }
 
+    const tRewards = Date.now();
+
     const tx = new Transaction();
     tx.setSender(user.sui_address);
 
@@ -123,7 +176,25 @@ export async function POST(req: Request) {
     // The adapter takes a USDsui amount (positive number, human
     // units) — same path the partial-withdraw uses. Pyth refresh
     // for the health check is appended internally.
-    await appendNaviWithdraw(tx, user.sui_address, detail.earned);
+    //
+    // Wrapped in withTimeout because the NAVI adapter does an internal
+    // position read here; on a sluggish RPC that lookup is what
+    // historically wedged iOS at 60s. 5s cap, surface 504 on miss.
+    const ok = await withTimeout(
+      appendNaviWithdraw(tx, user.sui_address, detail.earned).then(() => true),
+      5_000,
+      "navi-withdraw-append",
+      false
+    );
+    if (!ok) {
+      return NextResponse.json(
+        {
+          error:
+            "Withdraw is taking longer than usual — try again in a few seconds.",
+        },
+        { status: 504 }
+      );
+    }
 
     // Tag the tx with a typed Payment-Kit memo so the activity
     // classifier later subtracts THIS withdraw from the principal
@@ -136,10 +207,29 @@ export async function POST(req: Request) {
       refs: { venue: "navi" },
     });
 
-    const kind = await tx.build({
-      client: sui() as never,
-      onlyTransactionKind: true,
-    });
+    const kind = await withTimeout(
+      tx.build({
+        client: sui() as never,
+        onlyTransactionKind: true,
+      }),
+      5_000,
+      "tx-build",
+      BUILD_FAILED
+    );
+    const tBuild = Date.now();
+    if (kind === BUILD_FAILED) {
+      return NextResponse.json(
+        {
+          error:
+            "Withdraw is taking longer than usual — try again in a few seconds.",
+        },
+        { status: 504 }
+      );
+    }
+
+    console.log(
+      `[earn/withdraw-earned-prepare] position=${tPosition - t0}ms rewards=${tRewards - tPosition}ms build=${tBuild - tRewards}ms total=${tBuild - t0}ms`
+    );
 
     return NextResponse.json({
       transactionKindB64: toBase64(kind),
@@ -155,4 +245,21 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+  })();
+
+  const winner = await Promise.race([work, outerTimeout]);
+  if (outerTimer) clearTimeout(outerTimer);
+  if (winner === TIMEOUT_MARKER) {
+    console.warn(
+      `[earn/withdraw-earned-prepare] outer cap fired at ${OUTER_CAP_MS}ms (user=${userId})`
+    );
+    return NextResponse.json(
+      {
+        error:
+          "Withdraw is taking longer than usual — try again in a few seconds.",
+      },
+      { status: 504 }
+    );
+  }
+  return winner as NextResponse;
 }

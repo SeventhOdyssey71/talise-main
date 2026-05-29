@@ -9,7 +9,11 @@ import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 import { getRoundupConfig } from "@/lib/rewards/roundup";
 import { appendNaviSupply } from "@/lib/navi-supply";
 import { onara } from "@/lib/onara";
-import { memoTtl, recordSendLatency } from "@/lib/perf-cache";
+import {
+  memoTtl,
+  recordSendLatency,
+  setPendingRoundup,
+} from "@/lib/perf-cache";
 // NOTE: ensurePaymentRegistry() is intentionally NOT imported here.
 // The registry has existed on chain for weeks; the only legitimate caller
 // is `/api/zk/warmup`, which runs once at dashboard load. Keeping it on
@@ -109,16 +113,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "amount too small" }, { status: 400 });
   }
 
-  // ── Decide gasless vs sponsored BEFORE building the PTB ──────────
-  // Plain USDsui sends with no round-up qualify for Sui's gasless
-  // stablecoin transfer (PTB must be ONLY `0x2::coin::send_funds`).
-  // Anything else (round-up enabled, SUI transfer, future legs) needs
-  // Onara sponsorship.
-  // Roundup config is memo'd per-user for 60s. Toggling round-up is rare
-  // relative to send frequency, so a 60s staleness window is fine and lets
-  // subsequent sends within the window skip the DB round-trip entirely.
-  // Defensive fallback — if the read throws, treat as disabled so we never
-  // block a send on a config error.
+  // ── USDsui ALWAYS takes the gasless rail ────────────────────────
+  // Product directive (2026-05-29): every plain USDsui send must be
+  // gasless, regardless of Spend-and-Save state. The roundup NAVI
+  // supply leg can NOT be co-bundled (gasless PTB allowlist permits
+  // only `0x2::coin::send_funds<T>`), so when SnS is on we compute
+  // the roundup amount here and surface it to the submit endpoint
+  // via `roundupUsd` — `/api/send/gasless-submit` will enqueue it
+  // into `roundup_queue` after the gasless tx lands. The deferred
+  // cron drains the queue and executes the NAVI supply as a separate
+  // sponsored tx (see `/api/cron/process-roundup-queue`).
+  //
+  // Roundup config is memo'd per-user for 60s (toggling is rare
+  // relative to send frequency). Defensive fallback on read failure:
+  // treat as disabled so a config error never blocks a send.
   const roundupCfg = await memoTtl(
     `roundup:cfg:${userId}`,
     60_000,
@@ -129,22 +137,20 @@ export async function POST(req: Request) {
         savedUsd: 0,
       }))
   );
-  let isGasless = false;
-  let roundupUsdGasless = 0;
-  if (asset === "USDsui") {
-    const computed =
-      roundupCfg.enabled && roundupCfg.percentage > 0
-        ? Math.min((amountNum * roundupCfg.percentage) / 100, amountNum)
-        : 0;
-    const microUnits = Math.round(computed * 1e6);
-    if (microUnits <= 0) {
-      isGasless = true;
-    } else {
-      roundupUsdGasless = computed;
+  let deferredRoundupUsd = 0;
+  if (asset === "USDsui" && roundupCfg.enabled && roundupCfg.percentage > 0) {
+    const computed = Math.min(
+      (amountNum * roundupCfg.percentage) / 100,
+      amountNum
+    );
+    // 1¢ floor mirrors the previous gasless gate — anything smaller
+    // than a single USDsui micro-unit isn't a real round-up.
+    if (Math.round(computed * 1e6) > 0) {
+      deferredRoundupUsd = computed;
     }
   }
 
-  if (isGasless) {
+  if (asset === "USDsui") {
     try {
       const t0 = Date.now();
       const client = sui();
@@ -177,14 +183,21 @@ export async function POST(req: Request) {
 
       const bytes = await tx.build({ client: client as never });
       const tBuild = Date.now();
+
+      // Stash the deferred roundup so `/api/send/gasless-submit` can
+      // enqueue it after the broadcast lands. iOS isn't changed today;
+      // the bridge between prepare ↔ submit lives entirely server-side
+      // in the perf-cache stash (per-user, 2-minute TTL).
+      setPendingRoundup(userId, deferredRoundupUsd);
+
       console.log(
-        `[send/sponsor-prepare gasless] total=${tBuild - t0}ms amount=${amountNum} USDsui`
+        `[send/sponsor-prepare gasless] total=${tBuild - t0}ms amount=${amountNum} USDsui deferredRoundupUsd=${deferredRoundupUsd}`
       );
       recordSendLatency({
         leg: "prepare",
         totalMs: tBuild - t0,
         atMs: Date.now(),
-        extras: { mode: "gasless" },
+        extras: { mode: "gasless", deferredRoundup: deferredRoundupUsd > 0 },
       });
 
       return NextResponse.json({
@@ -193,13 +206,18 @@ export async function POST(req: Request) {
         asset,
         amount: amountNum,
         to,
-        roundupUsd: 0,
+        // Non-zero ONLY when SnS is on. The submit endpoint enqueues
+        // a NAVI supply for this amount post-broadcast so the user's
+        // spend-and-save still happens — just deferred, not atomic.
+        roundupUsd: deferredRoundupUsd,
       });
     } catch (err) {
       // If the gasless build trips on something (network glitch,
       // edge-case insufficient AB, etc.) fall through to the sponsored
       // path rather than failing the user's send outright. Onara is
-      // always there as the safety net.
+      // always there as the safety net. Note: the fallback PTB below
+      // will atomically co-bundle the NAVI supply when SnS is on, so
+      // we don't lose the round-up leg on this rare path.
       console.warn(
         `[send/sponsor-prepare] gasless build failed, falling back to sponsored: ${(err as Error).message}`
       );

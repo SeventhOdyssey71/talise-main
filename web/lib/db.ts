@@ -494,6 +494,28 @@ async function doEnsureSchema(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_paga_offramps_user ON paga_offramps(user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_paga_offramps_status ON paga_offramps(status, created_at DESC)`,
+
+    // ─── roundup_queue (deferred spend-and-save) ─────────────────────
+    // When a USDsui send takes the gasless rail (the only USDsui rail
+    // now — see sponsor-prepare/route.ts), the round-up NAVI supply
+    // leg can NOT be bundled atomically (gasless PTBs are restricted
+    // to a single `0x2::coin::send_funds<T>` move call). Instead the
+    // submit endpoint enqueues a row here and a cron drains the queue,
+    // executing the supply as a separate (sponsored) tx.
+    //
+    // `processed_at` is NULL while pending; the partial index
+    // `idx_roundup_queue_pending` covers the cron's hot read of
+    // `WHERE processed_at IS NULL ORDER BY created_at`.
+    `CREATE TABLE IF NOT EXISTS roundup_queue (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      amount_usd DOUBLE PRECISION NOT NULL,
+      created_at BIGINT NOT NULL,
+      processed_at BIGINT,
+      tx_digest TEXT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_roundup_queue_pending
+       ON roundup_queue(created_at) WHERE processed_at IS NULL`,
   ];
 
   for (const stmt of stmts) {
@@ -1267,4 +1289,67 @@ export async function getRewardsSummary(userId: number): Promise<{
     pointsTotal,
     recentEvents: ev.rows as unknown as RewardsEvent[],
   };
+}
+
+// ───────────────────────────────────────────────────────────────────
+// roundup_queue helpers
+//
+// Used by `/api/send/gasless-submit` to fire-and-forget a NAVI supply
+// for the rounded-up amount AFTER a gasless USDsui send lands. The
+// gasless rail can't co-bundle the supply (PTB allowlist permits only
+// `0x2::coin::send_funds<T>`), so we defer it to a cron drain.
+//
+// Reads happen exclusively from the cron worker
+// (`/api/cron/process-roundup-queue`); we keep `markRoundupProcessed`
+// here so the cron's update path is co-located with the insert.
+
+export type RoundupQueueRow = {
+  id: number;
+  user_id: number;
+  amount_usd: number;
+  created_at: number;
+  processed_at: number | null;
+  tx_digest: string | null;
+};
+
+export async function enqueueRoundup(input: {
+  userId: number;
+  amountUsd: number;
+}): Promise<void> {
+  if (!Number.isFinite(input.amountUsd) || input.amountUsd <= 0) return;
+  await ensureSchema();
+  const c = db();
+  await c.execute({
+    sql: `INSERT INTO roundup_queue (user_id, amount_usd, created_at)
+          VALUES (?, ?, ?)`,
+    args: [input.userId, input.amountUsd, Date.now()],
+  });
+}
+
+export async function pendingRoundups(
+  limit = 50
+): Promise<RoundupQueueRow[]> {
+  await ensureSchema();
+  const c = db();
+  const r = await c.execute({
+    sql: `SELECT id, user_id, amount_usd, created_at, processed_at, tx_digest
+          FROM roundup_queue
+          WHERE processed_at IS NULL
+          ORDER BY created_at ASC
+          LIMIT ?`,
+    args: [limit],
+  });
+  return r.rows as unknown as RoundupQueueRow[];
+}
+
+export async function markRoundupProcessed(
+  id: number,
+  txDigest: string
+): Promise<void> {
+  await ensureSchema();
+  const c = db();
+  await c.execute({
+    sql: `UPDATE roundup_queue SET processed_at = ?, tx_digest = ? WHERE id = ?`,
+    args: [Date.now(), txDigest, id],
+  });
 }
