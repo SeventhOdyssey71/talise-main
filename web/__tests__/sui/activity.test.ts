@@ -109,10 +109,12 @@ describe("getRecentActivity (GraphQL)", () => {
 
   it("tolerates an address with no activity (returns []), without throwing", async () => {
     // A random, well-formed but unused address — pulled from the Sui
-    // address space at random; will almost certainly have zero history.
+    // address space at random; verified zero history via mainnet
+    // GraphQL on 2026-05-29 (the previous fixture, `0x…beef`, picked
+    // up a real on-chain tx and started failing this assertion).
     // Confirms the GraphQL query handles the empty page case cleanly.
     const unusedAddress =
-      "0x000000000000000000000000000000000000000000000000000000000000beef";
+      "0x7b6e4e5a8f3c2d1b0a9988776655443322110011223344556677889900aabbcc";
     const entries = await getRecentActivity(unusedAddress, 20, {
       includeNonTalise: true,
       vaultId: null,
