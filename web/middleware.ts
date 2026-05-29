@@ -26,7 +26,22 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 };
 
-export function middleware(_req: NextRequest) {
+export function middleware(req: NextRequest) {
+  // 301 the `www.` apex to the bare domain so Google OAuth always sees a
+  // single canonical host. Both `talise.io` and `www.talise.io` are
+  // registered domains on Vercel, but `window.location.origin` (used by
+  // lib/zkclient.ts to derive `redirect_uri`) returns whichever one the
+  // user landed on. If they land on `www.`, Google rejects the URI
+  // because we only registered `https://talise.io/auth/callback` in
+  // Google Cloud Console — not the `www.` variant. Canonicalizing here
+  // means the OAuth start URL always carries the apex.
+  const host = req.headers.get("host") ?? "";
+  if (host === "www.talise.io") {
+    const url = new URL(req.url);
+    url.host = "talise.io";
+    return NextResponse.redirect(url, 301);
+  }
+
   const res = NextResponse.next();
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
     res.headers.set(k, v);
