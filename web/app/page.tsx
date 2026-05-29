@@ -408,16 +408,15 @@ function SecuritySection() {
 }
 
 /**
- * Section: By the numbers. Four single-stat cards: a huge tabular-nums
- * number on top, a single-line caption under. No icons inside the stat.
- * APY is the live representative number from `web/lib/navi-supply.ts`
- * (~5% USDsui supply on NAVI) — the same number the iOS EarnView reads
- * via the same backend.
+ * Section: By the numbers. Three single-stat cards. The first and last
+ * are phrase-led (Fast transactions, Onchain finance reach); the middle
+ * one keeps a hard number (0% gas) so the row reads as evidence rather
+ * than slogans alone.
  */
 function ByTheNumbers() {
   const stats: Array<{ value: string; caption: string }> = [
     {
-      value: "~5 sec",
+      value: "Fast transactions",
       caption: "Sui finality. Sent and confirmed before the screen finishes its swipe.",
     },
     {
@@ -425,12 +424,8 @@ function ByTheNumbers() {
       caption: "Gas paid by you on stablecoin transfers. Talise covers the network fee.",
     },
     {
-      value: "~5% APY",
-      caption: "Live NAVI USDsui supply yield. Read fresh on every load, no fixed promise.",
-    },
-    {
-      value: "1–3 days",
-      caption: "Typical SWIFT or remittance corridor settlement. The bar we beat.",
+      value: "Onchain finance reach",
+      caption: "Trade a wide range of assets on-chain — stablecoins, blue chips, and DeFi yield.",
     },
   ];
 
@@ -453,7 +448,7 @@ function ByTheNumbers() {
         </h2>
       </Reveal>
 
-      <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map((s, i) => (
           <Reveal key={s.value} delay={0.12 + i * 0.06}>
             <div className="talise-glass h-full rounded-2xl px-6 py-7">
