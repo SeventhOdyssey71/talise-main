@@ -1,14 +1,13 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
-import { SignInButton } from "@/components/SignInButton";
 import { Reveal } from "@/components/Reveal";
 // LandingMotion removed — page is short enough now (Hero + FeatureGrid
 // + FinalCta) that the GSAP scroll-trigger layer is more distraction
 // than affordance.
-import { userById } from "@/lib/db";
-import { readSessionEntryId } from "@/lib/session";
+// Web dashboard archived — sign-in/bootstrap redirect removed. Every
+// CTA now routes to /waitlist; the only live web surface is landing +
+// waitlist + litepaper.
 
 export const dynamic = "force-dynamic";
 
@@ -19,25 +18,8 @@ export const dynamic = "force-dynamic";
  * black background with a soft green TopGlow wash, accent-green green
  * highlights, and the same Liquid-Glass card recipe (`.talise-glass`).
  * The page is intentionally short — one strong hero, three feature
- * tiles, two persona stories, and a closing CTA. Anyone signed in is
- * bounced straight to their app surface before we render anything.
+ * tiles, two persona stories, and a closing CTA.
  */
-async function bootstrap() {
-  const id = await readSessionEntryId();
-  if (id) {
-    const u = await userById(id);
-    if (u) {
-      const dest =
-        u.account_type === "business"
-          ? "/business"
-          : u.account_type === "personal"
-            ? "/home"
-            : "/onboarding";
-      return { signedIn: true as const, dest };
-    }
-  }
-  return { signedIn: false as const };
-}
 
 export default async function Landing({
   searchParams,
@@ -45,8 +27,6 @@ export default async function Landing({
   searchParams: Promise<{ err?: string }>;
 }) {
   const params = await searchParams;
-  const state = await bootstrap();
-  if (state.signedIn) redirect(state.dest);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[var(--color-bg)] text-[var(--color-fg)]">
