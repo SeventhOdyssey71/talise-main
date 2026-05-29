@@ -163,10 +163,35 @@ export async function POST(req: Request) {
     salt,
   });
 
+  // Waitlist-handle bind hook. Hooked HERE — right after `upsertUser`
+  // has returned a row with a real `sui_address`, and BEFORE we look
+  // up the user's owned subnames — so that the subsequent
+  // `findTaliseSubnameForOwner` call below picks up the freshly-minted
+  // handle on the same response. Fire-and-forget semantics live
+  // inside `bindWaitlistHandleIfAny`: it swallows all errors and
+  // never throws, so sign-in cannot wedge on it. We `await` only so
+  // the resolver in the next block can see the new NFT — the bind
+  // call itself returns within one PTB round-trip.
+  try {
+    const { bindWaitlistHandleIfAny } = await import("@/lib/handle-claim");
+    await bindWaitlistHandleIfAny({
+      userId: user.id,
+      userEmail: user.email,
+      suiAddress: user.sui_address,
+    });
+  } catch (e) {
+    // bindWaitlistHandleIfAny already catches internally; this is a
+    // belt-and-suspenders guard against the dynamic import failing.
+    console.warn(
+      `[mobile/exchange] handle bind skipped: ${(e as Error).message}`
+    );
+  }
+
   // Returning users may already own a *.talise.sui subname — surface it
   // immediately so HomeView shows the canonical handle without an extra
-  // round trip. First-time signers will get `null` here; KYCView mints
-  // one and a subsequent /api/me refreshes the value.
+  // round trip. First-time signers will get `null` here UNLESS the
+  // waitlist-handle bind above just minted one; in that case the
+  // resolver sees the new NFT on the same response.
   const { findTaliseSubnameForOwner } = await import("@/lib/suins-lookup");
   const subname = await findTaliseSubnameForOwner(user.sui_address)
     .catch(() => null);

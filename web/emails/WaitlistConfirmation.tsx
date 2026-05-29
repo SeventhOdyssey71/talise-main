@@ -38,6 +38,13 @@ export type WaitlistConfirmationProps = {
   name?: string | null;
   /** Public base URL for absolute links (litepaper, signup URL). */
   appUrl: string;
+  /**
+   * Bare claimed handle (no `@`, no `.talise.sui`). When set, the email
+   * surfaces it as a confirmation pill and explains the iOS sign-in
+   * binding behavior. When null, the email is the original
+   * email-only confirmation.
+   */
+  claimedHandle?: string | null;
 };
 
 const COLORS = {
@@ -64,9 +71,11 @@ const FONT_STACK =
 export function WaitlistConfirmation({
   name,
   appUrl,
+  claimedHandle,
 }: WaitlistConfirmationProps) {
   const litepaperUrl = `${appUrl.replace(/\/$/, "")}/litepaper`;
   const greeting = name && name.trim().length > 0 ? `, ${name.trim()}` : "";
+  const handle = claimedHandle?.trim() || null;
 
   return (
     <Html lang="en">
@@ -215,6 +224,75 @@ export function WaitlistConfirmation({
                 sign-in link. You will not hear from us between now and then.
               </Text>
             </Section>
+
+            {/* Claimed-handle pill — only rendered when the user
+                claimed a handle along with their email. Explains the
+                iOS sign-in binding so the user knows what to expect. */}
+            {handle ? (
+              <Section
+                style={{
+                  padding: "28px 40px 0 40px",
+                  backgroundColor: COLORS.bg,
+                }}
+              >
+                <table
+                  role="presentation"
+                  cellPadding={0}
+                  cellSpacing={0}
+                  border={0}
+                  style={{ borderCollapse: "collapse" }}
+                >
+                  <tbody>
+                    <tr>
+                      <td
+                        style={{
+                          backgroundColor: COLORS.surface,
+                          border: `1px solid ${COLORS.line}`,
+                          borderRadius: "12px",
+                          padding: "16px 20px",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            margin: "0 0 6px 0",
+                            fontSize: "12px",
+                            lineHeight: 1.4,
+                            color: COLORS.fgDim,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.08em",
+                          }}
+                        >
+                          Your reserved handle
+                        </Text>
+                        <Text
+                          style={{
+                            margin: "0 0 10px 0",
+                            fontSize: "18px",
+                            lineHeight: 1.3,
+                            color: COLORS.fg,
+                            fontWeight: 600,
+                          }}
+                        >
+                          @{handle}.talise.sui
+                        </Text>
+                        <Text
+                          style={{
+                            margin: 0,
+                            fontSize: "14px",
+                            lineHeight: 1.5,
+                            color: COLORS.fgMuted,
+                          }}
+                        >
+                          When you sign in on iOS with this email, your
+                          handle will be ready and instantly work as a
+                          sendable destination.
+                        </Text>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </Section>
+            ) : null}
 
             {/* CTA: black pill, Stripe/Linear style on light. */}
             <Section
