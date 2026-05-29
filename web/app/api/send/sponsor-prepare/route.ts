@@ -212,14 +212,39 @@ export async function POST(req: Request) {
         roundupUsd: deferredRoundupUsd,
       });
     } catch (err) {
-      // If the gasless build trips on something (network glitch,
-      // edge-case insufficient AB, etc.) fall through to the sponsored
-      // path rather than failing the user's send outright. Onara is
-      // always there as the safety net. Note: the fallback PTB below
-      // will atomically co-bundle the NAVI supply when SnS is on, so
-      // we don't lose the round-up leg on this rare path.
+      // LOUD by default. The previous swallow-and-fall-through pattern
+      // hid real bugs — `tx.build()` failing on the gasless rail almost
+      // always means EITHER (a) the user genuinely has insufficient
+      // USDsui (in which case the sponsored path will fail too — Payment
+      // Kit also calls `coinWithBalance({useGasCoin:false})` on the same
+      // type), OR (b) something is actually broken in the gasless build
+      // and we want to know loudly.
+      //
+      // Log the FULL stack so Vercel logs surface the real cause, and
+      // distinguish two cases:
+      //   • Insufficient balance — return 500 with a clear, user-facing
+      //     message. iOS surfaces it; no silent fallback to a sponsored
+      //     path that will also fail on chain.
+      //   • Anything else — log loudly, then fall through to the
+      //     sponsored path (which still uses Payment Kit and may or may
+      //     not succeed, but at least the safety net runs).
+      const msg = (err as Error).message ?? String(err);
+      const stack = (err as Error).stack ?? "(no stack)";
+      console.error(
+        `[send/sponsor-prepare] GASLESS BUILD FAILED user=${userId} amount=${amountNum} USDsui:\n${stack}`
+      );
+      if (/insufficient balance/i.test(msg)) {
+        return NextResponse.json(
+          {
+            error:
+              "Insufficient USDsui balance. Top up your wallet and try again.",
+            detail: msg,
+          },
+          { status: 400 }
+        );
+      }
       console.warn(
-        `[send/sponsor-prepare] gasless build failed, falling back to sponsored: ${(err as Error).message}`
+        `[send/sponsor-prepare] gasless build failed with a non-balance error, falling back to sponsored: ${msg}`
       );
     }
   }
