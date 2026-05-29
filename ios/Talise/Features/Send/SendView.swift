@@ -37,17 +37,13 @@ enum SendStep: Hashable {
     /// sponsor-execute, or gasless-submit throws — including 4xx
     /// rejections like ACCUMULATOR_UNDERFUNDED. The success screen must
     /// NEVER render in this state.
+    ///
+    /// Note (2026-05-29): the prior `.consolidationOffered` step and the
+    /// accumulator-consolidation reconciliation flow were removed
+    /// alongside the autoswap archive. ACCUMULATOR_UNDERFUNDED now
+    /// surfaces directly here with a top-up/swap hint; the user moves
+    /// funds via the explicit "Swap to USDsui" CTA on Home.
     case failure
-    /// Intermediate state between failure-detection and `.failure`.
-    /// Reached when sponsor-prepare returned `ACCUMULATOR_UNDERFUNDED`
-    /// AND the server reports the user holds `Coin<USDsui>` objects
-    /// that can be consolidated into the accumulator. The user is
-    /// offered a one-tap "Enable gasless balance" action; tapping it
-    /// runs `consolidateToAccumulator` (Onara-sponsored, user pays
-    /// nothing) and then auto-resubmits the original send. The failure
-    /// screen renders only if the user cancels or consolidation itself
-    /// fails.
-    case consolidationOffered
 }
 
 /// Mutable draft passed by `@Bindable` through the SendFlowView pages.
@@ -87,18 +83,6 @@ final class SendDraft {
     /// recipient. Used by the review screen ("3 previous sends") when we
     /// have it from the /api/contacts payload.
     var previousSendsToRecipient: Int?
-
-    /// USDsui (in micro-units, 6dp) that the user holds in Coin<USDsui>
-    /// objects but not yet in their accumulator. Populated when
-    /// sponsor-prepare returns ACCUMULATOR_UNDERFUNDED with a hint —
-    /// the SendConsolidationOfferView reads it to show the amount that
-    /// will move with one tap. Stored as a string because the server
-    /// sends it as a string (u64 can exceed JS Double safe range).
-    var coinBalanceMicros: String?
-
-    /// USDsui (in micro-units) currently in the accumulator. Same
-    /// origin as `coinBalanceMicros`.
-    var accumulatorBalanceMicros: String?
 
     init(currency: TaliseCurrency) {
         self.currency = currency
