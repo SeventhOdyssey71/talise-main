@@ -15,7 +15,7 @@ section.
 | Earn — NAVI supply                     | Onara       | `/api/earn/supply/prepare` + `/api/zk/sponsor` + `/api/zk/sponsor-execute` |
 | Earn — NAVI withdraw                   | Onara       | `/api/earn/withdraw/prepare` + `/api/zk/sponsor` + `/api/zk/sponsor-execute` |
 | Earn — NAVI withdraw-earned            | Onara       | `/api/earn/withdraw-earned/prepare` + `/api/zk/sponsor` + `/api/zk/sponsor-execute` |
-| Non-USDsui swap → USDsui               | Onara       | `/api/swap/prepare` (NEW — Agent A) + `/api/zk/sponsor-execute` |
+| Non-USDsui swap → USDsui               | Onara       | `/api/swap/prepare` (fused) → `/api/zk/sponsor-execute`      |
 | Vault drain to admin                   | Onara       | one-shot script (Agent B)                                    |
 
 ---
@@ -105,13 +105,33 @@ section.
 
 ### Non-USDsui swap → USDsui
 
-- **Status:** Endpoint NOT yet created. Agent A owns `/api/swap/prepare`
-  and the iOS swap CTA. When that lands, it should follow the same
-  pattern as the earn routes: build with `onlyTransactionKind: true`,
-  forward to `/api/zk/sponsor` for the gasOwner wrap. The matrix expects
-  the swap operation to be Onara-sponsored.
-- **Expected verify line:** `[swap/prepare] mode=sponsored ...` then
-  `[zk/sponsor] mode=sponsored sponsor=<addr> gasPrice=<n>`.
+- **What fires:** `/api/swap/prepare` builds a DeepBook v3 swap PTB from
+  the user's `Coin<fromT>` objects via `coinWithBalance({useGasCoin: false})`,
+  calls the DeepBook swap MoveCall (`swap_exact_base_for_quote` or
+  `swap_exact_quote_for_base` depending on which side of the pool the
+  input sits), then transfers the resulting `Coin<USDsui>` back to the
+  user. Pool selection (mainnet, lowest-fee path):
+  - SUI → USDsui: `SUI_USDSUI` (0x826eeacb…) — direct.
+  - USDC → USDsui: `USDSUI_USDC` (0xa374264d…) — direct, quote→base.
+  - DEEP → USDsui: two-hop `DEEP_USDC` (0xf948981b…) →
+    `USDSUI_USDC` (0xa374264d…).
+  The output USDsui is transferred back to the user's address — never
+  to a third party. The combined "swap + send to recipient" flow is a
+  follow-up. Sponsorship is fused into the same route (no separate
+  `/api/zk/sponsor` hop): `onara().status()` (60s memo) +
+  `getReferenceGasPrice()` (1.5s memo) run in parallel with the PTB
+  build; `tx.setSender(userAddr)` + `tx.setGasOwner(sponsor)` +
+  `tx.setGasPrice(gasPrice)` are stamped before `tx.build({client})`.
+  Slippage cap defaults to 100 bps (1%), surfaced to iOS as
+  `estimatedToMicros` so the UI can render "you'll receive ~$X".
+- **Gas cost:** Onara pays. The swap is wallet-conditioning (like the
+  consolidation tap), not a value transfer, so Onara sponsoring it is
+  consistent with the matrix directive.
+- **Verify in prod:**
+  - `[swap/prepare] mode=sponsored from=<fromType> fromMicros=<n> estimatedTo=<m>`
+  - `[zk/sponsor] mode=sponsored sponsor=<addr> gasPrice=<n>` (emitted
+    by the fused wrap inside this route, mirroring the earn audit shape
+    from commit `566111b`).
 
 ### Vault drain to admin
 
@@ -130,6 +150,7 @@ Grep these in Vercel production logs to confirm routing:
 [earn/supply/prepare] mode=sponsored venue=<v> amount=<n>
 [earn/withdraw-prepare] mode=sponsored venue=<v> amount=<n|all>
 [earn/withdraw-earned-prepare] mode=sponsored venue=navi earned=<n>
+[swap/prepare] mode=sponsored from=<fromType> fromMicros=<n> estimatedTo=<m>
 [zk/sponsor] mode=sponsored sponsor=<addr> gasPrice=<n>            ← the authoritative wrap line
 ```
 

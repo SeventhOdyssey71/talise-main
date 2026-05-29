@@ -38,12 +38,28 @@
  *   TALISE_AUTOSWAP_PACKAGE_ID    Required.
  *   TALISE_AUTOSWAP_PACKAGE_LATEST   Optional; falls back to PACKAGE_ID.
  *   SUI_RPC_URL                   Optional. Defaults to mainnet fullnode.
- *   ADMIN_ADDRESS                 Optional fallback for --admin.
+ *   ADMIN_ADDRESS                 Optional fallback for --admin
+ *                                 (defaults to
+ *                                 0xb9aad5433f0d3b76e35d9985706b3fa9e571262f2fa1f12043589ca681d2866c).
+ *
+ * Accumulator prefix (v5+):
+ *   In addition to the existing bag drain, each PTB now leads with one
+ *   `vault::receive_from_accumulator<T>(&mut vault, u64 amount)` MoveCall
+ *   per (coin type) row that `suix_getAllBalances(<vaultAddr>)` surfaces
+ *   for the vault. Sui's plain `transfer::public_transfer(coin, shared)`
+ *   parks balances in the global accumulator (`dynamic_field::Field<
+ *   accumulator::Key<Balance<T>>>` at `0x000…0acc`) instead of as an
+ *   owned `Coin<T>`, so those funds are invisible to the bag-only path
+ *   used by `withdraw_and_send`. The prefix call folds the accumulator
+ *   slot into the bag in the same atomic tx — then the existing
+ *   `withdraw_and_send<T>(vault, amount, admin)` call drains the
+ *   now-larger bag in one shot. Single PTB. Single tx. Atomic.
  */
 
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { toBase64, fromBase64 } from "@mysten/sui/utils";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 
 // ───────────────────────────────────────────────────────────────────
 // CLI parsing
@@ -80,7 +96,12 @@ function parseArgs(argv) {
       process.exit(0);
     }
   }
-  out.admin = out.admin ?? process.env.ADMIN_ADDRESS ?? null;
+  out.admin =
+    out.admin ??
+    process.env.ADMIN_ADDRESS ??
+    // User-confirmed default admin (per task spec). Keeps `--dry-run`
+    // working out-of-the-box without requiring an env var or flag.
+    "0xb9aad5433f0d3b76e35d9985706b3fa9e571262f2fa1f12043589ca681d2866c";
   return out;
 }
 
@@ -141,14 +162,31 @@ async function rpc(method, params) {
   return body.result;
 }
 
-// Minimal client shim for `tx.build({ client })`. The SDK builder uses
-// the client to fetch reference gas price, gas budget, and (for owned
-// objects) version/digest. We feed it pinned shared-object info inline
-// where we can and lean on JSON-RPC for everything else.
+// Build client. We use the SDK's `SuiClient` (re-exported from the
+// `client` entry) for `tx.build({ client })` because the builder in
+// `@mysten/sui@1.45+` reaches into `client.core.getMoveFunction` (and
+// friends) when type-checking pure / object arguments, and a stub
+// object can't satisfy that interface without dragging in the whole
+// core surface. Everything else (event queries, balance reads, dry-run,
+// execute) still goes through raw JSON-RPC — `SuiClient` is only used
+// inside the builder.
+// Pick mainnet vs testnet purely from URL — the builder doesn't care,
+// it only uses transport-level methods. Network defaults to "mainnet"
+// to match the fullnode URL.
+const suiClient = new SuiJsonRpcClient({ url: RPC_URL, network: "mainnet" });
+
+// Minimal client shim kept around for any helper that previously took
+// it (no current callers — preserved as documentation of the JSON-RPC
+// methods the builder formerly needed).
 const clientShim = {
   // tx.build() calls this when an object has no version pinned.
   async getNormalizedMoveModulesByPackage() {
     return {};
+  },
+  // tx.build() asks for the function signature for every MoveCall so it
+  // can type-check pure / object arguments. Proxy to JSON-RPC.
+  async getNormalizedMoveFunction({ package: pkg, module, function: fn }) {
+    return rpc("sui_getNormalizedMoveFunction", [pkg, module, fn]);
   },
   async getReferenceGasPrice() {
     const v = await rpc("suix_getReferenceGasPrice", []);
@@ -165,6 +203,11 @@ const clientShim = {
       ids,
       options ?? { showOwner: true, showType: true },
     ]);
+  },
+  // Some builder code paths look up the protocol config (max move
+  // module bytes, etc). Provide a permissive stub.
+  async getProtocolConfig() {
+    return rpc("sui_getProtocolConfig", []);
   },
 };
 
@@ -266,18 +309,93 @@ async function readVaultBagBalances(vaultId) {
 }
 
 // ───────────────────────────────────────────────────────────────────
-// PTB builder
+// Accumulator balance read
+//
+// `suix_getAllBalances(<vaultAddr>)` surfaces accumulator slot values
+// (Sui's global `dynamic_field::Field<accumulator::Key<Balance<T>>>`)
+// for shared-object addresses. These are the funds delivered via plain
+// `transfer::public_transfer(coin, vault)` calls, which never land as
+// owned `Coin<T>` and so are invisible to the bag-only drain path.
+//
+// Mirrors the raw-fetch pattern used by
+// `web/_archive/autoswap-2026-05-29/app/api/cron/auto-swap-sweep/route.ts`
+// (`readVaultAccumulatorBalances`) — the SDK typed client returned empty
+// for shared-object addresses in production despite the raw JSON-RPC
+// method working against the same URL.
 
-function buildDrainTx({ sender, vaultId, balances, admin }) {
+async function readVaultAccumulatorBalances(vaultId) {
+  const rows = await rpc("suix_getAllBalances", [vaultId]);
+  const out = [];
+  for (const row of rows ?? []) {
+    if (!row?.coinType) continue;
+    // Prefer `fundsInAddressBalance` — that's the explicit accumulator
+    // slot surface (`dynamic_field::Field<accumulator::Key<Balance<T>>>`)
+    // and exactly what `receive_from_accumulator<T>` is built to drain.
+    // `totalBalance` includes plain owned `Coin<T>` objects too, which
+    // need a different primitive (`receive_and_deposit<T>` over a
+    // `Receiving<Coin<T>>` arg). Falls back to `totalBalance` only when
+    // the node response predates the `fundsInAddressBalance` field.
+    let amount = 0n;
+    try {
+      amount =
+        row.fundsInAddressBalance !== undefined
+          ? BigInt(row.fundsInAddressBalance ?? "0")
+          : BigInt(row.totalBalance ?? "0");
+    } catch {
+      amount = 0n;
+    }
+    if (amount === 0n) continue;
+    out.push({ coinType: row.coinType, amount });
+  }
+  return out;
+}
+
+// ───────────────────────────────────────────────────────────────────
+// PTB builder
+//
+// Two-phase drain, both phases in a single PTB:
+//   1. For every coin type with a non-zero accumulator slot, prefix a
+//      `vault::receive_from_accumulator<T>(&mut vault, amount)` call.
+//      This folds the slot into the vault's bag.
+//   2. For every coin type with a non-zero (post-prefix) bag balance,
+//      append a `vault::withdraw_and_send<T>(&mut vault, amount, admin)`
+//      call. This drains the bag to the admin address.
+//
+// Both phases share `tx.object(vaultId)` so the runtime sees one
+// `&mut TaliseVault` borrow flowing through the chain atomically.
+
+function buildDrainTx({ sender, vaultId, accumulator, balances, admin }) {
   const tx = new Transaction();
   tx.setSender(sender);
+
+  // Aggregate by coin type so the withdraw_and_send amount reflects
+  // the bag's post-prefix value (prior bag balance + accumulator slot).
+  const totals = new Map();
   for (const b of balances) {
+    totals.set(b.coinType, (totals.get(b.coinType) ?? 0n) + b.amount);
+  }
+  for (const a of accumulator) {
+    totals.set(a.coinType, (totals.get(a.coinType) ?? 0n) + a.amount);
+  }
+
+  // Phase 1 — accumulator drain (must come first; folds into bag).
+  for (const a of accumulator) {
+    tx.moveCall({
+      target: `${PACKAGE_LATEST}::vault::receive_from_accumulator`,
+      typeArguments: [a.coinType],
+      arguments: [tx.object(vaultId), tx.pure.u64(a.amount)],
+    });
+  }
+
+  // Phase 2 — bag drain to admin.
+  for (const [coinType, amount] of totals.entries()) {
+    if (amount <= 0n) continue;
     tx.moveCall({
       target: `${PACKAGE_LATEST}::vault::withdraw_and_send`,
-      typeArguments: [b.coinType],
+      typeArguments: [coinType],
       arguments: [
         tx.object(vaultId),
-        tx.pure.u64(b.amount),
+        tx.pure.u64(amount),
         tx.pure.address(admin),
       ],
     });
@@ -310,14 +428,23 @@ async function main() {
   for (const t of targets) {
     console.log(`\n[vault ${t.vaultId.slice(0, 12)}…]`);
     const { balances, owner } = await readVaultBagBalances(t.vaultId);
+    let accumulator = [];
+    try {
+      accumulator = await readVaultAccumulatorBalances(t.vaultId);
+    } catch (err) {
+      console.log(`  accum-read-error: ${err.message}`);
+    }
     const ownerStr = owner ?? t.owner ?? "(unknown)";
     console.log(`  owner:    ${ownerStr}`);
-    if (balances.length === 0) {
-      console.log(`  balances: (empty bag — nothing to drain)`);
+    if (balances.length === 0 && accumulator.length === 0) {
+      console.log(`  balances: (empty bag + empty accumulator — nothing to drain)`);
       continue;
     }
     for (const b of balances) {
-      console.log(`  balance:  ${b.amount.toString().padStart(20)} ${b.coinType}`);
+      console.log(`  bag:      ${b.amount.toString().padStart(20)} ${b.coinType}`);
+    }
+    for (const a of accumulator) {
+      console.log(`  accum:    ${a.amount.toString().padStart(20)} ${a.coinType}`);
     }
 
     const sender = signerAddress ?? owner ?? t.owner;
@@ -339,20 +466,64 @@ async function main() {
     const tx = buildDrainTx({
       sender,
       vaultId: t.vaultId,
+      accumulator,
       balances,
       admin: args.admin,
     });
 
+    // Print the chained PTB manifest before build/dry-run so the
+    // operator can eyeball the call order without parsing the BCS.
+    const manifest = [];
+    for (const a of accumulator) {
+      manifest.push(
+        `    [prefix] vault::receive_from_accumulator<${a.coinType}>(vault, ${a.amount.toString()})`,
+      );
+    }
+    const totals = new Map();
+    for (const b of balances)
+      totals.set(b.coinType, (totals.get(b.coinType) ?? 0n) + b.amount);
+    for (const a of accumulator)
+      totals.set(a.coinType, (totals.get(a.coinType) ?? 0n) + a.amount);
+    for (const [coinType, amount] of totals.entries()) {
+      if (amount <= 0n) continue;
+      manifest.push(
+        `    [drain ] vault::withdraw_and_send<${coinType}>(vault, ${amount.toString()}, ${args.admin.slice(0, 10)}…)`,
+      );
+    }
+    console.log(`  ptb:`);
+    for (const m of manifest) console.log(m);
+
+    // Dry-run goes through `sui_devInspectTransactionBlock`, which only
+    // needs the transaction-kind bytes — no gas coin is required. This
+    // matters because the vault owner may not hold any Coin<SUI> at all
+    // (the whole point of the accumulator drain is that the funds are
+    // parked under the vault address, not in the owner's wallet), so a
+    // full `tx.build({ client })` would fail at gas resolution with
+    // `InsufficientFundsForWithdraw`. Execute path still uses the full
+    // build + sign + execute since it has the owner's signing key.
     let bytes;
+    let kindBytes;
     try {
-      bytes = await tx.build({ client: clientShim });
+      if (args.dryRun) {
+        kindBytes = await tx.build({
+          client: suiClient,
+          onlyTransactionKind: true,
+        });
+      } else {
+        bytes = await tx.build({ client: suiClient });
+      }
     } catch (err) {
       console.log(`  build-error: ${err.message}`);
       continue;
     }
 
     if (args.dryRun) {
-      const dr = await rpc("sui_dryRunTransactionBlock", [toBase64(bytes)]);
+      const dr = await rpc("sui_devInspectTransactionBlock", [
+        sender,
+        toBase64(kindBytes),
+        null,
+        null,
+      ]);
       const status = dr.effects?.status?.status ?? "unknown";
       const gas = dr.effects?.gasUsed;
       const gasNet = gas
@@ -366,10 +537,17 @@ async function main() {
           `  error:    ${JSON.stringify(dr.effects?.status?.error ?? "")}`,
         );
       } else {
-        totalDrained += balances.reduce((s, b) => s + b.amount, 0n);
+        const bagTotal = balances.reduce((s, b) => s + b.amount, 0n);
+        const accTotal = accumulator.reduce((s, a) => s + a.amount, 0n);
+        totalDrained += bagTotal + accTotal;
         totalTxs += 1;
+        const distinct = new Set([
+          ...balances.map((b) => b.coinType),
+          ...accumulator.map((a) => a.coinType),
+        ]);
         console.log(
-          `  effects:  ${balances.length} withdraw_and_send call(s) → ${args.admin.slice(0, 10)}…`,
+          `  effects:  ${accumulator.length} receive_from_accumulator call(s) chained before ` +
+            `${distinct.size} withdraw_and_send call(s) → ${args.admin.slice(0, 10)}…`,
         );
       }
     } else {
@@ -388,7 +566,9 @@ async function main() {
           `  error:    ${JSON.stringify(result.effects?.status?.error ?? "")}`,
         );
       } else {
-        totalDrained += balances.reduce((s, b) => s + b.amount, 0n);
+        const bagTotal = balances.reduce((s, b) => s + b.amount, 0n);
+        const accTotal = accumulator.reduce((s, a) => s + a.amount, 0n);
+        totalDrained += bagTotal + accTotal;
         totalTxs += 1;
       }
     }
