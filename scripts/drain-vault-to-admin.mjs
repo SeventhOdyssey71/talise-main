@@ -323,6 +323,68 @@ async function readVaultBagBalances(vaultId) {
 // for shared-object addresses in production despite the raw JSON-RPC
 // method working against the same URL.
 
+/**
+ * Enumerate owned `Coin<T>` objects that are sitting AT the vault address
+ * (not inside the vault's Move Bag, not in the accumulator slot — just
+ * plain object-owned Coins parked there). Each one needs a
+ * `vault::receive_and_deposit<T>(&mut vault, Receiving<Coin<T>>)` call
+ * to fold it into the bag before `withdraw_and_send` can drain it.
+ *
+ * This is the missing primitive that vault `0x156a…3743`'s 0.6 SUI was
+ * sitting in — `suix_getAllBalances` reports `coinObjectCount: 4,
+ * fundsInAddressBalance: 0` for it, so the accumulator-pull branch is
+ * a no-op for this funding shape.
+ */
+async function readVaultOwnedCoins(vaultId) {
+  // Paginate sui_getOwnedObjects, filtering to anything that's a Coin<T>.
+  // The vault address can hold non-Coin objects (e.g. SuiNS NFTs in
+  // testing) too — drop those silently; they're not part of the drain.
+  const out = [];
+  let cursor = null;
+  for (let page = 0; page < 20; page++) {
+    const r = await rpc("suix_getOwnedObjects", [
+      vaultId,
+      {
+        filter: null,
+        options: { showType: true, showOwner: false, showContent: true },
+      },
+      cursor,
+      50,
+    ]);
+    for (const row of r?.data ?? []) {
+      const d = row?.data;
+      const t = d?.type;
+      if (!t) continue;
+      // `0x2::coin::Coin<0x…::module::TYPE>` — extract the T.
+      const m = /^0x2::coin::Coin<(.+)>$/.exec(t);
+      if (!m) continue;
+      const coinType = m[1];
+      const objectId = d.objectId;
+      const version = d.version;
+      const digest = d.digest;
+      if (!objectId || !version || !digest) continue;
+      // Pull the balance from content.fields.balance for the manifest.
+      const balanceStr =
+        d.content?.fields?.balance ?? d.content?.fields?.value ?? "0";
+      let balance = 0n;
+      try {
+        balance = BigInt(balanceStr);
+      } catch {
+        balance = 0n;
+      }
+      if (balance === 0n) continue;
+      out.push({ coinType, objectId, version, digest, balance });
+    }
+    if (!r?.hasNextPage) break;
+    cursor = r.nextCursor;
+  }
+  // Group by coin type for cleaner downstream logging + matches the
+  // (coinType → amount) shape the rest of the script already uses.
+  // The amount is read from `suix_getCoins` for the SAME object ids so
+  // the drain manifest can show a total per type.
+  return out;
+}
+
 async function readVaultAccumulatorBalances(vaultId) {
   const rows = await rpc("suix_getAllBalances", [vaultId]);
   const out = [];
@@ -364,12 +426,21 @@ async function readVaultAccumulatorBalances(vaultId) {
 // Both phases share `tx.object(vaultId)` so the runtime sees one
 // `&mut TaliseVault` borrow flowing through the chain atomically.
 
-function buildDrainTx({ sender, vaultId, accumulator, balances, admin }) {
+function buildDrainTx({
+  sender,
+  vaultId,
+  accumulator,
+  ownedCoins,
+  ownedCoinTotals,
+  balances,
+  admin,
+}) {
   const tx = new Transaction();
   tx.setSender(sender);
 
   // Aggregate by coin type so the withdraw_and_send amount reflects
-  // the bag's post-prefix value (prior bag balance + accumulator slot).
+  // the bag's post-prefix value (prior bag balance + accumulator slot
+  // + receive_and_deposit'd owned-Coin objects).
   const totals = new Map();
   for (const b of balances) {
     totals.set(b.coinType, (totals.get(b.coinType) ?? 0n) + b.amount);
@@ -377,8 +448,22 @@ function buildDrainTx({ sender, vaultId, accumulator, balances, admin }) {
   for (const a of accumulator) {
     totals.set(a.coinType, (totals.get(a.coinType) ?? 0n) + a.amount);
   }
+  for (const [coinType, amount] of ownedCoinTotals?.entries() ?? []) {
+    totals.set(coinType, (totals.get(coinType) ?? 0n) + amount);
+  }
 
-  // Phase 1 — accumulator drain (must come first; folds into bag).
+  // Phase 0 — owned-Coin drain (folds object-owned Coin<T> at the vault
+  // address into the bag via `receive_and_deposit<T>`). Must come
+  // before withdraw_and_send so the bag totals reflect them.
+  for (const c of ownedCoins ?? []) {
+    tx.moveCall({
+      target: `${PACKAGE_LATEST}::vault::receive_and_deposit`,
+      typeArguments: [c.coinType],
+      arguments: [tx.object(vaultId), tx.receivingRef({ objectId: c.objectId, version: c.version, digest: c.digest })],
+    });
+  }
+
+  // Phase 1 — accumulator drain (folds the accumulator slot into bag).
   for (const a of accumulator) {
     tx.moveCall({
       target: `${PACKAGE_LATEST}::vault::receive_from_accumulator`,
@@ -434,10 +519,25 @@ async function main() {
     } catch (err) {
       console.log(`  accum-read-error: ${err.message}`);
     }
+    let ownedCoins = [];
+    try {
+      ownedCoins = await readVaultOwnedCoins(t.vaultId);
+    } catch (err) {
+      console.log(`  owned-coins-read-error: ${err.message}`);
+    }
+    // Sum owned-coin balances by type for the manifest + the total
+    // that ends up in the bag after receive_and_deposit fires.
+    const ownedCoinTotals = new Map();
+    for (const c of ownedCoins) {
+      ownedCoinTotals.set(
+        c.coinType,
+        (ownedCoinTotals.get(c.coinType) ?? 0n) + c.balance,
+      );
+    }
     const ownerStr = owner ?? t.owner ?? "(unknown)";
     console.log(`  owner:    ${ownerStr}`);
-    if (balances.length === 0 && accumulator.length === 0) {
-      console.log(`  balances: (empty bag + empty accumulator — nothing to drain)`);
+    if (balances.length === 0 && accumulator.length === 0 && ownedCoins.length === 0) {
+      console.log(`  balances: (empty bag + empty accumulator + no owned Coin<T> — nothing to drain)`);
       continue;
     }
     for (const b of balances) {
@@ -445,6 +545,12 @@ async function main() {
     }
     for (const a of accumulator) {
       console.log(`  accum:    ${a.amount.toString().padStart(20)} ${a.coinType}`);
+    }
+    for (const [coinType, amount] of ownedCoinTotals.entries()) {
+      const count = ownedCoins.filter((c) => c.coinType === coinType).length;
+      console.log(
+        `  owned:    ${amount.toString().padStart(20)} ${coinType} (${count} Coin<T> object${count === 1 ? "" : "s"})`,
+      );
     }
 
     const sender = signerAddress ?? owner ?? t.owner;
@@ -467,6 +573,8 @@ async function main() {
       sender,
       vaultId: t.vaultId,
       accumulator,
+      ownedCoins,
+      ownedCoinTotals,
       balances,
       admin: args.admin,
     });
@@ -474,6 +582,11 @@ async function main() {
     // Print the chained PTB manifest before build/dry-run so the
     // operator can eyeball the call order without parsing the BCS.
     const manifest = [];
+    for (const c of ownedCoins) {
+      manifest.push(
+        `    [deposit] vault::receive_and_deposit<${c.coinType}>(vault, ${c.objectId.slice(0, 10)}…@v${c.version})`,
+      );
+    }
     for (const a of accumulator) {
       manifest.push(
         `    [prefix] vault::receive_from_accumulator<${a.coinType}>(vault, ${a.amount.toString()})`,
@@ -484,6 +597,8 @@ async function main() {
       totals.set(b.coinType, (totals.get(b.coinType) ?? 0n) + b.amount);
     for (const a of accumulator)
       totals.set(a.coinType, (totals.get(a.coinType) ?? 0n) + a.amount);
+    for (const [coinType, amount] of ownedCoinTotals.entries())
+      totals.set(coinType, (totals.get(coinType) ?? 0n) + amount);
     for (const [coinType, amount] of totals.entries()) {
       if (amount <= 0n) continue;
       manifest.push(
