@@ -6,6 +6,7 @@ import { Ed25519PublicKey } from "@mysten/sui/keypairs/ed25519";
 import { fromBase64 } from "@mysten/sui/utils";
 import { generateNonce } from "@mysten/sui/zklogin";
 import { getCurrentEpoch } from "@/lib/sui-epoch";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,20 @@ const STATE_BINDING_COOKIE = "talise_m1_binding";
 const MAX_EPOCH_HORIZON = 2; // current_epoch + 2 → ~48h window
 
 export async function GET(req: Request) {
+  // Rate-limit: 10 starts per 60s per IP. Looser than /exchange because
+  // a user may bounce between providers / restart the flow.
+  const rl = rateLimit({
+    key: `mobile-start:${getClientIp(req)}`,
+    limit: 10,
+    windowSec: 60,
+  });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } }
+    );
+  }
+
   const url = new URL(req.url);
   const ephemeralPubKeyRaw = url.searchParams.get("ephemeralPubKey") ?? "";
   if (ephemeralPubKeyRaw.length < 8 || ephemeralPubKeyRaw.length > 256) {

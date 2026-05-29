@@ -9,6 +9,7 @@ import { assembleZkLoginSignature, readSigningCookie } from "@/lib/zksigner";
 import { onara } from "@/lib/onara";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
 import { requireAppAttestStructural } from "@/lib/app-attest";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -43,6 +44,22 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
+
+  // Rate-limit: 30 sponsored executions per hour per user. Money-moving
+  // route — this throttles a compromised bearer / abusive client without
+  // hurting normal usage. Falls back to IP for unauthenticated edge cases.
+  const rl = rateLimit({
+    key: `zk-sponsor-execute:user:${userId}:${getClientIp(req)}`,
+    limit: 30,
+    windowSec: 3600,
+  });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 3600) } }
+    );
+  }
+
   const user = await userById(userId);
   if (!user) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
