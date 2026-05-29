@@ -296,16 +296,45 @@ export async function POST(req: Request) {
       // accumulator::deposit / coin::join_to_accumulator entry function,
       // re-run probe-gasless-build.mjs to detect allowlist inclusion and
       // prepend the deposit leg to the canonical balance::send_funds PTB.
-      if (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) {
+      // Product directive (2026-05-29 evening): a FREE transaction —
+      // plain USDsui send with NO Spend-and-Save leg — must NEVER fall
+      // through to Onara sponsorship. If the validator-side gasless
+      // allowlist can't accommodate the user's balance state, the
+      // honest answer is a clean 400 telling them why. The user can
+      // then top up via Stripe (deposits land in the accumulator) and
+      // their next send IS gasless. Sneaking Onara underneath would
+      // (a) make Talise pay gas for a transaction the user told us
+      // should be free, and (b) hide the underlying state mismatch.
+      //
+      // The ONLY exception is when SnS is on AND we still need to
+      // atomically supply to NAVI — that path legitimately needs
+      // sponsorship for the bundled NAVI leg, and we fall through.
+      const isSnsActive = deferredRoundupUsd > 0;
+      if (
+        (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) &&
+        isSnsActive
+      ) {
         console.warn(
-          `[send/sponsor-prepare] gasless unreachable for user=${userId} (Coin-only balance state); falling through to sponsored-coin-fallback. detail=${msg.slice(0, 200)}`
+          `[send/sponsor-prepare] gasless unreachable for user=${userId} (Coin-only balance state) AND SnS active; falling through to sponsored-coin-fallback. detail=${msg.slice(0, 200)}`
         );
         gaslessFellBack = true;
-        // Intentional fall-through — `asset === "USDsui"` is rechecked
-        // below in the sponsored branch and Payment Kit handles Coin<T>
-        // sourcing via `coinWithBalance({ useGasCoin: false })`.
-        // The response surfaces `mode: "sponsored-coin-fallback"` so
-        // iOS and analytics can distinguish this from regular sponsored.
+        // Intentional fall-through — Payment Kit handles Coin<T>
+        // sourcing via coinWithBalance({useGasCoin:false}) AND the SnS
+        // NAVI supply leg lands atomically. Response surfaces
+        // mode: "sponsored-coin-fallback".
+      } else if (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) {
+        console.warn(
+          `[send/sponsor-prepare] gasless unreachable for user=${userId} (Coin-only balance state); SnS off — returning ACCUMULATOR_UNDERFUNDED 400. detail=${msg.slice(0, 200)}`
+        );
+        return NextResponse.json(
+          {
+            error:
+              "Your USDsui isn't in your Address Balance accumulator yet — gasless sends require accumulator funds. Top up via Deposit (Stripe onramp lands USDsui directly in your accumulator) and try again.",
+            detail: msg,
+            code: "ACCUMULATOR_UNDERFUNDED",
+          },
+          { status: 400 }
+        );
       } else {
         // Anything else: surface as 400 so iOS does NOT silently land on
         // `mode=sponsored`. Real build bugs deserve a loud failure.
