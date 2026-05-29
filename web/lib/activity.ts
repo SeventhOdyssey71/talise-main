@@ -202,15 +202,21 @@ const SPONSOR_ADDRESSES = new Set<string>([
  * the event walks each become ONE GraphQL paged loop instead of N
  * cursor-paged JSON-RPC calls.
  *
- * Field selection notes:
- *   - `effects.balanceChangesJson` and `transactionJson` return the
- *     same shape JSON-RPC emitted (balanceChanges[] and
- *     transaction.data.transaction.{inputs,transactions}), which lets
- *     the downstream classifier consume the result unchanged once we
- *     bolt the pieces back together into a `RawTx`.
- *   - `effects.objectChanges.nodes[].outputState.owner` is read as the
- *     `Owner` union — we project ObjectOwner / AddressOwner / Shared
- *     and an `objectType` via `asMoveObject.contents.type.repr`.
+ * Schema note (2026 post-migration):
+ *   The Sui mainnet GraphQL endpoint (`graphql.mainnet.sui.io`) uses
+ *   the NEW schema: top-level query is `transactions` (not
+ *   `transactionBlocks`), `transactionJson` lives on the Transaction
+ *   node itself, and `balanceChangesJson` is on effects with a flat
+ *   `{address, coinType, amount}` shape (no `owner.AddressOwner`
+ *   wrapper). The `transactionJson.kind` payload also changed:
+ *   programmable PTBs come back as
+ *   `{kind: "PROGRAMMABLE_TRANSACTION", programmableTransaction: { inputs, commands }}`
+ *   with `commands[].moveCall` (lowercase) and `arguments[].kind === "INPUT"`
+ *   pointing at `.input` index slots. `inputs[].kind` is `"PURE"` /
+ *   `"SHARED"` / etc., and PURE values come back as **base64-encoded
+ *   BCS** in the `.pure` field (NOT the legacy decoded `.value`).
+ *   `adaptGraphQLNodeToRawTx` normalizes ALL of this back to the
+ *   legacy `RawTx` shape so the classifier downstream is untouched.
  */
 const TX_HISTORY_QUERY = /* GraphQL */ `
   query ActivityHistory(
@@ -218,7 +224,7 @@ const TX_HISTORY_QUERY = /* GraphQL */ `
     $first: Int!
     $after: String
   ) {
-    transactionBlocks(
+    transactions(
       filter: { affectedAddress: $addr }
       first: $first
       after: $after
@@ -297,7 +303,7 @@ type GraphQLActivityNode = {
 };
 
 type GraphQLActivityResponse = {
-  transactionBlocks: {
+  transactions: {
     pageInfo: { hasNextPage: boolean; endCursor: string | null };
     nodes: Array<GraphQLActivityNode>;
   } | null;
@@ -307,9 +313,14 @@ type GraphQLActivityResponse = {
  * One GraphQL query for paginated event history, used by the vault-
  * event walk to pull `VaultDeposit` and `VaultAutoSwap` rows.
  *
- * The Sui GraphQL filter `eventType` accepts a full
+ * The Sui GraphQL filter `type` accepts a full
  * `0x<pkg>::module::Event` string and matches exactly — same precision
  * as JSON-RPC's `MoveEventType` filter, with one round-trip per page.
+ *
+ * Schema note (2026 post-migration): the filter input is `type` (was
+ * `eventType` in the older schema). `Event.contents` is now a typed
+ * `MoveValue` directly — we keep reading `contents.json` because
+ * `MoveValue.json` exists and serializes the parsed Move struct.
  */
 const EVENTS_BY_TYPE_QUERY = /* GraphQL */ `
   query EventsByType(
@@ -318,7 +329,7 @@ const EVENTS_BY_TYPE_QUERY = /* GraphQL */ `
     $after: String
   ) {
     events(
-      filter: { eventType: $eventType }
+      filter: { type: $eventType }
       first: $first
       after: $after
     ) {
@@ -366,8 +377,22 @@ type GraphQLEventsResponse<P> = {
  */
 function adaptGraphQLNodeToRawTx(node: GraphQLActivityNode): RawTx {
   const txJson = (node.transactionJson ?? {}) as Record<string, unknown>;
-  const balanceChangesJson = (node.effects?.balanceChangesJson ??
-    []) as RawTx["balanceChanges"];
+
+  // New schema `balanceChangesJson` is FLAT: `{address, coinType, amount}`.
+  // Legacy classifier reads `b.owner.AddressOwner` — rebuild that wrapper.
+  type FlatBalanceChange = {
+    address?: string;
+    coinType?: string;
+    amount?: string;
+  };
+  const rawBalanceChanges = (node.effects?.balanceChangesJson ??
+    []) as FlatBalanceChange[];
+  const balanceChanges: NonNullable<RawTx["balanceChanges"]> =
+    rawBalanceChanges.map((b) => ({
+      owner: b.address ? { AddressOwner: b.address } : undefined,
+      coinType: b.coinType,
+      amount: b.amount,
+    }));
 
   const statusRaw = (node.effects?.status ?? "").toString().toLowerCase();
   const ts = node.effects?.timestamp ? Date.parse(node.effects.timestamp) : 0;
@@ -403,31 +428,191 @@ function adaptGraphQLNodeToRawTx(node: GraphQLActivityNode): RawTx {
     });
   }
 
-  // `transactionJson` comes back as the Sui GraphQL JSON
-  // representation. The shape closely tracks JSON-RPC's
-  // `transaction.data.transaction.{inputs, transactions}` but is
-  // sometimes nested at the top level (no `.data` wrapper). Probe both
-  // shapes so we work against either schema revision.
-  type TxInner = {
-    kind?: string;
-    inputs?: RawSuiCallArg[];
-    transactions?: RawTransactionInput[];
+  // `transactionJson` shape on the NEW mainnet schema:
+  //   { kind: { kind: "PROGRAMMABLE_TRANSACTION",
+  //             programmableTransaction: { inputs: [...], commands: [...] } } }
+  // where each command is `{ moveCall: { package, module, function,
+  // arguments: [{kind: "INPUT", input: 0}, ...], type_arguments: [...] } }`
+  // and each input is `{ kind: "PURE", pure: "<b64>" }` /
+  // `{ kind: "SHARED", objectId: ... }` / etc.
+  //
+  // The legacy classifier reads `transaction.data.transaction.{inputs,
+  // transactions}` where each input is `{type: "pure"|"object",
+  // value, ...}` and each transaction is `{MoveCall: {...}}`. We adapt
+  // both layers here so downstream stays intact.
+  type NewPtbInput = {
+    kind?: string; // "PURE" | "SHARED" | "OWNED" | "IMMUTABLE" | "RECEIVING" | ...
+    pure?: string; // base64-encoded BCS for PURE inputs
+    objectId?: string;
+    valueType?: string | null;
   };
-  const txInner: TxInner =
-    (txJson.transaction as TxInner | undefined) ?? (txJson as TxInner);
+  type NewMoveCallArg =
+    | { kind: "INPUT"; input: number }
+    | { kind: "RESULT"; result: number }
+    | { kind: "NESTED_RESULT"; result: number; subresult: number }
+    | { kind: "GAS_COIN" }
+    | { kind: string };
+  type NewMoveCall = {
+    package?: string;
+    module?: string;
+    function?: string;
+    arguments?: NewMoveCallArg[];
+    type_arguments?: string[];
+    typeArguments?: string[];
+  };
+  type NewPtbCommand = { moveCall?: NewMoveCall };
+  type NewProgrammableTx = {
+    inputs?: NewPtbInput[];
+    commands?: NewPtbCommand[];
+  };
+  type NewTxKind = {
+    kind?: string;
+    programmableTransaction?: NewProgrammableTx;
+  };
+
+  // The whole `kind` block (new shape). Fall back to the legacy shape
+  // (`txJson.transaction.{inputs,transactions}`) when present, so we
+  // also work against the old schema in tests that mock fixtures.
+  const newKind = (txJson.kind ?? {}) as NewTxKind;
+  const newPt = newKind.programmableTransaction;
+
+  let rawInputs: RawSuiCallArg[] = [];
+  let rawTransactions: RawTransactionInput[] = [];
+  let kindLabel: string | undefined;
+
+  if (newPt) {
+    kindLabel =
+      typeof newKind.kind === "string" ? newKind.kind : "ProgrammableTransaction";
+    rawInputs = (newPt.inputs ?? []).map((inp) => {
+      if (inp.kind === "PURE") {
+        // The classifier only reads pure values via `readPureString`
+        // (expects a string OR number[] UTF-8 bytes) and
+        // `readU64AsUsdsui` (expects string or number). We decode the
+        // base64 to a number[] of bytes — `readPureString` then
+        // round-trips via `Buffer.from(...).toString("utf8")`. For
+        // u64 PaymentRecord amounts, `readU64AsUsdsui` reads the
+        // pure value as a string; we additionally surface the
+        // BCS-decoded little-endian u64 as the `value` string when
+        // the byte array is exactly 8 long, so the existing
+        // `Number(v)` parse downstream gets the right number.
+        let bytes: number[] = [];
+        try {
+          bytes = Array.from(Buffer.from(inp.pure ?? "", "base64"));
+        } catch {
+          bytes = [];
+        }
+        let value: unknown = bytes;
+        // BCS u64 is 8 little-endian bytes. Surface its decimal value
+        // as a string so `readU64AsUsdsui` parses it cleanly (the
+        // function does `Number(v)` and accepts string).
+        if (bytes.length === 8) {
+          let n = 0n;
+          for (let i = 7; i >= 0; i--) n = (n << 8n) | BigInt(bytes[i]);
+          // Cap at Number.MAX_SAFE_INTEGER fidelity loss is fine — the
+          // amounts we read here are micro-USDsui (<2^53 within any
+          // realistic Talise tx). Emit a string so both readers
+          // (string or BigInt) keep working.
+          value = n.toString();
+        } else if (bytes.length > 0) {
+          // For string-typed pure inputs (Move `vector<u8>` as utf8
+          // string — the nonce), BCS prefixes a ULEB128 length.
+          // Decode the length prefix and slice the payload bytes;
+          // `readPureString` will then `Buffer.from(...).toString("utf8")`
+          // which yields the original string.
+          // ULEB128 read:
+          let i = 0;
+          let lenU = 0;
+          let shift = 0;
+          while (i < bytes.length) {
+            const b = bytes[i++];
+            lenU |= (b & 0x7f) << shift;
+            if ((b & 0x80) === 0) break;
+            shift += 7;
+          }
+          // Sanity: the remaining bytes should match the decoded length.
+          if (lenU > 0 && i + lenU === bytes.length) {
+            value = bytes.slice(i);
+          } else {
+            value = bytes;
+          }
+        }
+        return {
+          type: "pure",
+          value,
+          valueType: inp.valueType ?? null,
+        } as RawSuiCallArg;
+      }
+      // Treat any non-pure input as an object reference — the
+      // classifier only ever reads `pure` values, so this is purely
+      // shape-preserving.
+      return {
+        type: "object",
+        objectId: inp.objectId,
+      } as RawSuiCallArg;
+    });
+
+    rawTransactions = (newPt.commands ?? []).map((cmd) => {
+      const mc = cmd.moveCall;
+      if (!mc) return {} as RawTransactionInput;
+      const args: RawSuiArgument[] = (mc.arguments ?? []).map((a) => {
+        if (!a || typeof a !== "object") return a as RawSuiArgument;
+        switch (a.kind) {
+          case "INPUT":
+            return { Input: (a as { input: number }).input };
+          case "GAS_COIN":
+            return "GasCoin";
+          case "RESULT":
+            return { Result: (a as { result: number }).result };
+          case "NESTED_RESULT":
+            return {
+              NestedResult: [
+                (a as { result: number }).result,
+                (a as { subresult: number }).subresult,
+              ],
+            };
+          default:
+            return a as unknown as RawSuiArgument;
+        }
+      });
+      return {
+        MoveCall: {
+          package: mc.package,
+          module: mc.module,
+          function: mc.function,
+          arguments: args,
+          type_arguments: mc.type_arguments ?? mc.typeArguments,
+        },
+      };
+    });
+  } else {
+    // Legacy fixture path — older schema or hand-built test data.
+    type LegacyTxInner = {
+      kind?: string;
+      inputs?: RawSuiCallArg[];
+      transactions?: RawTransactionInput[];
+    };
+    const legacy: LegacyTxInner =
+      ((txJson.transaction as { data?: { transaction?: LegacyTxInner } })?.data
+        ?.transaction as LegacyTxInner | undefined) ??
+      (txJson.transaction as LegacyTxInner | undefined) ??
+      (txJson as LegacyTxInner);
+    kindLabel = typeof legacy?.kind === "string" ? legacy.kind : undefined;
+    rawInputs = (legacy?.inputs ?? []) as RawSuiCallArg[];
+    rawTransactions = (legacy?.transactions ?? []) as RawTransactionInput[];
+  }
 
   return {
     digest: node.digest,
     timestampMs: tsMs ? String(tsMs) : "0",
     effects: { status: { status: statusRaw === "success" ? "success" : statusRaw } },
-    balanceChanges: balanceChangesJson,
+    balanceChanges,
     objectChanges,
     transaction: {
       data: {
         transaction: {
-          kind: typeof txInner?.kind === "string" ? txInner.kind : undefined,
-          inputs: (txInner?.inputs ?? []) as RawSuiCallArg[],
-          transactions: (txInner?.transactions ?? []) as RawTransactionInput[],
+          kind: kindLabel,
+          inputs: rawInputs,
+          transactions: rawTransactions,
         },
       },
     },
@@ -1136,7 +1321,7 @@ export async function getRecentActivity(
       query: TX_HISTORY_QUERY,
       variables: { addr: address, first: fetchLimit, after: null },
     });
-    const nodes = res.data?.transactionBlocks?.nodes ?? [];
+    const nodes = res.data?.transactions?.nodes ?? [];
     raw = nodes.map(adaptGraphQLNodeToRawTx);
   } catch {
     return [];
