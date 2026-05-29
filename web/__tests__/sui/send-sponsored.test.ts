@@ -126,6 +126,8 @@ vi.mock("@/lib/perf-cache", () => ({
   invalidate: vi.fn(),
   recordSendLatency: vi.fn(),
   readSendLatencySamples: vi.fn(() => []),
+  setPendingRoundup: vi.fn(),
+  takePendingRoundup: vi.fn(() => null),
 }));
 
 // The Sui client is consumed in two places:
@@ -216,7 +218,14 @@ describe("/api/send/sponsor-prepare (sponsored branch, PREPARE only)", () => {
     vi.clearAllMocks();
   });
 
-  it("USDsui + roundup enabled → mode:'sponsored' with roundupUsd and receiptNonce", async () => {
+  it("USDsui + roundup enabled → mode:'gasless' with deferred roundupUsd (post 2026-05-29 product directive)", async () => {
+    // Pre 2026-05-29: roundup-enabled USDsui sends took the sponsored
+    // rail so the NAVI supply leg could be co-bundled atomically.
+    // Product directive update: every USDsui send is gasless, full
+    // stop. The roundup is now DEFERRED — sponsor-prepare stashes the
+    // amount, gasless-submit enqueues into `roundup_queue`, and a cron
+    // drains the queue as a separate sponsored tx. See
+    // app/api/cron/process-roundup-queue/route.ts for the cron stub.
     vi.mocked(getRoundupConfig).mockResolvedValue({
       enabled: true,
       percentage: 5,
@@ -231,22 +240,19 @@ describe("/api/send/sponsor-prepare (sponsored branch, PREPARE only)", () => {
       mode: string;
       bytes: string;
       roundupUsd: number;
-      receiptNonce: string;
       asset: string;
       amount: number;
       to: string;
     };
 
-    expect(json.mode).toBe("sponsored");
+    expect(json.mode).toBe("gasless");
     expect(json.asset).toBe("USDsui");
     expect(json.amount).toBe(1.0);
     expect(json.to).toBe(RECIPIENT_ADDR);
-    // 5% of $1.00 → $0.05. Allow tiny FP slack just in case.
+    // 5% of $1.00 → $0.05. Allow tiny FP slack just in case. This
+    // amount is what gasless-submit will enqueue into roundup_queue
+    // post-broadcast.
     expect(json.roundupUsd).toBeCloseTo(0.05, 6);
-    expect(typeof json.receiptNonce).toBe("string");
-    // Payment Kit nonces are base36 alphanumeric (lowercase + digits).
-    expect(json.receiptNonce).toMatch(/^[a-z0-9]+$/i);
-    expect(json.receiptNonce.length).toBeGreaterThan(0);
     expect(typeof json.bytes).toBe("string");
     expect(json.bytes.length).toBeGreaterThan(0);
   });

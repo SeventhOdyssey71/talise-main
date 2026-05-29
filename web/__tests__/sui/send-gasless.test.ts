@@ -111,6 +111,8 @@ vi.mock("@/lib/perf-cache", () => ({
   invalidate: vi.fn(),
   recordSendLatency: vi.fn(),
   readSendLatencySamples: vi.fn(() => []),
+  setPendingRoundup: vi.fn(),
+  takePendingRoundup: vi.fn(() => null),
 }));
 
 // Minimal Sui client stub. The gasless branch only needs the client
@@ -168,6 +170,7 @@ vi.mock("@mysten/sui/transactions", async () => {
 // ─── Import AFTER mocks so the route resolves them ─────────────────
 const { POST } = await import("@/app/api/send/sponsor-prepare/route");
 const { getRoundupConfig } = await import("@/lib/rewards/roundup");
+const { setPendingRoundup } = await import("@/lib/perf-cache");
 
 const RECIPIENT_ADDR =
   "0x3333333333333333333333333333333333333333333333333333333333333333";
@@ -249,6 +252,67 @@ describe("/api/send/sponsor-prepare (gasless branch, PREPARE only)", () => {
     expect(json.roundupUsd).toBe(0);
     expect(typeof json.bytes).toBe("string");
     expect(json.bytes.length).toBeGreaterThan(0);
+  });
+
+  // ─── Post 2026-05-29 product-directive tests ────────────────────
+  //
+  // The brief: every USDsui send takes the gasless rail, regardless
+  // of Spend-and-Save state. When SnS is on, the rounded-up amount
+  // is DEFERRED — sponsor-prepare stashes it via `setPendingRoundup`,
+  // gasless-submit drains it into `roundup_queue` after broadcast,
+  // and the cron worker (stubbed at /api/cron/process-roundup-queue)
+  // executes the NAVI supply as a separate sponsored tx.
+
+  it("USDsui with SnS on still takes gasless rail (mode === 'gasless' regardless of roundup config)", async () => {
+    vi.mocked(getRoundupConfig).mockResolvedValue({
+      enabled: true,
+      percentage: 5,
+      savedUsd: 0,
+    });
+    const res = await POST(
+      buildReq({ to: RECIPIENT_ADDR, amount: 1.0, asset: "USDsui" })
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { mode: string; roundupUsd: number };
+    expect(json.mode).toBe("gasless");
+    // 5% of 1.0 → 0.05. This is the amount gasless-submit will enqueue.
+    expect(json.roundupUsd).toBeCloseTo(0.05, 6);
+  });
+
+  it("Roundup queued when SnS on + gasless taken (setPendingRoundup called with right amount)", async () => {
+    vi.mocked(getRoundupConfig).mockResolvedValue({
+      enabled: true,
+      percentage: 10,
+      savedUsd: 0,
+    });
+    const res = await POST(
+      buildReq({ to: RECIPIENT_ADDR, amount: 2.5, asset: "USDsui" })
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { mode: string; roundupUsd: number };
+    expect(json.mode).toBe("gasless");
+    // 10% of 2.5 → 0.25. The stash is the bridge between prepare and
+    // submit — the route must call it with the userId (42) and the
+    // rounded-up amount.
+    expect(setPendingRoundup).toHaveBeenCalledWith(42, expect.closeTo(0.25, 6));
+    expect(json.roundupUsd).toBeCloseTo(0.25, 6);
+  });
+
+  it("SUI transfer still takes sponsored rail (gasless is USDsui-only)", async () => {
+    // gasless allowlist is stablecoin-only; SUI transfers continue
+    // through the Onara sponsored path with no change.
+    vi.mocked(getRoundupConfig).mockResolvedValue({
+      enabled: false,
+      percentage: 0,
+      savedUsd: 0,
+    });
+    const res = await POST(
+      buildReq({ to: RECIPIENT_ADDR, amount: 0.5, asset: "SUI" })
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { mode: string; asset: string };
+    expect(json.mode).toBe("sponsored");
+    expect(json.asset).toBe("SUI");
   });
 
   it("bytes payload is valid base64 and decodes to a non-empty Uint8Array", async () => {

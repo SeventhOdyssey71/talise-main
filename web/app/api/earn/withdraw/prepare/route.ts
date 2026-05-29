@@ -14,6 +14,47 @@ import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 export const runtime = "nodejs";
 
 /**
+ * Per-leg timeout wrapper — mirrors `withTimeout` in `lib/activity.ts`.
+ * Duplicated locally (rather than imported) so a stalled NAVI read in
+ * the activity feed and a stalled NAVI read here can't share a stack
+ * frame and both wedge at once. Returns `fallback` on timeout / error
+ * and logs `[earn/withdraw-prepare] <leg> timed out after Nms`.
+ */
+function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  leg: string,
+  fallback: T
+): Promise<T> {
+  const start = Date.now();
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => {
+      console.warn(
+        `[earn/withdraw-prepare] ${leg} timed out after ${Date.now() - start}ms`
+      );
+      resolve(fallback);
+    }, ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        console.warn(
+          `[earn/withdraw-prepare] ${leg} failed after ${Date.now() - start}ms: ${(e as Error).message}`
+        );
+        resolve(fallback);
+      }
+    );
+  });
+}
+
+// Sentinel — distinguishes "build timed out / threw" from "build returned
+// an empty buffer". Tested by reference equality in the route below.
+const BUILD_FAILED: Uint8Array = new Uint8Array(0);
+
+/**
  * POST /api/earn/withdraw/prepare
  *
  * Mirror of /api/earn/supply/prepare for the opposite leg. Builds a
@@ -66,62 +107,140 @@ export async function POST(req: Request) {
     );
   }
 
-  try {
-    const tx = new Transaction();
-    tx.setSender(user.sui_address);
+  // Outer 10s cap — same shape as `/api/activity`. If the whole
+  // pipeline below stalls (typically a NAVI position read going dark),
+  // we surface a clean 504 with a user-friendly message instead of
+  // iOS's NSURLErrorTimedOut at 60s.
+  const OUTER_CAP_MS = 10_000;
+  const TIMEOUT_MARKER = Symbol("withdraw-prepare-outer-timeout");
+  let outerTimer: ReturnType<typeof setTimeout> | undefined;
+  const outerTimeout = new Promise<typeof TIMEOUT_MARKER>((resolve) => {
+    outerTimer = setTimeout(() => resolve(TIMEOUT_MARKER), OUTER_CAP_MS);
+  });
 
-    if (venue === "navi") {
-      // NAVI withdraw refreshes the Pyth oracle in the same PTB
-      // (required for the position-health check). `undefined` =
-      // "withdraw the full supplied amount" — the adapter reads the
-      // user's live position internally.
-      await appendNaviWithdraw(
-        tx,
-        user.sui_address,
-        amountNum && amountNum > 0 ? amountNum : undefined
+  const work = (async () => {
+    const t0 = Date.now();
+    let tPosition = t0;
+    let tBuild = t0;
+    try {
+      const tx = new Transaction();
+      tx.setSender(user.sui_address);
+
+      if (venue === "navi") {
+        // NAVI withdraw refreshes the Pyth oracle in the same PTB
+        // (required for the position-health check). `undefined` =
+        // "withdraw the full supplied amount" — the adapter reads the
+        // user's live position internally.
+        //
+        // `appendNaviWithdraw` is the slow leg in the wild — its
+        // internal position lookup + Pyth refresh can take 4-8s on a
+        // sluggish RPC. Wrap in a 5s timeout: on miss, the route
+        // surfaces a clean 504 below rather than letting iOS hit its
+        // 60s URLSession default.
+        const wrappedAmount =
+          amountNum && amountNum > 0 ? amountNum : undefined;
+        const ok = await withTimeout(
+          appendNaviWithdraw(tx, user.sui_address, wrappedAmount).then(
+            () => true
+          ),
+          5_000,
+          "navi-position",
+          false
+        );
+        tPosition = Date.now();
+        if (!ok) {
+          return NextResponse.json(
+            {
+              error:
+                "Withdraw is taking longer than usual — try again in a few seconds.",
+            },
+            { status: 504 }
+          );
+        }
+      } else {
+        const capId = await withTimeout(
+          fetchSupplierCapId(user.sui_address),
+          5_000,
+          "deepbook-cap",
+          null
+        );
+        tPosition = Date.now();
+        if (!capId) {
+          return NextResponse.json(
+            { error: "you don't have a DeepBook position to withdraw" },
+            { status: 404 }
+          );
+        }
+        buildWithdrawUsdsuiMargin({
+          senderAddress: user.sui_address,
+          supplierCapId: capId,
+          amountUsdsui: amountNum && amountNum > 0 ? amountNum : undefined,
+        }).build(tx);
+      }
+
+      // Universal Talise receipt — see /api/earn/supply/prepare for the
+      // full rationale. The venue's withdraw MoveCalls above redeem the
+      // position; this 1-micro self-ping just tags the tx with a typed
+      // memo so the activity classifier can render "Withdrew from Navi"
+      // authoritatively from the PaymentRecord nonce.
+      const { nonce } = appendPaymentKitReceipt(tx, {
+        kind: "withdraw",
+        sender: user.sui_address,
+        refs: { venue },
+      });
+
+      const kind = await withTimeout(
+        tx.build({
+          client: sui() as never,
+          onlyTransactionKind: true,
+        }),
+        5_000,
+        "tx-build",
+        BUILD_FAILED
       );
-    } else {
-      const capId = await fetchSupplierCapId(user.sui_address);
-      if (!capId) {
+      tBuild = Date.now();
+      if (kind === BUILD_FAILED) {
         return NextResponse.json(
-          { error: "you don't have a DeepBook position to withdraw" },
-          { status: 404 }
+          {
+            error:
+              "Withdraw is taking longer than usual — try again in a few seconds.",
+          },
+          { status: 504 }
         );
       }
-      buildWithdrawUsdsuiMargin({
-        senderAddress: user.sui_address,
-        supplierCapId: capId,
-        amountUsdsui: amountNum && amountNum > 0 ? amountNum : undefined,
-      }).build(tx);
+
+      console.log(
+        `[earn/withdraw-prepare] position=${tPosition - t0}ms rewards=0ms build=${tBuild - tPosition}ms total=${tBuild - t0}ms venue=${venue}`
+      );
+
+      return NextResponse.json({
+        transactionKindB64: toBase64(kind),
+        venue,
+        amount: amountNum ?? null,
+        withdrawAll: !amountNum,
+        receiptNonce: nonce,
+      });
+    } catch (err) {
+      return NextResponse.json(
+        { error: "build failed: " + (err as Error).message },
+        { status: 500 }
+      );
     }
+  })();
 
-    // Universal Talise receipt — see /api/earn/supply/prepare for the
-    // full rationale. The venue's withdraw MoveCalls above redeem the
-    // position; this 1-micro self-ping just tags the tx with a typed
-    // memo so the activity classifier can render "Withdrew from Navi"
-    // authoritatively from the PaymentRecord nonce.
-    const { nonce } = appendPaymentKitReceipt(tx, {
-      kind: "withdraw",
-      sender: user.sui_address,
-      refs: { venue },
-    });
-
-    const kind = await tx.build({
-      client: sui() as never,
-      onlyTransactionKind: true,
-    });
-
-    return NextResponse.json({
-      transactionKindB64: toBase64(kind),
-      venue,
-      amount: amountNum ?? null,
-      withdrawAll: !amountNum,
-      receiptNonce: nonce,
-    });
-  } catch (err) {
+  const winner = await Promise.race([work, outerTimeout]);
+  if (outerTimer) clearTimeout(outerTimer);
+  if (winner === TIMEOUT_MARKER) {
+    console.warn(
+      `[earn/withdraw-prepare] outer cap fired at ${OUTER_CAP_MS}ms (user=${userId}, venue=${venue})`
+    );
     return NextResponse.json(
-      { error: "build failed: " + (err as Error).message },
-      { status: 500 }
+      {
+        error:
+          "Withdraw is taking longer than usual — try again in a few seconds.",
+      },
+      { status: 504 }
     );
   }
+  return winner as NextResponse;
 }

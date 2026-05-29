@@ -4,12 +4,13 @@ import {
   mobileSigningContext,
   isMobileRequest,
 } from "@/lib/mobile-sessions";
-import { userById } from "@/lib/db";
+import { userById, enqueueRoundup } from "@/lib/db";
 import { assembleZkLoginSignature, readSigningCookie } from "@/lib/zksigner";
 import { sui } from "@/lib/sui";
 import { fromBase64 } from "@mysten/sui/utils";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
 import { requireAppAttestStructural } from "@/lib/app-attest";
+import { takePendingRoundup } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
 
@@ -109,6 +110,32 @@ export async function POST(req: Request) {
         { error: "no digest in broadcast response" },
         { status: 500 }
       );
+    }
+
+    // Deferred Spend-and-Save — fire-and-forget. The gasless rail
+    // can't co-bundle the NAVI supply (PTB allowlist), so
+    // sponsor-prepare stashed the rounded-up USDsui amount under
+    // this user; we now hand it to the `roundup_queue` for the cron
+    // worker to drain. Done AFTER we have a confirmed digest so we
+    // never enqueue a save that didn't actually accompany a send.
+    //
+    // Two layers of detachment intentionally:
+    //   1. `takePendingRoundup` is synchronous (in-memory map).
+    //   2. `enqueueRoundup` is awaited inside a void-returning IIFE so
+    //      the response isn't gated on the DB write — a queue insert
+    //      failure must not surface as a failed send.
+    const pendingRoundupUsd = takePendingRoundup(userId);
+    if (pendingRoundupUsd && pendingRoundupUsd > 0) {
+      void (async () => {
+        try {
+          await enqueueRoundup({ userId, amountUsd: pendingRoundupUsd });
+        } catch (e) {
+          console.warn(
+            `[send/gasless-submit] enqueueRoundup failed (user=${userId}, amount=${pendingRoundupUsd}):`,
+            (e as Error).message
+          );
+        }
+      })();
     }
 
     // Rewards earn — fire-and-forget, same shape as sponsor-execute.
