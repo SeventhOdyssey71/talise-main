@@ -1,5 +1,9 @@
 import SwiftUI
 import CoreText
+import UIKit
+#if DEBUG
+import ObjectiveC.runtime
+#endif
 
 @main
 struct TaliseApp: App {
@@ -9,6 +13,19 @@ struct TaliseApp: App {
 
     init() {
         #if DEBUG
+        // KeyboardInputWarningMitigation.install() — REMOVED (2026-05-29).
+        // The swizzle tried to silence the benign
+        // "assistantHeight == 72" UIKit constraint warning, but
+        // method_exchangeImplementations on UITextField/UITextView's
+        // inherited didMoveToWindow swapped the IMP on the UIView
+        // Method object, which is shared with EVERY UIView subclass —
+        // including UIKit's private UITransitionView. At app launch
+        // when UIKit created a UITransitionView and called
+        // didMoveToWindow, dispatch went into our taliseDidMoveToWindow
+        // selector, which UITransitionView does not implement →
+        // NSInvalidArgumentException → crash. The warning is benign and
+        // documented in docs/ios-known-warnings.md; we'd rather see it
+        // in the console than crash the app.
         // Silence URLSession's chatty CFNetwork / Network.framework
         // logs in dev builds — specifically the
         //   `nw_connection_copy_connected_local_endpoint_block_invoke
@@ -34,7 +51,9 @@ struct TaliseApp: App {
         // can see exactly which vector diverged.
         let failures = Blake2b.runSelfTest()
         if failures.isEmpty {
-            print("[zk] Blake2b self-test: OK")
+            if AppConfig.shared.verboseConsoleLogging {
+                print("[zk] Blake2b self-test: OK")
+            }
         } else {
             print("[zk] Blake2b self-test FAILED — signing will reject on chain:")
             for f in failures { print("    \(f)") }
@@ -86,6 +105,13 @@ struct TaliseApp: App {
         }
     }
 }
+
+// KeyboardInputWarningMitigation removed (2026-05-29). See the
+// comment at the install() call site for the full rationale. The
+// "assistantHeight == 72" warning is benign per
+// docs/ios-known-warnings.md; the swizzle was crashing the app
+// at launch because method_exchangeImplementations on an
+// inherited Method swaps the IMP class-wide on UIView.
 
 private struct AppLockOverlay: View {
     var body: some View {
