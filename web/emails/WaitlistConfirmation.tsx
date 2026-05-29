@@ -283,9 +283,9 @@ export function WaitlistConfirmation({
                             color: COLORS.fgMuted,
                           }}
                         >
-                          When you sign in on iOS with this email, your
-                          handle will be ready and instantly work as a
-                          sendable destination.
+                          When you sign in with this email — on iOS or
+                          the web — your handle will be ready and
+                          instantly work as a sendable destination.
                         </Text>
                       </td>
                     </tr>

@@ -121,6 +121,25 @@ export async function GET(req: Request) {
       user.salt = salt;
     }
 
+    // Waitlist handle bind. The zkLogin wallet is the same address on
+    // web and iOS (deterministic from googleSub + salt), so a user can
+    // claim on the waitlist and complete sign-in on EITHER surface to
+    // trigger the on-chain mint. This mirrors the hook in
+    // /api/auth/mobile/exchange. Wrapped + the helper internally
+    // swallows errors so sign-in cannot wedge.
+    try {
+      const { bindWaitlistHandleIfAny } = await import("@/lib/handle-claim");
+      await bindWaitlistHandleIfAny({
+        userId: user.id,
+        userEmail: user.email,
+        suiAddress: user.sui_address,
+      });
+    } catch (e) {
+      console.warn(
+        `[callback/handle-bind] ${user.email}: ${(e as Error).message}`
+      );
+    }
+
     await setSessionCookie(user.id);
     // Stash the JWT + salt server-side so /api/sign can call the prover
     // without ever exposing them to client JS.
