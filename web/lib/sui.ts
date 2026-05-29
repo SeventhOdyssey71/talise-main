@@ -187,6 +187,19 @@ export function sui(): SuiGrpcClient {
   return _grpc;
 }
 
+// Eagerly construct the proxy + template gRPC channel at module load so the
+// first request handler doesn't pay the ~50–150ms one-time cost of building
+// the template client + the fallback proxy on the hot path. Safe: `sui()` is
+// idempotent and synchronous (no network); the fallback chain only ever
+// fires on actual RPC method calls. Wrapped in try/catch so a missing env
+// in a build-time import doesn't blow up the whole module — the real call
+// will throw clearly later if endpoints are still misconfigured.
+try {
+  void sui();
+} catch {
+  /* deferred to first real call */
+}
+
 // JSON-RPC was removed in Phase 5 of the Sui RPC migration. All point reads,
 // executions, and lookups go through `sui()` (gRPC). Paginated history and
 // multi-entity reads go through `suiGraphQL()` in `./sui-graphql.ts`. See
