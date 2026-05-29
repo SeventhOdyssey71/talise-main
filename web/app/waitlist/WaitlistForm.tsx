@@ -1,13 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { triggerOauthSignIn } from "@/lib/zkclient";
 
 /**
  * Waitlist form. After the email-success state, we transition to a
  * second screen where the user can claim their `<handle>.talise.sui`
- * subname. The claim is reserved in DB at this point; the actual
- * SuiNS mint happens at first iOS sign-in via
- * `bindWaitlistHandleIfAny`.
+ * subname.
+ *
+ * New (post-claim-rework) flow:
+ *   email submit → "needsSignIn" (Google CTA) → /auth/callback bounces
+ *   back to /waitlist with a live session → "claim" form → atomic
+ *   on-chain SuiNS mint. The handle is on chain by the time the
+ *   success card renders.
+ *
+ * Welcome-back (existing handle) and already-signed-in users skip
+ * straight past the OAuth CTA. See the `useEffect` race below: we
+ * call /api/auth/me and /api/waitlist/handle/existing in parallel and
+ * branch off the first relevant signal.
  */
 type EmailStatus = "idle" | "submitting" | "ok" | "dup" | "error";
 
@@ -25,6 +35,12 @@ type ClaimStatus =
   | "claimed"
   | "error"
   | "skipped";
+
+type ClaimSuccess = {
+  handle: string;
+  mintDigest?: string;
+  suiAddress?: string;
+};
 
 export function WaitlistForm() {
   const [email, setEmail] = useState("");
@@ -145,44 +161,100 @@ function HandleClaim({ email }: { email: string }) {
   const [handle, setHandle] = useState("");
   const [avail, setAvail] = useState<HandleAvailability>({ kind: "idle" });
   const [claim, setClaim] = useState<ClaimStatus>("idle");
-  const [claimedHandle, setClaimedHandle] = useState<string | null>(null);
+  const [claimSuccess, setClaimSuccess] = useState<ClaimSuccess | null>(null);
   const [claimError, setClaimError] = useState("");
-  // Welcome-back: if this email is already a Talise user with a bound
-  // handle (admin testers, returning beta users), skip the claim UI
-  // entirely. `phase` gates the whole render.
-  const [phase, setPhase] = useState<"checking" | "existing" | "claim">("checking");
+  // Phases:
+  //   • checking      — racing /api/auth/me and /api/waitlist/handle/existing
+  //   • existing      — welcome-back: this email already owns a handle
+  //   • needsSignIn   — caller is not signed in; show Google CTA
+  //   • claim         — caller is signed in; show the handle input + Claim
+  const [phase, setPhase] = useState<
+    "checking" | "existing" | "needsSignIn" | "claim"
+  >("checking");
   const [existingHandle, setExistingHandle] = useState<string | null>(null);
+  const [signInPending, setSignInPending] = useState(false);
   const seqRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch("/api/waitlist/handle/existing", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
-        });
+        // Race both probes — neither one needs the other's result. The
+        // decision tree:
+        //   1. existing handle → "existing" (welcome-back)
+        //   2. signed in       → "claim"
+        //   3. neither         → "needsSignIn"
+        const [existingRes, meRes] = await Promise.all([
+          fetch("/api/waitlist/handle/existing", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email }),
+          }).catch(() => null),
+          fetch("/api/auth/me", { cache: "no-store" }).catch(() => null),
+        ]);
         if (cancelled) return;
-        const body = (await r.json().catch(() => ({}))) as {
-          existing?: { handle: string } | null;
-        };
-        if (body.existing?.handle) {
-          setExistingHandle(body.existing.handle);
+
+        const existingBody = existingRes
+          ? ((await existingRes.json().catch(() => ({}))) as {
+              existing?: { handle: string } | null;
+            })
+          : {};
+        if (existingBody.existing?.handle) {
+          setExistingHandle(existingBody.existing.handle);
           setPhase("existing");
-        } else {
-          setPhase("claim");
+          return;
         }
+
+        const meBody = meRes
+          ? ((await meRes.json().catch(() => ({}))) as {
+              signedIn?: boolean;
+              email?: string;
+              handle?: string | null;
+            })
+          : {};
+        // If the session belongs to a different email than the one
+        // typed in step 1, still require sign-in so the claim route
+        // doesn't 403 the user. The needsSignIn CTA will switch the
+        // Google account picker open.
+        if (
+          meBody.signedIn &&
+          (meBody.email ?? "").toLowerCase() === email.toLowerCase()
+        ) {
+          // If they already own a handle via the session row, treat
+          // as welcome-back even if the waitlist row is stale.
+          if (meBody.handle) {
+            setExistingHandle(meBody.handle);
+            setPhase("existing");
+            return;
+          }
+          setPhase("claim");
+          return;
+        }
+        setPhase("needsSignIn");
       } catch {
-        // Fall through to claim UI on any error — better to over-show
-        // the claim screen than to hide it incorrectly.
-        if (!cancelled) setPhase("claim");
+        // Fall through to needsSignIn — safer than dropping straight
+        // into claim and hitting a 401 mid-flow.
+        if (!cancelled) setPhase("needsSignIn");
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [email]);
+
+  async function onSignIn() {
+    if (signInPending) return;
+    setSignInPending(true);
+    try {
+      // Stash the return-to so /auth/callback drops the user back
+      // here, where the page reloads, /api/auth/me reports signedIn,
+      // and the form flips to phase="claim" automatically.
+      await triggerOauthSignIn({ returnTo: "/waitlist" });
+    } catch (err) {
+      setSignInPending(false);
+      setClaimError((err as Error).message);
+    }
+  }
 
   useEffect(() => {
     if (phase !== "claim") return;
@@ -259,12 +331,26 @@ function HandleClaim({ email }: { email: string }) {
       const body = (await r.json().catch(() => ({}))) as {
         ok?: boolean;
         handle?: string;
+        mintDigest?: string;
+        suiAddress?: string;
         error?: string;
       };
+      if (r.status === 401) {
+        // Session expired between mount and claim — bounce back to
+        // sign-in. Rare in practice (we just checked /api/auth/me on
+        // mount), but the failure is recoverable.
+        setPhase("needsSignIn");
+        setClaim("idle");
+        return;
+      }
       if (!r.ok || !body.ok || !body.handle) {
         throw new Error(body.error || "Couldn't claim that handle.");
       }
-      setClaimedHandle(body.handle);
+      setClaimSuccess({
+        handle: body.handle,
+        mintDigest: body.mintDigest,
+        suiAddress: body.suiAddress,
+      });
       setClaim("claimed");
     } catch (err) {
       setClaim("error");
@@ -285,6 +371,41 @@ function HandleClaim({ email }: { email: string }) {
     );
   }
 
+  // Sign-in gate. The user is on the waitlist but is not signed in
+  // yet — show the Google CTA. After OAuth, /auth/callback drops them
+  // back at /waitlist with a session cookie and the form auto-advances
+  // to phase="claim".
+  if (phase === "needsSignIn") {
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="px-1 text-center">
+          <div className="text-[15px] font-medium text-white">
+            Sign in to claim your handle.
+          </div>
+          <div className="mt-1 text-[12px] leading-[1.55] text-white/55">
+            Talise creates a Sui wallet from your Google account. Your
+            handle mints to that wallet the moment you click Claim.
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onSignIn}
+          disabled={signInPending}
+          className="whitespace-nowrap rounded-full bg-white px-5 py-3 text-[14px] font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {signInPending ? "Opening Google…" : "Sign in with Google"}
+        </button>
+
+        {claimError && (
+          <div className="px-4 text-center text-[12px] text-[#F0A99E]" role="alert">
+            {claimError}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // Welcome-back: this email already owns a *.talise.sui name (admin
   // testers, returning beta users). Skip the claim flow entirely — they
   // just need to sign in to access the handle they already have.
@@ -299,14 +420,17 @@ function HandleClaim({ email }: { email: string }) {
           Welcome back. You already have {existingHandle}@talise.sui.
         </div>
         <div className="text-[12px] text-white/55">
-          Sign in on iOS with{" "}
+          Open Talise on iOS with{" "}
           <span className="text-white/75">{email}</span> to use it right away.
         </div>
       </div>
     );
   }
 
-  if (claim === "claimed" && claimedHandle) {
+  if (claim === "claimed" && claimSuccess) {
+    const explorerUrl = claimSuccess.mintDigest
+      ? `https://suivision.xyz/txblock/${claimSuccess.mintDigest}`
+      : null;
     return (
       <div
         className="flex flex-col items-center gap-1.5 rounded-2xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/[0.06] px-6 py-5 text-center"
@@ -314,14 +438,22 @@ function HandleClaim({ email }: { email: string }) {
         aria-live="polite"
       >
         <div className="text-[15px] font-medium text-white">
-          {claimedHandle}@talise.sui is reserved for you.
+          {claimSuccess.handle}@talise.sui is yours, on chain.
         </div>
         <div className="text-[12px] leading-[1.55] text-white/55">
-          It mints to your wallet on-chain the first time you sign in
-          with{" "}
-          <span className="text-white/75">{email}</span>. Until then it's held
-          off-chain in your name.
+          Try it now in the app — anyone can send to{" "}
+          <span className="text-white/75">{claimSuccess.handle}@talise.sui</span>.
         </div>
+        {explorerUrl && (
+          <a
+            href={explorerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 text-[11px] text-white/45 underline-offset-2 hover:text-white/70 hover:underline"
+          >
+            View mint on SuiVision
+          </a>
+        )}
       </div>
     );
   }
@@ -353,7 +485,7 @@ function HandleClaim({ email }: { email: string }) {
           Now claim your @handle.
         </div>
         <div className="mt-1 text-[12px] text-white/55">
-          It will be ready the moment you sign in.
+          Mints on chain to your wallet the moment you click Claim.
         </div>
       </div>
 
