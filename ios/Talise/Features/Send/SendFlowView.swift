@@ -17,6 +17,13 @@ struct SendFlowView: View {
 
     @State private var path: [SendStep] = []
     @State private var draft = SendDraft(currency: CurrencySettings.shared.current)
+    /// Flips true after one successful consolidation attempt in this
+    /// session. If a subsequent send STILL fails ACCUMULATOR_UNDERFUNDED
+    /// (chain backlog: the consolidation tx was accepted by Onara but
+    /// hasn't been included in a block yet, common during a Sui mainnet
+    /// stall), we route to .failure instead of looping back to
+    /// .consolidationOffered. Resets after a successful send.
+    @State private var consolidationAttemptedThisSession = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -237,6 +244,10 @@ struct SendFlowView: View {
             // Swap the in-flight page for the success page. We replace
             // rather than push so the back-stack doesn't let the user
             // wander back into a stale "Sending…" screen.
+            // Real success — reset the consolidation flag so the next
+            // send (e.g. a future external Coin arrival) can offer the
+            // flow fresh if needed.
+            consolidationAttemptedThisSession = false
             path = [.recipient, .review, .complete]
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
             // Bearer predates the Poseidon-nonce binding; sign the user
@@ -247,16 +258,37 @@ struct SendFlowView: View {
             session.signOut()
         } catch let ZkLoginCoordinator.CoordinatorError.structured(message, code, hints)
             where code == "ACCUMULATOR_UNDERFUNDED"
-                && (hints["canConsolidate"] as? Bool) == true {
+                && (hints["canConsolidate"] as? Bool) == true
+                && !consolidationAttemptedThisSession {
             // Special-case: user's USDsui is in Coin objects, not the
             // accumulator. Offer the one-tap "Enable gasless balance"
             // flow instead of dropping them on the failure screen.
             // SendConsolidationOfferView reads `coinBalanceMicros` to
             // show the amount that will move.
+            //
+            // Guard: only show the offer if we HAVEN'T already attempted
+            // consolidation this session. Otherwise, hitting
+            // ACCUMULATOR_UNDERFUNDED twice in a row means the chain
+            // accepted our consolidation tx but hasn't included it yet
+            // (typical during a Sui mainnet stall) and looping back to
+            // the offer creates an infinite spinner-loop. Route to
+            // .failure with a network-aware message instead.
             draft.errorMessage = message
             draft.coinBalanceMicros = hints["coinBalance"] as? String
             draft.accumulatorBalanceMicros = hints["accumulatorBalance"] as? String
             path = [.recipient, .review, .consolidationOffered]
+        } catch let ZkLoginCoordinator.CoordinatorError.structured(_, code, _)
+            where code == "ACCUMULATOR_UNDERFUNDED"
+                && consolidationAttemptedThisSession {
+            // Second ACCUMULATOR_UNDERFUNDED in a row after a successful
+            // consolidation submit — chain backlog (most likely a Sui
+            // mainnet stall, but could also be normal validator
+            // congestion). The consolidation tx will land when the
+            // chain resumes; the user just needs to wait + retry.
+            draft.errorMessage =
+                "Your consolidation is in the mempool but Sui hasn't included it yet. "
+                + "Wait a minute and try again. Your funds are safe."
+            path = [.recipient, .review, .failure]
         } catch {
             // Any thrown error means the send did NOT land on chain:
             // 4xx like ACCUMULATOR_UNDERFUNDED from sponsor-prepare,
@@ -294,6 +326,11 @@ struct SendFlowView: View {
             // again — the accumulator may now be fully funded.
             if result.alreadyGasless || !result.digest.isEmpty {
                 draft.errorMessage = nil
+                // Flag this session so that if the resubmit hits
+                // ACCUMULATOR_UNDERFUNDED again (chain hasn't included
+                // our consolidation yet), we surface a network-aware
+                // failure instead of looping back to the offer.
+                consolidationAttemptedThisSession = true
                 let intentLabel = "Send \(draft.currency.symbol)\(draft.rawAmount)"
                 await performSend(intentLabel: intentLabel, resolved: resolved)
                 return
