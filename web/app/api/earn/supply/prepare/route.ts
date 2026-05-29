@@ -100,6 +100,15 @@ export async function POST(req: Request) {
       onlyTransactionKind: true,
     });
 
+    // Verification log — per the 2026-05-29 sponsorship-matrix directive.
+    // Prepare returns transactionKindB64; the gasOwner + gasPrice get set
+    // in /api/zk/sponsor (which logs the full `mode=sponsored sponsor=<addr>
+    // gasPrice=<n>` shape). Emitting `mode=sponsored` here lets us greppably
+    // confirm the prepare→sponsor handoff for the earn supply leg.
+    console.log(
+      `[earn/supply/prepare] mode=sponsored venue=${venue} amount=${amount}`
+    );
+
     return NextResponse.json({
       transactionKindB64: toBase64(kind),
       venue,

@@ -98,6 +98,14 @@ export async function POST(req: Request) {
     console.log(
       `[zk/sponsor] status+price(par)=${tStatus - t0}ms · tx.build=${tBuild - tStatus}ms · total=${tBuild - t0}ms`
     );
+    // Verification log — uniform shape across every sponsored leg so
+    // production routing (earn supply / withdraw / withdraw-earned, plus
+    // any future sponsored consumer of this endpoint) is greppable as
+    // `mode=sponsored sponsor=<addr> gasPrice=<n>`. Per the
+    // 2026-05-29 sponsorship-matrix directive.
+    console.log(
+      `[zk/sponsor] mode=sponsored sponsor=${sponsor} gasPrice=${gasPrice}`
+    );
     return NextResponse.json({ bytes: toBase64(bytes) });
   } catch (err) {
     // Forward the upstream message so iOS can surface the real failure
