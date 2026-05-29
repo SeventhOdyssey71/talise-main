@@ -262,7 +262,7 @@ export function WaitlistConfirmation({
                             letterSpacing: "0.08em",
                           }}
                         >
-                          Your reserved handle
+                          Your handle, on chain
                         </Text>
                         <Text
                           style={{
@@ -283,9 +283,9 @@ export function WaitlistConfirmation({
                             color: COLORS.fgMuted,
                           }}
                         >
-                          When you sign in with this email — on iOS or
-                          the web — your handle will be ready and
-                          instantly work as a sendable destination.
+                          Minted to your Sui wallet. Anyone can send to
+                          it right now. Open Talise on iOS with this
+                          email to use it.
                         </Text>
                       </td>
                     </tr>

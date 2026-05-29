@@ -230,16 +230,20 @@ export async function getExistingUserHandle(
 }
 
 /**
- * Sign-in hook. Called from the mobile exchange route right after the
- * `users` row + Sui address exist. Idempotent — re-running for the
- * same email is a no-op once `handle_bound_user_id` is set.
+ * LEGACY: Sign-in hook for waitlist rows that were claimed BEFORE the
+ * sign-in-required claim rework. New post-rework claims mint
+ * synchronously inside `/api/waitlist/handle/claim` and write
+ * `handle_bound_user_id` at the same time — for those rows this
+ * function short-circuits to `{ bound: false }` and is a no-op.
+ *
+ * We keep the hook wired into both `/auth/callback` (web) and
+ * `/api/auth/mobile/exchange` (iOS) so any leftover legacy rows
+ * (`claimed_handle IS NOT NULL AND handle_bound_user_id IS NULL`)
+ * replay on the next sign-in. Idempotent.
  *
  * Short-circuit: if `users.talise_username` is already populated for
  * this user, the admin/tester already owns a handle and we do NOT
- * mint over the top of it. The waitlist row stays as-is (so we still
- * know they "claimed" something during signup) but no on-chain action
- * is taken — protects against the admin-tester case where someone
- * with an existing handle joins the waitlist with a fresh name.
+ * mint over the top of it.
  *
  * Failure modes (mint races, RPC errors) are logged but never thrown:
  * sign-in MUST NOT block on this. Unbound rows can be replayed by
