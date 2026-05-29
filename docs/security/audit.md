@@ -98,7 +98,22 @@ in sync.
    pass).** Keeps a compromised bearer from chain-broadcasting more than
    30 sponsored txs/hour.
 
-## 6. P1 backlog (top 5)
+## 6. Offramp env vars (Paga / NGN bank payouts)
+
+The Paga offramp surface (`/api/offramp/paga/*`) reads the following env
+vars. Names + roles only — secrets live in Vercel project env, never in
+this doc.
+
+| Variable                    | Role                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------ |
+| `PAGA_BASE_URL`             | Paga API base. Sandbox `https://beta.mypaga.com`, prod `https://www.mypaga.com`.           |
+| `PAGA_CLIENT_ID`            | Paga `principal` (merchant id / public key) from the Paga business dashboard.              |
+| `PAGA_PASSWORD`             | Paga `credentials` (secret key) — paired with `PAGA_CLIENT_ID` on every request.           |
+| `PAGA_HMAC_KEY`             | Symmetric key used to HMAC-SHA512 each request's hashed-field block.                       |
+| `TALISE_OFFRAMP_TREASURY`   | Sui address that USDsui is debited INTO when a user confirms a bank payout.                |
+| `OFFRAMP_SPREAD_BPS`        | Spread (in basis points) applied to mid-market FX on every quote. Default 150 = 1.5%.      |
+
+## 7. P1 backlog (top 5)
 
 1. **CSP.** Land a strict Content-Security-Policy in `middleware.ts`.
    Requires per-route audit of inline scripts/styles, third-party
