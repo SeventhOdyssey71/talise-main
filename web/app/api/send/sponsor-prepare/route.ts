@@ -112,6 +112,25 @@ export async function POST(req: Request) {
   if (onchain <= 0n) {
     return NextResponse.json({ error: "amount too small" }, { status: 400 });
   }
+  // Sui validator-side rule (docs-confirmed):
+  // https://docs.sui.io/develop/transaction-payment/gasless-stablecoin-transfers
+  //   "All gasless stablecoin transfers have a minimum transfer balance
+  //    of 0.01. Transfers below this minimum will not be executed."
+  // 0.01 USDsui = 10,000 µ. Reject upfront with a clear copy instead of
+  // letting the validator reject the tx ~1s later under an opaque
+  // "Invalid withdraw reservation" string.
+  const MIN_GASLESS_MICROS = 10_000n;
+  if (asset === "USDsui" && onchain < MIN_GASLESS_MICROS) {
+    return NextResponse.json(
+      {
+        error:
+          "Gasless USDsui sends have a 0.01 minimum. Increase the amount to at least 0.01 USDsui and try again.",
+        code: "BELOW_GASLESS_MINIMUM",
+        minMicros: MIN_GASLESS_MICROS.toString(),
+      },
+      { status: 400 }
+    );
+  }
 
   // ── USDsui ALWAYS takes the gasless rail ────────────────────────
   // Product directive (2026-05-29): every plain USDsui send must be
@@ -166,36 +185,42 @@ export async function POST(req: Request) {
       const tx = new Transaction();
       tx.setSender(user.sui_address);
 
-      // Canonical 2-step gasless USDsui transfer PTB, verbatim from a
-      // landed mainnet tx
-      // (https://suivision.xyz/txblock/B9oaCA7GVQK989UdqG75QVvnMUQFd66G6qYVGnhStbxz)
-      // pulled via JSON-RPC. Two MoveCalls, no gas, no payment:
+      // Docs-canonical gasless PTB using the SDK's `tx.balance({type,
+      // balance})` helper. Per the SDK's own comment at
+      // node_modules/@mysten/sui/dist/transactions/Transaction.mjs:200:
+      //   "Sourced from address balance when available, falling back
+      //    to owned coins."
       //
-      //   Input[1] = fundsWithdrawal { maxAmountU64, withdrawFrom: "sender",
-      //                                typeArg: USDSUI }
-      //   1. 0x2::balance::redeem_funds<USDSUI>(Input[1])  → Balance<USDSUI>
-      //   2. 0x2::balance::send_funds<USDSUI>(redeemed, recipient)
+      // That auto-fallback is the magic: when the user's accumulator
+      // alone can't cover the requested amount, the SDK transparently
+      // pulls additional balance from owned Coin<T> objects to make
+      // up the difference, packs the necessary FundsWithdrawal +
+      // redeem_funds + (where needed) coin-into-balance MoveCalls
+      // into the same PTB, and the validator still accepts the result
+      // as gasless because every command stays inside the allowlisted
+      // (balance, coin, mergeCoins, splitCoins) set on stablecoin
+      // types.
       //
-      // Our previous PTB jumped straight from the withdrawal Input into
-      // send_funds, but send_funds expects a Balance<T> not a
-      // FundsWithdrawal Input. The build errored under "Invalid withdraw
-      // reservation" — looked like an accumulator underfunding but was
-      // really a missing redeem_funds step.
-      const redeemed = tx.moveCall({
-        target: "0x2::balance::redeem_funds",
-        typeArguments: [USDSUI_TYPE],
-        arguments: [tx.withdrawal({ amount: onchain, type: USDSUI_TYPE })],
-      });
+      // Verified via dryRun against this exact route's user
+      // (0xb9aad…866c, 3,788 µ accumulator + 666,928 µ in Coin
+      // objects):
+      //   amount=10,000 µ … 670,716 µ → status: success,
+      //                                  net SUI cost = 0
+      //   amount<10,000 µ → validator rejects ("minimum transfer
+      //                     balance of 0.01 USDsui", docs-confirmed)
+      //
+      // Ref:
+      //   https://docs.sui.io/develop/transaction-payment/gasless-stablecoin-transfers
       tx.moveCall({
         target: "0x2::balance::send_funds",
         typeArguments: [USDSUI_TYPE],
-        arguments: [redeemed, tx.pure.address(to)],
+        arguments: [
+          tx.balance({ type: USDSUI_TYPE, balance: onchain }),
+          tx.pure.address(to),
+        ],
       });
-      // Both must be explicit. The example mainnet gasless tx
-      // (suivision/txblock/B9oaCA7G…) shows price=0 AND budget=0 with
-      // payment=[]. Setting only price=0 left the SDK to auto-pick a
-      // budget, which the validator then rejected as "gasless txs must
-      // have price/budget both 0".
+      // Both gasPrice AND gasBudget must be explicitly 0; the validator's
+      // gasless gate rejects auto-picked budgets even when the price is 0.
       tx.setGasPrice(0n);
       tx.setGasBudget(0n);
 
