@@ -166,30 +166,38 @@ export async function POST(req: Request) {
       const tx = new Transaction();
       tx.setSender(user.sui_address);
 
-      // Canonical Sui-docs pattern for gasless stablecoin transfer:
-      //   0x2::balance::send_funds<T>(Balance<T>, address)
-      // The first arg is a `Balance<T>` minted by `tx.withdrawal({ amount,
-      // type })` which pulls the amount directly from the sender's
-      // Address Balance accumulator. Using `0x2::coin::send_funds` (an
-      // older internal primitive that operates on a Coin<T> wrapper) is
-      // NOT on the validators' gasless allowlist — submissions without
-      // gas payment get rejected, which is exactly the silent regression
-      // that kept landing iOS users on the sponsored path.
+      // Canonical 2-step gasless USDsui transfer PTB, verbatim from a
+      // landed mainnet tx
+      // (https://suivision.xyz/txblock/B9oaCA7GVQK989UdqG75QVvnMUQFd66G6qYVGnhStbxz)
+      // pulled via JSON-RPC. Two MoveCalls, no gas, no payment:
       //
-      // Ref: https://docs.sui.io/develop/transaction-payment/gasless-stablecoin-transfers
+      //   Input[1] = fundsWithdrawal { maxAmountU64, withdrawFrom: "sender",
+      //                                typeArg: USDSUI }
+      //   1. 0x2::balance::redeem_funds<USDSUI>(Input[1])  → Balance<USDSUI>
+      //   2. 0x2::balance::send_funds<USDSUI>(redeemed, recipient)
+      //
+      // Our previous PTB jumped straight from the withdrawal Input into
+      // send_funds, but send_funds expects a Balance<T> not a
+      // FundsWithdrawal Input. The build errored under "Invalid withdraw
+      // reservation" — looked like an accumulator underfunding but was
+      // really a missing redeem_funds step.
+      const redeemed = tx.moveCall({
+        target: "0x2::balance::redeem_funds",
+        typeArguments: [USDSUI_TYPE],
+        arguments: [tx.withdrawal({ amount: onchain, type: USDSUI_TYPE })],
+      });
       tx.moveCall({
         target: "0x2::balance::send_funds",
         typeArguments: [USDSUI_TYPE],
-        arguments: [
-          tx.withdrawal({ amount: onchain, type: USDSUI_TYPE }),
-          tx.pure.address(to),
-        ],
+        arguments: [redeemed, tx.pure.address(to)],
       });
-      // gRPC + GraphQL clients auto-detect gasless eligibility during
-      // simulate and set gasPrice/gasBudget to 0. JSON-RPC clients
-      // require this manual setGasPrice(0). Our `sui()` proxy is gRPC,
-      // so this is belt-and-suspenders but harmless.
+      // Both must be explicit. The example mainnet gasless tx
+      // (suivision/txblock/B9oaCA7G…) shows price=0 AND budget=0 with
+      // payment=[]. Setting only price=0 left the SDK to auto-pick a
+      // budget, which the validator then rejected as "gasless txs must
+      // have price/budget both 0".
       tx.setGasPrice(0n);
+      tx.setGasBudget(0n);
 
       const bytes = await tx.build({ client: client as never });
       const tBuild = Date.now();
