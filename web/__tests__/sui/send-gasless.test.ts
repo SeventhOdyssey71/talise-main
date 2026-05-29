@@ -236,27 +236,27 @@ describe("/api/send/sponsor-prepare (gasless branch, PREPARE only)", () => {
     expect(json.to).toBe(RECIPIENT_ADDR);
   });
 
-  it("small USDsui amount (0.001) succeeds — route has no min threshold above onchain > 0", async () => {
-    // Documenting the boundary: the route validates `amountNum > 0`
-    // and `onchain > 0` where `onchain = round(amount * 10**6)`.
-    // 0.001 USDsui = 1000 micro-units → passes both checks. There is
-    // NO higher minimum (e.g. no $0.01 floor) in the gasless route.
-    // If a future change introduces one, this test will start failing
-    // and the contract needs to be re-documented here.
+  it("small USDsui amount (0.001) is rejected — Sui's gasless rail has a 0.01 USDsui minimum", async () => {
+    // Sui validator-side rule (docs-confirmed):
+    //   "All gasless stablecoin transfers have a minimum transfer
+    //    balance of 0.01. Transfers below this minimum will not be
+    //    executed."
+    // 0.01 USDsui = 10,000 µ. The route rejects upfront with a clear
+    // copy (BELOW_GASLESS_MINIMUM) instead of letting the validator
+    // reject the tx ~1s later under an opaque "Invalid withdraw
+    // reservation" string.
     const res = await POST(
       buildReq({ to: RECIPIENT_ADDR, amount: 0.001, asset: "USDsui" })
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
     const json = (await res.json()) as {
-      mode: string;
-      bytes: string;
-      roundupUsd: number;
+      error: string;
+      code: string;
+      minMicros: string;
     };
-
-    expect(json.mode).toBe("gasless");
-    expect(json.roundupUsd).toBe(0);
-    expect(typeof json.bytes).toBe("string");
-    expect(json.bytes.length).toBeGreaterThan(0);
+    expect(json.code).toBe("BELOW_GASLESS_MINIMUM");
+    expect(json.minMicros).toBe("10000");
+    expect(json.error).toMatch(/0\.01/);
   });
 
   // ─── Post 2026-05-29 product-directive tests ────────────────────
