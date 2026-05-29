@@ -109,3 +109,115 @@ The script tests four PTB shapes:
 Each shape prints `BUILD_OK` / `BUILD_ERR` with the validator's
 human-readable rejection string. When the on-chain allowlist is
 expanded, this probe is the fastest way to detect it.
+
+## Proof: coin::send_funds is not gasless for Coin-object holders
+
+Re-probed 2026-05-29 (15:21 UTC) against mainnet, same user. The
+exhaustive 25-shape matrix in `web/scripts/probe-gasless-build.mjs`
+covers SHAPES A through C of the user's directive and adds B5–B11
+composite shapes. Live state at probe time:
+
+- `addressBalance` (USDsui accumulator): 3,788 µ
+- `coinBalance` (sum of legacy `Coin<USDSUI>` objects): 666,928 µ
+  - object `0x5141…7d04c` — 416,928 µ
+  - object `0x1b00…f4809` — 250,000 µ
+- chain identifier: `4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S`
+- epoch: 1142
+
+Verdict per the user's strict definition
+(`effects.status.success === true` AND `gasUsed.computationCost === "0"`
+AND `gasUsed.storageCost === "0"`): **no shape qualifies**. The full
+matrix output:
+
+| shape | result | validator string |
+| --- | --- | --- |
+| `A_balance_send_funds` (1000 µ withdrawal) | BuildErr | `Invalid gasless withdrawal from 0x40381c…2222. Gasless transactions must either use the entire balance, or leave at least 10000 for token type USDSUI. Remaining amount is 2788` |
+| `A_full_balance_send_entire_accumulator` (3788 µ, all) | BuildErr | `Invalid transaction expiration: Transactions must either have address-owned inputs, or a ValidDuring expiration with at most two epochs of validity` |
+| `A_full_balance_send_entire_validduring` (3788 µ + ValidDuring) | BuildErr | `unknown TransactionExpirationKind` (validator rejects the gRPC ValidDuring encoding even when the SDK serializes it correctly) |
+| `B1_coin_send_funds_with_coinWithBalance` | BuildErr | same `Invalid gasless withdrawal` — `coinWithBalance({useGasCoin:false})` routes through the accumulator under the hood |
+| `B2_coin_send_funds_explicit_split_no_merge` | BuildErr | `Transaction resolution failed: InsufficientGas` |
+| `B2m` (mergeCoins prefix) | BuildErr | `InsufficientGas` |
+| `B3_coin_send_funds_auto` (no gasPrice/gasBudget override) | BuildErr | `Unable to perform gas selection due to insufficient SUI balance … to satisfy required budget 213528` (SDK does NOT auto-detect gasless eligibility for `coin::send_funds`, contrary to docs) |
+| `B4_coin_send_funds_direct_grpc_client` (bypass our fallback proxy, fresh `SuiGrpcClient`) | BuildErr | identical to B3 — proves the proxy is not the bottleneck |
+| `B4z` (B4 + explicit `gasPrice(0n) + gasBudget(0n)`) | BuildErr | `InsufficientGas` |
+| `B5_balance_send_funds_from_coin_into_balance` (split + into_balance + send_funds) | BuildErr | `InsufficientGas` |
+| `B6` (B5 + ValidDuring) | BuildErr | `unknown TransactionExpirationKind` |
+| **`B7_coin_send_funds_whole_coin_no_split`** | **BuildOk + simulate success** | `paymentCount: 0`, `computationCost: 1339272`, `storageCost: 0`, `storageRebate: 1339272` — NET zero SUI to user, but `computationCost != 0` fails the strict criterion |
+| `B8_coin_move_split_then_send_funds` (Move-level `0x2::coin::split`) | BuildErr | `Function 0x2::coin::split is not supported in gasless transactions` |
+| `B9_split_send_funds_plus_residue_back` | BuildErr | `InsufficientGas` |
+| `B10_into_balance_split_send_funds` (split @ balance level + residue back) | BuildErr | `InsufficientGas` |
+| `B11` (B10 against smallest coin) | BuildErr | `InsufficientGas` |
+| `C_pay_send`, `C_pay_send_funds`, `C_pay_transfer`, `C_pay_split_and_transfer`, `C_coin_transfer`, `C_coin_send`, `C_transfer_public_transfer` (all with `setGasPrice(0n)`) | BuildErr | `Function 0x2::<module>::<fn> is not supported in gasless transactions` for every candidate — proves the gasless allowlist is small and explicit |
+
+### Key insights from the matrix
+
+1. The validator's gasless allowlist for MoveCall is tiny — only
+   `0x2::balance::send_funds<T>` and `0x2::coin::send_funds<T>` are
+   reachable. Every `0x2::pay::*`, `0x2::coin::{transfer,send,split}`,
+   `0x2::transfer::public_transfer` is explicitly rejected with
+   "Function X is not supported in gasless transactions".
+
+2. The validator's gasless rail rejects ANY PTB that needs allocated
+   storage for an intermediate object. SplitCoins, MergeCoins,
+   coin::into_balance + balance::split, even
+   `coin::send_funds(residue_back_to_self)` — all return
+   `Transaction resolution failed: InsufficientGas`. The input coin's
+   storage rebate only covers the rebate budget for that single
+   primitive call.
+
+3. The ONE shape that simulates `success: true` with `paymentCount: 0`
+   is `B7`: `0x2::coin::send_funds<USDSUI>(WHOLE_COIN, recipient)`.
+   But it sends the ENTIRE Coin object's balance, not an arbitrary
+   amount. For this user with two Coin objects (416,928 µ and 250,000
+   µ), `B7` can only send 416,928 µ or 250,000 µ — not 1,000 µ.
+
+4. The accumulator path (SHAPE A and B1) fails the on-chain "use
+   entire balance OR leave ≥ 10,000 µ" rule because the user holds
+   3,788 µ in the accumulator. ValidDuring is required when the PTB
+   has no address-owned inputs, but the gRPC simulate endpoint
+   currently rejects the `VALID_DURING` enum variant with
+   `unknown TransactionExpirationKind` — a Sui-side bug that prevents
+   even the "use entire balance" path from being reachable from the
+   gRPC client today.
+
+### Verbatim best-candidate dryRun (SHAPE B1)
+
+```
+Error checking transaction input objects: Invalid withdraw reservation:
+Invalid gasless withdrawal from
+0x40381cbee819c90fdcb96c62a28bcce1fffa0289c38c1d18e55c4031a15f2222.
+Gasless transactions must either use the entire balance, or leave at
+least 10000 for token type
+0x44f838219cf67b058f3b37907b655f226153c18e33dfcd0da559a844fea9b1c1::usdsui::USDSUI.
+Remaining amount is 2788
+```
+
+The reservation object `0x40381c…2222` is the user's address-balance
+accumulator slot for USDsui. The rule binds at the validator's
+`check_gasless_transaction_inputs` stage — before any move execution
+— so it cannot be sidestepped at the PTB level.
+
+### Implication for `sponsor-prepare/route.ts`
+
+Per the user's directive ("ONLY then is sponsored fallback acceptable,
+and even then we ship it with `mode: \"sponsored-coin-fallback\"` and
+a TODO link to a follow-up"), the route now:
+
+1. Still attempts the canonical gasless `balance::send_funds` PTB
+   first. When the user's accumulator is funded above the 10k µ
+   remainder rule (or covers the entire-balance exception), this path
+   succeeds and returns `mode: "gasless"`.
+2. On `withdraw reservation` / `accumulator` / `InsufficientGas`
+   errors, falls through to the existing Payment Kit sponsored branch
+   and returns `mode: "sponsored-coin-fallback"` (distinct from regular
+   `"sponsored"` so iOS and analytics can tell the two apart).
+3. On any other build error, returns 400 `GASLESS_BUILD_FAILED` so
+   real bugs surface loudly.
+
+TODO(gasless-coin-deposit): when Sui adds a public
+`accumulator::deposit` / `coin::join_to_accumulator` entry function,
+re-run `node web/scripts/probe-gasless-build.mjs` to detect allowlist
+inclusion. If it lands, prepend the deposit leg to the canonical
+`balance::send_funds` PTB and drop the sponsored-coin-fallback branch.
+That's the only path to true arbitrary-amount gasless from
+Coin-object balance state.

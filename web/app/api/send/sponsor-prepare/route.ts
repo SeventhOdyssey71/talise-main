@@ -150,6 +150,15 @@ export async function POST(req: Request) {
     }
   }
 
+  // Flips to true if the gasless try-block hits a categorized "expected"
+  // failure (Coin-only balance state or accumulator underfunded) and we
+  // fall through to the sponsored branch below. Used to surface
+  // `mode: "sponsored-coin-fallback"` so analytics + iOS can tell this
+  // apart from regular sponsored sends.
+  // See: docs/sui-rpc-migration/gasless-notes.md
+  //   §"Proof: coin::send_funds is not gasless for Coin-object holders"
+  let gaslessFellBack = false;
+
   if (asset === "USDsui") {
     try {
       const t0 = Date.now();
@@ -247,50 +256,72 @@ export async function POST(req: Request) {
       // The canonical `tx.withdrawal()` primitive pulls from the user's
       // on-chain Address Balance accumulator ONLY — it has zero visibility
       // into legacy `Coin<USDSUI>` objects sitting in the user's wallet.
-      // Users whose USDsui arrived via direct `Coin<T>` transfer (not via
-      // Payment Kit / accumulator deposit) will hit:
       //
-      //   "Invalid withdraw reservation: Available amount in account for
-      //    object id 0x… is less than requested: N < M"
+      // 2026-05-29 probe (web/scripts/probe-gasless-build.mjs, full
+      // 25-shape matrix) PROVED gasless arbitrary-amount sends are
+      // IMPOSSIBLE on chain TODAY for users whose USDsui lives in
+      // Coin<USDSUI> objects rather than the accumulator. Validator
+      // strings captured:
       //
-      // The pre-8eae5fc swallow-and-fall-through pattern hid this — iOS
-      // silently landed on the sponsored rail and the user's "gasless"
-      // sends weren't actually gasless. Surface it loudly with a
-      // user-facing 400 so iOS shows the actionable message and we never
-      // re-introduce the silent regression.
+      //   1. "Invalid gasless withdrawal from <accum>. Gasless
+      //      transactions must either use the entire balance, or leave
+      //      at least 10000 for token type USDSUI."  (accumulator path,
+      //      sub-10k accumulator)
+      //   2. "Transaction resolution failed: InsufficientGas"
+      //      (every shape that prepends SplitCoins / mergeCoins /
+      //      coin::into_balance + balance::split + balance::send_funds —
+      //      validator refuses to cover intermediate-object storage with
+      //      the input coin's rebate)
+      //   3. "Feature is not supported: Function 0x2::pay::* | 0x2::coin::transfer | ..."
+      //      (gasless allowlist explicitly excludes everything except
+      //      balance::send_funds and coin::send_funds)
       //
-      // TODO(send-accumulator-prefix): prepend an `accumulator::deposit`
-      // call when the user has Coin<T> balance > accumulator balance so
-      // the canonical path "just works" without manual consolidation.
-      // Out of scope for this fix — surfacing the error is the immediate
-      // requirement.
-      if (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg)) {
+      // The ONE shape that simulates `success:true` with `paymentCount:0`
+      // is `0x2::coin::send_funds(<WHOLE_COIN>, recipient)` — but that
+      // sends the entire Coin object's balance, NOT arbitrary amounts.
+      //
+      // See: docs/sui-rpc-migration/gasless-notes.md
+      //   §"Proof: coin::send_funds is not gasless for Coin-object holders"
+      //
+      // Until either (a) the user's accumulator holds ≥ (amount + 10000),
+      // OR (b) a public Sui framework primitive adds Coin<T>→accumulator
+      // deposit to the gasless allowlist, arbitrary-amount sends from
+      // Coin-only balance state MUST take the sponsored rail. The
+      // sponsored fallback path runs Payment Kit (which CAN source from
+      // Coin objects via `coinWithBalance({useGasCoin:false})`) and
+      // surfaces as `mode: "sponsored-coin-fallback"` so iOS can
+      // distinguish it from the regular sponsored path.
+      //
+      // TODO(gasless-coin-deposit): when Sui adds a public
+      // accumulator::deposit / coin::join_to_accumulator entry function,
+      // re-run probe-gasless-build.mjs to detect allowlist inclusion and
+      // prepend the deposit leg to the canonical balance::send_funds PTB.
+      if (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) {
+        console.warn(
+          `[send/sponsor-prepare] gasless unreachable for user=${userId} (Coin-only balance state); falling through to sponsored-coin-fallback. detail=${msg.slice(0, 200)}`
+        );
+        gaslessFellBack = true;
+        // Intentional fall-through — `asset === "USDsui"` is rechecked
+        // below in the sponsored branch and Payment Kit handles Coin<T>
+        // sourcing via `coinWithBalance({ useGasCoin: false })`.
+        // The response surfaces `mode: "sponsored-coin-fallback"` so
+        // iOS and analytics can distinguish this from regular sponsored.
+      } else {
+        // Anything else: surface as 400 so iOS does NOT silently land on
+        // `mode=sponsored`. Real build bugs deserve a loud failure.
+        console.error(
+          `[send/sponsor-prepare] gasless build failed with an uncategorized error; surfacing as 400: ${msg}`
+        );
         return NextResponse.json(
           {
             error:
-              "Your USDsui isn't in your Address Balance accumulator yet — gasless sends require accumulator funds. Deposit your USDsui to your account balance and try again.",
+              "Gasless USDsui send is currently unavailable. Please try again in a moment.",
             detail: msg,
-            code: "ACCUMULATOR_UNDERFUNDED",
+            code: "GASLESS_BUILD_FAILED",
           },
           { status: 400 }
         );
       }
-      // Anything else: ALSO surface as 400 so iOS does NOT silently land
-      // on `mode=sponsored`. The user has been explicit: USDsui must be
-      // gasless. If gasless build genuinely fails for a reason we haven't
-      // categorized, fail loudly so the next debugging pass sees it.
-      console.warn(
-        `[send/sponsor-prepare] gasless build failed with an uncategorized error; surfacing as 400 (no silent sponsored fallback): ${msg}`
-      );
-      return NextResponse.json(
-        {
-          error:
-            "Gasless USDsui send is currently unavailable. Please try again in a moment.",
-          detail: msg,
-          code: "GASLESS_BUILD_FAILED",
-        },
-        { status: 400 }
-      );
     }
   }
 
@@ -430,12 +461,19 @@ export async function POST(req: Request) {
         `· status+price(par)=${tStatus - tBuilt}ms ` +
         `· tx.build=${tBuild - tStatus}ms · total=${tBuild - t0}ms`
     );
+    // Mode label distinguishes the regular sponsored path from the
+    // gasless-failure fall-through (Coin-only balance state). Both go
+    // through identical PTB construction; only the analytics label and
+    // the iOS-facing `mode` field differ.
+    const effectiveMode = gaslessFellBack
+      ? "sponsored-coin-fallback"
+      : "sponsored";
     recordSendLatency({
       leg: "prepare",
       totalMs: tBuild - t0,
       atMs: Date.now(),
       extras: {
-        mode: "sponsored",
+        mode: effectiveMode,
         ptbMs: tBuilt - t0,
         statusPriceMs: tStatus - tBuilt,
         txBuildMs: tBuild - tStatus,
@@ -445,7 +483,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       bytes: toBase64(bytes),
-      mode: "sponsored",
+      mode: effectiveMode,
       asset,
       amount: amountNum,
       to,
