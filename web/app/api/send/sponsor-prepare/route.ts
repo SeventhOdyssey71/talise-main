@@ -389,15 +389,55 @@ export async function POST(req: Request) {
       } else {
         // Anything else: surface as 400 so iOS does NOT silently land on
         // `mode=sponsored`. Real build bugs deserve a loud failure.
+        //
+        // Even for "uncategorized" errors we INCLUDE the consolidation
+        // hints — if the user has Coin<USDsui> objects (canConsolidate),
+        // the right product answer is the same as ACCUMULATOR_UNDERFUNDED:
+        // offer the one-tap consolidation. The error categorization is
+        // for diagnostics; the user-facing remediation doesn't change.
+        // This makes the offer screen show up no matter which exact
+        // validator string fires, as long as the user has funds to move.
         console.error(
           `[send/sponsor-prepare] gasless build failed with an uncategorized error; surfacing as 400: ${msg}`
         );
+        let coinBalance = "0";
+        let accumulatorBalance = "0";
+        let canConsolidate = false;
+        try {
+          const bal = await sui().getBalance({
+            owner: user.sui_address,
+            coinType: USDSUI_TYPE,
+          });
+          const b = (bal as unknown as {
+            balance?: {
+              balance?: string;
+              addressBalance?: string;
+              coinBalance?: string;
+            };
+          }).balance ?? {};
+          coinBalance = b.coinBalance ?? "0";
+          accumulatorBalance = b.addressBalance ?? "0";
+          canConsolidate = BigInt(coinBalance) > 0n;
+        } catch (probeErr) {
+          console.warn(
+            "[send/sponsor-prepare] hint-probe getBalance failed:",
+            (probeErr as Error).message
+          );
+        }
         return NextResponse.json(
           {
-            error:
-              "Gasless USDsui send is currently unavailable. Please try again in a moment.",
+            error: canConsolidate
+              ? "Your USDsui isn't in your Address Balance accumulator yet — gasless sends require accumulator funds. Top up via Deposit (Stripe onramp lands USDsui directly in your accumulator) and try again."
+              : "Gasless USDsui send is currently unavailable. Please try again in a moment.",
             detail: msg,
-            code: "GASLESS_BUILD_FAILED",
+            // Surface as ACCUMULATOR_UNDERFUNDED when the user has Coin
+            // objects to move — iOS already routes that code to the
+            // consolidation offer. Keeps the recovery UX uniform across
+            // every "validator rejected my gasless PTB" failure mode.
+            code: canConsolidate ? "ACCUMULATOR_UNDERFUNDED" : "GASLESS_BUILD_FAILED",
+            canConsolidate,
+            coinBalance,
+            accumulatorBalance,
           },
           { status: 400 }
         );
