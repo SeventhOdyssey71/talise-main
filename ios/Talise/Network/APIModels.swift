@@ -262,16 +262,17 @@ struct YieldVenue: Codable, Identifiable {
     var displayName: String { displayVenueName(venue) }
 }
 
-/// Maps a venue code (`"navi"`, `"deepbook"`) to its branded display
-/// name (`"Navi"`, `"Deepbook"`). Unknown venues fall back to a
-/// capitalized form so we don't surface raw `"my_pool"` to the user.
-/// Single source of truth — every History label, receipt, button
-/// caption, and intent string flows through here.
+/// Maps a venue code (`"navi"`, `"deepbook"`) to a generic, user-facing
+/// label. The venue codes stay as internal identifiers — DB / wire /
+/// activity classifier all keep `"navi"` / `"deepbook"` — but users see
+/// generic earning terminology ("Earn", "Trading") instead of the
+/// underlying protocol brand. Single source of truth — every History
+/// label, receipt, button caption, and intent string flows through here.
 func displayVenueName(_ code: String) -> String {
     let normalized = code.lowercased()
     switch normalized {
-    case "navi":     return "Navi"
-    case "deepbook": return "Deepbook"
+    case "navi":     return "Earn"
+    case "deepbook": return "Trading"
     default:
         guard let first = normalized.first else { return code }
         return first.uppercased() + normalized.dropFirst()

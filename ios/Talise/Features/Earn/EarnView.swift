@@ -69,14 +69,16 @@ struct EarnView: View {
     // MARK: - Header
 
     private var header: some View {
+        // Dropped the "EARN" eyebrow — the tab bar already identifies
+        // the screen and "Make your money work" + the APY line carry
+        // the brand voice.
         VStack(alignment: .leading, spacing: 6) {
-            MicroLabel(text: "Earn", color: TaliseColor.fgDim).kerning(1.5)
             Text("Make your money work")
                 .font(TaliseFont.heading(24, weight: .medium))
                 .kerning(-1)
                 .foregroundStyle(TaliseColor.fg)
             if let best = comparison?.best {
-                Text(String(format: "Best: %@ · %.2f%% APY", best.displayName, best.apy * 100))
+                Text(String(format: "Up to %.2f%% APY", best.apy * 100))
                     .font(TaliseFont.mono(11, weight: .light))
                     .foregroundStyle(TaliseColor.accent)
             }
@@ -154,19 +156,9 @@ struct EarnView: View {
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(v.displayName)
-                            .font(TaliseFont.heading(14, weight: .medium))
-                            .foregroundStyle(TaliseColor.fg)
-                        if best {
-                            Text("BEST")
-                                .font(TaliseFont.mono(9, weight: .light))
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(TaliseColor.accent.opacity(0.18))
-                                .foregroundStyle(TaliseColor.accent)
-                                .clipShape(Capsule())
-                        }
-                    }
+                    Text(v.displayName)
+                        .font(TaliseFont.heading(14, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
                     if let supplied = v.supplied, supplied > 0 {
                         HStack(spacing: 6) {
                             // Localized — Nigerian user sees ₦, US user sees $,
@@ -201,13 +193,7 @@ struct EarnView: View {
                                      : TaliseColor.fgDim)
             }
             .padding(16)
-            .taliseGlass(
-                cornerRadius: 20,
-                // Tinted glass on the BEST venue gives it the same
-                // accent-green identity as the previous accent border
-                // without an extra stroke layer.
-                tint: best ? TaliseColor.accent : nil
-            )
+            .taliseGlass(cornerRadius: 20)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -219,7 +205,7 @@ struct EarnView: View {
     private var supplyCard: some View {
         let currency = CurrencySettings.shared.current
         return VStack(alignment: .leading, spacing: 14) {
-            MicroLabel(text: "Supply \(currency.code)", color: TaliseColor.fgDim).kerning(1.5)
+            MicroLabel(text: "Amount", color: TaliseColor.fgDim).kerning(1.5)
             HStack {
                 // Symbol prefix so the value reads naturally (₦12,000
                 // not "12000 NGN"). Keeps a single source of truth for
@@ -351,13 +337,15 @@ struct EarnView: View {
     }
 
     private var supplyLabel: String {
-        guard let best = comparison?.best else { return "Supply" }
+        guard comparison?.best != nil else { return "Start earning" }
         guard let local = Double(amount), local > 0 else {
-            return "Supply to \(best.displayName)"
+            return "Start earning"
         }
         // Render the button caption in the user's display currency
         // (₦12,000 not "$12000") so the action matches the input pill.
-        return "Supply \(TaliseFormat.local2(amountUsd)) to \(best.displayName)  ·  PIN"
+        // Drop the venue name — users care about the action ("Earn $X")
+        // not which protocol routes underneath.
+        return "Earn \(TaliseFormat.local2(amountUsd))"
     }
 
     private func successBanner(_ digest: String) -> some View {
@@ -365,7 +353,7 @@ struct EarnView: View {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(TaliseColor.accent)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Supplied")
+                Text("Now earning")
                     .font(TaliseFont.body(13, weight: .light))
                     .foregroundStyle(TaliseColor.fg)
                 MicroLabel(text: digest.prefix(20) + "…", color: TaliseColor.fgDim)
@@ -434,11 +422,11 @@ struct EarnView: View {
                 let symbol = CurrencySettings.shared.current.symbol
                 let amountForPrompt = String(format: "$%.2f", usd)
                 try await PinGate.shared.requireUserPresence(
-                    reason: "Supply to Earn \(amountForPrompt) at \(displayVenueName(venue))"
+                    reason: "Start earning on \(amountForPrompt)"
                 )
                 let result = try await ZkLoginCoordinator.shared.signAndSubmit(
                     transactionKindB64: built.transactionKindB64,
-                    intent: "Supply \(symbol)\(localAmount) to \(displayVenueName(venue))",
+                    intent: "Earn \(symbol)\(localAmount)",
                     rewards: ZkLoginCoordinator.RewardsMeta(
                         kind: "invest",
                         amountUsd: usd,
@@ -594,7 +582,7 @@ private struct WithdrawSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             MicroLabel(text: "Position", color: TaliseColor.fgDim).kerning(1.5)
-            Text(venue.displayName)
+            Text("Your earnings")
                 .font(TaliseFont.heading(24, weight: .medium))
                 .kerning(-1)
                 .foregroundStyle(TaliseColor.fg)
@@ -706,7 +694,9 @@ private struct WithdrawSheet: View {
             LiquidGlassButton(
                 title: withdrawing
                     ? "Working…"
-                    : "Withdraw \(partial.isEmpty ? "" : "\(CurrencySettings.shared.current.symbol)\(partial)")  ·  PIN",
+                    : (partial.isEmpty
+                        ? "Withdraw"
+                        : "Withdraw \(CurrencySettings.shared.current.symbol)\(partial)"),
                 tint: TaliseColor.accent,
                 size: .lg,
                 loading: withdrawing
@@ -797,13 +787,13 @@ private struct WithdrawSheet: View {
                 ? String(format: "$%.2f", venue.supplied ?? 0)
                 : String(format: "$%.2f", amtUsd ?? 0)
             try await PinGate.shared.requireUserPresence(
-                reason: "Withdraw \(reasonAmount) from \(venue.displayName)"
+                reason: "Withdraw \(reasonAmount) from earnings"
             )
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
                 transactionKindB64: built.transactionKindB64,
                 intent: all
-                    ? "Withdraw all from \(venue.displayName)"
-                    : "Withdraw \(symbol)\(partial) from \(venue.displayName)",
+                    ? "Withdraw all earnings"
+                    : "Withdraw \(symbol)\(partial) earnings",
                 rewards: ZkLoginCoordinator.RewardsMeta(
                     kind: "withdraw",
                     amountUsd: rewardsAmount,
@@ -864,7 +854,7 @@ private struct WithdrawSheet: View {
             let rewardsAmount = earnedSoFar ?? 0
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
                 transactionKindB64: built.transactionKindB64,
-                intent: "Withdraw earned yield from \(venue.displayName)",
+                intent: "Withdraw earned yield",
                 rewards: ZkLoginCoordinator.RewardsMeta(
                     kind: "withdraw",
                     amountUsd: rewardsAmount,

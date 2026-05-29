@@ -144,26 +144,17 @@ struct TaliseGlassCard: ViewModifier {
                 }
             )
             .overlay(
-                // 4. Specular highlight — bright on top, dim in the middle,
-                //    slight return at the bottom for the "glass slab" feel.
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.24),
-                            Color.white.opacity(0.04),
-                            Color.white.opacity(0.10),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
+                // 4. Flat hairline stroke — was a 3-stop top-down gradient.
+                //    The gradient stroke read as decorative chrome at small
+                //    sizes and made every glass card on screen feel busy.
+                //    One white hairline is enough to define the edge.
+                shape.strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
             .clipShape(shape)
-            // 5. Two-layer shadow — large soft for depth, small tight for
-            //    the contact-point shadow against the page bg.
-            .shadow(color: Color.black.opacity(0.55), radius: 22, x: 0, y: 10)
-            .shadow(color: Color.black.opacity(0.32), radius: 3, x: 0, y: 1)
+            // 5. Single soft shadow — dropped the tight inner stroke shadow
+            //    so cards don't double-print under each other on stacked
+            //    surfaces (Earn, Profile). One shadow is enough for depth.
+            .shadow(color: Color.black.opacity(0.45), radius: 18, x: 0, y: 8)
             .opacity(isEnabled ? 1.0 : 0.6)
     }
 }
