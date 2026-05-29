@@ -192,6 +192,42 @@ const SPONSOR_ADDRESSES = new Set<string>([
 ]);
 
 /**
+ * Per-leg timeout helper. The activity feed has four independent legs
+ * (tx history, vault events, counterparty names, coin metadata) each
+ * fanning out into network calls with no upstream timeout. Without
+ * fencing, a single slow GraphQL POST stalls the entire response past
+ * the iOS URLSession 60s default and the client retries — which is
+ * exactly the NSURLErrorTimedOut (-1001) we were chasing.
+ *
+ * Returns `fallback` and logs `[activity] <leg> timed out after Nms`
+ * on timeout, so Vercel logs surface which leg wedged. Errors thrown
+ * by the wrapped promise are NOT caught here — the caller already
+ * has its own try/catch swallow with leg-appropriate empty fallback.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, leg: string, fallback: T): Promise<T> {
+  const start = Date.now();
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => {
+      console.warn(`[activity] ${leg} timed out after ${Date.now() - start}ms`);
+      resolve(fallback);
+    }, ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        console.warn(
+          `[activity] ${leg} failed after ${Date.now() - start}ms: ${(e as Error).message}`
+        );
+        resolve(fallback);
+      }
+    );
+  });
+}
+
+/**
  * Single GraphQL query that fetches the user's recent tx history
  * (both sent + received in ONE call, via `affectedAddress`).
  *
@@ -1318,12 +1354,17 @@ export async function getRecentActivity(
   // the desired `fetchLimit` or exhaust the user's history. One extra
   // round-trip in the worst case; zero extra for users with <50 txs.
   const PAGE_MAX = 50;
-  let raw: RawTx[] = [];
-  try {
+  // Leg 1: tx-history GraphQL walk. Hard cap at 6s — past that we serve
+  // whatever subset is in `raw` (possibly empty) and continue with the
+  // remaining legs so iOS still gets vault rows / cached coin metadata.
+  // Without this fence a hung GraphQL POST stalls the whole response
+  // past iOS's 60s URLSession default and the client retries.
+  const txHistoryWalk = async (): Promise<RawTx[]> => {
+    const collected: RawTx[] = [];
     let after: string | null = null;
-    let collected = 0;
-    while (collected < fetchLimit) {
-      const remaining = fetchLimit - collected;
+    let count = 0;
+    while (count < fetchLimit) {
+      const remaining = fetchLimit - count;
       const pageSize = Math.min(PAGE_MAX, remaining);
       // Pre-migration this site issued TWO `suix_queryTransactionBlocks`
       // calls in parallel (FromAddress + ToAddress) and unioned the
@@ -1339,14 +1380,14 @@ export async function getRecentActivity(
       });
       const page = res.data?.transactions;
       const nodes = page?.nodes ?? [];
-      for (const n of nodes) raw.push(adaptGraphQLNodeToRawTx(n));
-      collected += nodes.length;
+      for (const n of nodes) collected.push(adaptGraphQLNodeToRawTx(n));
+      count += nodes.length;
       if (!page?.pageInfo.hasNextPage || !page.pageInfo.endCursor) break;
       after = page.pageInfo.endCursor;
     }
-  } catch {
-    return [];
-  }
+    return collected;
+  };
+  const raw: RawTx[] = await withTimeout(txHistoryWalk(), 6_000, "tx-history", []);
 
   // Resolve the talise registry id once. If this throws (e.g. payment-kit
   // not initialized in this environment) we either show a fully-open feed
@@ -1385,7 +1426,15 @@ export async function getRecentActivity(
       }
     }
     if (allOtherCoinTypes.size > 0) {
-      await primeCoinInfo(Array.from(allOtherCoinTypes));
+      // Leg 4: coin metadata prime — 2s cap. On timeout `lookupCoinInfo`
+      // falls back to the last-segment-of-type symbol with 9 decimals,
+      // so rows still render with a sensible label.
+      await withTimeout(
+        primeCoinInfo(Array.from(allOtherCoinTypes)),
+        2_000,
+        "coin-metadata",
+        undefined
+      );
     }
   }
 
@@ -1563,13 +1612,24 @@ export async function getRecentActivity(
   // and never appear in the user's wallet tx history — without this
   // pass the user can't see "money I received via @handle" nor the
   // cron-driven SUI→USDsui auto-swap.
+  // Short-circuit: when the user has no vault id, skip the event walk
+  // entirely — there's nothing to filter against and the bare
+  // `events(filter: type)` query has no per-user predicate to lean on,
+  // so it would walk the global stream for nothing. The `opts.vaultId`
+  // truthiness check already guarded this; the explicit comment keeps
+  // it from regressing.
   if (opts.vaultId) {
     try {
       const { packageId } = vaultPackageIds();
-      const vaultEntries = await getVaultEventActivity(
-        opts.vaultId,
-        limit,
-        packageId
+      // Leg 2: vault event walk (deposit + auto-swap in parallel).
+      // 4s combined cap covers the Promise.all inside
+      // `getVaultEventActivity`. On timeout we keep the wallet rows
+      // we already classified.
+      const vaultEntries = await withTimeout(
+        getVaultEventActivity(opts.vaultId, limit, packageId),
+        4_000,
+        "vault-events",
+        [] as ActivityEntry[]
       );
       for (const ve of vaultEntries) entries.push(ve);
     } catch (err) {
@@ -1625,11 +1685,22 @@ export async function getRecentActivity(
     new Set(limited.map((e) => e.counterparty).filter((x): x is string => !!x))
   );
   const nameCache = new Map<string, string | null>();
-  await Promise.all(
-    uniqueCounterparties.map(async (addr) => {
-      const sub = await findTaliseSubnameForOwner(addr);
-      nameCache.set(addr, sub ? formatHandle(sub.username) : null);
-    })
+  // Leg 3: counterparty-name fan-out. 3s cap across the whole batch;
+  // on timeout every unresolved address falls back to the truncated-
+  // address display iOS already renders when `counterpartyName` is
+  // null. We don't time out individual addresses because the SuiNS
+  // resolver has its own per-address memo cache — slow once, free
+  // forever after.
+  await withTimeout(
+    Promise.all(
+      uniqueCounterparties.map(async (addr) => {
+        const sub = await findTaliseSubnameForOwner(addr);
+        nameCache.set(addr, sub ? formatHandle(sub.username) : null);
+      })
+    ),
+    3_000,
+    "counterparty-names",
+    [] as unknown[]
   );
   for (const e of limited) {
     if (e.counterparty) e.counterpartyName = nameCache.get(e.counterparty) ?? null;
