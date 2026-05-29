@@ -178,14 +178,9 @@ export async function triggerOauthSignIn(opts?: { returnTo?: string }) {
   //   https://talise.io/auth/callback
   //   https://app.talise.io/auth/callback
   //   (plus any preview deploy hosts you actually use)
-  // Strip a leading `www.` so the redirect_uri always uses the apex —
-  // matches the middleware www→apex redirect and Google Cloud Console's
-  // single registered URI (https://talise.io/auth/callback). Without
-  // this, a user who landed on `www.talise.io` builds a URI Google
-  // rejects as `redirect_uri_mismatch`.
   const redirect =
     typeof window !== "undefined"
-      ? `${window.location.origin.replace(/^https:\/\/www\./, "https://")}/auth/callback`
+      ? `${window.location.origin}/auth/callback`
       : process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI;
   if (!redirect) throw new Error("OAuth redirect URI not resolvable");
 
