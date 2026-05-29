@@ -33,6 +33,11 @@ enum SendStep: Hashable {
     case review
     case sending
     case complete
+    /// Terminal failure state. Reached when sponsor-prepare,
+    /// sponsor-execute, or gasless-submit throws — including 4xx
+    /// rejections like ACCUMULATOR_UNDERFUNDED. The success screen must
+    /// NEVER render in this state.
+    case failure
 }
 
 /// Mutable draft passed by `@Bindable` through the SendFlowView pages.
