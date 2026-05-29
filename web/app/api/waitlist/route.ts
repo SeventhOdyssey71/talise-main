@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db, ensureSchema } from "@/lib/db";
 import { sendWaitlistConfirmation } from "@/lib/email";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,146 +9,130 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/waitlist
  *
- * Body: {
- *   email: string,
- *   name?: string,
- *   country?: string,
- *   reason?: string,
- *   source?: string
- * }
+ * Body: { email: string, source?: string }
  *
- * Stores a marketing-waitlist signup while Talise is in private beta and
- * fires a Resend confirmation email. Idempotent on email: a repost is a
- * no-op for the DB row, and the email is only sent if we have not sent
- * one before (tracked via `confirmation_sent_at`).
+ * Persists the email to `waitlist_signups` and fires a Resend
+ * confirmation. Email is the PRIMARY KEY, so duplicate detection is a
+ * single-statement `INSERT ... ON CONFLICT (email) DO NOTHING RETURNING
+ * email`. An empty RETURNING set means the row already existed → 409.
  *
- * Returns 200 on success (whether new or duplicate). 400 on a malformed
- * email so the form can surface inline validation. Email-send failures
- * do not block the 200 response; they are logged and retried lazily.
+ * The Resend call is awaited (so we can flip `confirmation_sent` in the
+ * same request) but capped by a 4s timeout — we never wedge the
+ * response on a Resend hiccup.
  */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const COUNTRY_WHITELIST = new Set([
-  "Nigeria",
-  "Kenya",
-  "Ghana",
-  "South Africa",
-  "UK",
-  "US",
-  "Other",
-]);
+function validEmail(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const e = raw.trim().toLowerCase();
+  if (!e || e.length >= 254) return null;
+  // Must contain exactly one @ and at least one . — the regex covers
+  // both but we keep an explicit check for clarity.
+  const atCount = (e.match(/@/g) || []).length;
+  if (atCount !== 1) return null;
+  if (!e.includes(".")) return null;
+  if (!EMAIL_RE.test(e)) return null;
+  return e;
+}
 
-const REASON_WHITELIST = new Set([
-  "Send money home",
-  "Receive money",
-  "Hold dollars",
-  "Just curious",
-]);
-
-function cleanField(
-  v: unknown,
-  maxLen: number,
-  allowed?: Set<string>
-): string | null {
-  if (typeof v !== "string") return null;
-  const trimmed = v.trim();
-  if (!trimmed) return null;
-  if (trimmed.length > maxLen) return null;
-  if (allowed && !allowed.has(trimmed)) return null;
-  return trimmed;
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(null), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(t);
+        resolve(null);
+      }
+    );
+  });
 }
 
 export async function POST(req: Request) {
-  let body: {
-    email?: unknown;
-    source?: unknown;
-    name?: unknown;
-    country?: unknown;
-    reason?: unknown;
-  };
+  let body: { email?: unknown };
   try {
-    body = await req.json();
+    body = (await req.json()) as { email?: unknown };
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  const email =
-    typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-  if (!email || email.length > 200 || !EMAIL_RE.test(email)) {
-    return NextResponse.json({ error: "valid email required" }, { status: 400 });
+  const email = validEmail(body.email);
+  if (!email) {
+    return NextResponse.json(
+      { error: "Enter a valid email." },
+      { status: 400 }
+    );
   }
-  const source =
-    typeof body.source === "string" && body.source.length < 50
-      ? body.source.trim()
-      : "landing";
 
-  const name = cleanField(body.name, 50);
-  const country = cleanField(body.country, 50, COUNTRY_WHITELIST);
-  const reason = cleanField(body.reason, 50, REASON_WHITELIST);
+  const ip = getClientIp(req);
+  const userAgent = req.headers.get("user-agent") || null;
+
+  // Light per-IP throttle so a script can't enumerate the address book.
+  // 10 attempts per minute is well above any legit user's keystroke rate.
+  const rl = rateLimit({ key: `waitlist:${ip}`, limit: 10, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many attempts. Try again shortly." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rl.retryAfterSec ?? 60) },
+      }
+    );
+  }
 
   try {
     await ensureSchema();
     const c = db();
 
-    // Upsert: keep the first-seen row but patch in the new optional
-    // fields if the user re-submits with more info filled in.
-    await c.execute({
-      sql: `INSERT INTO waitlist (email, created_at, source, name, country, reason)
-              VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT (email) DO UPDATE SET
-              name = COALESCE(EXCLUDED.name, waitlist.name),
-              country = COALESCE(EXCLUDED.country, waitlist.country),
-              reason = COALESCE(EXCLUDED.reason, waitlist.reason)`,
-      args: [email, Date.now(), source, name, country, reason],
+    // Atomic insert + dup detection in one round-trip.
+    const ins = await c.execute({
+      sql: `INSERT INTO waitlist_signups (email, created_at, ip, user_agent)
+              VALUES (?, ?, ?, ?)
+            ON CONFLICT (email) DO NOTHING
+            RETURNING email`,
+      args: [email, Date.now(), ip, userAgent],
     });
 
-    // Idempotency check: only send a confirmation mail if we have not
-    // already done so for this email.
-    const existing = await c.execute({
-      sql: `SELECT name, confirmation_sent_at FROM waitlist
-              WHERE email = ? LIMIT 1`,
-      args: [email],
-    });
-    const row = existing.rows[0] as
-      | { name?: string | null; confirmation_sent_at?: number | null }
-      | undefined;
-    const alreadySent =
-      row && row.confirmation_sent_at != null && row.confirmation_sent_at > 0;
+    if (ins.rows.length === 0) {
+      // Already on the list. Treated as a soft conflict — the form
+      // surfaces it as a muted "you're already on the list" note, not
+      // an error.
+      return NextResponse.json(
+        { error: "You are already on the waitlist." },
+        { status: 409 }
+      );
+    }
 
-    if (!alreadySent) {
-      // Fire-and-forget. We deliberately do not await the send in the
-      // response path; Resend rate limits or outages should not delay
-      // the user's UI flip to "you are on the list".
-      void (async () => {
-        try {
-          const res = await sendWaitlistConfirmation({
-            to: email,
-            name: row?.name ?? name,
-          });
-          if (res.ok) {
-            await db().execute({
-              sql: `UPDATE waitlist
-                      SET confirmation_sent_at = ?, confirmation_message_id = ?
-                    WHERE email = ?`,
-              args: [Date.now(), res.id, email],
-            });
-          } else {
-            console.warn(
-              "[waitlist] confirmation send failed:",
-              res.reason,
-              "email:",
-              email
-            );
-          }
-        } catch (err) {
-          console.warn(
-            "[waitlist] confirmation send threw:",
-            (err as Error).message,
-            "email:",
-            email
-          );
-        }
-      })();
+    console.log(`[waitlist] new=${email}`);
+
+    // Fire Resend confirmation with a 4s ceiling. If Resend wedges or
+    // errors we still return 200 — the row is durably saved and we can
+    // backfill the email out of band.
+    const sendRes = await withTimeout(
+      sendWaitlistConfirmation({ to: email, name: null }),
+      4000
+    );
+    if (sendRes && sendRes.ok) {
+      try {
+        await c.execute({
+          sql: `UPDATE waitlist_signups
+                  SET confirmation_sent = true, confirmation_sent_at = ?
+                WHERE email = ?`,
+          args: [Date.now(), email],
+        });
+      } catch (e) {
+        console.warn(
+          "[waitlist] mark confirmation_sent failed:",
+          (e as Error).message
+        );
+      }
+    } else if (sendRes && !sendRes.ok) {
+      console.warn("[waitlist] confirmation send failed:", sendRes.reason);
+    } else {
+      console.warn("[waitlist] confirmation send timed out (>4s)");
     }
 
     return NextResponse.json({ ok: true });
@@ -158,6 +143,9 @@ export async function POST(req: Request) {
       "email_len:",
       email.length
     );
-    return NextResponse.json({ error: "could not save email" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Could not save your email. Try again." },
+      { status: 500 }
+    );
   }
 }

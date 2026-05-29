@@ -99,27 +99,53 @@ export async function sendWaitlistConfirmation(opts: {
   const fromAddr =
     process.env.WAITLIST_FROM_EMAIL || "Talise <waitlist@talise.io>";
   const bcc = process.env.WAITLIST_BCC_EMAIL?.trim();
+  const replyTo =
+    process.env.WAITLIST_REPLY_TO || process.env.EMAIL_REPLY_TO || undefined;
 
   const r = client();
   if (!r) {
+    // In production, NOT having a Resend key is a hard misconfig — the
+    // user signed up expecting a confirmation. Refusing here surfaces it
+    // (route logs "send failed: RESEND_API_KEY missing") instead of
+    // silently marking `confirmation_sent=true` on a no-op.
+    if (process.env.NODE_ENV === "production") {
+      return { ok: false, reason: "RESEND_API_KEY missing in production" };
+    }
     console.log(
       `[email/dev] would send waitlist confirmation to=${opts.to} (${html.length} bytes)`
     );
     return { ok: true, id: "dev-noop" };
   }
   try {
-    const res = await r.emails.send({
+    const payload: Parameters<typeof r.emails.send>[0] = {
       from: fromAddr,
       to: [opts.to],
-      ...(bcc ? { bcc: [bcc] } : {}),
       subject: "You are on the Talise waitlist.",
       html,
-      replyTo: process.env.WAITLIST_REPLY_TO || process.env.EMAIL_REPLY_TO,
-    });
-    if (res.error) return { ok: false, reason: res.error.message };
-    if (!res.data?.id) return { ok: false, reason: "no email id returned" };
+      ...(bcc ? { bcc: [bcc] } : {}),
+      ...(replyTo ? { replyTo } : {}),
+    };
+    const res = await r.emails.send(payload);
+    if (res.error) {
+      console.warn(
+        `[email/waitlist-send] FAILED to=${opts.to} from="${fromAddr}" bcc=${bcc ?? "—"} error=${res.error.message}`
+      );
+      return { ok: false, reason: res.error.message };
+    }
+    if (!res.data?.id) {
+      console.warn(
+        `[email/waitlist-send] no id returned to=${opts.to} from="${fromAddr}" bcc=${bcc ?? "—"}`
+      );
+      return { ok: false, reason: "no email id returned" };
+    }
+    console.log(
+      `[email/waitlist-send] OK to=${opts.to} from="${fromAddr}" bcc=${bcc ?? "—"} resendId=${res.data.id}`
+    );
     return { ok: true, id: res.data.id };
   } catch (err) {
+    console.warn(
+      `[email/waitlist-send] EXCEPTION to=${opts.to} from="${fromAddr}" bcc=${bcc ?? "—"} err=${(err as Error).message}`
+    );
     return { ok: false, reason: (err as Error).message };
   }
 }

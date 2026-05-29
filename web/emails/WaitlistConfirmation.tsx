@@ -41,8 +41,15 @@ export type WaitlistConfirmationProps = {
 };
 
 const COLORS = {
-  bg: "#FFFFFF",
-  surface: "#F7F7F8",
+  // Outer body MUST be pure white. Gmail's dark-mode renderer uses
+  // #FFFFFF as the "this is a light email, do not invert" signal.
+  // Anything else triggers inversion and makes text invisible.
+  bodyBg: "#FFFFFF",
+  // The visible "page" area inside the body. Light grey gives the
+  // iOS-card lift effect; Gmail doesn't inspect inner backgrounds.
+  bg: "#F4F5F7",
+  // The "What Talise does" card sits inside the grey page as white.
+  surface: "#FFFFFF",
   fg: "#0A0A0A",
   fgMuted: "#52525B",
   fgDim: "#A1A1AA",
@@ -75,26 +82,26 @@ export function WaitlistConfirmation({
       </Head>
       <Preview>You are on the Talise waitlist.</Preview>
       <Body
-        // bgcolor on body is honored by Gmail and Outlook.
+        // Pure white body so Gmail trusts the rendering. The grey
+        // "page" lives one level inside.
         style={{
           margin: 0,
           padding: 0,
-          backgroundColor: COLORS.bg,
+          backgroundColor: COLORS.bodyBg,
           color: COLORS.fg,
           fontFamily: FONT_STACK,
           WebkitFontSmoothing: "antialiased",
         }}
       >
-        {/* Outer table forces the light background to fill the full
-            client width even when Gmail wraps the message in a
-            content card. */}
+        {/* Grey page wrapper. This is the visible area; the white
+            <Body> behind it is invisible padding that signals "light
+            email" to Gmail. */}
         <Section
-
-          style={{ backgroundColor: COLORS.bg, padding: "32px 0 48px 0" }}
+          style={{ backgroundColor: COLORS.bg, padding: "56px 0 80px 0" }}
         >
           <Container
             style={{
-              maxWidth: "560px",
+              maxWidth: "600px",
               width: "100%",
               margin: "0 auto",
               backgroundColor: COLORS.bg,
@@ -107,7 +114,7 @@ export function WaitlistConfirmation({
                 symbol from /public/symbol.svg, rasterized via resvg. */}
             <Section
               style={{
-                padding: "0 32px 28px 32px",
+                padding: "0 40px 40px 40px",
                 backgroundColor: COLORS.bg,
               }}
             >
@@ -120,7 +127,7 @@ export function WaitlistConfirmation({
               >
                 <tbody>
                   <tr>
-                    <td style={{ verticalAlign: "middle", paddingRight: "10px" }}>
+                    <td style={{ verticalAlign: "middle", paddingRight: "12px" }}>
                       <Img
                         src={`${appUrl.replace(/\/$/, "")}/symbol.png`}
                         srcSet={`${appUrl.replace(/\/$/, "")}/symbol.png 1x, ${appUrl.replace(/\/$/, "")}/symbol@2x.png 2x`}
@@ -140,7 +147,7 @@ export function WaitlistConfirmation({
                         className="talise-wordmark"
                         style={{
                           margin: 0,
-                          fontSize: "17px",
+                          fontSize: "18px",
                           fontWeight: 500,
                           color: COLORS.fg,
                           lineHeight: 1,
@@ -157,9 +164,8 @@ export function WaitlistConfirmation({
 
             {/* Heading. */}
             <Section
-
               style={{
-                padding: "0 32px 0 32px",
+                padding: "0 40px 0 40px",
                 backgroundColor: COLORS.bg,
               }}
             >
@@ -167,9 +173,9 @@ export function WaitlistConfirmation({
                 as="h1"
                 style={{
                   margin: 0,
-                  fontSize: "32px",
-                  lineHeight: 1.12,
-                  letterSpacing: "-0.02em",
+                  fontSize: "38px",
+                  lineHeight: 1.1,
+                  letterSpacing: "-0.025em",
                   fontWeight: 500,
                   color: COLORS.fg,
                 }}
@@ -180,17 +186,16 @@ export function WaitlistConfirmation({
 
             {/* Body paragraphs. */}
             <Section
-
               style={{
-                padding: "20px 32px 0 32px",
+                padding: "32px 40px 0 40px",
                 backgroundColor: COLORS.bg,
               }}
             >
               <Text
                 style={{
-                  margin: "0 0 16px 0",
-                  fontSize: "15px",
-                  lineHeight: 1.6,
+                  margin: "0 0 22px 0",
+                  fontSize: "16px",
+                  lineHeight: 1.65,
                   color: COLORS.fgMuted,
                 }}
               >
@@ -200,9 +205,9 @@ export function WaitlistConfirmation({
               </Text>
               <Text
                 style={{
-                  margin: "0 0 0 0",
-                  fontSize: "15px",
-                  lineHeight: 1.6,
+                  margin: "0",
+                  fontSize: "16px",
+                  lineHeight: 1.65,
                   color: COLORS.fgMuted,
                 }}
               >
@@ -211,49 +216,10 @@ export function WaitlistConfirmation({
               </Text>
             </Section>
 
-            {/* What Talise does, in a subtle card. */}
-            <Section
-
-              style={{
-                margin: "28px 32px 0 32px",
-                padding: "20px 22px",
-                backgroundColor: COLORS.surface,
-                borderRadius: "12px",
-                border: `1px solid ${COLORS.line}`,
-              }}
-            >
-              <Text
-                style={{
-                  margin: "0 0 14px 0",
-                  fontSize: "10px",
-                  letterSpacing: "0.2em",
-                  textTransform: "uppercase",
-                  color: COLORS.fgDim,
-                  fontWeight: 600,
-                }}
-              >
-                What Talise does
-              </Text>
-              <Row
-                label="Username that holds dollars."
-                value="Send to alice@talise.sui and any coin lands as USDsui."
-              />
-              <Row
-                label="Cross-border in seconds."
-                value="No wires, no Swift codes, no agent queues."
-              />
-              <Row
-                label="Idle dollars earn yield."
-                value="Withdraw anytime."
-                last
-              />
-            </Section>
-
             {/* CTA: black pill, Stripe/Linear style on light. */}
             <Section
-
               style={{
-                padding: "32px 32px 0 32px",
+                padding: "48px 40px 0 40px",
                 backgroundColor: COLORS.bg,
               }}
             >
@@ -265,7 +231,7 @@ export function WaitlistConfirmation({
                   textDecoration: "none",
                   fontSize: "14px",
                   fontWeight: 600,
-                  padding: "12px 22px",
+                  padding: "14px 26px",
                   borderRadius: "999px",
                   backgroundColor: COLORS.accent,
                 }}
@@ -279,23 +245,22 @@ export function WaitlistConfirmation({
                 borderColor: COLORS.line,
                 borderTop: `1px solid ${COLORS.line}`,
                 borderBottom: "none",
-                margin: "44px 32px 18px 32px",
+                margin: "64px 40px 24px 40px",
               }}
             />
 
             {/* Footer. */}
             <Section
-
               style={{
-                padding: "0 32px 0 32px",
+                padding: "0 40px 0 40px",
                 backgroundColor: COLORS.bg,
               }}
             >
               <Text
                 style={{
-                  margin: "0 0 6px 0",
+                  margin: "0 0 10px 0",
                   fontSize: "12px",
-                  lineHeight: 1.6,
+                  lineHeight: 1.65,
                   color: COLORS.fgDim,
                 }}
               >
@@ -303,9 +268,9 @@ export function WaitlistConfirmation({
               </Text>
               <Text
                 style={{
-                  margin: "0 0 8px 0",
+                  margin: "0 0 10px 0",
                   fontSize: "12px",
-                  lineHeight: 1.6,
+                  lineHeight: 1.65,
                   color: COLORS.fgDim,
                 }}
               >
@@ -325,7 +290,7 @@ export function WaitlistConfirmation({
                 style={{
                   margin: 0,
                   fontSize: "12px",
-                  lineHeight: 1.6,
+                  lineHeight: 1.65,
                   color: COLORS.fgDim,
                 }}
               >
@@ -336,47 +301,6 @@ export function WaitlistConfirmation({
         </Section>
       </Body>
     </Html>
-  );
-}
-
-/**
- * Two-line row used in the "What Talise does" card. The label is the
- * primary foreground color, the value is muted, both stacked tight.
- * Avoids dash bullets which render inconsistently across clients.
- */
-function Row({
-  label,
-  value,
-  last,
-}: {
-  label: string;
-  value: string;
-  last?: boolean;
-}) {
-  return (
-    <div style={{ marginBottom: last ? 0 : "14px" }}>
-      <Text
-        style={{
-          margin: "0 0 2px 0",
-          fontSize: "14px",
-          lineHeight: 1.45,
-          color: COLORS.fg,
-          fontWeight: 500,
-        }}
-      >
-        {label}
-      </Text>
-      <Text
-        style={{
-          margin: 0,
-          fontSize: "13px",
-          lineHeight: 1.5,
-          color: COLORS.fgMuted,
-        }}
-      >
-        {value}
-      </Text>
-    </div>
   );
 }
 
