@@ -15,6 +15,61 @@ import { recordSendLatency } from "@/lib/perf-cache";
 export const runtime = "nodejs";
 
 /**
+ * Per-leg timeout wrapper that THROWS on timeout (unlike the
+ * fallback-returning variant in lib/activity.ts / earn/withdraw/prepare).
+ *
+ * Why throw? sponsor-execute moves money. A silent fallback on the proof
+ * mint or Onara POST would either drop the send (false failure) or, worse,
+ * return a fake success without a digest (false success — exactly what we
+ * fixed in e50a2b4). So this variant rejects with a typed error and lets
+ * the outer try/catch translate it into a 5xx with a stable `code`.
+ *
+ * Tags `err.code = code` so the outer handler can map it to the right
+ * HTTP status (504 PROOF_TIMEOUT / ONARA_TIMEOUT / ROUTE_TIMEOUT,
+ * 502 PROOF_FAILED).
+ */
+function withLegTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  leg: string,
+  code: string
+): Promise<T> {
+  const start = Date.now();
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const elapsed = Date.now() - start;
+      console.warn(
+        `[zk/sponsor-execute] ${leg} timed out after ${elapsed}ms (cap=${ms}ms)`
+      );
+      const err = new Error(`${leg} timed out after ${elapsed}ms`) as Error & {
+        code?: string;
+        leg?: string;
+        timedOut?: boolean;
+      };
+      err.code = code;
+      err.leg = leg;
+      err.timedOut = true;
+      reject(err);
+    }, ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        // Preserve the original error but tag it with the leg so the
+        // outer handler can attach a stable code on rethrow.
+        if (e && typeof e === "object" && !(e as { leg?: string }).leg) {
+          (e as { leg?: string }).leg = leg;
+        }
+        reject(e as Error);
+      }
+    );
+  });
+}
+
+/**
  * POST /api/zk/sponsor-execute
  *
  * Trip 2. The user has signed the sponsored TransactionData bytes with their
@@ -160,18 +215,49 @@ export async function POST(req: Request) {
   const maxEpochToUse = bound?.maxEpoch ?? body.maxEpoch;
   const randomnessToUse = bound?.randomness ?? body.randomness;
 
-  try {
+  // Pin to non-undefined locals — TS doesn't carry the validation-block
+  // narrowing of `body.*` through the IIFE closure below.
+  const bytesB64 = body.bytesB64;
+  const userSignature = body.userSignature;
+
+  // Outer route cap. iOS used to hit URLSession's 60s default before
+  // anything in here could fall over cleanly. We promise-race the whole
+  // pipeline against 25s so we ALWAYS surface a JSON error before iOS
+  // gives up — request-timeout on the client is now 30s, this fires first.
+  const ROUTE_CAP_MS = 25_000;
+  let outerTimer: ReturnType<typeof setTimeout> | undefined;
+  const routeDeadline = new Promise<never>((_, reject) => {
+    outerTimer = setTimeout(() => {
+      const err = new Error("sponsor-execute deadline exceeded") as Error & {
+        code?: string;
+        timedOut?: boolean;
+      };
+      err.code = "ROUTE_TIMEOUT";
+      err.timedOut = true;
+      reject(err);
+    }, ROUTE_CAP_MS);
+  });
+
+  const work = (async () => {
     const t0 = Date.now();
+    // Proof mint: cached path ~250ms, fresh Shinami ~2-4s, fresh GPU
+    // ~400ms. 12s ceiling is 3x the worst hot path — anything beyond
+    // means Shinami/GPU is wedged and we should fail fast.
     const { signature: zkLoginSignature, proof, isFresh, source } =
-      await assembleZkLoginSignature({
-        ephemeralPubKeyB64,
-        maxEpoch: maxEpochToUse,
-        randomness: randomnessToUse,
-        userSignature: body.userSignature,
-        cachedProof: body.cachedProof,
-        jwt: signing.jwt,
-        salt: signing.salt,
-      });
+      await withLegTimeout(
+        assembleZkLoginSignature({
+          ephemeralPubKeyB64,
+          maxEpoch: maxEpochToUse,
+          randomness: randomnessToUse,
+          userSignature: userSignature,
+          cachedProof: body.cachedProof,
+          jwt: signing.jwt,
+          salt: signing.salt,
+        }),
+        12_000,
+        "proof",
+        "PROOF_TIMEOUT"
+      );
     const tProof = Date.now();
     // Tag the freshness with the prover backend so we can grep
     // "FRESH-GPU" vs "FRESH-SHINAMI" vs "FRESH-CANARY" in production
@@ -193,17 +279,29 @@ export async function POST(req: Request) {
     // — only on malformed PTB or balance race), we don't surface that
     // here. iOS resolves the actual outcome by polling the digest
     // (HomeView's optimistic-balance path already does this).
-    const result = (await onaraClient.sponsor({
-      sender: user.sui_address,
-      txBytes: body.bytesB64,
-      txSignature: zkLoginSignature,
-      waitForExecution: false,
-    })) as Record<string, unknown>;
+    //
+    // 8s leg cap. The Onara client now also enforces an 8s
+    // AbortController internally — this withLegTimeout is belt-and-
+    // braces in case a future Onara client revision drops the abort.
+    const result = (await withLegTimeout(
+      onaraClient.sponsor({
+        sender: user.sui_address,
+        txBytes: bytesB64,
+        txSignature: zkLoginSignature,
+        waitForExecution: false,
+        timeoutMs: 8_000,
+      }),
+      8_000,
+      "onara",
+      "ONARA_TIMEOUT"
+    )) as Record<string, unknown>;
     const tDone = Date.now();
 
     // Per-leg timing so we can see exactly where the latency goes.
+    // Logged on EVERY successful response (defense in depth) — grep
+    // `[zk/sponsor-execute]` to see proof/onara/total breakdown.
     console.log(
-      `[zk/sponsor-execute] proof=${tProof - t0}ms (${freshTag}) · onara+broadcast=${tDone - tProof}ms · total=${tDone - t0}ms`
+      `[zk/sponsor-execute] proof=${tProof - t0}ms (${freshTag}) · onara=${tDone - tProof}ms · total=${tDone - t0}ms`
     );
     recordSendLatency({
       leg: "execute",
@@ -336,8 +434,58 @@ export async function POST(req: Request) {
         ((r.objectChanges as unknown[]) ?? []) as unknown[],
       freshProof: isFresh ? proof : undefined,
     });
+  })();
+
+  try {
+    const response = await Promise.race([work, routeDeadline]);
+    if (outerTimer) clearTimeout(outerTimer);
+    return response as NextResponse;
   } catch (err) {
-    const msg = (err as Error).message ?? "execute failed";
+    if (outerTimer) clearTimeout(outerTimer);
+    const e = err as Error & { code?: string; leg?: string; timedOut?: boolean };
+    const msg = e.message ?? "execute failed";
+
+    // Hard deadline tripped before any leg could fail cleanly. Shouldn't
+    // happen in practice (each leg has its own shorter cap) — surfacing
+    // it distinctly so we'd notice in logs.
+    if (e.code === "ROUTE_TIMEOUT") {
+      console.error("[zk/sponsor-execute] route deadline exceeded");
+      return NextResponse.json(
+        { error: "Send timed out. Please try again.", code: "ROUTE_TIMEOUT" },
+        { status: 504 }
+      );
+    }
+
+    // Proof mint took too long — almost always Shinami congestion or a
+    // GPU box that's degraded. iOS shows the user a real error; we
+    // don't poison the cache or fake success.
+    if (e.code === "PROOF_TIMEOUT") {
+      return NextResponse.json(
+        { error: "Proof mint took too long, try again", code: "PROOF_TIMEOUT" },
+        { status: 504 }
+      );
+    }
+
+    // Onara wouldn't respond within 8s. Likely Onara upstream blip; the
+    // tx never went on chain, so a retry is safe.
+    if (e.code === "ONARA_TIMEOUT" || e.leg === "onara") {
+      const onaraErr = msg.includes("onara") ? msg : `onara: ${msg}`;
+      return NextResponse.json(
+        { error: onaraErr, code: e.code ?? "ONARA_FAILED" },
+        { status: 504 }
+      );
+    }
+
+    // Proof mint threw (network glitch, Shinami 5xx, GPU down). The
+    // zksigner already exhausted its primary→fallback chain — we're
+    // out of options for this request. 502 distinguishes from timeout.
+    if (e.leg === "proof") {
+      return NextResponse.json(
+        { error: msg, code: "PROOF_FAILED" },
+        { status: 502 }
+      );
+    }
+
     const status = msg.includes("No active sign-in") ? 401 : 500;
     return NextResponse.json({ error: msg }, { status });
   }

@@ -62,6 +62,17 @@ export type SponsorOptions = {
   txSignature: string
   dryRun?: boolean
   waitForExecution?: boolean
+  /**
+   * Per-call fetch timeout in ms. Enforced via AbortController. Default
+   * 8000ms. Aborts surface as `OnaraError("onara timeout after Nms", 504)`
+   * so the caller can branch on the error shape.
+   *
+   * Why a per-call override? sponsor-execute is on the user's hot path —
+   * an unresponsive Onara upstream used to hang the Node socket until GC,
+   * blowing through iOS's URLSession timeout. Other callers (status,
+   * policies, dry-runs in tests) can leave the default.
+   */
+  timeoutMs?: number
 }
 
 export type SponsorDryRunResponse = {

@@ -55,15 +55,40 @@ export class OnaraClient {
     const query = params.toString()
     const url = `${this.baseUrl}/sponsor${query ? `?${query}` : ''}`
 
-    const res = await this.fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sender: options.sender,
-        txBytes: options.txBytes,
-        txSignature: options.txSignature,
-      }),
-    })
+    // AbortController fences the fetch at `timeoutMs` (default 8s).
+    // Without this, an unresponsive Onara upstream would keep the
+    // Node socket open until GC — long past the iOS 60s URLSession
+    // ceiling — and surface as a hang to the user. With it, we get a
+    // clean typed throw the route handler can map to a 504.
+    const timeoutMs = options.timeoutMs ?? 8000
+    const controller = new AbortController()
+    const start = Date.now()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+    let res: Response
+    try {
+      res = await this.fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender: options.sender,
+          txBytes: options.txBytes,
+          txSignature: options.txSignature,
+        }),
+        signal: controller.signal,
+      })
+    } catch (err) {
+      clearTimeout(timer)
+      const e = err as Error & { name?: string }
+      if (e?.name === 'AbortError' || controller.signal.aborted) {
+        throw new OnaraError(
+          `onara timeout after ${Date.now() - start}ms (cap=${timeoutMs}ms)`,
+          504
+        )
+      }
+      throw err
+    }
+    clearTimeout(timer)
 
     if (!res.ok) {
       const body = (await res.json()) as OnaraErrorResponse
