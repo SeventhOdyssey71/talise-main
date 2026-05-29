@@ -314,12 +314,27 @@ async function doEnsureSchema(): Promise<void> {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_sent_usd DOUBLE PRECISION DEFAULT 0`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_saved_usd DOUBLE PRECISION DEFAULT 0`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_saved_usd DOUBLE PRECISION DEFAULT 0`,
-    // TaliseVault + AutoSwap Path-C. `talise_vault_id` is the user's
-    // shared-object vault id, set after they sign the `vault::create()`
-    // tx via `/api/vault/record`. The repointed flag tracks whether
-    // their `@talise` SuiNS subname target has been moved from their
-    // plain wallet address to the vault id — a separate (heavier)
-    // on-chain step that happens lazily.
+    // AUDIT_PENDING (2026-05-29): the autoswap system was archived to
+    // `web/_archive/autoswap-2026-05-29/`. The columns below are
+    // dormant — no active code path writes them — but we keep them in
+    // the schema so historical `talise_vault_id` values are preserved
+    // for any future re-activation or data migration. Do not drop
+    // without a separate audit + backup of populated rows.
+    //
+    // AUDIT_PENDING (vault-collapse, 2026-05-29): once
+    // `scripts/drain-vault-to-admin.mjs --execute` finishes pulling
+    // every vault's bag balances back to the single admin wallet, the
+    // follow-up schema migration should: (1) NULL every
+    // `users.talise_vault_id`, (2) drop `talise_vault_subname_repointed`,
+    // (3) drop any vault-only dependent tables / indexes. Do not drop
+    // in this commit — the drain must complete on-chain first so we
+    // retain one revert window.
+    //
+    // Original purpose: TaliseVault + AutoSwap Path-C. `talise_vault_id`
+    // was the user's shared-object vault id, set after they signed the
+    // `vault::create()` tx. The repointed flag tracked whether their
+    // `@talise` SuiNS subname target had been moved from their plain
+    // wallet address to the vault id.
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_id TEXT`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_subname_repointed INTEGER DEFAULT 0`,
     // Indexes on hot read paths. UNIQUE constraints above already cover
