@@ -46,20 +46,26 @@ export function shinamiEnabled(): boolean {
 /**
  * Resolve Shinami's paid Sui-node JSON-RPC endpoint + auth header pair.
  *
- * Returns `null` when `SHINAMI_API_KEY` is unset so callers can cleanly
- * fall back to the public `fullnode.mainnet.sui.io:443` URL without a
- * try/catch. Does NOT throw — that contract matters because the gasless
- * build path treats a missing Shinami config as "use public" and a
- * present-but-invalid key as a hard fail (caught by the retry guard).
+ * Returns `null` when no node-service key is configured so callers can
+ * cleanly fall back to the public `fullnode.mainnet.sui.io:443` URL
+ * without a try/catch. Does NOT throw — that contract matters because
+ * the gasless build path treats a missing Shinami config as "use
+ * public" and a present-but-invalid key as a hard fail (caught by the
+ * retry guard).
  *
- * URL + header convention mirrors `MAINNET_GRPC_ENDPOINTS[2]` in
- * `lib/sui-endpoints.ts` (Shinami gRPC). The same key works for both
- * protocols; only the path/body shape differs.
+ * IMPORTANT: Shinami's Node Service uses a DIFFERENT API key from the
+ * zkLogin Wallet + zkProver services (verified 2026-05-30 — the same
+ * SHINAMI_API_KEY that works on `/sui/zkprover/v1` and
+ * `/sui/zkwallet/v1` returns 401 on `/sui/node/v1`). Provision a
+ * separate Node Service key at https://app.shinami.com and set it as
+ * `SHINAMI_NODE_API_KEY`. If only the legacy `SHINAMI_API_KEY` is
+ * present (no node-service key), this returns `null` and the gasless
+ * build path stays on public mainnet — no retry-on-401 overhead.
  */
 export function shinamiSuiNodeJsonRpc():
   | { url: string; headers: Record<string, string> }
   | null {
-  const key = process.env.SHINAMI_API_KEY;
+  const key = process.env.SHINAMI_NODE_API_KEY;
   if (!key || key.trim().length === 0) return null;
   return {
     url: NODE_JSON_RPC_URL,

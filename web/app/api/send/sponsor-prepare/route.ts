@@ -63,7 +63,7 @@ const ADDRESS_RE = /^0x[a-f0-9]{64}$/i;
 // downstream in `/api/send/gasless-submit`. Lazily initialized to defer
 // any env-var resolution to first use.
 //
-// Routing: when `SHINAMI_API_KEY` is set, the singleton points at
+// Routing: when `SHINAMI_NODE_API_KEY` is set, the singleton points at
 // Shinami's paid Sui-node JSON-RPC (`api.us1.shinami.com/sui/node/v1`)
 // with the `X-Api-Key` header wrapped into the fetch function the SDK
 // uses. Otherwise it falls back to the free public mainnet fullnode.
@@ -318,7 +318,7 @@ export async function POST(req: Request) {
       // network label.
       //
       // Endpoint selection: `getJsonRpcClient()` returns Shinami when
-      // `SHINAMI_API_KEY` is set, else the public fullnode. The
+      // `SHINAMI_NODE_API_KEY` is set, else the public fullnode. The
       // chain-id + epoch lookups go through the same client so the
       // entire gasless build leans on one paid endpoint (when
       // configured) instead of mixing public + paid hosts mid-flow.

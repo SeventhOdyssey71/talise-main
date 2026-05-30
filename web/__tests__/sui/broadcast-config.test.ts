@@ -2,7 +2,7 @@
  * Unit tests for `GET /api/sui/broadcast-config`.
  *
  * The endpoint hands iOS the Sui JSON-RPC URL + auth headers it should
- * use for the direct-broadcast (gasless) rail. When `SHINAMI_API_KEY`
+ * use for the direct-broadcast (gasless) rail. When `SHINAMI_NODE_API_KEY`
  * is set we point iOS at Shinami; otherwise we fall back to the public
  * mainnet fullnode. These tests verify both branches plus the auth
  * gate.
@@ -36,10 +36,10 @@ describe("/api/sui/broadcast-config", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(readEntryIdFromRequest).mockResolvedValue(42);
-    delete process.env.SHINAMI_API_KEY;
+    delete process.env.SHINAMI_NODE_API_KEY;
   });
 
-  it("returns the public config when SHINAMI_API_KEY is unset", async () => {
+  it("returns the public config when SHINAMI_NODE_API_KEY is unset", async () => {
     const res = await GET(buildReq());
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -54,8 +54,8 @@ describe("/api/sui/broadcast-config", () => {
     expect(res.headers.get("cache-control")).toBe("private, max-age=900");
   });
 
-  it("returns the Shinami config when SHINAMI_API_KEY is set", async () => {
-    process.env.SHINAMI_API_KEY = "test-shinami-key";
+  it("returns the Shinami config when SHINAMI_NODE_API_KEY is set", async () => {
+    process.env.SHINAMI_NODE_API_KEY = "test-shinami-key";
     const res = await GET(buildReq());
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -86,23 +86,23 @@ describe("/api/sui/broadcast-config", () => {
 
 // ─── Structural test: sponsor-prepare's JSON-RPC client construction ──
 //
-// The brief: when `SHINAMI_API_KEY` is set, the gasless build's
+// The brief: when `SHINAMI_NODE_API_KEY` is set, the gasless build's
 // `SuiJsonRpcClient` must be constructed with Shinami's URL AND a
 // `fetch` option that injects `X-Api-Key`. We don't hit live Shinami —
 // we mock the constructor and inspect what the route passed to it.
 
 describe("shinamiSuiNodeJsonRpc() — JSON-RPC client construction shape", () => {
   beforeEach(() => {
-    delete process.env.SHINAMI_API_KEY;
+    delete process.env.SHINAMI_NODE_API_KEY;
   });
 
-  it("returns null when SHINAMI_API_KEY is unset", async () => {
+  it("returns null when SHINAMI_NODE_API_KEY is unset", async () => {
     const { shinamiSuiNodeJsonRpc } = await import("@/lib/shinami");
     expect(shinamiSuiNodeJsonRpc()).toBeNull();
   });
 
-  it("returns Shinami URL + X-Api-Key header when SHINAMI_API_KEY is set", async () => {
-    process.env.SHINAMI_API_KEY = "structural-test-key";
+  it("returns Shinami URL + X-Api-Key header when SHINAMI_NODE_API_KEY is set", async () => {
+    process.env.SHINAMI_NODE_API_KEY = "structural-test-key";
     const { shinamiSuiNodeJsonRpc } = await import("@/lib/shinami");
     const got = shinamiSuiNodeJsonRpc();
     expect(got).not.toBeNull();
@@ -111,7 +111,7 @@ describe("shinamiSuiNodeJsonRpc() — JSON-RPC client construction shape", () =>
   });
 
   it("the JSON-RPC fetch wrapper injects the Shinami auth header", async () => {
-    process.env.SHINAMI_API_KEY = "wrapper-key";
+    process.env.SHINAMI_NODE_API_KEY = "wrapper-key";
     const { shinamiSuiNodeJsonRpc } = await import("@/lib/shinami");
     const shinami = shinamiSuiNodeJsonRpc()!;
 
