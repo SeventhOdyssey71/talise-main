@@ -9,6 +9,8 @@ import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 import { getRoundupConfig } from "@/lib/rewards/roundup";
 import { appendNaviSupply } from "@/lib/navi-supply";
 import { onara } from "@/lib/onara";
+import { getCurrentEpoch } from "@/lib/sui-epoch";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import {
   memoTtl,
   recordSendLatency,
@@ -51,6 +53,25 @@ export const runtime = "nodejs";
 
 const SUPPORTED_ASSETS = new Set(["USDsui", "SUI"]);
 const ADDRESS_RE = /^0x[a-f0-9]{64}$/i;
+
+// Singleton JSON-RPC client used ONLY by the gasless build path. We
+// need it because @mysten/sui 2.16.3's gRPC SDK has a build-time bug
+// with `ValidDuring` expiration encoding ("unknown
+// TransactionExpirationKind"). The bytes produced by the JSON-RPC
+// build are network-agnostic and are accepted by gRPC executeTransaction
+// downstream in `/api/send/gasless-submit`. Lazily initialized to defer
+// any env-var resolution to first use.
+let _jsonRpc: SuiJsonRpcClient | null = null;
+function getJsonRpcClient(): SuiJsonRpcClient {
+  if (_jsonRpc) return _jsonRpc;
+  const net = network();
+  const url =
+    net === "mainnet"
+      ? "https://fullnode.mainnet.sui.io:443"
+      : `https://fullnode.${net}.sui.io:443`;
+  _jsonRpc = new SuiJsonRpcClient({ network: net, url });
+  return _jsonRpc;
+}
 
 export async function POST(req: Request) {
   const onaraUrl = process.env.ONARA_URL;
@@ -193,51 +214,28 @@ export async function POST(req: Request) {
       tx.setSender(user.sui_address);
 
       // ───────────────────────────────────────────────────────────────
-      // DIRECTIVE (2026-05-29): clean 2-call accumulator pattern ONLY.
+      // DIRECTIVE (2026-05-30): accumulator-only PTB + ValidDuring
+      // expiration to satisfy the validator's escape-hatch rule.
       //
-      // We previously used `tx.balance({type, balance})`, whose SDK
-      // implementation transparently falls back to owned Coin<T>
-      // objects when the accumulator can't cover the requested amount.
-      // That fallback emitted up-to-5-command PTBs (MergeCoins +
-      // SplitCoins + coin::into_balance + balance::send_funds + a
-      // trailing transfer) on the user's first send — see the
-      // mainnet reference tx B9oaCA7G…tbxz, which is a clean 2-call
-      // PTB and is what we want to mirror verbatim.
+      // The validator requires every PTB to EITHER carry an
+      // address-owned input OR set a `ValidDuring` expiration with at
+      // most two epochs of validity. A pure accumulator pull
+      // (`tx.balance({balance})`) has no address-owned input, so the
+      // escape hatch is mandatory. This is exactly what the SDK's own
+      // parallel executor does in `addressBalance` gas mode — see
+      // `@mysten/sui/transactions/executor/parallel.mjs`
+      // (#getValidDuringExpiration), which we mirror verbatim below.
       //
-      // The clean 2-call (tx.withdrawal + redeem_funds + send_funds)
-      // pattern ONLY works when the PTB also carries an address-owned
-      // input. With ONLY a FundsWithdrawal input, validators reject
-      // with "must either have address-owned inputs, or a ValidDuring
-      // expiration" — and the ValidDuring escape hatch is broken
-      // upstream ("unknown TransactionExpirationKind" on gRPC,
-      // 2026-05-29 probe). Live probe against the user's wallet
-      // confirmed: clean 2-call NEVER succeeds for any amount because
-      // there's no Coin object in the PTB to satisfy the rule.
-      //
-      // Real working shape uses `tx.balance({type, balance})`. The
-      // SDK helper auto-falls-back to owned Coin<T> objects when the
-      // requested balance exceeds the address-balance accumulator.
-      // That fallback emits MergeCoins + SplitCoins + coin::into_balance
-      // + balance::send_funds — a 4-5 command PTB but still allowlisted
-      // gasless because the SDK marks it as a gasless intent. Crucially,
-      // the Coin<T> input satisfies the validator's "address-owned
-      // input" requirement.
-      //
-      // Practical consequence the user needs to know:
-      //   send amount > accumulator         → SDK pulls a Coin → gasless ✓
-      //   send amount ≤ accumulator + Coins → SDK uses accumulator only
-      //                                      → no Coin input → validator
-      //                                        rejects → anchor-fallback
-      //                                        (sponsored)
-      //   send amount ≤ accumulator + 0 Coins → same fail mode
-      //
-      // To force gasless for small sends, the user has to either
-      //   (a) drain the accumulator into Coin objects (no public PTB
-      //       primitive exists for this on Sui today — see
-      //       docs/sui-rpc-migration/gasless-notes.md), or
-      //   (b) wait for a fresh Coin<USDsui> arrival (any inbound via
-      //       legacy primitives lands as a Coin → gasless rail enabled
-      //       for the next send).
+      // CRITICAL: build the PTB with a `SuiJsonRpcClient`, NOT the
+      // gRPC client. The gRPC SDK's resolveTransactionPlugin chokes on
+      // the `ValidDuring` variant with "unknown TransactionExpirationKind"
+      // (see `web/scripts/probe-valid-during.mjs` — gRPC build fails,
+      // JSON-RPC build succeeds, dryRun OK, gRPC simulate accepts the
+      // resulting bytes). The execute path stays on gRPC because
+      // `executeTransaction` is byte-encoded and the gRPC service
+      // accepts the encoded ValidDuring just fine — it's only the
+      // SDK's build-time simulate that has the bug. Drop the JSON-RPC
+      // dep here once Mysten ships gRPC ValidDuring decoding.
       tx.moveCall({
         target: "0x2::balance::send_funds",
         typeArguments: [USDSUI_TYPE],
@@ -251,7 +249,31 @@ export async function POST(req: Request) {
       tx.setGasPrice(0n);
       tx.setGasBudget(0n);
 
-      const bytes = await tx.build({ client: client as never });
+      // ValidDuring escape hatch: tells the validator this PTB is
+      // valid for the current + next epoch, which is the maximum
+      // window the gasless rail allows. `chain` MUST be the base58
+      // chainIdentifier from `core.getChainIdentifier()`, NOT a
+      // network label.
+      const jsonClient = getJsonRpcClient();
+      const [chainId, currentEpoch] = await Promise.all([
+        jsonClient.core.getChainIdentifier().then((r) => r.chainIdentifier),
+        getCurrentEpoch(),
+      ]);
+      const epochBig = BigInt(currentEpoch);
+      tx.setExpiration({
+        ValidDuring: {
+          minEpoch: String(epochBig),
+          maxEpoch: String(epochBig + 1n),
+          minTimestamp: null,
+          maxTimestamp: null,
+          chain: chainId,
+          nonce: (Math.random() * 4294967296) >>> 0,
+        },
+      });
+
+      // Build via JSON-RPC — see comment above. gRPC SDK fails here
+      // with "unknown TransactionExpirationKind".
+      const bytes = await tx.build({ client: jsonClient as never });
       const tBuild = Date.now();
 
       // Stash the deferred roundup so `/api/send/gasless-submit` can
