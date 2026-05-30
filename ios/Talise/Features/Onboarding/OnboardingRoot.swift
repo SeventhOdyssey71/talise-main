@@ -41,8 +41,11 @@ struct OnboardingRoot: View {
                     SplashView(onAdvance: { advance(to: .welcome) })
                         .transition(.opacity)
                 case .welcome:
-                    WelcomeView(onContinue: { advance(to: .intro1) })
-                        .transition(.opacity)
+                    WelcomeView(
+                        onContinue: { advance(to: .intro1) },
+                        onSignIn: { advance(to: .signIn) }
+                    )
+                    .transition(.opacity)
                 case .intro1, .intro2, .intro3:
                     BrandIntroCarousel(
                         selection: Binding(

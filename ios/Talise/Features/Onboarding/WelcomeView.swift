@@ -1,94 +1,149 @@
 import SwiftUI
 
-/// Hero screen with the dark-green-disc Talise mark, wordmark, the
-/// product one-liner, three carousel dots, and the primary "Get started"
-/// CTA. The `TaliseLogo` asset entry is intentionally empty — once
-/// Higgsfield exports the disc + pinwheel PNG it drops in; until then
-/// we render the same generated mark used in `HomeView`.
+/// Hero onboarding screen — first thing a fresh install sees after the
+/// splash. Mossy-green radial gradient washes the top half down into
+/// black; the Talise pinwheel sits in the upper-middle; bottom-left
+/// headline + subtitle copy frames two CTAs (primary "Get Started" and
+/// secondary "I have an account" for returning users) over a tiny
+/// Terms acknowledgement footer.
+///
+/// `onContinue` → start the brand-intro carousel (new user path).
+/// `onSignIn`   → jump straight to the sign-in sheet (returning user).
 struct WelcomeView: View {
     let onContinue: () -> Void
+    let onSignIn: () -> Void
 
     var body: some View {
         ZStack {
+            // Black base so the gradient's lower half blends cleanly
+            // into the safe-area.
             TaliseColor.bg.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                Spacer()
-
-                logoHero
-                    .frame(width: 128, height: 128)
-                    .padding(.bottom, 28)
-
-                Text("Talise")
-                    .font(TaliseFont.heading(36, weight: .medium))
-                    .kerning(-1.2)
-                    .foregroundStyle(TaliseColor.fg)
-
-                Text("Send money across the globe. For free.")
-                    .font(TaliseFont.body(15, weight: .light))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 12)
-                    .padding(.horizontal, 32)
-
-                Spacer()
-
-                // Dot indicators pointing at the upcoming three carousel
-                // slides — they're inert here (the carousel itself owns
-                // the live selection state), purely a previewing affordance.
-                HStack(spacing: 8) {
-                    ForEach(0..<3, id: \.self) { _ in
-                        Circle()
-                            .fill(TaliseColor.fgDim)
-                            .frame(width: 6, height: 6)
-                    }
-                }
-                .padding(.bottom, 24)
-
-                LiquidGlassButton(
-                    title: "Get started",
-                    size: .lg,
-                    action: onContinue
+            // Mossy green radial wash anchored at the top. The center
+            // sits just above the screen top so the brightest area is
+            // at the device's top edge, falling off to black around
+            // ~55% of the viewport height. The hex (0x6BA85A) is a
+            // softened forest green — the regular accent (0x79D96C)
+            // is too vivid for a full-width wash.
+            GeometryReader { proxy in
+                RadialGradient(
+                    colors: [
+                        Color(hex: 0x6BA85A).opacity(0.95),
+                        Color(hex: 0x2A3E22).opacity(0.6),
+                        Color.black.opacity(0.0),
+                    ],
+                    center: UnitPoint(x: 0.5, y: -0.05),
+                    startRadius: 0,
+                    endRadius: proxy.size.height * 0.55
                 )
-                .padding(.horizontal, 24)
-                .padding(.bottom, 32)
+                .ignoresSafeArea()
+            }
+
+            VStack(spacing: 0) {
+                Spacer().frame(height: 120)
+
+                logoMark
+                    .frame(width: 96, height: 96)
+
+                Spacer()
+
+                copyBlock
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 20)
+
+                primaryCTA
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 12)
+
+                secondaryCTA
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 16)
+
+                termsFooter
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 24)
             }
         }
+        .preferredColorScheme(.dark)
     }
 
+    // ── Subviews ────────────────────────────────────────────────────
+
     @ViewBuilder
-    private var logoHero: some View {
-        // Real asset slots in once Higgsfield renders the dark-green disc
-        // + white pinwheel. Until then, render the existing Canvas mark
-        // inside a dark-green disc so the layout doesn't shift.
+    private var logoMark: some View {
         if UIImage(named: "TaliseLogo") != nil {
             Image("TaliseLogo")
                 .resizable()
                 .scaledToFit()
         } else {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(hex: 0x1F4730),
-                                Color(hex: 0x0D2A1A),
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                Pinwheel()
-                    .padding(20)
-            }
+            Pinwheel()
         }
+    }
+
+    private var copyBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Move money without borders")
+                .font(TaliseFont.heading(26, weight: .medium))
+                .kerning(-0.6)
+                .foregroundStyle(TaliseColor.fg)
+                .multilineTextAlignment(.leading)
+
+            Text(
+                "Moving money across the world is complex, Talise brings simplicity to this. Free transactions, smart money movement."
+            )
+            .font(TaliseFont.body(13, weight: .light))
+            .foregroundStyle(TaliseColor.fgMuted)
+            .multilineTextAlignment(.leading)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var primaryCTA: some View {
+        Button(action: onContinue) {
+            Text("Get Started")
+                .font(TaliseFont.body(15, weight: .medium))
+                .foregroundStyle(TaliseColor.bg)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(TaliseColor.fg)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var secondaryCTA: some View {
+        Button(action: onSignIn) {
+            Text("I have an account")
+                .font(TaliseFont.body(15, weight: .medium))
+                .foregroundStyle(TaliseColor.fg)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(TaliseColor.surface2)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var termsFooter: some View {
+        // Light footer ack — `Terms and Conditions` is underlined so it
+        // reads as a link target. No tap handler yet (we don't have a
+        // terms page route); when one ships, wrap the Text in a Button
+        // that opens it.
+        (Text("You accept ")
+            + Text("Terms and Conditions").underline()
+            + Text(" by continuing."))
+            .font(TaliseFont.body(11, weight: .light))
+            .foregroundStyle(TaliseColor.fgDim)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
     }
 }
 
-/// Hand-drawn approximation of the dark-green-disc / white-pinwheel
-/// brand mark. Reuses the same geometry as `HomeView`'s `TaliseLogoMark`
-/// but is duplicated locally so the Onboarding feature stays self-
-/// contained (no cross-feature import).
+/// Hand-drawn approximation of the white pinwheel brand mark — same
+/// geometry as `HomeView`'s `TaliseLogoMark`, duplicated here so the
+/// Onboarding feature stays self-contained.
 private struct Pinwheel: View {
     var body: some View {
         Canvas { ctx, size in
