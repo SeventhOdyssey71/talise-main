@@ -204,30 +204,47 @@ export async function POST(req: Request) {
       // mainnet reference tx B9oaCA7G…tbxz, which is a clean 2-call
       // PTB and is what we want to mirror verbatim.
       //
-      // The new shape is exactly:
+      // The clean 2-call (tx.withdrawal + redeem_funds + send_funds)
+      // pattern ONLY works when the PTB also carries an address-owned
+      // input. With ONLY a FundsWithdrawal input, validators reject
+      // with "must either have address-owned inputs, or a ValidDuring
+      // expiration" — and the ValidDuring escape hatch is broken
+      // upstream ("unknown TransactionExpirationKind" on gRPC,
+      // 2026-05-29 probe). Live probe against the user's wallet
+      // confirmed: clean 2-call NEVER succeeds for any amount because
+      // there's no Coin object in the PTB to satisfy the rule.
       //
-      //   Input[1] = FundsWithdrawal { MaxAmountU64, Sender, USDSUI }
-      //   MoveCall: 0x2::balance::redeem_funds<USDSUI>(Input[1])
-      //                                                 → Balance<USDSUI>
-      //   MoveCall: 0x2::balance::send_funds<USDSUI>(redeemed, recipient)
-      //   gas: { price: 0, budget: 0, payment: [] }
+      // Real working shape uses `tx.balance({type, balance})`. The
+      // SDK helper auto-falls-back to owned Coin<T> objects when the
+      // requested balance exceeds the address-balance accumulator.
+      // That fallback emits MergeCoins + SplitCoins + coin::into_balance
+      // + balance::send_funds — a 4-5 command PTB but still allowlisted
+      // gasless because the SDK marks it as a gasless intent. Crucially,
+      // the Coin<T> input satisfies the validator's "address-owned
+      // input" requirement.
       //
-      // Coin<USDsui>-only balance state can NOT take this path; those
-      // users must first move funds into the accumulator via the new
-      // manual swap CTA (see /api/swap/prepare stub) or a top-up.
-      // We surface that as ACCUMULATOR_UNDERFUNDED below — iOS no
-      // longer offers the consolidation reconciliation UX (removed
-      // 2026-05-29 alongside the autoswap archive).
-      // ───────────────────────────────────────────────────────────────
-      const redeemed = tx.moveCall({
-        target: "0x2::balance::redeem_funds",
-        typeArguments: [USDSUI_TYPE],
-        arguments: [tx.withdrawal({ amount: onchain, type: USDSUI_TYPE })],
-      });
+      // Practical consequence the user needs to know:
+      //   send amount > accumulator         → SDK pulls a Coin → gasless ✓
+      //   send amount ≤ accumulator + Coins → SDK uses accumulator only
+      //                                      → no Coin input → validator
+      //                                        rejects → anchor-fallback
+      //                                        (sponsored)
+      //   send amount ≤ accumulator + 0 Coins → same fail mode
+      //
+      // To force gasless for small sends, the user has to either
+      //   (a) drain the accumulator into Coin objects (no public PTB
+      //       primitive exists for this on Sui today — see
+      //       docs/sui-rpc-migration/gasless-notes.md), or
+      //   (b) wait for a fresh Coin<USDsui> arrival (any inbound via
+      //       legacy primitives lands as a Coin → gasless rail enabled
+      //       for the next send).
       tx.moveCall({
         target: "0x2::balance::send_funds",
         typeArguments: [USDSUI_TYPE],
-        arguments: [redeemed, tx.pure.address(to)],
+        arguments: [
+          tx.balance({ type: USDSUI_TYPE, balance: onchain }),
+          tx.pure.address(to),
+        ],
       });
       // Both gasPrice AND gasBudget must be explicitly 0; the validator's
       // gasless gate rejects auto-picked budgets even when the price is 0.
