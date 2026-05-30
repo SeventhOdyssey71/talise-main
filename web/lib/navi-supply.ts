@@ -2,6 +2,7 @@ import "server-only";
 
 import { coinWithBalance, type Transaction } from "@mysten/sui/transactions";
 import { NaviAdapter } from "@t2000/sdk";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { USDSUI_TYPE, isUsdsui } from "./usdsui";
 import { USDSUI_DECIMALS, sui } from "./sui";
 import { memoTtl } from "./perf-cache";
@@ -31,18 +32,38 @@ const NAVI_ASSET = "USDsui";
 
 let _adapter: NaviAdapter | null = null;
 let _adapterReady: Promise<NaviAdapter> | null = null;
+let _naviJsonRpcClient: SuiJsonRpcClient | null = null;
+
+/**
+ * Dedicated JSON-RPC client for the NAVI SDK. We CANNOT reuse the
+ * shared `sui()` (gRPC fallback proxy) here because `@t2000/sdk` 2.11
+ * internally calls `client.devInspectTransactionBlock(...)` — a
+ * legacy JSON-RPC method that the gRPC proxy doesn't expose. The
+ * previous code passed `sui() as never` and the NAVI position read
+ * threw `TypeError: t.devInspectTransactionBlock is not a function`,
+ * which the withdraw route caught and surfaced to iOS as
+ * "Withdraw is taking longer than usual" (since the old withTimeout
+ * helper collapsed errors into the timeout fallback). The error
+ * mapping in b640a35 already distinguishes timeout vs error; this
+ * fix removes the underlying error itself.
+ */
+function naviJsonRpcClient(): SuiJsonRpcClient {
+  if (_naviJsonRpcClient) return _naviJsonRpcClient;
+  const url =
+    process.env.SUI_JSONRPC_URL?.trim() ||
+    "https://fullnode.mainnet.sui.io:443";
+  _naviJsonRpcClient = new SuiJsonRpcClient({ url, network: "mainnet" });
+  return _naviJsonRpcClient;
+}
 
 async function adapter(): Promise<NaviAdapter> {
   if (_adapter) return _adapter;
   if (_adapterReady) return _adapterReady;
   _adapterReady = (async () => {
     const a = new NaviAdapter();
-    // NaviAdapter.init() is typed against the legacy JSON-RPC client
-    // but internally only touches the unified `core.*` surface that the
-    // gRPC client also exposes — verified at runtime against
-    // @t2000/sdk 2.11. Pass the shared gRPC client so the rest of the
-    // app stays on one transport.
-    await a.init(sui() as never);
+    // Use a dedicated JSON-RPC SuiClient (NOT the gRPC proxy) per the
+    // comment above naviJsonRpcClient().
+    await a.init(naviJsonRpcClient() as never);
     _adapter = a;
     return a;
   })();
