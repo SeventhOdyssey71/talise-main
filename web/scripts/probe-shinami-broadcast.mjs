@@ -14,7 +14,7 @@
 //   • test the WaitForLocalExecution flag (that's a request-time field,
 //     not encoded in the bytes — only iOS's send path exercises it).
 //
-// Run with `dotenv` so SHINAMI_API_KEY loads from .env.local:
+// Run with `dotenv` so SHINAMI_NODE_API_KEY loads from .env.local:
 //   node --env-file=.env.local scripts/probe-shinami-broadcast.mjs
 
 import { Transaction } from "@mysten/sui/transactions";
@@ -26,7 +26,7 @@ const USDSUI =
 const SENDER = "0xb9aad5433f0d3b76e35d9985706b3fa9e571262f2fa1f12043589ca681d2866c";
 const RECIPIENT = "0x156a95a023b61177558de1de36409acf7f72417f9ca21a3a1e903e3b52283743";
 
-const KEY = process.env.SHINAMI_API_KEY;
+const KEY = process.env.SHINAMI_NODE_API_KEY;
 const SHINAMI_URL = "https://api.us1.shinami.com/sui/node/v1";
 const PUBLIC_URL = "https://fullnode.mainnet.sui.io:443";
 
@@ -39,11 +39,11 @@ const fail = (label, msg = "") => {
 console.log("=== shinami-fast-broadcast probe ===\n");
 
 // ── Test 1: env wiring ───────────────────────────────────────────────
-console.log("[1/4] SHINAMI_API_KEY present");
+console.log("[1/4] SHINAMI_NODE_API_KEY present");
 if (KEY && KEY.length > 4) {
   ok("env loaded", `(${KEY.length} chars)`);
 } else {
-  fail("env missing", "SHINAMI_API_KEY not set — aborting");
+  fail("env missing", "SHINAMI_NODE_API_KEY not set — aborting");
   process.exit(1);
 }
 
