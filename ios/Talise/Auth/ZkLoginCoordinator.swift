@@ -488,6 +488,50 @@ final class ZkLoginCoordinator {
         // Route by mode. Gasless skips Onara entirely — direct
         // fullnode broadcast via /api/send/gasless-submit. Saves the
         // Onara round-trip (~300-500ms) on plain USDsui sends.
+        //
+        // When the directBroadcast feature flag is on AND we're in
+        // gasless mode, try the new direct-to-fullnode path first:
+        // assemble-signature → fullnode → fire-and-forget confirm.
+        // Skips one Vercel hop on the execute leg (~250-400ms saved).
+        // Any assemble/broadcast failure falls back transparently to
+        // the legacy /api/send/gasless-submit path below.
+        let cachedProofJSON: [String: Any]? = {
+            guard let proofData = ProofCache.shared.proofRaw,
+                  let json = try? JSONSerialization.jsonObject(with: proofData) as? [String: Any],
+                  json["proofPoints"] is [String: Any] else { return nil }
+            return json
+        }()
+
+        if mode == "gasless" && AppConfig.shared.directBroadcastEnabled {
+            do {
+                let metaForConfirm = executeBody["meta"] as? [String: Any]
+                let direct = try await DirectBroadcastSender.send(
+                    bytesB64: bytesB64,
+                    ephemeralPubKeyB64: pubKeyB64,
+                    maxEpoch: maxEpoch,
+                    randomness: jwtRandomness,
+                    userSignature: userSig,
+                    cachedProof: cachedProofJSON,
+                    meta: metaForConfirm
+                )
+                let tTotalMs = msSince(t0)
+                // New log shape: assemble/broadcast/confirm replace the
+                // single `execute=` field. mode=gasless-direct tells the
+                // server-side parser to bucket separately from the
+                // legacy gasless rows.
+                print(
+                    "[ios/send] prepare=\(tPrepareMs)ms sign=\(tSignMs)ms assemble=\(direct.assembleMs)ms broadcast=\(direct.broadcastMs)ms confirm=\(direct.confirmMs)ms total=\(tTotalMs)ms mode=gasless-direct"
+                )
+                _ = intent
+                return SignedSubmission(digest: direct.digest)
+            } catch {
+                // Direct-broadcast failed at assemble or broadcast.
+                // Log + fall through to the legacy gasless-submit path
+                // below so the user's send still lands.
+                print("[ios/send] direct-broadcast failed, falling back: \(error)")
+            }
+        }
+
         let executePath = mode == "gasless"
             ? "/api/send/gasless-submit"
             : "/api/zk/sponsor-execute"
