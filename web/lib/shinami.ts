@@ -19,6 +19,15 @@ import "server-only";
 
 const WALLET_URL = "https://api.us1.shinami.com/sui/zkwallet/v1";
 const PROVER_URL = "https://api.us1.shinami.com/sui/zkprover/v1";
+/**
+ * Shinami's paid Sui-node JSON-RPC endpoint. Same host family as the
+ * gRPC node URL in `lib/sui-endpoints.ts`, different path (`/sui/node/v1`
+ * speaks BOTH gRPC-Web and JSON-RPC — Shinami picks the protocol from
+ * the `Content-Type` and the body shape). Auth header is `X-Api-Key`,
+ * matching the gRPC fallback chain.
+ */
+const NODE_JSON_RPC_URL = "https://api.us1.shinami.com/sui/node/v1";
+const NODE_AUTH_HEADER = "X-Api-Key";
 
 function apiKey(): string {
   const k = process.env.SHINAMI_API_KEY;
@@ -32,6 +41,30 @@ function apiKey(): string {
 
 export function shinamiEnabled(): boolean {
   return !!process.env.SHINAMI_API_KEY;
+}
+
+/**
+ * Resolve Shinami's paid Sui-node JSON-RPC endpoint + auth header pair.
+ *
+ * Returns `null` when `SHINAMI_API_KEY` is unset so callers can cleanly
+ * fall back to the public `fullnode.mainnet.sui.io:443` URL without a
+ * try/catch. Does NOT throw — that contract matters because the gasless
+ * build path treats a missing Shinami config as "use public" and a
+ * present-but-invalid key as a hard fail (caught by the retry guard).
+ *
+ * URL + header convention mirrors `MAINNET_GRPC_ENDPOINTS[2]` in
+ * `lib/sui-endpoints.ts` (Shinami gRPC). The same key works for both
+ * protocols; only the path/body shape differs.
+ */
+export function shinamiSuiNodeJsonRpc():
+  | { url: string; headers: Record<string, string> }
+  | null {
+  const key = process.env.SHINAMI_API_KEY;
+  if (!key || key.trim().length === 0) return null;
+  return {
+    url: NODE_JSON_RPC_URL,
+    headers: { [NODE_AUTH_HEADER]: key },
+  };
 }
 
 /** Decode Shinami's base64 salt into a decimal-string BigInt (what genAddressSeed wants). */

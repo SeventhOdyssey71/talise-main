@@ -10,7 +10,8 @@ import { getRoundupConfig } from "@/lib/rewards/roundup";
 import { appendNaviSupply } from "@/lib/navi-supply";
 import { onara } from "@/lib/onara";
 import { getCurrentEpoch } from "@/lib/sui-epoch";
-import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import { SuiJsonRpcClient, JsonRpcHTTPTransport } from "@mysten/sui/jsonRpc";
+import { shinamiSuiNodeJsonRpc } from "@/lib/shinami";
 import {
   memoTtl,
   recordSendLatency,
@@ -61,16 +62,77 @@ const ADDRESS_RE = /^0x[a-f0-9]{64}$/i;
 // build are network-agnostic and are accepted by gRPC executeTransaction
 // downstream in `/api/send/gasless-submit`. Lazily initialized to defer
 // any env-var resolution to first use.
-let _jsonRpc: SuiJsonRpcClient | null = null;
-function getJsonRpcClient(): SuiJsonRpcClient {
-  if (_jsonRpc) return _jsonRpc;
+//
+// Routing: when `SHINAMI_API_KEY` is set, the singleton points at
+// Shinami's paid Sui-node JSON-RPC (`api.us1.shinami.com/sui/node/v1`)
+// with the `X-Api-Key` header wrapped into the fetch function the SDK
+// uses. Otherwise it falls back to the free public mainnet fullnode.
+// Both singletons are cached separately so a one-shot retry after a
+// Shinami 401/403 can reuse the public client without rebuilding.
+let _jsonRpcShinami: SuiJsonRpcClient | null = null;
+let _jsonRpcPublic: SuiJsonRpcClient | null = null;
+
+function publicFullnodeUrl(net: string): string {
+  return net === "mainnet"
+    ? "https://fullnode.mainnet.sui.io:443"
+    : `https://fullnode.${net}.sui.io:443`;
+}
+
+function buildPublicJsonRpc(): SuiJsonRpcClient {
+  if (_jsonRpcPublic) return _jsonRpcPublic;
   const net = network();
-  const url =
-    net === "mainnet"
-      ? "https://fullnode.mainnet.sui.io:443"
-      : `https://fullnode.${net}.sui.io:443`;
-  _jsonRpc = new SuiJsonRpcClient({ network: net, url });
-  return _jsonRpc;
+  _jsonRpcPublic = new SuiJsonRpcClient({
+    network: net,
+    url: publicFullnodeUrl(net),
+  });
+  return _jsonRpcPublic;
+}
+
+function buildShinamiJsonRpc(
+  shinami: { url: string; headers: Record<string, string> },
+): SuiJsonRpcClient {
+  if (_jsonRpcShinami) return _jsonRpcShinami;
+  const net = network();
+  // The SDK's transport layer exposes both a per-request `headers`
+  // hook (`rpc.headers`) AND a custom `fetch` wrapper. We use BOTH:
+  //   - `rpc.headers` is the canonical path for static auth headers
+  //     (Shinami's `X-Api-Key`). Cheaper than wrapping fetch.
+  //   - `fetch` wrapper exists as a defensive merge layer — if a
+  //     future SDK call ever bypasses the configured `rpc.headers`,
+  //     the wrapper still appends the auth header.
+  // The build-time `tx.build({ client })` path eventually issues
+  // standard JSON-RPC POSTs through this transport, so either hook
+  // would suffice today; the belt+suspenders is for SDK churn.
+  const transport = new JsonRpcHTTPTransport({
+    url: shinami.url,
+    rpc: { headers: shinami.headers },
+    fetch: (input, init) => {
+      const hdrs: Record<string, string> = {
+        ...((init?.headers as Record<string, string> | undefined) ?? {}),
+        ...shinami.headers,
+      };
+      return fetch(input as RequestInfo, { ...init, headers: hdrs });
+    },
+  });
+  _jsonRpcShinami = new SuiJsonRpcClient({ network: net, transport });
+  return _jsonRpcShinami;
+}
+
+function getJsonRpcClient(): SuiJsonRpcClient {
+  const shinami = shinamiSuiNodeJsonRpc();
+  return shinami ? buildShinamiJsonRpc(shinami) : buildPublicJsonRpc();
+}
+
+/**
+ * Returns true if an error from a JSON-RPC build looks like a
+ * Shinami-auth failure (401/403). Used to gate the one-shot retry
+ * against the public fullnode. Be conservative — anything not
+ * obviously auth-related should NOT retry (a retry loop on real bugs
+ * is a swallowed-bug magnet).
+ */
+function isShinamiAuthFailure(err: unknown): boolean {
+  const msg = (err as Error)?.message ?? String(err);
+  return /\b(401|403)\b/.test(msg) || /unauthori[sz]ed|forbidden/i.test(msg);
 }
 
 export async function POST(req: Request) {
@@ -254,7 +316,14 @@ export async function POST(req: Request) {
       // window the gasless rail allows. `chain` MUST be the base58
       // chainIdentifier from `core.getChainIdentifier()`, NOT a
       // network label.
-      const jsonClient = getJsonRpcClient();
+      //
+      // Endpoint selection: `getJsonRpcClient()` returns Shinami when
+      // `SHINAMI_API_KEY` is set, else the public fullnode. The
+      // chain-id + epoch lookups go through the same client so the
+      // entire gasless build leans on one paid endpoint (when
+      // configured) instead of mixing public + paid hosts mid-flow.
+      let jsonClient = getJsonRpcClient();
+      let usingShinami = shinamiSuiNodeJsonRpc() !== null;
       const [chainId, currentEpoch] = await Promise.all([
         jsonClient.core.getChainIdentifier().then((r) => r.chainIdentifier),
         getCurrentEpoch(),
@@ -273,7 +342,32 @@ export async function POST(req: Request) {
 
       // Build via JSON-RPC — see comment above. gRPC SDK fails here
       // with "unknown TransactionExpirationKind".
-      const bytes = await tx.build({ client: jsonClient as never });
+      //
+      // One-shot retry: if Shinami rejects auth (401/403 — most
+      // likely cause is a rotated or revoked key, NOT a transient
+      // outage), rebuild ONCE against the public fullnode. We do
+      // NOT retry on other error classes — the validator-side
+      // gasless rejections below are categorized by the outer catch
+      // and a retry there would just swallow real bugs.
+      let bytes: Uint8Array;
+      try {
+        bytes = await tx.build({ client: jsonClient as never });
+      } catch (buildErr) {
+        if (usingShinami && isShinamiAuthFailure(buildErr)) {
+          console.warn(
+            `[send/sponsor-prepare] Shinami JSON-RPC build rejected (auth) — retrying via public fullnode. detail=${(buildErr as Error).message?.slice(0, 200)}`
+          );
+          // Invalidate the Shinami singleton so subsequent requests
+          // re-discover the key (no point holding a cached client
+          // that we know is broken).
+          _jsonRpcShinami = null;
+          jsonClient = buildPublicJsonRpc();
+          usingShinami = false;
+          bytes = await tx.build({ client: jsonClient as never });
+        } else {
+          throw buildErr;
+        }
+      }
       const tBuild = Date.now();
 
       // Stash the deferred roundup so `/api/send/gasless-submit` can

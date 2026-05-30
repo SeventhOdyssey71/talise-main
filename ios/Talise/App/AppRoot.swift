@@ -37,6 +37,20 @@ struct AppRoot: View {
                 session?.currentUser?.id
             }
         }
+        .task(id: phaseKey) {
+            // Prewarm the broadcast-endpoint cache so the first
+            // direct-broadcast send doesn't pay the ~100ms config-fetch
+            // latency on the critical path. Only burn the request once
+            // the session is .ready — earlier phases don't have a
+            // bearer + App Attest token, so the prewarm would 401 and
+            // we'd cache nothing anyway. Detached + unawaited: we
+            // genuinely don't care when it finishes, only that the
+            // round-trip starts before the user taps Send.
+            guard case .ready = session.phase else { return }
+            Task.detached {
+                _ = await BroadcastConfigCache.current()
+            }
+        }
     }
 
     private var phaseKey: String {

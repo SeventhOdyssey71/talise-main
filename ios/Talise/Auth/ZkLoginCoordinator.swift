@@ -520,7 +520,7 @@ final class ZkLoginCoordinator {
                 // server-side parser to bucket separately from the
                 // legacy gasless rows.
                 print(
-                    "[ios/send] prepare=\(tPrepareMs)ms sign=\(tSignMs)ms assemble=\(direct.assembleMs)ms broadcast=\(direct.broadcastMs)ms confirm=\(direct.confirmMs)ms total=\(tTotalMs)ms mode=gasless-direct"
+                    "[ios/send] prepare=\(tPrepareMs)ms sign=\(tSignMs)ms assemble=\(direct.assembleMs)ms broadcast=\(direct.broadcastMs)ms confirm=\(direct.confirmMs)ms total=\(tTotalMs)ms mode=gasless-direct provider=\(direct.provider)"
                 )
                 _ = intent
                 return SignedSubmission(digest: direct.digest)
