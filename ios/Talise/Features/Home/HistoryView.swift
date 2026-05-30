@@ -12,22 +12,41 @@ struct HistoryView: View {
     @State private var receiptEntry: ActivityEntryDTO?
 
     enum Filter: String, CaseIterable, Identifiable {
-        case all, received, sent
+        case all, sent, received, earn, swap
         var id: String { rawValue }
         var label: String {
             switch self {
             case .all: return "All"
-            case .received: return "Received"
             case .sent: return "Sent"
+            case .received: return "Received"
+            case .earn: return "Earn"
+            case .swap: return "Swap"
             }
         }
     }
 
     private var filtered: [ActivityEntryDTO] {
+        // Server emits six directions: sent, received, invest, withdraw,
+        // swap, autoswap. Chips collapse the related pairs (invest/
+        // withdraw → Earn; swap/autoswap → Swap) so Home users don't
+        // hit five overlapping categories. `.sent` is strict — without
+        // it Invest / Withdraw / Swap rows would get hidden under
+        // "Sent" via the older `!isReceived` predicate.
         switch filter {
-        case .all: return entries
-        case .received: return entries.filter { $0.isReceived }
-        case .sent: return entries.filter { !$0.isReceived }
+        case .all:
+            return entries
+        case .sent:
+            return entries.filter { $0.direction == "sent" }
+        case .received:
+            return entries.filter { $0.direction == "received" }
+        case .earn:
+            return entries.filter {
+                $0.direction == "invest" || $0.direction == "withdraw"
+            }
+        case .swap:
+            return entries.filter {
+                $0.direction == "swap" || $0.direction == "autoswap"
+            }
         }
     }
 
@@ -75,22 +94,27 @@ struct HistoryView: View {
     }
 
     private var filterChips: some View {
-        HStack(spacing: 8) {
-            ForEach(Filter.allCases) { f in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { filter = f }
-                } label: {
-                    Text(f.label)
-                        .font(TaliseFont.heading(12, weight: .medium))
-                        .foregroundStyle(filter == f ? TaliseColor.bg : TaliseColor.fg)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(filter == f ? TaliseColor.fg : TaliseColor.surface2)
-                        .clipShape(Capsule())
+        // Horizontal scroll so 5 chips (All / Sent / Received / Earn /
+        // Swap) don't get squeezed on narrow widths. Indicators hidden
+        // because the chip row is short and the bouncy edge already
+        // signals scrollability.
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Filter.allCases) { f in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { filter = f }
+                    } label: {
+                        Text(f.label)
+                            .font(TaliseFont.heading(12, weight: .medium))
+                            .foregroundStyle(filter == f ? TaliseColor.bg : TaliseColor.fg)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(filter == f ? TaliseColor.fg : TaliseColor.surface2)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
-            Spacer()
         }
     }
 
