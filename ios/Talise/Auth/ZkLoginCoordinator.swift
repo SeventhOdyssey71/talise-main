@@ -296,9 +296,11 @@ final class ZkLoginCoordinator {
         // One-line diagnostic. Compare against the server-computed digest
         // (lib/zksigner or @mysten/sui's signTransaction) to confirm iOS
         // BLAKE2b agrees byte-for-byte with @noble.
-        let digestHex = digest.map { String(format: "%02x", $0) }.joined()
-        let txLen = txBytesData.count
-        print("[zk] sign — txBytes=\(txLen)B digest=\(digestHex) pk=\(pubKeyB64)")
+        if AppConfig.shared.verboseConsoleLogging {
+            let digestHex = digest.map { String(format: "%02x", $0) }.joined()
+            let txLen = txBytesData.count
+            print("[zk] sign — txBytes=\(txLen)B digest=\(digestHex) pk=\(pubKeyB64)")
+        }
         #endif
 
         // 3. Hand to /sponsor-execute. Backend assembles zkLoginSignature
@@ -503,12 +505,19 @@ final class ZkLoginCoordinator {
            JSONSerialization.isValidJSONObject(fresh) {
             ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: fresh)
         }
+        // Single end-to-end log line per send. Two reasons this used to
+        // be invisible in the user's Xcode console:
+        //   (1) gated by AppConfig.verboseConsoleLogging which defaults
+        //       to false in normal dev builds.
+        //   (2) NSLog routes through os_log under iOS 14+ and gets
+        //       filtered out of Xcode's default debug console.
+        // print() bypasses both and goes straight to stderr, where it
+        // shows up next to the matching `[zk] sign — txBytes=...` line
+        // (which already uses print at line 302). Cost is one short
+        // string per send — negligible.
         let tExecuteMs = msSince(tAfterSign)
         let tTotalMs = msSince(t0)
-        // Single end-to-end log line so QA / production triage can read
-        // the user-perceived latency without piecing it together from
-        // Vercel logs. Grep `[ios/send]` in Console.app to histogram.
-        NSLog(
+        print(
             "[ios/send] prepare=\(tPrepareMs)ms sign=\(tSignMs)ms execute=\(tExecuteMs)ms total=\(tTotalMs)ms mode=\(mode)"
         )
         _ = intent // currently unused server-side; kept in signature for parity with signAndSubmit
