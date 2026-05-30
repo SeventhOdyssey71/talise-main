@@ -10,6 +10,11 @@ struct DirectBroadcastResult {
     let assembleMs: Int
     let broadcastMs: Int
     let confirmMs: Int
+    /// Which broadcast provider serviced this send — `"shinami"`,
+    /// `"public"`, or `"public-fallback"`. Surfaced so the
+    /// `[ios/send]` log line can attribute latency to a specific
+    /// fullnode operator (Shinami vs. public Mysten).
+    let provider: String
 }
 
 enum DirectBroadcastError: Error {
@@ -50,7 +55,9 @@ enum DirectBroadcastSender {
         return URLSession(configuration: cfg)
     }()
 
-    private static let fullnodeURL = URL(string: "https://fullnode.mainnet.sui.io:443")!
+    // Note: the broadcast URL is no longer hardcoded — see
+    // `BroadcastConfigCache.current()` for the server-issued endpoint
+    // (Shinami when configured, public Mysten fullnode otherwise).
 
     /// Runs assemble → fullnode broadcast → fire-and-forget confirm.
     /// Throws on assemble or broadcast failure so the caller can fall
@@ -94,12 +101,17 @@ enum DirectBroadcastSender {
         }
         let assembleMs = Self.msSince(tAssembleStart)
 
-        // 2. Broadcast — direct JSON-RPC to Sui fullnode. No Talise
-        //    auth/App-Attest headers; fullnode is a third-party host.
+        // 2. Broadcast — direct JSON-RPC to whichever fullnode the
+        //    server pointed us at this session (Shinami when an API
+        //    key is configured server-side, public Mysten otherwise).
+        //    The endpoint's `headers` (e.g. `X-Api-Key` for Shinami)
+        //    must be attached verbatim; no Talise bearer/App-Attest.
+        let endpoint = await BroadcastConfigCache.current()
         let tBroadcastStart = CFAbsoluteTimeGetCurrent()
         let digest = try await broadcastToFullnode(
             bytesB64: bytesB64,
-            signature: signature
+            signature: signature,
+            endpoint: endpoint
         )
         let broadcastMs = Self.msSince(tBroadcastStart)
 
@@ -126,7 +138,8 @@ enum DirectBroadcastSender {
             digest: digest,
             assembleMs: assembleMs,
             broadcastMs: broadcastMs,
-            confirmMs: confirmMs
+            confirmMs: confirmMs,
+            provider: endpoint.provider
         )
     }
 
@@ -134,7 +147,8 @@ enum DirectBroadcastSender {
 
     private static func broadcastToFullnode(
         bytesB64: String,
-        signature: String
+        signature: String,
+        endpoint: BroadcastEndpoint
     ) async throws -> String {
         // JSON-RPC body exactly as documented in the Sui RPC spec for
         // `sui_executeTransactionBlock`. We don't need effects or events
@@ -154,9 +168,20 @@ enum DirectBroadcastSender {
             ] as [Any],
         ]
 
-        var req = URLRequest(url: fullnodeURL)
+        guard let url = URL(string: endpoint.url) else {
+            throw DirectBroadcastError.broadcastFailed(
+                "bad broadcast URL: \(endpoint.url)"
+            )
+        }
+        var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Server-issued headers (e.g. `X-Api-Key` for Shinami). Applied
+        // verbatim; if the server omits them, the request is just a
+        // plain JSON-RPC POST.
+        for (k, v) in endpoint.headers {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
         req.httpBody = try JSONSerialization.data(withJSONObject: rpcBody)
 
         let data: Data
