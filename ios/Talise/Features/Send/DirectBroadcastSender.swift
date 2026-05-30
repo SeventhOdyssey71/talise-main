@@ -152,10 +152,20 @@ enum DirectBroadcastSender {
     ) async throws -> String {
         // JSON-RPC body exactly as documented in the Sui RPC spec for
         // `sui_executeTransactionBlock`. We don't need effects or events
-        // — just the digest — so we pass an empty options object plus
-        // WaitForEffectsCert (faster than WaitForLocalExecution; the
-        // user only needs a guarantee the tx will land, not that the
-        // local node has it indexed yet).
+        // — just the digest — so we pass an empty options object.
+        //
+        // `WaitForLocalExecution` returns once ONE validator has
+        // executed the tx (~300–600ms), vs `WaitForEffectsCert` which
+        // waits for a ⅔ quorum signature on the effects (~1.5–2.5s).
+        // For plain USDsui transfers on stable mainnet, local execution
+        // is sufficient — the tx will finalize. The pending-stub
+        // registry in HomeView already holds the optimistic row until
+        // the canonical activity event lands, so a hypothetical reorg
+        // would just re-render the row, not surface as a user-visible
+        // failure. The direct-broadcast path is ONLY reached for plain
+        // gasless USDsui sends (NAVI / swap go through different
+        // routes that retain `WaitForEffectsCert`), so this trade is
+        // scoped correctly here.
         let rpcBody: [String: Any] = [
             "jsonrpc": "2.0",
             "id": 1,
@@ -164,7 +174,7 @@ enum DirectBroadcastSender {
                 bytesB64,
                 [signature],
                 ["showEffects": false, "showEvents": false] as [String: Any],
-                "WaitForEffectsCert",
+                "WaitForLocalExecution",
             ] as [Any],
         ]
 
