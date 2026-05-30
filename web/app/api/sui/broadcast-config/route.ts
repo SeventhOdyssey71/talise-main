@@ -6,7 +6,7 @@ import { shinamiSuiNodeJsonRpc } from "@/lib/shinami";
  * GET /api/sui/broadcast-config
  *
  * Returns the Sui JSON-RPC endpoint iOS should use for the
- * direct-broadcast (gasless) rail. When `SHINAMI_API_KEY` is set we
+ * direct-broadcast (gasless) rail. When `SHINAMI_NODE_API_KEY` is set we
  * route iOS through Shinami's paid Sui node; otherwise we fall back to
  * the free public mainnet fullnode.
  *
