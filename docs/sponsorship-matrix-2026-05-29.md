@@ -16,6 +16,7 @@ section.
 | Earn — NAVI withdraw                   | Onara       | `/api/earn/withdraw/prepare` + `/api/zk/sponsor` + `/api/zk/sponsor-execute` |
 | Earn — NAVI withdraw-earned            | Onara       | `/api/earn/withdraw-earned/prepare` + `/api/zk/sponsor` + `/api/zk/sponsor-execute` |
 | Non-USDsui swap → USDsui               | Onara       | `/api/swap/prepare` (fused) → `/api/zk/sponsor-execute`      |
+| SuiNS retarget (`*.talise.sui`)        | Onara       | `/api/handle/retarget` + `/api/zk/sponsor-execute`           |
 | Vault drain to admin                   | Onara       | one-shot script (Agent B)                                    |
 
 ---
@@ -132,6 +133,34 @@ section.
   - `[zk/sponsor] mode=sponsored sponsor=<addr> gasPrice=<n>` (emitted
     by the fused wrap inside this route, mirroring the earn audit shape
     from commit `566111b`).
+
+### SuiNS retarget (`*.talise.sui`)
+
+- **What fires:** `/api/handle/retarget` enumerates the user's owned
+  `*.talise.sui` SubDomainRegistration NFTs (via
+  `findAllTaliseSubnamesForOwner`), reads each name's current
+  `targetAddress` (3s per-name `withTimeout`), and skips any name
+  already pointing at the user's `sui_address`. For each name needing
+  update it appends one
+  `SuinsTransaction.setTargetAddress({nft, address, isSubname: true})`
+  MoveCall to a single PTB. Onara wrap mirrors the send sponsored
+  branch: `tx.setSender(user.sui_address)`, `tx.setGasOwner(sponsor)`
+  (60s memo), `tx.setGasPrice(getReferenceGasPrice())` (1.5s memo),
+  full `tx.build({client})`. Replaces the manual
+  `scripts/fix-suins-targets.mjs` operator runbook with a one-tap
+  Profile UI flow. Probe mode (`?probe=1`) returns the diff without
+  building the PTB so the iOS sheet can render the per-name red/green
+  state before the user taps the CTA. Zero-NFT or every-name-aligned
+  callers get `{ alreadyAligned: true, names: [...] }` and a green
+  "already aligned" state on the sheet.
+- **Gas cost:** Onara pays (~0.001 SUI / setTargetAddress call). User
+  pays nothing — this is wallet maintenance, not value transfer.
+- **Rewards:** none. `meta.kind = "retarget"` is accepted by
+  `/api/zk/sponsor-execute` but excluded from the ALLOWED earn-trigger
+  set (same treatment as `consolidate`).
+- **Verify in prod:**
+  - `[handle/retarget] mode=sponsored-retarget user=<n> names=<k>/<total> sponsor=<addr> gasPrice=<n>`
+  - Response `mode=sponsored-retarget`.
 
 ### Vault drain to admin
 

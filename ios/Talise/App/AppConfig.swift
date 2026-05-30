@@ -11,6 +11,7 @@ struct AppConfig {
     let apiBaseURL: String
     let googleClientID: String
     let appVersion: String
+    let verboseConsoleLogging: Bool
 
     private init() {
         let plist = Bundle.main.infoDictionary ?? [:]
@@ -27,5 +28,6 @@ struct AppConfig {
             ?? ""
 
         self.appVersion = (plist["CFBundleShortVersionString"] as? String) ?? "0.0.0"
+        self.verboseConsoleLogging = env["TALISE_VERBOSE_LOGS"] == "1"
     }
 }

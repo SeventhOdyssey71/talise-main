@@ -643,6 +643,72 @@ final class ZkLoginCoordinator {
         )
     }
 
+    /// Generic sign-and-execute for ANY pre-built sponsored PTB. Caller
+    /// has already POSTed to a `*-prepare` route and received `bytesB64`;
+    /// this helper signs locally with the ephemeral Ed25519 key and
+    /// forwards to `/api/zk/sponsor-execute` with the caller-supplied
+    /// `meta` block (e.g. `["kind": "retarget"]`). Returns the on-chain
+    /// digest.
+    ///
+    /// Used by the Profile RetargetHandleSheet — the existing
+    /// `signAndSubmitSend` / `consolidateToAccumulator` paths bake their
+    /// own prepare hop in, but the retarget flow already has its own
+    /// `/api/handle/retarget` prepare so we only need the sign+submit
+    /// half here. Identical signing dance to consolidate: intent prefix
+    /// `[0,0,0]` || tx_bytes → BLAKE2b-256 → Ed25519 → SerializedSig.
+    func signAndExecuteRaw(
+        bytesB64: String,
+        meta: [String: Any]
+    ) async throws -> String {
+        guard let maxEpoch = ProofCache.shared.maxEpoch,
+              let jwtRandomness = ProofCache.shared.jwtRandomness else {
+            throw CoordinatorError.exchangeFailed("no proof cache — sign in again")
+        }
+        guard let txBytesData = Data(base64Encoded: bytesB64) else {
+            throw CoordinatorError.sponsorFailed("malformed sponsored bytes")
+        }
+
+        let intentMessage = Data([0, 0, 0]) + txBytesData
+        let digest = Blake2b.hash256(intentMessage)
+        let key = try EphemeralKeyStore.shared.loadOrCreate()
+        let rawSig = try key.signature(for: digest)
+        let pubKey = key.publicKey.rawRepresentation
+        let pubKeyB64 = pubKey.base64EncodedString()
+        let userSig = (Data([0x00]) + rawSig + pubKey).base64EncodedString()
+
+        var executeBody: [String: Any] = [
+            "bytesB64": bytesB64,
+            "ephemeralPubKeyB64": pubKeyB64,
+            "maxEpoch": maxEpoch,
+            "randomness": jwtRandomness,
+            "userSignature": userSig,
+            "meta": meta,
+        ]
+        if let proofData = ProofCache.shared.proofRaw,
+           let proofJSON = try? JSONSerialization.jsonObject(with: proofData) as? [String: Any],
+           proofJSON["proofPoints"] is [String: Any] {
+            executeBody["cachedProof"] = proofJSON
+        } else {
+            ProofCache.shared.proofRaw = nil
+        }
+
+        let exec = try await postAuthenticated(
+            path: "/api/zk/sponsor-execute",
+            body: executeBody
+        )
+        if let err = exec["error"] as? String {
+            throw CoordinatorError.executeFailed(err)
+        }
+        guard let digestStr = exec["digest"] as? String, !digestStr.isEmpty else {
+            throw CoordinatorError.executeFailed("no digest in response")
+        }
+        if let fresh = exec["freshProof"],
+           JSONSerialization.isValidJSONObject(fresh) {
+            ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: fresh)
+        }
+        return digestStr
+    }
+
     // MARK: - Helpers
 
     /// Fetches the current Sui epoch and returns `epoch + 2` — the standard

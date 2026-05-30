@@ -155,7 +155,14 @@ export async function POST(req: Request) {
       // The kind is accepted here so the request validates, but the
       // ALLOWED earn-trigger set below does NOT include it — we don't
       // credit points for a wallet-setup operation.
-      kind?: "send" | "invest" | "withdraw" | "roundup" | "goal" | "consolidate";
+      kind?:
+        | "send"
+        | "invest"
+        | "withdraw"
+        | "roundup"
+        | "goal"
+        | "consolidate"
+        | "retarget";
       amountUsd?: number;
       venue?: string;
       /**
