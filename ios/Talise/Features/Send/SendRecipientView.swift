@@ -60,7 +60,10 @@ struct SendRecipientView: View {
                 UserDefaults.standard.removeObject(forKey: key)
             }
         }
-        .onDisappear { resolveTask?.cancel() }
+        .onDisappear {
+            inputFocused = false
+            resolveTask?.cancel()
+        }
     }
 
     // MARK: - Header
@@ -261,13 +264,18 @@ struct SendRecipientView: View {
         #if canImport(UIKit)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
+        inputFocused = false
         onNext()
     }
 
     // MARK: - Next button
 
     private var nextButton: some View {
-        Button(action: { if canAdvance { onNext() } }) {
+        Button(action: {
+            guard canAdvance else { return }
+            inputFocused = false
+            onNext()
+        }) {
             Text("Next")
                 .font(TaliseFont.heading(16, weight: .medium))
                 .foregroundStyle(TaliseColor.bg)

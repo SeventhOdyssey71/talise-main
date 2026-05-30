@@ -28,6 +28,10 @@ struct ProfileView: View {
     @State private var showAutoSwap = false
     /// Mirror of `BiometricGate.isRequired` so the toggle re-renders.
     @State private var requireBiometric = BiometricGate.isRequired
+    /// Drives the `RetargetHandleSheet` presentation. Tapping the
+    /// "Update handle target" row flips this on; the sheet handles
+    /// probe → diff → submit on its own.
+    @State private var showRetarget = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -56,6 +60,10 @@ struct ProfileView: View {
             Button("Sign out", role: .destructive) { session.signOut() }
         } message: {
             Text("Your wallet stays safe. Sign in with the same Google account to come back.")
+        }
+        .sheet(isPresented: $showRetarget) {
+            RetargetHandleSheet()
+                .environment(session)
         }
     }
 
@@ -290,6 +298,8 @@ struct ProfileView: View {
                 sectionDivider
                 // autoSwapRow removed 2026-05-29 alongside the autoswap archive.
                 notifyRow
+                sectionDivider
+                retargetHandleRow
                 if let err = settingsError {
                     sectionDivider
                     HStack {
@@ -393,6 +403,36 @@ struct ProfileView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
+    }
+
+    /// Opens `RetargetHandleSheet` so the user can point every
+    /// `*.talise.sui` subname they own at their current wallet. Replaces
+    /// the manual `scripts/fix-suins-targets.mjs` operator runbook —
+    /// runs as an Onara-sponsored PTB, the user pays nothing.
+    private var retargetHandleRow: some View {
+        Button {
+            showRetarget = true
+        } label: {
+            HStack {
+                rowLabel(
+                    title: "Update handle target",
+                    subtitle: "Point your @handle.talise.sui at this wallet."
+                )
+                Spacer()
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.uturn.right")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Security section

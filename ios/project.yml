@@ -119,6 +119,9 @@ schemes:
         TaliseTests: [test]
     run:
       config: Debug
+      environmentVariables:
+        OS_ACTIVITY_MODE: disable
+        CFNETWORK_DIAGNOSTICS: "0"
     test:
       config: Debug
       gatherCoverageData: false
