@@ -14,6 +14,17 @@ struct HomeView: View {
     /// loading skeleton on transient retries — we keep the prior rows
     /// on screen instead of flashing back to a skeleton.
     @State private var activityHasLoadedOnce = false
+    /// Optimistic-stub registry. Keyed on digest, value is the stub
+    /// entry we prepended. Survives across `loadActivity*` calls so a
+    /// late-arriving canonical row (or any background reload that
+    /// wholesale-replaces `activity = r.entries`) can't wipe the
+    /// user's freshly-tapped Send/Invest/Withdraw row from view. Each
+    /// stub is auto-evicted from the registry the first time its
+    /// digest shows up in the server response (server has caught up)
+    /// OR after a 90s safety TTL (server never caught up → assume tx
+    /// failed silently, stop showing the stub).
+    @State private var pendingOptimisticStubs: [String: ActivityEntryDTO] = [:]
+    @State private var pendingOptimisticAt: [String: Date] = [:]
     /// Toast banner shown above the History card when an activity
     /// refresh fails (timeout, transport error). Auto-dismisses after
     /// 4s. Drives the small "Couldn't refresh activity" pill — we
@@ -548,9 +559,11 @@ struct HomeView: View {
                 : "/api/activity?limit=20"
             let r: ActivityResponse = try await APIClient.shared.get(path)
             #if DEBUG
-            print("[activity] decoded \(r.entries.count) entries")
+            if AppConfig.shared.verboseConsoleLogging {
+                print("[activity] decoded \(r.entries.count) entries")
+            }
             #endif
-            activity = r.entries
+            activity = mergePendingStubs(into: r.entries)
             activityHasLoadedOnce = true
             // Silently dismiss the toast if the retry succeeded.
             activityRefreshFailed = false
@@ -562,7 +575,9 @@ struct HomeView: View {
             // failed: …NSURLErrorDomain Code=-999 "cancelled"…` spam.
             if APIError.isCancellation(error) { return }
             #if DEBUG
-            print("[activity] load failed: \(error)")
+            if AppConfig.shared.verboseConsoleLogging {
+                print("[activity] load failed: \(error)")
+            }
             #endif
             // Keep the last-known rows on screen. Only mark refresh
             // failure if we have nothing to show — otherwise the user
@@ -602,6 +617,34 @@ struct HomeView: View {
     /// Then we schedule a real reload 1.5s out to reconcile against
     /// the canonical chain query — whichever side of the optimistic
     /// patch ends up wrong is fixed silently on that pass.
+    /// Merge any still-pending optimistic stubs into a server response
+    /// before assigning to `activity`. A stub is re-prepended if its
+    /// digest ISN'T in the server response (server hasn't indexed it
+    /// yet). When the server response DOES contain the digest, the
+    /// stub is evicted from the pending registry (server caught up;
+    /// canonical row is authoritative going forward). 90s TTL on
+    /// pending entries so a tx that genuinely failed silently doesn't
+    /// haunt the History list forever.
+    private func mergePendingStubs(into serverEntries: [ActivityEntryDTO]) -> [ActivityEntryDTO] {
+        let serverDigests = Set(serverEntries.map(\.digest))
+        let now = Date()
+        let ttl: TimeInterval = 90
+        // Evict: server-acked (canonical row landed) OR past TTL.
+        let serverDigestsCopy = serverDigests
+        let pendingAtCopy = pendingOptimisticAt
+        pendingOptimisticStubs = pendingOptimisticStubs.filter { (digest, _) in
+            if serverDigestsCopy.contains(digest) { return false }
+            if let at = pendingAtCopy[digest], now.timeIntervalSince(at) > ttl { return false }
+            return true
+        }
+        pendingOptimisticAt = pendingOptimisticAt.filter { (digest, _) in
+            pendingOptimisticStubs[digest] != nil
+        }
+        // Prepend surviving stubs (most-recent-first) over the server list.
+        let stubs = pendingOptimisticStubs.values.sorted { $0.timestampMs > $1.timestampMs }
+        return stubs + serverEntries.filter { !pendingOptimisticStubs.keys.contains($0.digest) }
+    }
+
     private func applyOptimisticTx(_ ev: TaliseTxEvent) {
         // Drop any prior optimistic entry for the same digest (e.g.
         // the user sent twice quickly and we already showed the first).
@@ -620,6 +663,13 @@ struct HomeView: View {
             // /api/activity will replace this stub on next refresh.
             otherCoin: nil
         )
+        // Register the stub in the pending dict so subsequent
+        // loadActivity calls (which all set `activity = r.entries`)
+        // can't wipe it. mergePendingStubs() in those load paths
+        // re-prepends until either the canonical row lands or the
+        // 90s TTL evicts the stub.
+        pendingOptimisticStubs[ev.digest] = synthetic
+        pendingOptimisticAt[ev.digest] = Date()
         activity = [synthetic] + activity.filter { $0.digest != ev.digest }
 
         // Balance: sent + invest leave the wallet (decrement);
