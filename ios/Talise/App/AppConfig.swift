@@ -13,6 +13,19 @@ struct AppConfig {
     let appVersion: String
     let verboseConsoleLogging: Bool
 
+    /// Feature flag: when true, the Send flow attempts to broadcast the
+    /// gasless tx straight to a Sui fullnode after assembling the
+    /// zkLogin signature server-side, skipping the Vercel `/api/send/
+    /// gasless-submit` execute hop. Falls back to `/api/send/gasless-
+    /// submit` automatically on any assemble/broadcast failure.
+    ///
+    /// Reads `UserDefaults.standard` key `talise.send.directBroadcast`
+    /// (computed each access so a debug toggle takes effect on next
+    /// send without a relaunch). Defaults to `false` until we ship.
+    var directBroadcastEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "talise.send.directBroadcast")
+    }
+
     private init() {
         let plist = Bundle.main.infoDictionary ?? [:]
         let env = ProcessInfo.processInfo.environment

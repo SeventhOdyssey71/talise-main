@@ -1,5 +1,9 @@
 # Sponsorship Matrix — 2026-05-29
 
+> Streaming layer (SSE — `/api/stream`, `/api/stream/watch`) does not move
+> money and therefore does not appear in this matrix. See
+> `docs/streaming-architecture-2026-05-30.md` for that flow.
+
 Product directive (2026-05-29 evening): the canonical sponsorship rail for
 every Talise operation. Codified here so future agents can verify routing
 in production by grepping the log lines listed at the bottom of each
@@ -10,6 +14,7 @@ section.
 | Operation                              | Sponsorship | Endpoint                                                     |
 |----------------------------------------|-------------|--------------------------------------------------------------|
 | Send USDsui (no SnS, no Coin objs)     | GASLESS     | `/api/send/sponsor-prepare` + `/api/send/gasless-submit`     |
+| Send USDsui — gasless-direct (iOS-broadcast) | GASLESS | `/api/send/sponsor-prepare` + `/api/zk/assemble-signature` + iOS-direct `sui_executeTransactionBlock` to `fullnode.mainnet.sui.io` + `/api/send/gasless-confirm` |
 | Send USDsui + SnS (or Coin-only)       | Onara       | `/api/send/sponsor-prepare` (sponsored branch) + `/api/zk/sponsor-execute` |
 | Send SUI                               | Onara       | `/api/send/sponsor-prepare` (SUI branch) + `/api/zk/sponsor-execute`       |
 | Earn — NAVI supply                     | Onara       | `/api/earn/supply/prepare` + `/api/zk/sponsor` + `/api/zk/sponsor-execute` |
@@ -40,6 +45,36 @@ section.
 - **Verify in prod:**
   - `[send/sponsor-prepare gasless] total=<n>ms ... deferredRoundupUsd=<x>`
   - Response `mode=gasless`.
+
+### Send USDsui — gasless-direct (iOS broadcasts to fullnode)
+
+- **What fires:** same `/api/send/sponsor-prepare` as the canonical
+  gasless rail. iOS then splits what `/api/send/gasless-submit` used to
+  do server-side into three legs:
+  1. `POST /api/zk/assemble-signature` — assembles the zkLogin
+     signature (proof from `cachedProof` when warm, else a Shinami
+     round-trip). Returns `{ signature, freshProof?, proofMs }`.
+  2. `sui_executeTransactionBlock` on `fullnode.mainnet.sui.io`
+     (gRPC) — iOS broadcasts the signed bytes directly. No Vercel
+     hop on the slow leg.
+  3. `POST /api/send/gasless-confirm` — fire-and-forget
+     bookkeeping. Drains the pending roundup into `roundup_queue`
+     and credits rewards via `awardForTx`. Returns 204.
+- **Idempotency:** `gasless-confirm` dedupes `{userId, digest}` in an
+  in-memory map with a 60s TTL because neither `enqueueRoundup` nor
+  `awardForTx` deduplicate on their own (the earn helper's JSDoc at
+  `web/lib/rewards/earn.ts:62` explicitly says so). Duplicate
+  confirms within the window are a fast 204 no-op.
+- **Latency win:** ~250–400ms saved by skipping the Vercel→fullnode
+  round-trip on execute. The proof and broadcast legs are no longer
+  serialized through a single function.
+- **Gas cost:** 0 SUI, same as the canonical gasless row.
+- **Feature flag:** iOS-side. The old `/api/send/gasless-submit`
+  remains the canonical fallback when the flag is off or the new
+  path errors. The two paths are mutually exclusive per send.
+- **Verify in prod:**
+  - `[zk/assemble-signature] user=<n> proof=<n>ms (FRESH|CACHED)`
+  - `[send/gasless-confirm] user=<n> digest=<n> duplicate (60s TTL) — skipping bookkeeping` (only on retries).
 
 ### Send USDsui + SnS (or Coin-only balance)
 
