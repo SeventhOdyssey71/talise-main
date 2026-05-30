@@ -54,6 +54,15 @@ struct HomeView: View {
     @State private var walletSweeping = false
     private let apyHeadline: Double = 0.11
 
+    /// Home shows TODAY-only activity (calendar boundary, local time).
+    /// Older entries still live in `activity` and are reachable via the
+    /// "See all" sheet — keeps Home glanceable while preserving the
+    /// full feed one tap away.
+    private var todayActivity: [ActivityEntryDTO] {
+        let startOfToday = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970 * 1000
+        return activity.filter { $0.timestampMs >= startOfToday }
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
@@ -365,14 +374,15 @@ struct HomeView: View {
 
     // MARK: - Activity card
 
-    /// History section — no surrounding container, each row is its
-    /// own glassmorphic pill with a directional tint (red/green/none).
-    /// Capped at 4 rows here; "See all" opens HistoryView with the
-    /// full feed + filters.
+    /// History section — TODAY's activity only, no surrounding container.
+    /// Each row is its own glassmorphic pill with a directional tint
+    /// (red/green/none). Capped at 4 rows; "See all" opens HistoryView
+    /// with the full feed + filters. Older entries stay reachable via
+    /// "See all" even when today's section is empty.
     private var activityCard: some View {
         VStack(spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("History")
+                Text("Today")
                     .font(TaliseFont.heading(17, weight: .medium))
                     .kerning(-0.4)
                     .foregroundStyle(TaliseColor.fg)
@@ -424,14 +434,40 @@ struct HomeView: View {
             } else if activity.isEmpty {
                 activityEmptyState
                     .padding(.vertical, 24)
+            } else if todayActivity.isEmpty {
+                todayEmptyState
+                    .padding(.vertical, 24)
             } else {
                 VStack(spacing: 10) {
-                    ForEach(activity.prefix(4)) { row in
+                    ForEach(todayActivity.prefix(4)) { row in
                         HistoryRow(entry: row) { receiptEntry = row }
                     }
                 }
             }
         }
+    }
+
+    /// Today-specific empty state — shown when the user has activity in
+    /// their history but nothing has happened yet today. Distinct from
+    /// `activityEmptyState` (which fires when the feed is completely
+    /// empty) so we can guide the user to "See all" for older entries.
+    private var todayEmptyState: some View {
+        VStack(spacing: 6) {
+            Text("Nothing today")
+                .font(TaliseFont.body(14, weight: .light))
+                .foregroundStyle(TaliseColor.fg)
+            Button {
+                historySheetVisible = true
+            } label: {
+                Text("View earlier activity")
+                    .font(TaliseFont.mono(10, weight: .light))
+                    .kerning(-0.32)
+                    .foregroundStyle(TaliseColor.fgDim)
+                    .underline()
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     /// Single-row placeholder matching the glassy HistoryRow look.
@@ -671,6 +707,24 @@ struct HomeView: View {
         pendingOptimisticStubs[ev.digest] = synthetic
         pendingOptimisticAt[ev.digest] = Date()
         activity = [synthetic] + activity.filter { $0.digest != ev.digest }
+
+        // Tell the server to emit a `digest` SSE event when this
+        // specific tx lands on chain. Fire-and-forget — if the
+        // /watch call fails, the 90s stub TTL still evicts the row,
+        // and the post-tx reconcile schedule (1.5s + 2.5s) below
+        // still pulls /api/activity. Belt-and-suspenders by design.
+        Task {
+            struct WatchBody: Encodable { let digest: String }
+            struct WatchResponse: Decodable { let ok: Bool? }
+            do {
+                let _: WatchResponse = try await APIClient.shared.post(
+                    "/api/stream/watch",
+                    body: WatchBody(digest: ev.digest)
+                )
+            } catch {
+                // Silent — see comment above.
+            }
+        }
 
         // Balance: sent + invest leave the wallet (decrement);
         // withdraw returns to the wallet (increment).
