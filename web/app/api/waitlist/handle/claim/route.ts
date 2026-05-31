@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { db, ensureSchema, userById } from "@/lib/db";
 import { sendWaitlistConfirmation } from "@/lib/email";
 import {
@@ -285,15 +285,30 @@ export async function POST(req: Request) {
       );
     }
 
-    // Confirmation email — fire-and-forget with a 4s ceiling.
-    withTimeout(
-      sendWaitlistConfirmation({
-        to: email,
-        name: user.name ?? null,
-        claimedHandle: norm.handle,
-      }).catch(() => null),
-      4000
-    ).catch(() => null);
+    // Confirmation email — runs AFTER the response is returned, via
+    // Next.js 15's `after()` hook. The old fire-and-forget pattern
+    // (`withTimeout(...).catch(() => null)` without await) was racy
+    // on Vercel: the serverless function instance can shut down
+    // immediately after the response, killing any in-flight promise.
+    // `after()` is the Vercel-aware equivalent — guarantees the work
+    // finishes before the instance is reclaimed. No timeout cap, so
+    // Resend cold-starts (occasionally 3–5s) still complete instead
+    // of dropping the email silently. Errors are logged but never
+    // surface to the user, who has already seen "your handle is
+    // claimed."
+    after(async () => {
+      try {
+        await sendWaitlistConfirmation({
+          to: email,
+          name: user.name ?? null,
+          claimedHandle: norm.handle,
+        });
+      } catch (e) {
+        console.warn(
+          `[waitlist/handle/claim] confirmation email failed email=${email} handle=${norm.handle}: ${(e as Error).message}`
+        );
+      }
+    });
 
     console.log(
       `[waitlist/handle/claim] minted email=${email} handle=${norm.handle} digest=${mintDigest} nft=${mintNftId ?? "?"}`

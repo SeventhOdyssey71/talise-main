@@ -90,29 +90,14 @@ export function WaitlistForm() {
         };
         setSession(sess);
 
-        // Welcome-back: if the user row already carries a handle we
-        // can short-circuit. We still check /handle/existing as a
-        // backstop (handle bound out of band, e.g. via the bind hook).
+        // /api/auth/me is the source of truth — `user.talise_username`
+        // resolves to `handle` on the response. If it's set the user
+        // has already claimed; otherwise drop straight into the
+        // picker. The old /handle/existing backstop call doubled the
+        // spinner time on every signed-in load for new users without
+        // adding signal — /api/auth/me already covers it.
         if (meBody.handle) {
           setExistingHandle(meBody.handle);
-          setPhase("existing");
-          return;
-        }
-
-        const existingRes = await fetch("/api/waitlist/handle/existing", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: sess.email }),
-        }).catch(() => null);
-        if (cancelled) return;
-
-        const existingBody = existingRes
-          ? ((await existingRes.json().catch(() => ({}))) as {
-              existing?: { handle: string } | null;
-            })
-          : {};
-        if (existingBody.existing?.handle) {
-          setExistingHandle(existingBody.existing.handle);
           setPhase("existing");
           return;
         }
@@ -339,6 +324,14 @@ function HandleClaim({ session }: { session: Session }) {
         suiAddress: body.suiAddress,
       });
       setClaim("claimed");
+      // After successful mint, give the user 1.2s to register the
+      // success card visually, then bounce them to the home surface
+      // so they can start using the app. This matches the user's
+      // directive: "after user claims subname, and is successful
+      // redirect them back to homepage".
+      window.setTimeout(() => {
+        window.location.href = "/home";
+      }, 1200);
     } catch (err) {
       setClaim("error");
       setClaimError((err as Error).message);
