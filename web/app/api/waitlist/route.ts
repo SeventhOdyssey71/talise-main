@@ -1,3 +1,8 @@
+// LEGACY (2026-05-30): the new Google-first /waitlist UI never calls
+// this endpoint. The flow is now Google sign-in → handle pick →
+// /api/waitlist/handle/claim (which UPSERTs the waitlist row itself).
+// Kept alive for backwards compatibility with any external links /
+// embeds that still POST here.
 import { NextResponse } from "next/server";
 import { db, ensureSchema } from "@/lib/db";
 import { sendWaitlistConfirmation } from "@/lib/email";

@@ -19,12 +19,13 @@ export const dynamic = "force-dynamic";
  *   200 { available: true,  normalized: "alice" }
  *   200 { available: false, reason: "taken_db" | "taken_chain", normalized }
  *   400 { error: <message> }      – invalid handle
- *   404 { error: "Join the waitlist first." }
  *   409 { error: "You already claimed <prior>." }
  *
- * The email scopes the check to a specific waitlist row so the form
- * can't be used as an anonymous name-enumeration oracle without a
- * real waitlist signup first.
+ * The email scopes the "you already have a handle" short-circuit. In
+ * the Google-first flow the waitlist row may not exist yet — that's
+ * fine, we just skip the prior-claim check and run the on-chain /
+ * cross-row availability lookup. The rate-limit is the anti-enum
+ * defense.
  */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -80,18 +81,21 @@ export async function POST(req: Request) {
       sql: "SELECT claimed_handle FROM waitlist_signups WHERE email = ? LIMIT 1",
       args: [email],
     });
-    if (row.rows.length === 0) {
-      return NextResponse.json(
-        { error: "Join the waitlist first." },
-        { status: 404 }
-      );
-    }
-    const prior = row.rows[0]?.claimed_handle as string | null | undefined;
-    if (prior) {
-      return NextResponse.json(
-        { error: `You already claimed ${prior}@talise.sui.`, prior },
-        { status: 409 }
-      );
+    // Missing row is fine in the Google-first flow — the user has a
+    // session but has never been written to waitlist_signups; the
+    // claim route will UPSERT. Only short-circuit if the row exists
+    // AND already holds a handle.
+    if (row.rows.length > 0) {
+      const prior = row.rows[0]?.claimed_handle as
+        | string
+        | null
+        | undefined;
+      if (prior) {
+        return NextResponse.json(
+          { error: `You already claimed ${prior}@talise.sui.`, prior },
+          { status: 409 }
+        );
+      }
     }
 
     const verdict = await isWaitlistHandleAvailable(norm.handle);

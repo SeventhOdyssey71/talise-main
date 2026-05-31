@@ -146,16 +146,21 @@ vi.mock("@/lib/db", () => {
       };
     }
 
-    // UPDATE waitlist_signups SET claimed_handle = ?, handle_claimed_at = ?
-    //   WHERE email = ? AND claimed_handle IS NULL RETURNING claimed_handle
+    // INSERT INTO waitlist_signups (...) VALUES (?, ?, ?, ?, ?, ?)
+    //   ON CONFLICT(email) DO UPDATE SET claimed_handle = excluded.claimed_handle,
+    //     handle_claimed_at = excluded.handle_claimed_at
+    //     WHERE waitlist_signups.claimed_handle IS NULL
+    //   RETURNING claimed_handle
     if (
-      sql.startsWith(
-        "update waitlist_signups set claimed_handle = ?, handle_claimed_at = ? where email = ? and claimed_handle is null returning"
-      )
+      sql.startsWith("insert into waitlist_signups") &&
+      sql.includes("on conflict(email) do update set") &&
+      sql.includes("claimed_handle = excluded.claimed_handle")
     ) {
-      const handle = args[0] as string;
-      const at = args[1] as number;
-      const email = args[2] as string;
+      const email = args[0] as string;
+      const createdAt = args[1] as number;
+      // args[2] = ip, args[3] = userAgent
+      const handle = args[4] as string;
+      const at = args[5] as number;
       // Enforce partial-unique index — another email cannot hold the
       // same handle. This is what makes the dup-handle test green.
       const conflict = [...waitlistStore.values()].find(
@@ -166,12 +171,29 @@ vi.mock("@/lib/db", () => {
           "duplicate key value violates unique constraint uniq_waitlist_claimed_handle"
         );
       }
-      const row = waitlistStore.get(email);
-      if (!row || row.claimed_handle !== null) {
+      const existing = waitlistStore.get(email);
+      if (!existing) {
+        // INSERT branch — fresh row, claim succeeds.
+        waitlistStore.set(email, {
+          email,
+          created_at: createdAt,
+          claimed_handle: handle,
+          handle_claimed_at: at,
+          handle_object_id: null,
+          handle_bound_user_id: null,
+          handle_bound_at: null,
+        });
+        return {
+          rows: [{ claimed_handle: handle }],
+          rowsAffected: 1,
+        };
+      }
+      // CONFLICT branch — only flip if claimed_handle is currently NULL.
+      if (existing.claimed_handle !== null) {
         return { rows: [], rowsAffected: 0 };
       }
-      row.claimed_handle = handle;
-      row.handle_claimed_at = at;
+      existing.claimed_handle = handle;
+      existing.handle_claimed_at = at;
       return {
         rows: [{ claimed_handle: handle }],
         rowsAffected: 1,
@@ -502,9 +524,13 @@ describe("unauthenticated claim", () => {
     expect(waitlistStore.get("anon@example.com")?.claimed_handle).toBe(null);
   });
 
-  it("returns 403 when session email mismatches body email", async () => {
+  it("ignores client-supplied email and uses the session email", async () => {
+    // Google-first flow: the route derives the email from the session
+    // cookie, NOT the request body. Any email the client sends is
+    // ignored — no spoofing surface. The waitlist row is UPSERTed
+    // against the session email, even if the user never hit the
+    // legacy /api/waitlist endpoint.
     const u = seedUser({ id: 7, email: "real@example.com" });
-    seedWaitlist("imposter@example.com");
     currentSessionUserId = u.id;
 
     const { POST: claimPOST } = await import(
@@ -521,8 +547,10 @@ describe("unauthenticated claim", () => {
         }),
       })
     );
-    expect(res.status).toBe(403);
-    expect(mintSubnameMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    // Row was UPSERTed under the session email — not the imposter one.
+    expect(waitlistStore.get("real@example.com")?.claimed_handle).toBe("pwnd");
+    expect(waitlistStore.has("imposter@example.com")).toBe(false);
   });
 });
 
