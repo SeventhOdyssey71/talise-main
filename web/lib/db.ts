@@ -68,6 +68,13 @@ import postgres, { type Sql } from "postgres";
  *                       + failed/refunded). Generalizes paga_offramps for
  *                       all corridors. Primary writer: web/lib/transfers.ts.
  *
+ *   float_pools         Per-corridor, per-currency, per-leg treasury
+ *                       float inventory (fiat_in / fiat_out / usdc) with
+ *                       a `segregated` safeguarding flag and reconcile
+ *                       timestamp. Master plan §6. MODEL ONLY — no live
+ *                       money moves through it yet.
+ *                       Primary writer: web/lib/treasury.ts.
+ *
  *   mobile_sessions     Opaque bearer tokens for the iOS client.
  *                       Created in lib/mobile-sessions.ts; CREATE TABLE
  *                       lives there too, this file only widens its int4
@@ -588,6 +595,59 @@ async function doEnsureSchema(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_roundup_queue_pending
        ON roundup_queue(created_at) WHERE processed_at IS NULL`,
+
+    // ─── float_pools (treasury / corridor inventory) ─────────────────
+    // Per-corridor, per-currency inventory balances for the treasury
+    // float model (master plan §6). "instant" = pre-positioned float on
+    // both legs of a directed corridor, drawn down on authorization and
+    // reconciled async behind the user; the on-chain leg is the
+    // net-settlement rail BETWEEN these pools.
+    //
+    // One row per (corridor, currency, leg). A pool tracks three
+    // inventory buckets:
+    //   • fiat_in_pool   — fiat collected on the send (funding) leg
+    //   • fiat_out_pool  — fiat pre-positioned for the payout leg
+    //   • usdc_pool      — native USDC inventory used for the on-chain
+    //                      net-settlement hop between legs (master plan
+    //                      §3: corridor inventory in native USDC, NOT
+    //                      USDsui — caps de-peg exposure)
+    //
+    // `segregated` flags safeguarded CLIENT money. SG MAS MPI / JP FSA
+    // safeguarding obligations mean client balances must be held in
+    // segregated client-money accounts and — critically — CANNOT be
+    // lent into NAVI (master plan §5/§6/§9). Only Talise's OWN operating
+    // float (segregated=false) is NAVI-eligible. The treasury helper
+    // `assertNotLendable()` enforces this invariant in code.
+    //
+    // `reconciled_at` is the wall-clock ms of the last reconciliation
+    // pass; `needsRebalance()` reads it together with the inventory
+    // buckets. Balances here are a MOCK model + invariants, not live
+    // treasury ops — no real money moves through this table yet.
+    //
+    // Writers: web/lib/treasury.ts (recordInflow / recordOutflow /
+    // getPoolState / needsRebalance). Mirrors the same idempotent
+    // CREATE/ALTER/INDEX discipline as every other section here.
+    `CREATE TABLE IF NOT EXISTS float_pools (
+      id SERIAL PRIMARY KEY,
+      corridor TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      leg TEXT NOT NULL,
+      fiat_in_pool NUMERIC NOT NULL DEFAULT 0,
+      fiat_out_pool NUMERIC NOT NULL DEFAULT 0,
+      usdc_pool NUMERIC NOT NULL DEFAULT 0,
+      segregated BOOLEAN NOT NULL DEFAULT false,
+      reconciled_at BIGINT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
+    // One canonical pool row per (corridor, currency, leg). The treasury
+    // helpers upsert against this key, so it must be UNIQUE.
+    `CREATE UNIQUE INDEX IF NOT EXISTS uniq_float_pools_key
+       ON float_pools (corridor, currency, leg)`,
+    // Hot read: "which pools are stale / under-funded?" scans by
+    // reconciliation recency.
+    `CREATE INDEX IF NOT EXISTS idx_float_pools_reconciled
+       ON float_pools (reconciled_at)`,
 
     // ─── kyc_upgrade_intents (compliance §7 tier engine) ─────────────
     // Append-only log of "user asked to move up to tier N" events. One
