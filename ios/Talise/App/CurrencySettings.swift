@@ -18,6 +18,14 @@ struct TaliseCurrency: Identifiable, Equatable, Hashable, Codable {
         .init(code: "GBP", symbol: "£",   name: "British Pound"),
         .init(code: "CAD", symbol: "CA$", name: "Canadian Dollar"),
         .init(code: "ZAR", symbol: "R",   name: "South African Rand"),
+        // Asian / global corridors (master plan §8). Display-only — the
+        // wallet still settles in USDsui (1:1 USD); the FX rate maps the
+        // figure into the user's currency.
+        .init(code: "JPY", symbol: "¥",   name: "Japanese Yen"),
+        .init(code: "SGD", symbol: "S$",  name: "Singapore Dollar"),
+        .init(code: "PHP", symbol: "₱",   name: "Philippine Peso"),
+        .init(code: "IDR", symbol: "Rp",  name: "Indonesian Rupiah"),
+        .init(code: "VND", symbol: "₫",   name: "Vietnamese Dong"),
     ]
 
     static let usd = allSupported[0]
@@ -126,6 +134,8 @@ final class CurrencySettings {
             "ZA": "ZAR", "GB": "GBP", "UK": "GBP",
             "DE": "EUR", "FR": "EUR", "ES": "EUR", "IT": "EUR",
             "CA": "CAD",
+            // Asian / global corridors.
+            "JP": "JPY", "SG": "SGD", "PH": "PHP", "ID": "IDR", "VN": "VND",
         ]
         guard let c = code, let cur = map[c.uppercased()] else { return .usd }
         return TaliseCurrency.find(code: cur)
