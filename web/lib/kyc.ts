@@ -162,6 +162,24 @@ export function limitsForTier(tier: KycTier): TierLimits {
 }
 
 /**
+ * Single source of truth for corridor-access gating. Given a tier and
+ * whether the transfer is same-country (domestic) or cross-border, return
+ * whether the corridor is permitted. The send / corridor layers consume
+ * THIS rather than re-deriving access from `corridorAccess` strings, so
+ * the policy lives in one place.
+ *
+ *   none     → no outbound at all
+ *   domestic → same-country transfers only
+ *   all      → every supported corridor
+ */
+export function canUseCorridor(tier: KycTier, sameCountry: boolean): boolean {
+  const access = TIER_LIMITS[tier].corridorAccess;
+  if (access === "all") return true;
+  if (access === "domestic") return sameCountry;
+  return false;
+}
+
+/**
  * Read the persisted tier for a user. Returns 0 when the row is missing
  * or the column is NULL — i.e. unverified accounts (and any account that
  * predates the column) read as the email-only floor.
