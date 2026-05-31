@@ -88,6 +88,85 @@ body {
   color: var(--color-fg);
 }
 
+/*
+ * ── Premium light-mint landing scope ──────────────────────────────────
+ * The airy two-green identity from the brand mark: brand mint (#CAFFB8 /
+ * #D5FEBE) glowing at the hero and fading to near-white, ink-green text,
+ * forest (#4B8A37) accents + CTA, and white cards that lift off the mint.
+ * Scoped to the landing root only (apply `.landing-mint`) so the app /
+ * admin / iOS dark theme and their accent-contrast tokens are untouched.
+ * Variables shadow the dark defaults; children inherit them via the cascade.
+ */
+.landing-mint {
+  --color-bg: #ecf8e0;
+  --color-surface: #ffffff;
+  --color-surface-2: #e6f5d6;
+  --color-fg: #15300c;          /* deep ink-green primary text */
+  --color-fg-muted: #46663a;    /* secondary (6.5:1 on white — AA) */
+  --color-fg-dim: #557050;      /* tertiary / labels (5.0:1 on mint — AA) */
+  --color-line: #cfe7bd;        /* soft green hairline */
+  --color-accent: #3c7a2a;      /* forest — readable as accent TEXT on mint */
+  --color-accent-light: #caffb8;
+  --color-accent-deep: #3d7a29; /* solid CTA fill — 5.2:1 with white text (AA) */
+  --color-accent-soft: #dcf2cc;
+
+  color: var(--color-fg);
+  /* Saturated mint bloom at the top, easing to a near-white floor — depth,
+     not one flat fill. */
+  background:
+    radial-gradient(125% 62% at 50% -12%, #d6f4c2 0%, rgba(214, 244, 194, 0) 58%),
+    linear-gradient(180deg, #e7f6d7 0%, #f1faea 55%, #f7fcf2 100%);
+  background-attachment: fixed;
+}
+
+/* White, lifted cards for the light theme — soft forest-tinted elevation
+   + hairline instead of the dark theme's white-on-black glass. */
+.landing-mint .talise-glass {
+  background: linear-gradient(to bottom, #ffffff 0%, #fcfef9 100%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--color-line);
+  /* Faint lighter-top edge for a physically-lifted look on the light bg. */
+  border-top-color: #eaf8dd;
+  box-shadow:
+    0 20px 44px -18px rgba(35, 78, 20, 0.20),
+    0 2px 6px rgba(35, 78, 20, 0.05);
+  transition:
+    box-shadow 220ms ease,
+    border-color 220ms ease,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.landing-mint .talise-glass:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--color-accent-deep) 40%, var(--color-line));
+  box-shadow:
+    0 30px 58px -18px rgba(35, 78, 20, 0.26),
+    0 4px 12px rgba(35, 78, 20, 0.08);
+}
+
+/* Softer, brighter horizon bloom for the light hero. */
+.landing-mint .talise-top-glow {
+  height: 460px;
+  background:
+    radial-gradient(
+      ellipse 105% 95% at 50% -50%,
+      rgba(75, 138, 55, 0.35) 0%,
+      rgba(75, 138, 55, 0.12) 40%,
+      transparent 72%
+    ),
+    radial-gradient(
+      ellipse 56% 46% at 50% -6%,
+      rgba(202, 255, 184, 0.6) 0%,
+      transparent 58%
+    );
+  filter: blur(6px);
+}
+
+.landing-mint ::selection {
+  background: var(--color-accent-deep);
+  color: #ffffff;
+}
+
 /* Strip the ugly spinner arrows from <input type="number"> across browsers. */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {

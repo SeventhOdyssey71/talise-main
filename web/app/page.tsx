@@ -29,7 +29,7 @@ export default async function Landing({
   const params = await searchParams;
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#264616] text-[var(--color-fg)]">
+    <div className="landing-mint relative min-h-screen overflow-hidden text-[var(--color-fg)]">
       <div className="talise-top-glow" aria-hidden />
 
       <TopBar />
@@ -66,7 +66,7 @@ function TopBar() {
           the only thing we want users to do. */}
       <Link
         href="#cta"
-        className="rounded-full border border-transparent bg-[var(--color-surface-2)] px-5 py-2.5 text-[14px] text-[var(--color-fg)] transition hover:border-[color-mix(in_srgb,var(--color-accent)_45%,transparent)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)]"
+        className="rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-2 text-[14px] font-medium text-[var(--color-fg)] shadow-[0_1px_3px_rgba(35,78,20,0.08)] transition hover:border-[var(--color-accent-deep)] hover:text-[var(--color-accent-deep)] hover:shadow-[0_3px_10px_rgba(35,78,20,0.14)]"
       >
         Sign in
       </Link>
@@ -82,22 +82,22 @@ function Hero({ err }: { err?: string }) {
           "the" so the layout is two lines: "Send money across the" /
           "globe. For free." — keeps the accent inline with the noun
           it modifies instead of orphaning on its own row. */}
-      <h1 className="motion-headline mx-auto max-w-[900px] text-[clamp(40px,6vw,72px)] font-medium leading-[1.05] tracking-[-0.025em] text-[var(--color-fg)]">
-        Send money across the
+      <h1 className="motion-headline mx-auto max-w-[940px] text-[clamp(40px,6vw,72px)] font-medium leading-[1.05] tracking-[-0.025em] text-[var(--color-fg)]">
+        Send money worldwide.
         <br />
-        globe.{" "}
         <span
           className="text-[var(--color-accent)]"
           style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
         >
-          For free.
+          In their currency.
         </span>
       </h1>
 
-      <p className="motion-subtitle mx-auto mt-6 max-w-[560px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
-        Talise will move naira, shillings, cedis, and rand across borders for
-        a fraction of what Wise, Western Union, or Remitly charge, settled
-        on Sui in under a second. We're in private beta. Join the waitlist.
+      <p className="motion-subtitle mx-auto mt-6 max-w-[580px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
+        Send to a Talise handle and your money lands in their currency in
+        seconds — naira, cedis, yen, or dollars. We put dollars on the wire and
+        local money at each end, with the chain entirely out of the way.
+        Private beta — join the waitlist.
       </p>
 
       {/* Dual CTAs: waitlist + iOS placeholder. On small screens they
@@ -114,7 +114,7 @@ function Hero({ err }: { err?: string }) {
             them content-sized side by side. */}
         <Link
           href="/waitlist"
-          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-6 text-[14px] font-medium text-white transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
+          className="inline-flex h-11 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-7 text-[14px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
         >
           Join waitlist
         </Link>
@@ -152,7 +152,7 @@ function AppStoreButton() {
     <div
       role="img"
       aria-label="iOS app coming soon"
-      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full bg-white/[0.04] px-6 text-[14px] font-medium text-[var(--color-fg-muted)] ring-1 ring-[var(--color-line)] cursor-not-allowed select-none sm:w-auto"
+      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-7 text-[14px] font-medium text-[var(--color-fg-muted)] shadow-[0_1px_4px_rgba(35,78,20,0.10)] cursor-not-allowed select-none sm:w-auto"
     >
       <AppleGlyph />
       <span>iOS · Coming soon</span>
@@ -212,7 +212,7 @@ function FeatureGrid() {
       eyebrow: "01 / send",
       title: "Across borders, in seconds.",
       body:
-        "Send to a phone, a username, or a wallet. Naira, cedis, shillings, rand. We settle in USDsui and land in the receiver's local currency, faster than any traditional rail.",
+        "Send to a handle, a phone, or a wallet. We move dollars on Sui and pay out in the receiver's own currency — naira, cedis, yen, dollars — faster than any traditional rail.",
       glyph: "send",
     },
     {
@@ -234,7 +234,7 @@ function FeatureGrid() {
   return (
     <section id="how" className="border-t border-[var(--color-line)] pt-20">
       <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
-        <span aria-hidden className="inline-block h-px w-6 bg-[color-mix(in_srgb,var(--color-accent)_70%,transparent)]" />
+        <span aria-hidden className="inline-block h-px w-8 bg-[var(--color-accent)]" />
         how it works
       </div>
       <h2 className="mt-3 max-w-[720px] text-[clamp(28px,4.5vw,46px)] font-medium leading-[1.08] tracking-[-0.01em]">
@@ -284,7 +284,7 @@ function WhoItsFor() {
     <section id="who" className="mt-28 border-t border-[var(--color-line)] pt-20">
       <Reveal>
         <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
-          <span aria-hidden className="inline-block h-px w-6 bg-[color-mix(in_srgb,var(--color-accent)_70%,transparent)]" />
+          <span aria-hidden className="inline-block h-px w-8 bg-[var(--color-accent)]" />
           who it&apos;s for
         </div>
       </Reveal>
@@ -361,7 +361,7 @@ function SecuritySection() {
     <section id="security" className="mt-28 border-t border-[var(--color-line)] pt-20">
       <Reveal>
         <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
-          <span aria-hidden className="inline-block h-px w-6 bg-[color-mix(in_srgb,var(--color-accent)_70%,transparent)]" />
+          <span aria-hidden className="inline-block h-px w-8 bg-[var(--color-accent)]" />
           security
         </div>
       </Reveal>
@@ -430,7 +430,7 @@ function ByTheNumbers() {
     <section id="numbers" className="mt-28 border-t border-[var(--color-line)] pt-20">
       <Reveal>
         <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
-          <span aria-hidden className="inline-block h-px w-6 bg-[color-mix(in_srgb,var(--color-accent)_70%,transparent)]" />
+          <span aria-hidden className="inline-block h-px w-8 bg-[var(--color-accent)]" />
           by the numbers
         </div>
       </Reveal>
@@ -993,7 +993,7 @@ function BigStat({
 
 function SmallNote({ eyebrow, body }: { eyebrow: string; body: string }) {
   return (
-    <div className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-5 text-left">
+    <div className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-5 text-left shadow-[0_8px_24px_-10px_rgba(35,78,20,0.14),0_1px_3px_rgba(35,78,20,0.05)]">
       <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
         {eyebrow}
       </div>
@@ -1080,7 +1080,7 @@ function FinalCta() {
             flip the doors open this swaps back to SignInButton. */}
         <Link
           href="/waitlist"
-          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-6 text-[14px] font-medium text-white transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
+          className="inline-flex h-11 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-7 text-[14px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
         >
           Join waitlist
         </Link>
@@ -1232,7 +1232,7 @@ function StatRow() {
       {stats.map(([label, value, sub]) => (
         <div
           key={label}
-          className="motion-stat rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-4 text-left"
+          className="motion-stat rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-4 text-left shadow-[0_8px_24px_-10px_rgba(35,78,20,0.14),0_1px_3px_rgba(35,78,20,0.05)]"
         >
           <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
             {label}
@@ -1341,10 +1341,10 @@ function Diamond() {
 }
 
 function FeatureGlyph({ kind }: { kind: "send" | "leaf" | "sui" }) {
-  const stroke = "var(--color-accent)";
-  // Solid Talise dark green for the glyph disc — replaces the muddy 18%
-  // mint-on-transparent wash that read as an "overly dark" grey-green.
-  const fill = "#1A470B";
+  // Forest glyph on a pale-mint disc — reads cleanly on the white feature
+  // cards of the light-mint landing.
+  const stroke = "var(--color-accent-deep)";
+  const fill = "color-mix(in srgb, var(--color-accent-deep) 14%, #ffffff)";
   return (
     <span
       className="grid h-9 w-9 place-items-center rounded-full"
