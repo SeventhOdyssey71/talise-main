@@ -10,6 +10,7 @@ import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 import { getRoundupConfig } from "@/lib/rewards/roundup";
 import { appendNaviSupply } from "@/lib/navi-supply";
 import { onara } from "@/lib/onara";
+import { screenTransfer } from "@/lib/screening";
 import { getCurrentEpoch } from "@/lib/sui-epoch";
 import { SuiJsonRpcClient, JsonRpcHTTPTransport } from "@mysten/sui/jsonRpc";
 import { shinamiSuiNodeJsonRpc } from "@/lib/shinami";
@@ -216,19 +217,44 @@ export async function POST(req: Request) {
     );
   }
 
+  // ── Compliance screening — HARD STOP (master plan §7) ───────────
+  // Pre-broadcast sanctions + on-chain address risk. Runs AFTER we've
+  // resolved the user row and validated the recipient, but BEFORE any
+  // PTB bytes are built/returned, so a flagged transfer never produces
+  // signable bytes. `screenTransfer` is fail-closed on an explicit
+  // sanctioned-name hit and fail-open (logs, allows) on an address-risk
+  // provider/transport error — a vendor outage must not 500 every send.
+  // `business_name` is preferred for the sender (business accounts settle
+  // under their legal/registered name); falls back to the personal name.
+  const screen = await screenTransfer({
+    senderAddr: user.sui_address,
+    recipientAddr: to,
+    senderName: user.business_name ?? user.name,
+    // Recipient is an on-chain address only at this layer; no name to
+    // screen yet. The address-risk leg covers the recipient.
+    recipientName: null,
+  });
+  if (!screen.allow) {
+    console.warn(
+      `[send/sponsor-prepare] SCREENING_BLOCK user=${userId} to=${to} cause=${screen.cause} reason=${screen.reason}`
+    );
+    return NextResponse.json(
+      {
+        error: "This transfer was blocked by a compliance screen.",
+        code: "SCREENING_BLOCK",
+        reason: screen.reason,
+      },
+      { status: 403 }
+    );
+  }
+
   // ── Hard transaction-limit gate (master plan §7, §11 item 2) ────
-  // BEFORE any PTB-building work, reject sends that would breach the
-  // user's tier-based rolling daily/monthly cap. This closes the
-  // documented compliance gap (the send path enforced no API-layer
-  // limit). USDsui is 1:1 USD, so `amountNum` IS the USD figure; SUI
-  // sends are not USD-denominated and are left to a later corridor
-  // pass (the cap engine is fiat-USD today), so only USDsui is gated.
-  //
-  // `checkSendAllowed` is fail-open by contract — a limits-infra fault
-  // (missing kyc_tier column, ledger table absent, DB hiccup) resolves
-  // to `allowed: true`, never a 500. The reservation model records the
-  // intended amount at prepare-time (below, on success), which is the
-  // conservative direction for a compliance guard.
+  // AFTER screening (block bad actors first), BEFORE any PTB-building
+  // work: reject sends that would breach the user's tier-based rolling
+  // daily/monthly cap. USDsui is 1:1 USD so `amountNum` IS the USD
+  // figure; SUI sends aren't USD-denominated so only USDsui is gated.
+  // `checkSendAllowed` is fail-open by contract (a limits-infra fault
+  // resolves to allowed, never a 500). Reservation recorded on success.
   if (asset === "USDsui") {
     const decision = await checkSendAllowed(userId, amountNum);
     if (!decision.allowed) {
