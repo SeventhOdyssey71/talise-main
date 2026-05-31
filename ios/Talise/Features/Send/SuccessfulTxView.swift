@@ -1,88 +1,72 @@
 import SwiftUI
 
-/// Full-screen "Successful" celebration shown after a payment lands.
-/// Implements Figma node 132:2 ("Successful PopUp") verbatim — pastel
-/// green field, two soft cloud blobs in the top corners, half-toned
-/// coin-stack illustration, the sent amount, a two-line mono "gas cost
-/// = 0 / money arrives < 1s" reassurance, and a Share Receipt + Done
-/// button row.
+/// Full-screen "Transaction Successful!" celebration shown after a
+/// payment lands. Implements Figma node 141:18 — dark theme: black field
+/// with a soft green glow, a half-toned coin stack that drops in
+/// scrapbook-style, a large light-green amount, a "Transaction
+/// Successful!" line, a one-line mono "gas cost = 0, money arrives < 1s"
+/// reassurance, and a Share Receipt + Done button row.
 ///
 /// `amountText` is pre-formatted in the user's display currency by the
-/// caller via `TaliseFormat.local2`, so a $ user sees "$65.00" and a ₦
-/// user sees "₦95,400.00".
+/// caller via `TaliseFormat.local2`, e.g. "$65.00".
 ///
-/// Design tokens (Figma get_design_context, node 132:2):
-///   bg              #CAFFB8
-///   amount          DM Sans 50 / regular / #4B8A37 / tracking -1
-///   subtitle        JetBrains Mono 13 / regular / #6E9C5F / tracking -0.26
-///   Share Receipt   #4B8A37 @ 20% pill, 158×41, text #4B8A37
-///   Done            #4B8A37 pill, 92×41, text #B1F49A
+/// Design tokens (Figma get_design_context, node 141:18):
+///   bg              black + green glow blob (SuccessGlowBackground)
+///   amount          DM Sans 75 / regular / #B1F49A / tracking -1.5
+///   title           DM Sans 25 / medium / #B1F49A / tracking -0.5
+///   subtitle        JetBrains Mono 13 / regular / white / tracking -0.26
+///   Share Receipt   white @ 20% pill, 158×41, text white
+///   Done            white pill, 92×41, text black
 struct SuccessfulTxView: View {
     /// Pre-formatted, currency-aware amount, e.g. "$65.00".
     let amountText: String
-    /// Fired by "Share Receipt". Optional — when nil the button still
-    /// renders (matching the design) but is inert.
     var onShareReceipt: (() -> Void)? = nil
     let onDone: () -> Void
 
-    private let bg = Color(hex: 0xCAFFB8)
-    private let deepGreen = Color(hex: 0x4B8A37)
-    private let subtitleGreen = Color(hex: 0x6E9C5F)
-    private let buttonText = Color(hex: 0xB1F49A)
+    private let mintGreen = Color(hex: 0xB1F49A)
 
     var body: some View {
         ZStack {
-            bg.ignoresSafeArea()
-
-            // Decorative cloud blobs in the top corners. Anchored to the
-            // edges and pushed partially off-screen, matching the Figma
-            // insets (left cloud ~20% down hugging the left edge, right
-            // cloud near the top hugging the right edge).
-            GeometryReader { proxy in
-                let w = proxy.size.width
-                let h = proxy.size.height
-                Image("SuccessCloudRight")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: w * 0.55)
-                    .position(x: w * 0.92, y: h * 0.12)
-                Image("SuccessCloudLeft")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: w * 0.46)
-                    .position(x: w * 0.02, y: h * 0.30)
-            }
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
+            SuccessGlowBackground()
 
             VStack(spacing: 0) {
                 Spacer()
 
+                // Coin stack drops in with the paper-placement wobble,
+                // tilted the opposite way from the savings piggy so the
+                // two screens feel hand-placed rather than templated.
                 Image("SuccessCoins")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 256, height: 200)
+                    .frame(width: 360, height: 282)
+                    .scrapbookEntry(delay: 0.05, tilt: 6)
 
-                Spacer().frame(height: 30)
+                Spacer().frame(height: 24)
 
                 Text(amountText)
-                    .font(TaliseFont.heading(50, weight: .regular))
-                    .kerning(-1)
-                    .foregroundStyle(deepGreen)
+                    .font(TaliseFont.heading(75, weight: .regular))
+                    .kerning(-1.5)
+                    .foregroundStyle(mintGreen)
                     .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.5)
+                    .minimumScaleFactor(0.4)
                     .lineLimit(1)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, 20)
+                    .scrapbookFadeUp(delay: 0.20)
 
-                VStack(spacing: 2) {
-                    Text("gas cost = 0")
-                    Text("money arrives < 1s")
-                }
-                .font(TaliseFont.mono(13, weight: .regular))
-                .kerning(-0.26)
-                .foregroundStyle(subtitleGreen)
-                .multilineTextAlignment(.center)
-                .padding(.top, 16)
+                Text("Transaction Successful!")
+                    .font(TaliseFont.heading(25, weight: .medium))
+                    .kerning(-0.5)
+                    .foregroundStyle(mintGreen)
+                    .padding(.top, 18)
+                    .scrapbookFadeUp(delay: 0.28)
+
+                Text("gas cost = 0, money arrives < 1s")
+                    .font(TaliseFont.mono(13, weight: .regular))
+                    .kerning(-0.26)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+                    .scrapbookFadeUp(delay: 0.34)
 
                 Spacer()
 
@@ -95,11 +79,9 @@ struct SuccessfulTxView: View {
                         }
                         .font(TaliseFont.body(15, weight: .medium))
                         .kerning(-0.3)
-                        .foregroundStyle(deepGreen)
+                        .foregroundStyle(.white)
                         .frame(width: 158, height: 41)
-                        .background(
-                            Capsule().fill(deepGreen.opacity(0.2))
-                        )
+                        .background(Capsule().fill(Color.white.opacity(0.2)))
                     }
                     .buttonStyle(.plain)
 
@@ -107,17 +89,16 @@ struct SuccessfulTxView: View {
                         Text("Done")
                             .font(TaliseFont.body(15, weight: .medium))
                             .kerning(-0.3)
-                            .foregroundStyle(buttonText)
+                            .foregroundStyle(.black)
                             .frame(width: 92, height: 41)
-                            .background(
-                                Capsule().fill(deepGreen)
-                            )
+                            .background(Capsule().fill(.white))
                     }
                     .buttonStyle(.plain)
                 }
                 .padding(.bottom, 40)
+                .scrapbookFadeUp(delay: 0.40)
             }
         }
-        .preferredColorScheme(.light)
+        .preferredColorScheme(.dark)
     }
 }
