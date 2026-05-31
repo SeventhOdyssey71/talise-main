@@ -325,12 +325,13 @@ function HandleClaim({ session }: { session: Session }) {
       });
       setClaim("claimed");
       // After successful mint, give the user 1.2s to register the
-      // success card visually, then bounce them to the home surface
-      // so they can start using the app. This matches the user's
-      // directive: "after user claims subname, and is successful
-      // redirect them back to homepage".
+      // success card visually, then bounce them to the marketing
+      // root (talise.io), NOT /home — per the user directive
+      // "redirect to talise.io, not talise.io/home". The root is the
+      // canonical landing surface; /home is the authed web dashboard
+      // which a fresh waitlist claimer doesn't need yet.
       window.setTimeout(() => {
-        window.location.href = "/home";
+        window.location.href = "/";
       }, 1200);
     } catch (err) {
       setClaim("error");
@@ -437,7 +438,7 @@ function HandleClaim({ session }: { session: Session }) {
       <div id="handle-hint" className="px-4 text-[12px]" aria-live="polite">
         {avail.kind === "idle" && (
           <span className="text-white/45">
-            Letters, numbers, hyphens. 2-32 chars.
+            Letters, numbers, hyphens. 3-32 chars.
           </span>
         )}
         {avail.kind === "checking" && (
