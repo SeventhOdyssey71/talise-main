@@ -114,7 +114,7 @@ function Hero({ err }: { err?: string }) {
             them content-sized side by side. */}
         <Link
           href="/waitlist"
-          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-6 text-[14px] font-medium text-white shadow-[0_8px_28px_-8px_rgba(75,138,55,0.7)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
+          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-6 text-[14px] font-medium text-white transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
         >
           Join waitlist
         </Link>
@@ -1080,7 +1080,7 @@ function FinalCta() {
             flip the doors open this swaps back to SignInButton. */}
         <Link
           href="/waitlist"
-          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-6 text-[14px] font-medium text-white shadow-[0_8px_28px_-8px_rgba(75,138,55,0.7)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
+          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-6 text-[14px] font-medium text-white transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
         >
           Join waitlist
         </Link>
