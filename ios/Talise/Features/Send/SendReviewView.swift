@@ -10,6 +10,17 @@ struct SendReviewView: View {
 
     @Environment(AppSession.self) private var session
 
+    /// Locked cross-border quote. Nil for same-currency sends — those
+    /// keep the original generic fee line and behave exactly as before.
+    @State private var quote: CrossBorderQuote?
+    /// Seconds left on the 30s hold, mirrored out of `quote` so the
+    /// countdown re-renders each tick.
+    @State private var secondsLeft: Int = 0
+
+    /// 1Hz tick that drives the "rate held 30s" countdown.
+    private let countdown = Timer.publish(every: 1, on: .main, in: .common)
+        .autoconnect()
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -23,8 +34,15 @@ struct SendReviewView: View {
                     arrow
                     toCard
 
-                    feeLine
-                        .padding(.top, 4)
+                    // Cross-border: transparent locked-quote block.
+                    // Same-currency: the original "no network fee" line.
+                    if let quote {
+                        lockedQuoteBlock(quote)
+                            .padding(.top, 4)
+                    } else {
+                        feeLine
+                            .padding(.top, 4)
+                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
@@ -40,6 +58,34 @@ struct SendReviewView: View {
         }
         .background(TaliseColor.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .onAppear { lockQuote() }
+        .onReceive(countdown) { _ in tick() }
+    }
+
+    // MARK: - Quote lifecycle
+
+    /// Lock a fresh quote when the screen appears (cross-border only).
+    private func lockQuote() {
+        guard draft.isCrossCurrency else {
+            quote = nil
+            return
+        }
+        let q = draft.makeCrossBorderQuote()
+        quote = q
+        secondsLeft = q?.secondsRemaining() ?? 0
+    }
+
+    /// Tick the countdown; re-lock the quote at expiry so the held rate
+    /// is always honoured (never let a stale rate sit committable).
+    private func tick() {
+        guard let q = quote else { return }
+        let remaining = q.secondsRemaining()
+        if remaining <= 0 {
+            // Re-lock at the current rate snapshot and restart the hold.
+            lockQuote()
+        } else {
+            secondsLeft = remaining
+        }
     }
 
     // MARK: - Header
@@ -170,6 +216,90 @@ struct SendReviewView: View {
         let a = r.address
         guard a.count > 14 else { return a }
         return String(a.prefix(8)) + "…" + String(a.suffix(6))
+    }
+
+    // MARK: - Locked-quote block (cross-border)
+
+    /// Transparent quote card shown instead of the generic fee line when
+    /// the recipient is paid in a different currency. Surfaces the locked
+    /// rate, the spread AS AN EXPLICIT FEE, the total debit, the
+    /// guaranteed receive amount, and a "rate held Ns" countdown.
+    private func lockedQuoteBlock(_ q: CrossBorderQuote) -> some View {
+        VStack(spacing: 14) {
+            // Locked rate + countdown header.
+            HStack {
+                HStack(spacing: 5) {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(TaliseColor.accent)
+                    Text(q.rateLine)
+                        .font(TaliseFont.mono(12, weight: .regular))
+                        .foregroundStyle(TaliseColor.fg)
+                }
+                Spacer()
+                Text("Rate held \(secondsLeft)s")
+                    .font(TaliseFont.mono(11, weight: .light))
+                    .foregroundStyle(secondsLeft <= 5 ? TaliseColor.danger : TaliseColor.fgMuted)
+                    .contentTransition(.numericText())
+                    .animation(.snappy(duration: 0.18), value: secondsLeft)
+            }
+
+            Divider().background(TaliseColor.line)
+
+            quoteRow(
+                label: "Fee (\(spreadBpsLabel(q)))",
+                value: TaliseFormat.symbolic(q.spreadLocal, currency: q.senderCurrency, fixed: 2)
+            )
+            quoteRow(
+                label: "Total debit",
+                value: TaliseFormat.symbolic(q.senderDebitLocal, currency: q.senderCurrency, fixed: 2)
+            )
+
+            Divider().background(TaliseColor.line)
+
+            // The guaranteed receive amount — the headline of the block.
+            HStack(alignment: .firstTextBaseline) {
+                Text("Recipient gets")
+                    .font(TaliseFont.body(13, weight: .regular))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                Spacer()
+                Text(TaliseCurrency.recipientSymbolic(q.recipientReceiveLocal, currency: q.recipientCurrency))
+                    .font(TaliseFont.heading(20, weight: .medium))
+                    .foregroundStyle(TaliseColor.accent)
+            }
+
+            Text("Guaranteed for the held rate. Talise moves this as digital dollars, 1:1.")
+                .font(TaliseFont.mono(10, weight: .light))
+                .foregroundStyle(TaliseColor.fgDim)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity)
+        .taliseGlass(cornerRadius: 22)
+    }
+
+    private func quoteRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(TaliseFont.body(13, weight: .regular))
+                .foregroundStyle(TaliseColor.fgMuted)
+            Spacer()
+            Text(value)
+                .font(TaliseFont.mono(13, weight: .regular))
+                .foregroundStyle(TaliseColor.fg)
+        }
+    }
+
+    /// "0.25%" style label for the spread basis points.
+    private func spreadBpsLabel(_ q: CrossBorderQuote) -> String {
+        let pct = Double(q.spreadBps) / 100
+        let fmt = NumberFormatter()
+        fmt.numberStyle = .decimal
+        fmt.minimumFractionDigits = 0
+        fmt.maximumFractionDigits = 2
+        let body = fmt.string(from: NSNumber(value: pct)) ?? "\(pct)"
+        return "\(body)%"
     }
 
     // MARK: - Fee line
