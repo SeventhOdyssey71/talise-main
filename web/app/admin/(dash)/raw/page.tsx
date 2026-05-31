@@ -126,8 +126,19 @@ export default function RawDbPage() {
 
   const onJson = (title: string, json: unknown) => setDetail({ title, json });
 
+  // `tableData` can briefly hold the directory response ({tables}) — when no
+  // table is selected — or stale rows for a previously-selected table while a
+  // new fetch is in flight. Only treat it as the CURRENT table's data once its
+  // `table` field matches the selection; otherwise `.total`/`.columns`/`.rows`
+  // are undefined and the viewer would crash.
+  const td: TableResp | null =
+    tableData.data && (tableData.data as Partial<TableResp>).table === table
+      ? (tableData.data as TableResp)
+      : null;
+  const tableLoading = !!table && !td && !tableData.error;
+
   const columns: Array<Column<RawRow>> = useMemo(() => {
-    const cols = tableData.data?.columns ?? [];
+    const cols = td?.columns ?? [];
     return cols.map((col) => ({
       key: col,
       header: col,
@@ -137,10 +148,11 @@ export default function RawDbPage() {
         return renderCell(col, row[col], onJson, rowLabel);
       },
     }));
-  }, [tableData.data?.columns]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [td?.columns]);
 
-  const pageSize = tableData.data?.pageSize ?? 50;
-  const pageCount = tableData.data ? Math.ceil((tableData.data.total || 0) / pageSize) : 1;
+  const pageSize = td?.pageSize ?? 50;
+  const pageCount = td ? Math.ceil((td.total || 0) / pageSize) : 1;
 
   return (
     <div>
@@ -197,25 +209,25 @@ export default function RawDbPage() {
         <Card pad={false} className="p-5">
           <div className="mb-3 flex items-center gap-2 text-sm">
             <Mono className="text-fg">{table}</Mono>
-            {tableData.data ? (
+            {td ? (
               <span className="text-xs text-fg-dim">
-                · {tableData.data.total.toLocaleString()} rows · {tableData.data.columns.length} columns
+                · {(td.total ?? 0).toLocaleString()} rows · {td.columns.length} columns
               </span>
             ) : null}
           </div>
 
           {tableData.error ? <ErrorBanner message={tableData.error} onRetry={tableData.refetch} /> : null}
-          {tableData.loading && !tableData.data ? <Spinner /> : null}
+          {tableLoading ? <Spinner /> : null}
 
-          {tableData.data ? (
+          {td ? (
             <>
               <DataTable<RawRow>
                 columns={columns}
-                rows={tableData.data.rows}
+                rows={td.rows}
                 rowKey={(row, i) => String(row.id ?? row.email ?? i)}
                 empty="No rows in this table."
               />
-              <Pagination page={page} pageCount={pageCount} onPage={setPage} total={tableData.data.total} />
+              <Pagination page={page} pageCount={pageCount} onPage={setPage} total={td.total} />
             </>
           ) : null}
         </Card>

@@ -55,11 +55,20 @@ const FEED_TTL_MS = 60_000;
  * quote is refused (callers should fail over to USDC settlement / retry, per
  * §9 — the breaker fails over, it does not silently serve stale FX).
  *
- * Free reference feeds update roughly hourly, so we allow up to ~75 minutes
- * of staleness before tripping. Tighten this once on an executable venue
- * feed (Circle Mint / partner quote / OTC).
+ * IMPORTANT: the default keyless provider (open.er-api.com) refreshes its
+ * `time_last_update_unix` only ONCE PER DAY, so by late in the day a perfectly
+ * good "live" table is ~24h old. A 75-minute window therefore tripped the
+ * breaker on essentially every quote ("Couldn't lock an exchange rate"). We
+ * size the window to the provider's real daily cadence plus a couple hours of
+ * update lag (26h). This is the free-feed reality, not the target: once an
+ * executable venue feed (Circle Mint / partner quote / OTC) that updates in
+ * seconds is wired in (overridable via FX_FEED_MAX_AGE_MS / FX_FEED_URL),
+ * tighten this back toward minutes.
  */
-const FEED_MAX_AGE_MS = 75 * 60_000;
+const FEED_MAX_AGE_MS = (() => {
+  const env = Number(process.env.FX_FEED_MAX_AGE_MS);
+  return Number.isFinite(env) && env > 0 ? env : 26 * 60 * 60_000;
+})();
 
 /**
  * Hard floor for a feed `last update` timestamp we trust at all. A provider
