@@ -103,19 +103,37 @@ export function rateLimit(opts: RateLimitOptions): RateLimitResult {
 }
 
 /**
- * Best-effort client IP from `x-forwarded-for`. Vercel populates this
- * header with the public client IP as the first value. Falls back to
- * `x-real-ip`, then to a literal string so we still rate-limit unknown
- * clients as a single bucket (defense in depth — better than skipping
- * the check entirely).
+ * Best-effort client IP for rate-limit keying.
+ *
+ * Order matters for anti-spoofing: prefer the headers the PLATFORM sets
+ * (and a client cannot forge) before the client-influenced
+ * `x-forwarded-for`. On Vercel, `x-vercel-forwarded-for` and
+ * `x-real-ip` are set by the edge to the true connecting IP and any
+ * inbound value is overwritten — so they can't be spoofed. The leftmost
+ * value of a raw `x-forwarded-for` IS attacker-controllable on
+ * non-Vercel / self-hosted deploys (a client can send
+ * `X-Forwarded-For: <anything>` to rotate their rate-limit bucket and
+ * bypass every limiter), so it's the LAST resort. Falls back to a
+ * literal so unknown clients still share one bucket rather than
+ * skipping the check.
+ *
+ * AUDIT_PENDING(F3): these limits are still per-instance (in-memory Map).
+ * Promote to Upstash Redis before scaling so caps are global, not N×.
  */
 export function getClientIp(req: Request): string {
+  // Vercel-set, non-spoofable.
+  const vercel = req.headers.get("x-vercel-forwarded-for");
+  if (vercel) {
+    const first = vercel.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const xri = req.headers.get("x-real-ip");
+  if (xri) return xri.trim();
+  // Client-influenced — last resort.
   const xff = req.headers.get("x-forwarded-for");
   if (xff) {
     const first = xff.split(",")[0]?.trim();
     if (first) return first;
   }
-  const xri = req.headers.get("x-real-ip");
-  if (xri) return xri.trim();
   return "unknown";
 }

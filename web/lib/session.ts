@@ -85,10 +85,38 @@ export async function clearReferralCookie() {
 
 const RETURN_TO_COOKIE = "talise_return_to";
 
+/**
+ * Validate a `returnTo` value as a SAME-ORIGIN absolute path only.
+ *
+ * `path.startsWith("/")` alone is NOT enough — a protocol-relative URL
+ * like `//evil.com` (and the backslash variant `/\evil.com`, which
+ * browsers normalize to `//evil.com`) also starts with `/`, and
+ * `new URL("//evil.com", origin)` resolves to `https://evil.com`. That
+ * turns the post-sign-in redirect into an open redirect: an attacker
+ * seeds the cookie, the victim completes a real Google consent screen,
+ * and the callback 302s them to the attacker's domain — phishing-grade.
+ *
+ * Accept only: starts with a single `/`, NOT followed by `/` or `\`,
+ * no backslashes anywhere, no control chars, ≤256 chars. Returns the
+ * path if safe, else null.
+ */
+export function safeReturnPath(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.length > 256) return null;
+  if (path[0] !== "/") return null;
+  // protocol-relative ("//host") or backslash trick ("/\host")
+  if (path[1] === "/" || path[1] === "\\") return null;
+  if (path.includes("\\")) return null;
+  // control chars (incl. CR/LF) and whitespace-leading tricks
+  if (/[\x00-\x20\x7f]/.test(path)) return null;
+  return path;
+}
+
 export async function setReturnTo(path: string) {
-  if (!path.startsWith("/") || path.length > 256) return;
+  const safe = safeReturnPath(path);
+  if (!safe) return;
   const jar = await cookies();
-  jar.set(RETURN_TO_COOKIE, sign(path), {
+  jar.set(RETURN_TO_COOKIE, sign(safe), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -103,6 +131,7 @@ export async function consumeReturnTo(): Promise<string | null> {
   if (!raw) return null;
   const v = verify(raw);
   jar.delete(RETURN_TO_COOKIE);
-  if (!v || !v.startsWith("/")) return null;
-  return v;
+  // Re-validate on read too — defence in depth against a cookie minted
+  // before this validation existed (or by any other writer).
+  return safeReturnPath(v);
 }
