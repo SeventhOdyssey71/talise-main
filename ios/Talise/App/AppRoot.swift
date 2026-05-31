@@ -270,8 +270,12 @@ private struct BottomNavPill: View {
                     )
             }
             // Tiny inset so the active capsule clearly nests inside the
-            // outer pill (the Figma effect).
+            // outer pill (the Figma effect). Horizontal inset matters
+            // for the leading/trailing tabs — without it the active
+            // capsule is flush with the outer pill's edge and reads
+            // as misaligned against the centered icon + label.
             .padding(.vertical, 2)
+            .padding(.horizontal, 4)
         } else {
             Color.clear
         }

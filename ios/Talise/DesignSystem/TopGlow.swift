@@ -1,61 +1,29 @@
 import SwiftUI
 
-/// Forest-green atmospheric wash that sits at the very top of each
-/// authenticated tab. Reads as a tight "horizon glow" against the pure
-/// black background — focused at the status-bar edge, fully transparent
-/// well before reaching the content's first interactive element.
-///
-/// Earlier revision used a blue hue + a wide 320pt band, which spilled
-/// through to the History rows and competed with the green Earn accent.
-/// Switched to a hue that's a desaturated derivative of `TaliseColor.accent`
-/// (the same Talise green used on "Earn up to 11%", venue badges, and
-/// invest-row tints) so the page background hints at brand color
-/// without polluting the surface.
+/// Mossy-green top wash matching the onboarding gradient verbatim
+/// (`WelcomeView` + `OnboardingBackground`). One palette across the
+/// whole app: bright forest green at the top, fading to pure black
+/// before the content area. Linear (not radial) so the brightness
+/// reads evenly across the screen width instead of pooling under the
+/// notch. Stops match `OnboardingBackground` exactly so a user coming
+/// out of onboarding into the first authenticated tab sees the wash
+/// continue without a perceptible jump.
 struct TopGlow: View {
     var body: some View {
-        // Center pushed well above the top edge (UnitPoint y: -0.6) so
-        // only the lower arc of the radial is visible — that arc is
-        // wide and gently curved across the full screen width, instead
-        // of looking like a small spotlight in the middle. Combined
-        // with a large endRadius this produces a "horizon wash" effect:
-        // green at the very top edge, smoothly fading to pure black
-        // by the time you reach mid-screen.
-        ZStack(alignment: .top) {
-            // Wide base wash. The big radius (600) is what makes the
-            // glow span corner-to-corner; the off-screen center is
-            // what flattens it into a gentle band rather than a circle.
-            RadialGradient(
-                colors: [
-                    Color(red: 0.16, green: 0.42, blue: 0.26).opacity(0.65),
-                    Color(red: 0.12, green: 0.30, blue: 0.20).opacity(0.30),
-                    Color(red: 0.08, green: 0.18, blue: 0.13).opacity(0.10),
-                    .clear,
-                ],
-                center: .init(x: 0.5, y: -0.6),
-                startRadius: 0,
-                endRadius: 600
-            )
-            // Brighter accent right under the notch — tighter radius,
-            // higher saturation. This keeps a clear "lit" point at the
-            // very top so the wash has structure instead of feeling
-            // like flat tint.
-            RadialGradient(
-                colors: [
-                    Color(red: 0.36, green: 0.66, blue: 0.42).opacity(0.42),
-                    Color(red: 0.36, green: 0.66, blue: 0.42).opacity(0.16),
-                    .clear,
-                ],
-                center: .init(x: 0.5, y: 0.0),
-                startRadius: 0,
-                endRadius: 320
-            )
-        }
-        .blur(radius: 24)
-        // Taller band — the wash needs room to decay to clear before
-        // the History rows. With the new wide radii, 360pt gives the
-        // gradient enough vertical real estate to spread without
-        // bleeding into the activity list.
-        .frame(height: 360)
+        LinearGradient(
+            stops: [
+                .init(color: Color(hex: 0x6BA85A), location: 0.0),
+                .init(color: Color(hex: 0x355626), location: 0.18),
+                .init(color: Color.black,           location: 0.55),
+                .init(color: Color.black,           location: 1.0),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        // Taller-than-content band so the bottom half stays pure black
+        // for the History rows + tab bar; the green only lives in the
+        // top ~30% of the screen, same as `WelcomeView`.
+        .frame(height: 520)
         .frame(maxWidth: .infinity, alignment: .top)
         .allowsHitTesting(false)
     }
