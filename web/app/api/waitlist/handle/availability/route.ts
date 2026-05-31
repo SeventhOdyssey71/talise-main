@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db, ensureSchema } from "@/lib/db";
+import { ensureSchema } from "@/lib/db";
 import {
   isWaitlistHandleAvailable,
   normalizeReasonMessage,
@@ -13,34 +13,29 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/waitlist/handle/availability
  *
- * Body: { email: string, handle: string }
+ * Body: { handle: string }   (any `email` field is ignored — see below)
  *
  * Returns:
  *   200 { available: true,  normalized: "alice" }
  *   200 { available: false, reason: "taken_db" | "taken_chain", normalized }
  *   400 { error: <message> }      – invalid handle
- *   409 { error: "You already claimed <prior>." }
  *
- * The email scopes the "you already have a handle" short-circuit. In
- * the Google-first flow the waitlist row may not exist yet — that's
- * fine, we just skip the prior-claim check and run the on-chain /
- * cross-row availability lookup. The rate-limit is the anti-enum
- * defense.
+ * ANTI-ENUMERATION: this endpoint reports ONLY whether a handle is free.
+ * It deliberately does NOT accept an email or report anything about
+ * waitlist/claim status for any email, so it can't be used to test
+ * "is this email on the waitlist / has it claimed". The frontend learns
+ * the caller's own already-claimed state from `/api/auth/me` instead.
+ *
+ * Rate-limited per IP with a tight burst limit on top of the per-minute
+ * cap — the live-availability UI calls this on every (debounced)
+ * keystroke, but a scripted enumerator scraping the taken-handle space
+ * trips the burst limit fast.
  */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function validEmail(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  const e = raw.trim().toLowerCase();
-  if (!e || e.length >= 254) return null;
-  return EMAIL_RE.test(e) ? e : null;
-}
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
-  // Tight throttle — the live-availability UI calls this on every
-  // keystroke (debounced 350ms on the client) so a normal flow stays
-  // well under 30 calls/min. A scripted enumerator would blow past it.
+  // Per-minute throttle — a normal keystroke flow (debounced 350ms on
+  // the client) stays well under 30/min.
   const rl = rateLimit({
     key: `waitlist-avail:${ip}`,
     limit: 30,
@@ -52,17 +47,26 @@ export async function POST(req: Request) {
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } }
     );
   }
-
-  let body: { email?: unknown; handle?: unknown };
-  try {
-    body = (await req.json()) as { email?: unknown; handle?: unknown };
-  } catch {
-    return NextResponse.json({ error: "invalid json" }, { status: 400 });
+  // Tighter burst limit on a short window — blunts a fast scripted scan
+  // of the handle namespace (enumerating which names are taken) while
+  // still comfortably allowing human typing.
+  const burst = rateLimit({
+    key: `waitlist-avail-burst:${ip}`,
+    limit: 8,
+    windowSec: 5,
+  });
+  if (!burst.ok) {
+    return NextResponse.json(
+      { error: "Too many checks. Slow down." },
+      { status: 429, headers: { "Retry-After": String(burst.retryAfterSec ?? 5) } }
+    );
   }
 
-  const email = validEmail(body.email);
-  if (!email) {
-    return NextResponse.json({ error: "Enter a valid email." }, { status: 400 });
+  let body: { handle?: unknown };
+  try {
+    body = (await req.json()) as { handle?: unknown };
+  } catch {
+    return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
   const norm = normalizeWaitlistHandle(body.handle);
@@ -75,28 +79,6 @@ export async function POST(req: Request) {
 
   try {
     await ensureSchema();
-    const c = db();
-
-    const row = await c.execute({
-      sql: "SELECT claimed_handle FROM waitlist_signups WHERE email = ? LIMIT 1",
-      args: [email],
-    });
-    // Missing row is fine in the Google-first flow — the user has a
-    // session but has never been written to waitlist_signups; the
-    // claim route will UPSERT. Only short-circuit if the row exists
-    // AND already holds a handle.
-    if (row.rows.length > 0) {
-      const prior = row.rows[0]?.claimed_handle as
-        | string
-        | null
-        | undefined;
-      if (prior) {
-        return NextResponse.json(
-          { error: `You already claimed ${prior}@talise.sui.`, prior },
-          { status: 409 }
-        );
-      }
-    }
 
     const verdict = await isWaitlistHandleAvailable(norm.handle);
     if (verdict.available) {

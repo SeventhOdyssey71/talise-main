@@ -20,6 +20,26 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// `next/server`'s `after()` throws "called outside a request scope" when
+// the route runs outside Next's request lifecycle (i.e. in these unit
+// tests). Stub it to run the callback inline so success-path claims that
+// schedule the confirmation email don't blow up.
+vi.mock("next/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("next/server")>();
+  return {
+    ...actual,
+    after: (cb: unknown) => {
+      if (typeof cb === "function") {
+        try {
+          void (cb as () => unknown)();
+        } catch {
+          /* swallow — mirrors after()'s detached semantics */
+        }
+      }
+    },
+  };
+});
+
 // ─── In-memory DB fake ────────────────────────────────────────────────────
 //
 // We model both `waitlist_signups` and `users`. The claim route now reads
@@ -102,12 +122,65 @@ vi.mock("@/lib/db", () => {
       return { rows: u ? [u] : [], rowsAffected: 0 };
     }
 
-    // UPDATE users SET talise_username = ? WHERE id = ?
+    // UPDATE users SET talise_username = NULL WHERE id = ? AND talise_username = ?
+    // (rollback of the user-row reservation)
+    if (
+      sql.startsWith(
+        "update users set talise_username = null where id = ? and talise_username = ?"
+      )
+    ) {
+      const id = Number(args[0]);
+      const handle = args[1] as string;
+      const u = usersStore.get(id);
+      if (u && u.talise_username === handle) {
+        u.talise_username = null;
+        return { rows: [], rowsAffected: 1 };
+      }
+      return { rows: [], rowsAffected: 0 };
+    }
+
+    // UPDATE users SET talise_username = ? WHERE id = ? AND talise_username IS NULL RETURNING ...
+    // (conditional reservation — only writes when currently NULL, and the
+    // global unique index rejects a value another user already owns)
+    if (
+      sql.startsWith("update users set talise_username = ? where id = ?") &&
+      sql.includes("talise_username is null")
+    ) {
+      const handle = args[0] as string;
+      const id = Number(args[1]);
+      const u = usersStore.get(id);
+      // Simulate the global unique index — another user already owns it.
+      const conflict = [...usersStore.values()].find(
+        (r) => r.id !== id && r.talise_username === handle
+      );
+      if (conflict) {
+        throw new Error("UNIQUE constraint failed: users.talise_username");
+      }
+      // NULL-guard: only flip when currently NULL.
+      if (!u || u.talise_username !== null) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      u.talise_username = handle;
+      return { rows: [{ id, talise_username: handle }], rowsAffected: 1 };
+    }
+
+    // SELECT talise_username FROM users WHERE id = ? LIMIT 1
+    if (
+      sql.startsWith("select talise_username from users where id = ?")
+    ) {
+      const id = Number(args[0]);
+      const u = usersStore.get(id);
+      return {
+        rows: u ? [{ talise_username: u.talise_username }] : [],
+        rowsAffected: 0,
+      };
+    }
+
+    // UPDATE users SET talise_username = ? WHERE id = ?  (plain, legacy)
     if (sql.startsWith("update users set talise_username = ? where id = ?")) {
       const handle = args[0] as string;
       const id = Number(args[1]);
       const u = usersStore.get(id);
-      // Simulate the partial-unique constraint manually.
       const conflict = [...usersStore.values()].find(
         (r) => r.id !== id && r.talise_username === handle
       );
@@ -293,7 +366,13 @@ describe("normalizeWaitlistHandle", () => {
     expect(normalizeWaitlistHandle("alice")).toEqual({ ok: true, handle: "alice" });
     expect(normalizeWaitlistHandle("AliCe")).toEqual({ ok: true, handle: "alice" });
     expect(normalizeWaitlistHandle("  bob ")).toEqual({ ok: true, handle: "bob" });
-    expect(normalizeWaitlistHandle("a1")).toEqual({ ok: true, handle: "a1" });
+    // MIN_LEN is 3 — two-char labels are reserved, so the shortest
+    // claimable handle is three chars.
+    expect(normalizeWaitlistHandle("a1")).toEqual({
+      ok: false,
+      reason: "too_short",
+    });
+    expect(normalizeWaitlistHandle("ab1")).toEqual({ ok: true, handle: "ab1" });
     expect(normalizeWaitlistHandle("a-b-c")).toEqual({ ok: true, handle: "a-b-c" });
   });
 
@@ -359,7 +438,6 @@ describe("normalizeWaitlistHandle", () => {
       "system",
       "null",
       "undefined",
-      "me",
       "noreply",
     ]) {
       expect(normalizeWaitlistHandle(name)).toMatchObject({
@@ -494,6 +572,135 @@ describe("dup handle race", () => {
     // Store state: only the first email holds the handle.
     expect(waitlistStore.get("first@example.com")?.claimed_handle).toBe("sele");
     expect(waitlistStore.get("second@example.com")?.claimed_handle).toBe(null);
+  });
+});
+
+// ─── 3b. One-name-per-user gate ───────────────────────────────────────────
+
+describe("one-name-per-user gate", () => {
+  it("user with users.talise_username already set → 409 alreadyClaimed, no mint", async () => {
+    const user = seedUser({ id: 50, email: "owner@example.com" });
+    user.talise_username = "owned"; // pre-existing name (prior claim / SuiNS)
+    currentSessionUserId = user.id;
+
+    const { POST: claimPOST } = await import(
+      "@/app/api/waitlist/handle/claim/route"
+    );
+
+    const res = await claimPOST(
+      new Request("http://x/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: "different" }),
+      })
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error?: string;
+      alreadyClaimed?: boolean;
+      handle?: string;
+    };
+    expect(body.alreadyClaimed).toBe(true);
+    expect(body.handle).toBe("owned");
+    expect(body.error).toMatch(/@owned/);
+
+    // No second mint, name unchanged.
+    expect(mintSubnameMock).not.toHaveBeenCalled();
+    expect(usersStore.get(user.id)?.talise_username).toBe("owned");
+  });
+
+  it("user with waitlist_signups.claimed_handle already set → 409 alreadyClaimed, no mint", async () => {
+    const user = seedUser({ id: 51, email: "claimed@example.com" });
+    seedWaitlist("claimed@example.com");
+    // Email-row reservation present but users.talise_username still null
+    // (a legacy claim that never backfilled the user row).
+    waitlistStore.get("claimed@example.com")!.claimed_handle = "legacy";
+    currentSessionUserId = user.id;
+
+    const { POST: claimPOST } = await import(
+      "@/app/api/waitlist/handle/claim/route"
+    );
+
+    const res = await claimPOST(
+      new Request("http://x/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: "newname" }),
+      })
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      alreadyClaimed?: boolean;
+      handle?: string;
+    };
+    expect(body.alreadyClaimed).toBe(true);
+    expect(body.handle).toBe("legacy");
+    expect(mintSubnameMock).not.toHaveBeenCalled();
+  });
+
+  it("fresh claim writes BOTH claimed_handle AND talise_username", async () => {
+    const user = seedUser({ id: 52, email: "fresh@example.com" });
+    seedWaitlist("fresh@example.com");
+    currentSessionUserId = user.id;
+
+    const { POST: claimPOST } = await import(
+      "@/app/api/waitlist/handle/claim/route"
+    );
+
+    const res = await claimPOST(
+      new Request("http://x/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: "freshie" }),
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(mintSubnameMock).toHaveBeenCalledTimes(1);
+    expect(waitlistStore.get("fresh@example.com")?.claimed_handle).toBe(
+      "freshie"
+    );
+    expect(usersStore.get(user.id)?.talise_username).toBe("freshie");
+  });
+});
+
+// ─── 3c. Same-user double claim loses on the NULL-guarded user row ─────────
+
+describe("same-user double claim", () => {
+  it("second claim by the same user after a name lands → 409, no second mint", async () => {
+    const user = seedUser({ id: 60, email: "dbl@example.com" });
+    seedWaitlist("dbl@example.com");
+    currentSessionUserId = user.id;
+
+    const { POST: claimPOST } = await import(
+      "@/app/api/waitlist/handle/claim/route"
+    );
+
+    const first = await claimPOST(
+      new Request("http://x/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: "firstpick" }),
+      })
+    );
+    expect(first.status).toBe(200);
+    expect(mintSubnameMock).toHaveBeenCalledTimes(1);
+
+    // Same user tries again with a different handle. The step-1 guard
+    // (talise_username already set) blocks it; even if it slipped past,
+    // the NULL-guarded user-row UPDATE would return zero rows. Exactly
+    // one mint total.
+    const second = await claimPOST(
+      new Request("http://x/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: "secondpick" }),
+      })
+    );
+    expect(second.status).toBe(409);
+    const body = (await second.json()) as { alreadyClaimed?: boolean };
+    expect(body.alreadyClaimed).toBe(true);
+    expect(mintSubnameMock).toHaveBeenCalledTimes(1); // still just one mint
+    expect(usersStore.get(user.id)?.talise_username).toBe("firstpick");
   });
 });
 

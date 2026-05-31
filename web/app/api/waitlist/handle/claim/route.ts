@@ -23,20 +23,24 @@ export const dynamic = "force-dynamic";
  * picking a handle — the email used by the row is derived from the
  * authenticated session, not from the request body). On claim we:
  *   1. Resolve the user from the session cookie. No session → 401.
- *   2. Confirm `<handle>.talise.sui` is free (DB + on-chain).
- *   3. UPSERT the waitlist row (the user may never have hit the legacy
- *      /api/waitlist endpoint — Google-first flow skips it). The UPSERT
- *      reserves the handle atomically; racers lose at the partial-
- *      unique-index level.
- *   4. Mint on chain via the Onara-sponsored operator PTB.
- *   5. Persist the NFT object id + bind the row to the user. Also
- *      write `users.talise_username` so the reverse-lookup paths
- *      pick it up immediately.
+ *   2. ONE-NAME-PER-USER gate: if EITHER `users.talise_username` (by
+ *      user.id) OR `waitlist_signups.claimed_handle` (by email) is
+ *      already set, the user already owns a name → 409 alreadyClaimed.
+ *   3. Confirm `<handle>.talise.sui` is free (DB + on-chain).
+ *   4. Reserve `waitlist_signups.claimed_handle` (partial-unique index
+ *      + NULL-guarded UPSERT; racers lose here).
+ *   5. Reserve `users.talise_username` (NULL-guarded UPDATE ... RETURNING
+ *      + global unique index; same-user racers and cross-user collisions
+ *      lose here). BOTH reservations must succeed before any mint.
+ *   6. Mint on chain via the Onara-sponsored operator PTB.
+ *   7. Persist the NFT object id + bind the row to the user.
  *
- * If the mint fails after step 3, we ROLL BACK the reservation so
- * the user can retry with the same handle (and the partial-unique
- * index doesn't permanently lock it out for everyone). The rollback
- * is a plain UPDATE — by that point the row is guaranteed to exist.
+ * If anything fails between step 4 and the mint, we ROLL BACK BOTH
+ * reservations (claimed_handle → NULL, talise_username → NULL) so the
+ * user can retry with the same handle and neither index permanently
+ * locks the user (or everyone else) out. Crucially the user-row
+ * reservation happens BEFORE the mint, so a user who already owns a
+ * name can never mint a SECOND subname.
  */
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -116,17 +120,46 @@ export async function POST(req: Request) {
     await ensureSchema();
     const c = db();
 
-    // Already-claimed gate. A missing row is fine in the Google-first
-    // flow — the user may have signed in without ever hitting the
-    // legacy /api/waitlist endpoint. The UPSERT below will INSERT.
-    const row = await c.execute({
+    // ── One-name-per-USER gate (the critical fix) ──────────────────────
+    //
+    // BEFORE any availability check or reservation, block if THIS user
+    // already has a name from EITHER source of truth:
+    //
+    //   • `users.talise_username` keyed by user.id — set by a prior
+    //     claim, the sign-in bind hook, or a pre-existing SuiNS name
+    //     reconciled onto the row out of band.
+    //   • `waitlist_signups.claimed_handle` keyed by email — the legacy
+    //     reservation column.
+    //
+    // Either being non-NULL means the user already owns a handle, so a
+    // second on-chain mint must be impossible. We prefer the canonical
+    // `users.talise_username` value when reporting back.
+    const existingUserRow = await c.execute({
+      sql: "SELECT talise_username FROM users WHERE id = ? LIMIT 1",
+      args: [Number(user.id)],
+    });
+    const existingUsername = existingUserRow.rows[0]?.talise_username as
+      | string
+      | null
+      | undefined;
+
+    const emailRow = await c.execute({
       sql: "SELECT claimed_handle FROM waitlist_signups WHERE email = ? LIMIT 1",
       args: [email],
     });
-    const prior = row.rows[0]?.claimed_handle as string | null | undefined;
-    if (prior) {
+    const prior = emailRow.rows[0]?.claimed_handle as
+      | string
+      | null
+      | undefined;
+
+    const alreadyHandle = existingUsername || prior;
+    if (alreadyHandle) {
       return NextResponse.json(
-        { error: `You already claimed ${prior}@talise.sui.`, prior },
+        {
+          error: `You already have @${alreadyHandle}.`,
+          alreadyClaimed: true,
+          handle: alreadyHandle,
+        },
         { status: 409 }
       );
     }
@@ -206,18 +239,116 @@ export async function POST(req: Request) {
       );
     }
 
-    // On-chain mint. Onara-sponsored — the user pays no gas, the
-    // operator wallet covers it. We do this SYNCHRONOUSLY (within the
-    // request lifecycle) so the response only resolves once the
-    // subname truly exists on chain.
-    if (!suinsOperatorEnabled()) {
-      // Roll back the DB reservation — we cannot honor the claim.
+    // ── User-row reservation (authoritative, BEFORE the mint) ──────────
+    //
+    // Reserve `users.talise_username` with a conditional UPDATE that only
+    // writes when the column is currently NULL, mirroring the
+    // `claimed_handle` UPSERT pattern. `RETURNING id` confirms the write
+    // landed:
+    //   • zero rows  → the user already had a name (a racer set it, or
+    //     the step-1 guard missed a write that landed in between) → 409,
+    //     and we DO NOT mint. We first roll back the `claimed_handle`
+    //     reservation we just took so the handle isn't orphaned.
+    //   • UNIQUE violation → a DIFFERENT user already owns this exact
+    //     `talise_username` (the global unique index fired) → treat as
+    //     "taken", roll back `claimed_handle`, 409.
+    //
+    // Because BOTH the email-row reservation (claimed_handle) AND the
+    // user-row reservation (talise_username) succeed before we ever call
+    // mintSubname, no second mint can slip through: a second concurrent
+    // claim for the same handle loses on the partial-unique
+    // `claimed_handle` index, and a second claim by the SAME user loses
+    // on the NULL-guarded user-row UPDATE.
+    let userReserved = false;
+    try {
+      const ures = await c.execute({
+        sql: `UPDATE users
+                 SET talise_username = ?
+               WHERE id = ?
+                 AND talise_username IS NULL
+               RETURNING id`,
+        args: [norm.handle, Number(user.id)],
+      });
+      userReserved = ures.rows.length > 0;
+    } catch (e) {
+      const msg = String((e as Error).message).toLowerCase();
+      if (msg.includes("unique") || msg.includes("duplicate key")) {
+        // Some other user already owns this exact talise_username.
+        await c
+          .execute({
+            sql: "UPDATE waitlist_signups SET claimed_handle = NULL, handle_claimed_at = NULL WHERE email = ?",
+            args: [email],
+          })
+          .catch(() => null);
+        return NextResponse.json(
+          { error: "That handle is taken.", reason: "taken_db" },
+          { status: 409 }
+        );
+      }
+      // Unexpected DB error — roll back the handle reservation and bail.
       await c
         .execute({
           sql: "UPDATE waitlist_signups SET claimed_handle = NULL, handle_claimed_at = NULL WHERE email = ?",
           args: [email],
         })
         .catch(() => null);
+      throw e;
+    }
+
+    if (!userReserved) {
+      // The NULL guard blocked the write — this user already has a name.
+      // Roll back the handle reservation we just took and surface the
+      // already-claimed contract.
+      await c
+        .execute({
+          sql: "UPDATE waitlist_signups SET claimed_handle = NULL, handle_claimed_at = NULL WHERE email = ?",
+          args: [email],
+        })
+        .catch(() => null);
+      const cur = await c
+        .execute({
+          sql: "SELECT talise_username FROM users WHERE id = ? LIMIT 1",
+          args: [Number(user.id)],
+        })
+        .catch(() => null);
+      const curHandle =
+        (cur?.rows[0]?.talise_username as string | null | undefined) ?? null;
+      return NextResponse.json(
+        {
+          error: curHandle ? `You already have @${curHandle}.` : "You already have a handle.",
+          alreadyClaimed: true,
+          handle: curHandle,
+        },
+        { status: 409 }
+      );
+    }
+
+    // Both reservations now held. Helper to undo BOTH atomically-enough
+    // for the single-writer flows we have — used on every failure path
+    // below so a mid-flight error never leaves the user half-claimed or
+    // permanently locked out.
+    const rollbackBoth = async () => {
+      await c
+        .execute({
+          sql: "UPDATE waitlist_signups SET claimed_handle = NULL, handle_claimed_at = NULL WHERE email = ?",
+          args: [email],
+        })
+        .catch(() => null);
+      await c
+        .execute({
+          sql: "UPDATE users SET talise_username = NULL WHERE id = ? AND talise_username = ?",
+          args: [Number(user.id), norm.handle],
+        })
+        .catch(() => null);
+    };
+
+    // On-chain mint. Onara-sponsored — the user pays no gas, the
+    // operator wallet covers it. We do this SYNCHRONOUSLY (within the
+    // request lifecycle) so the response only resolves once the
+    // subname truly exists on chain.
+    if (!suinsOperatorEnabled()) {
+      // Roll back BOTH reservations — we cannot honor the claim.
+      await rollbackBoth();
       return NextResponse.json(
         {
           error:
@@ -237,7 +368,7 @@ export async function POST(req: Request) {
       mintDigest = out.digest;
       mintNftId = out.subnameNftId;
     } catch (mintErr) {
-      // Roll back the DB reservation so the user (or someone else) can
+      // Roll back BOTH reservations so the user (or someone else) can
       // retry. We log the underlying error but surface a generic 502
       // — the caller cannot do anything useful with the on-chain
       // failure detail.
@@ -245,12 +376,7 @@ export async function POST(req: Request) {
       console.warn(
         `[waitlist/handle/claim] mint failed email=${email} handle=${norm.handle}: ${msg}`
       );
-      await c
-        .execute({
-          sql: "UPDATE waitlist_signups SET claimed_handle = NULL, handle_claimed_at = NULL WHERE email = ?",
-          args: [email],
-        })
-        .catch(() => null);
+      await rollbackBoth();
       return NextResponse.json(
         { error: "On-chain mint failed. Try again." },
         { status: 502 }
@@ -270,20 +396,10 @@ export async function POST(req: Request) {
       args: [mintNftId, String(user.id), Date.now(), email],
     });
 
-    // Write the canonical bare handle on the user row. Swallow a
-    // UNIQUE collision — the user might already own a different
-    // talise_username from an unrelated path; the mint above already
-    // succeeded and is authoritative.
-    try {
-      await c.execute({
-        sql: "UPDATE users SET talise_username = ? WHERE id = ?",
-        args: [norm.handle, Number(user.id)],
-      });
-    } catch (e) {
-      console.warn(
-        `[waitlist/handle/claim] users.talise_username write failed email=${email}: ${(e as Error).message}`
-      );
-    }
+    // NOTE: `users.talise_username` was already reserved (conditional on
+    // NULL, RETURNING-confirmed) BEFORE the mint above. There is nothing
+    // left to write here — the mint can only have happened because that
+    // reservation succeeded, so the user row is already authoritative.
 
     // Confirmation email — runs AFTER the response is returned, via
     // Next.js 15's `after()` hook. The old fire-and-forget pattern

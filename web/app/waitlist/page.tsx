@@ -19,7 +19,7 @@ export const metadata: Metadata = {
  */
 export default function WaitlistPage() {
   return (
-    <main className="flex min-h-svh w-full flex-col overflow-hidden bg-[var(--color-bg)] text-[var(--color-fg)]">
+    <main className="flex min-h-svh w-full flex-col overflow-x-hidden bg-[var(--color-bg)] text-[var(--color-fg)]">
       {/* Same soft green wash as the landing hero, scoped so it
           doesn't fight the form's contrast. */}
       <div
@@ -29,17 +29,17 @@ export default function WaitlistPage() {
 
       {/* Header matches the landing TopBar pattern exactly so the
           two pages feel like one product, not two designs. */}
-      <header className="relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between px-6 py-5 md:px-12 lg:px-16">
+      <header className="relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between gap-3 px-5 py-5 sm:px-6 md:px-12 lg:px-16">
         <Link
           href="/"
-          className="flex items-center gap-2.5 text-[17px] tracking-tight text-[var(--color-fg)]"
+          className="flex shrink-0 items-center gap-2.5 text-[17px] tracking-tight text-[var(--color-fg)]"
         >
           <Diamond />
           <span>talise</span>
         </Link>
         <Link
           href="/"
-          className="inline-flex items-center rounded-full bg-[var(--color-surface-2)] px-5 py-2.5 text-[14px] text-[var(--color-fg)] transition hover:bg-[var(--color-surface)]"
+          className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-[var(--color-surface-2)] px-4 py-2 text-[13px] text-[var(--color-fg)] transition hover:bg-[var(--color-surface)] sm:px-5 sm:py-2.5 sm:text-[14px]"
         >
           Back to home
         </Link>
@@ -50,8 +50,8 @@ export default function WaitlistPage() {
           biases the content above true-center so the headline sits in
           the visually-heavier upper third (true-center reads slightly
           low against a tall viewport — see screenshot 2026-05-29). */}
-      <section className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-6 py-8 text-center -translate-y-8 sm:-translate-y-12">
-        <h1 className="text-[clamp(2rem,4.5vw,2.75rem)] font-medium leading-[1.04] tracking-[-0.025em]">
+      <section className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-10 text-center sm:px-6 sm:py-12 sm:-translate-y-8 lg:-translate-y-12">
+        <h1 className="text-balance break-words text-[30px] font-medium leading-[1.08] tracking-[-0.025em] sm:text-[40px] lg:text-[44px]">
           Get an{" "}
           <span
             className="italic text-[var(--color-accent)]"
@@ -63,20 +63,20 @@ export default function WaitlistPage() {
           that holds dollars.
         </h1>
 
-        <p className="mt-4 max-w-[420px] text-[15px] leading-[1.55] text-white/65">
+        <p className="mt-4 max-w-[420px] text-[14px] leading-[1.55] text-white/65 sm:text-[15px]">
           Hold dollars. Send home in seconds. Earn on idle balance.
         </p>
 
-        <div className="mt-6 w-full max-w-[460px]">
+        <div className="mt-7 w-full max-w-[440px] sm:mt-8">
           <WaitlistForm />
         </div>
       </section>
 
       {/* Minimal footer, matches landing. */}
-      <footer className="mx-auto w-full max-w-[1200px] px-6 py-5 sm:px-10">
+      <footer className="mx-auto w-full max-w-[1200px] px-5 py-5 sm:px-10">
         <div className="flex flex-col items-start gap-3 text-[12px] text-white/45 sm:flex-row sm:items-center sm:justify-between">
           <span>© {new Date().getFullYear()} Talise, Inc. · Built on Sui.</span>
-          <div className="flex items-center gap-5">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <Link href="/litepaper" className="hover:text-white">
               Litepaper
             </Link>
