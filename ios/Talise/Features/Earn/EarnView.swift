@@ -24,6 +24,14 @@ struct EarnView: View {
     /// toggles round-up so the "Saved this month" running tally stays
     /// in sync with the on-chain compound supplies.
     @State private var rewardsSummary: RewardsSummary?
+    /// When true, the one-time Earn opt-in disclosure sheet is presented.
+    /// We gate the FIRST supply behind it so the user explicitly accepts
+    /// that Earn is a separate lending service — not a property of their
+    /// balance, and yield is not guaranteed (master plan §8, §9: GENIUS
+    /// recharacterization risk). Set by `supplyTapped()` when the user
+    /// hasn't yet accepted; cleared on accept (which then runs the supply)
+    /// or dismiss (which does nothing — we NEVER auto-supply).
+    @State private var showEarnDisclosure = false
 
     var body: some View {
         // Invest = the money-management hub. Venues + Supply +
@@ -76,6 +84,23 @@ struct EarnView: View {
                 Task { await load() }
             }
         }
+        // One-time opt-in disclosure gate before the user's FIRST supply.
+        // The user must explicitly accept that Earn is a separate lending
+        // service (not a property of their balance, yield not guaranteed)
+        // before any funds move — we NEVER auto-supply. On accept the
+        // sheet persists acceptance and continues into the supply flow.
+        .sheet(isPresented: $showEarnDisclosure) {
+            EarnDisclosureSheet(
+                apy: comparison?.best?.apy ?? 0,
+                moneyWord: moneyWord,
+                onAccept: {
+                    Self.markEarnDisclosureAccepted()
+                    showEarnDisclosure = false
+                    Task { await supply() }
+                },
+                onCancel: { showEarnDisclosure = false }
+            )
+        }
         // Mount the PIN host at the EarnView root so its sheet
         // presents in this tab's context — supply/withdraw confirm
         // calls flow through here.
@@ -89,15 +114,47 @@ struct EarnView: View {
         // the screen and "Make your money work" + the APY line carry
         // the brand voice.
         VStack(alignment: .leading, spacing: 6) {
-            Text("Make your money work")
+            // Fiat-framed headline — the user earns on *their money*, in
+            // their display currency ("on your naira" / "on your dollars"),
+            // never "supply USDsui to NAVI" (master plan §8: chain stays
+            // invisible; §9 GENIUS: must read as earning on dollars, not a
+            // stablecoin-balance yield feature).
+            if let best = comparison?.best {
+                Text(String(
+                    format: "Earn up to %.2f%% on your %@",
+                    best.apy * 100,
+                    moneyWord
+                ))
                 .font(TaliseFont.heading(24, weight: .medium))
                 .kerning(-1)
                 .foregroundStyle(TaliseColor.fg)
-            if let best = comparison?.best {
-                Text(String(format: "Up to %.2f%% APY", best.apy * 100))
-                    .font(TaliseFont.mono(11, weight: .light))
-                    .foregroundStyle(TaliseColor.accent)
+            } else {
+                Text(String(format: "Earn on your %@", moneyWord))
+                    .font(TaliseFont.heading(24, weight: .medium))
+                    .kerning(-1)
+                    .foregroundStyle(TaliseColor.fg)
             }
+            Text("A separate lending service, not part of your balance")
+                .font(TaliseFont.body(12, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+        }
+    }
+
+    /// Plural "money word" for the user's display currency, used in the
+    /// fiat-framed Earn copy ("Earn up to X% on your naira"). Falls back
+    /// to the generic "money" for any currency we don't have a colloquial
+    /// plural for. Kept local to EarnView so this reframe stays strictly
+    /// additive and doesn't touch CurrencySettings.
+    private var moneyWord: String {
+        switch CurrencySettings.shared.current.code {
+        case "USD", "CAD": return "dollars"
+        case "NGN":        return "naira"
+        case "GHS":        return "cedis"
+        case "KES":        return "shillings"
+        case "ZAR":        return "rand"
+        case "EUR":        return "euros"
+        case "GBP":        return "pounds"
+        default:           return "money"
         }
     }
 
@@ -264,7 +321,7 @@ struct EarnView: View {
                 size: .lg,
                 loading: supplying
             ) {
-                Task { await supply() }
+                supplyTapped()
             }
             .disabled(!canSupply)
         }
@@ -449,6 +506,35 @@ struct EarnView: View {
                  (ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled)) {
                 self.error = error.localizedDescription
             }
+        }
+    }
+
+    // MARK: - Opt-in disclosure gate
+
+    /// UserDefaults key recording that the user has read + accepted the
+    /// Earn opt-in disclosure. Once true we don't show the sheet again.
+    private static let earnDisclosureKey = "io.talise.app.earnDisclosureAcceptedV1"
+
+    /// Whether the user has already accepted the one-time Earn disclosure.
+    static func hasAcceptedEarnDisclosure() -> Bool {
+        UserDefaults.standard.bool(forKey: earnDisclosureKey)
+    }
+
+    /// Persist that the user accepted the Earn disclosure.
+    static func markEarnDisclosureAccepted() {
+        UserDefaults.standard.set(true, forKey: earnDisclosureKey)
+    }
+
+    /// Supply-button entry point. On the user's FIRST supply we present
+    /// the opt-in disclosure sheet (which, on accept, runs `supply()`);
+    /// once accepted we go straight to `supply()`. We NEVER auto-supply —
+    /// the user always taps through this path explicitly.
+    private func supplyTapped() {
+        guard canSupply else { return }
+        if Self.hasAcceptedEarnDisclosure() {
+            Task { await supply() }
+        } else {
+            showEarnDisclosure = true
         }
     }
 
@@ -944,5 +1030,140 @@ private struct WithdrawSheet: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+}
+
+// MARK: - Earn opt-in disclosure
+
+/// One-time disclosure presented before the user's FIRST supply. Its job
+/// is regulatory + framing hygiene (master plan §8, §9 — GENIUS yield-ban
+/// recharacterization risk): make it unmistakable that Earn is a SEPARATE,
+/// opt-in lending service routed through a third-party DeFi protocol, NOT
+/// a property of the Talise balance, and that yield is variable and not
+/// guaranteed. The user must tap "I understand — continue" to proceed; the
+/// supply only runs after that explicit acceptance. Dismissing without
+/// accepting does nothing — Talise NEVER auto-supplies funds.
+private struct EarnDisclosureSheet: View {
+    /// Best venue APY (fraction, e.g. 0.04) used only to make the headline
+    /// concrete ("around 4.00%") — copy stays honest about variability.
+    let apy: Double
+    /// Plural money word for the user's display currency ("naira", "dollars").
+    let moneyWord: String
+    let onAccept: () -> Void
+    let onCancel: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    header
+                    pointsCard
+                    Text("By continuing you’re choosing to use this optional service. You can withdraw your money at any time. This is not financial advice.")
+                        .font(TaliseFont.body(12, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                    Spacer(minLength: 8)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 26)
+            }
+            actionBar
+        }
+        .liquidGlassSheet(accent: TaliseColor.accent)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            MicroLabel(text: "Before you start", color: TaliseColor.fgDim).kerning(1.5)
+            Text(apy > 0
+                 ? String(format: "Earn around %.2f%% on your %@", apy * 100, moneyWord)
+                 : "Earn on your \(moneyWord)")
+                .font(TaliseFont.heading(24, weight: .medium))
+                .kerning(-1)
+                .foregroundStyle(TaliseColor.fg)
+            Text("A few things to know first.")
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+        }
+    }
+
+    /// The three load-bearing disclosure points. Order is deliberate:
+    /// (1) it's a separate service, (2) not part of your balance,
+    /// (3) returns aren't guaranteed.
+    private var pointsCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            point(
+                icon: "building.columns",
+                title: "A separate lending service",
+                body: "Earn is optional and runs through a third-party lending protocol. It’s not a banking or savings product offered by Talise."
+            )
+            divider
+            point(
+                icon: "wallet.pass",
+                title: "Not part of your balance",
+                body: "Money you put into Earn is moved into the lending service, separate from your spendable balance. You choose what to add — nothing moves automatically."
+            )
+            divider
+            point(
+                icon: "chart.line.uptrend.xyaxis",
+                title: "Returns aren’t guaranteed",
+                body: "Rates vary and can change. Earnings are not guaranteed, and your money is not insured or protected against loss."
+            )
+        }
+        .padding(.vertical, 6)
+        .taliseGlass(cornerRadius: 20)
+    }
+
+    private func point(icon: String, title: String, body: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(TaliseColor.accent)
+                .frame(width: 22, alignment: .center)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(TaliseFont.heading(15, weight: .medium))
+                    .kerning(-0.3)
+                    .foregroundStyle(TaliseColor.fg)
+                Text(body)
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+    }
+
+    private var divider: some View {
+        LiquidGlassDivider(inset: 18)
+    }
+
+    private var actionBar: some View {
+        VStack(spacing: 10) {
+            LiquidGlassButton(
+                title: "I understand — continue",
+                tint: TaliseColor.accent,
+                size: .lg
+            ) {
+                onAccept()
+            }
+            LiquidGlassButton(
+                title: "Not now",
+                tint: nil,
+                size: .md
+            ) {
+                onCancel()
+                dismiss()
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+        .padding(.bottom, 32)
     }
 }
