@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
+import { checkSendAllowed, recordSend } from "@/lib/send-limits";
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { sui, network, COIN_TYPES, USDSUI_DECIMALS } from "@/lib/sui";
@@ -215,6 +216,39 @@ export async function POST(req: Request) {
     );
   }
 
+  // ── Hard transaction-limit gate (master plan §7, §11 item 2) ────
+  // BEFORE any PTB-building work, reject sends that would breach the
+  // user's tier-based rolling daily/monthly cap. This closes the
+  // documented compliance gap (the send path enforced no API-layer
+  // limit). USDsui is 1:1 USD, so `amountNum` IS the USD figure; SUI
+  // sends are not USD-denominated and are left to a later corridor
+  // pass (the cap engine is fiat-USD today), so only USDsui is gated.
+  //
+  // `checkSendAllowed` is fail-open by contract — a limits-infra fault
+  // (missing kyc_tier column, ledger table absent, DB hiccup) resolves
+  // to `allowed: true`, never a 500. The reservation model records the
+  // intended amount at prepare-time (below, on success), which is the
+  // conservative direction for a compliance guard.
+  if (asset === "USDsui") {
+    const decision = await checkSendAllowed(userId, amountNum);
+    if (!decision.allowed) {
+      console.warn(
+        `[send/sponsor-prepare] LIMIT_EXCEEDED user=${userId} tier=${decision.tier} ` +
+          `window=${decision.window} amount=${amountNum} used=${decision.used} limit=${decision.limit}`
+      );
+      return NextResponse.json(
+        {
+          error: `This send would exceed your ${decision.window} limit of $${decision.limit.toLocaleString()}. You've sent $${decision.used.toLocaleString()} in this window.`,
+          code: "LIMIT_EXCEEDED",
+          window: decision.window,
+          limit: decision.limit,
+          used: decision.used,
+        },
+        { status: 403 }
+      );
+    }
+  }
+
   // ── USDsui ALWAYS takes the gasless rail ────────────────────────
   // Product directive (2026-05-29): every plain USDsui send must be
   // gasless, regardless of Spend-and-Save state. The roundup NAVI
@@ -385,6 +419,13 @@ export async function POST(req: Request) {
         atMs: Date.now(),
         extras: { mode: "gasless", deferredRoundup: deferredRoundupUsd > 0 },
       });
+
+      // Reserve this send against the rolling limit window. Fire-and-
+      // forget + best-effort (recordSend never throws) so a ledger
+      // write never gates the response. Recorded at prepare-time
+      // (reservation model) since the gasless rail broadcasts from iOS
+      // and has no server-side post-confirm hook here.
+      void recordSend({ userId, amountUsd: amountNum, asset, digest: null });
 
       return NextResponse.json({
         bytes: toBase64(bytes),
@@ -739,6 +780,13 @@ export async function POST(req: Request) {
         hasRoundup: roundupUsd > 0,
       },
     });
+
+    // Reserve against the rolling limit window (USDsui only — the cap
+    // engine is fiat-USD today). Mirrors the gasless branch above:
+    // best-effort, never gates the response.
+    if (asset === "USDsui") {
+      void recordSend({ userId, amountUsd: amountNum, asset, digest: null });
+    }
 
     return NextResponse.json({
       bytes: toBase64(bytes),
