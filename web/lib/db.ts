@@ -57,6 +57,17 @@ import postgres, { type Sql } from "postgres";
  *   paga_offramps       Paga USDsui → NGN bank payout state machine.
  *                       Primary writer: web/app/api/offramp/paga/*.
  *
+ *   kyc_upgrade_intents Append-only log of tier-upgrade requests + the
+ *                       (mock) eKYC verdict. Never mutates users.kyc_tier.
+ *                       Primary writer: web/app/api/kyc/route.ts.
+ *                       Tier model: web/lib/kyc.ts; eKYC: web/lib/ekyc.ts.
+ *
+ *   transfers           Corridor-agnostic transfers state machine
+ *                       (quoted → debited → onchain_settling →
+ *                       onchain_settled → fiat_out_pending → settled,
+ *                       + failed/refunded). Generalizes paga_offramps for
+ *                       all corridors. Primary writer: web/lib/transfers.ts.
+ *
  *   float_pools         Per-corridor, per-currency, per-leg treasury
  *                       float inventory (fiat_in / fiat_out / usdc) with
  *                       a `segregated` safeguarding flag and reconcile
@@ -344,6 +355,13 @@ async function doEnsureSchema(): Promise<void> {
     // wallet address to the vault id.
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_id TEXT`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_subname_repointed INTEGER DEFAULT 0`,
+    // KYC tier (master plan §7 compliance). 0 = email-only receive (the
+    // implicit default for every existing + new row); 1..3 unlock higher
+    // send/corridor limits as the user clears progressively stronger
+    // identity checks. The tier model + limit table live in lib/kyc.ts;
+    // getUserTier() reads this column and treats NULL as 0. Default 0 so
+    // fresh inserts (which don't set it) land at the floor tier.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_tier INTEGER DEFAULT 0`,
     // Indexes on hot read paths. UNIQUE constraints above already cover
     // google_sub / sui_address / business_handle / talise_username
     // lookups; these add coverage for the non-unique reads.
@@ -517,6 +535,45 @@ async function doEnsureSchema(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_paga_offramps_user ON paga_offramps(user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_paga_offramps_status ON paga_offramps(status, created_at DESC)`,
 
+    // ─── transfers (corridor-agnostic state machine) ─────────────────
+    // One row per cross-border / on-ramp / off-ramp / internal transfer.
+    // Generalizes paga_offramps: a TTL-locked quote that walks
+    //   quoted → debited → onchain_settling → onchain_settled →
+    //   fiat_out_pending → settled  (+ failed/refunded)
+    // with the on-chain leg as the commit point. A post-commit fiat-out
+    // failure sets `parked_funds=TRUE` (funds parked, never lost) so a
+    // compensating action can reconcile later. See web/lib/transfers.ts;
+    // the legacy Paga rows in paga_offramps are untouched (PAGA_STATE_MAP
+    // documents the projection). `metadata` is a JSON blob of per-corridor
+    // coordinates (bank, handle, memo).
+    `CREATE TABLE IF NOT EXISTS transfers (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      state TEXT NOT NULL,
+      source_currency TEXT NOT NULL,
+      dest_currency TEXT NOT NULL,
+      usdsui_amount NUMERIC NOT NULL,
+      source_amount NUMERIC NOT NULL,
+      dest_amount NUMERIC NOT NULL,
+      fx_rate NUMERIC NOT NULL,
+      onchain_digest TEXT,
+      provider_reference TEXT,
+      state_reason TEXT,
+      parked_funds BOOLEAN NOT NULL DEFAULT FALSE,
+      metadata TEXT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      debited_at BIGINT,
+      onchain_settled_at BIGINT,
+      settled_at BIGINT,
+      failed_at BIGINT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_transfers_user ON transfers(user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_transfers_state ON transfers(state, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_transfers_parked ON transfers(parked_funds, created_at DESC) WHERE parked_funds = TRUE`,
+
     // ─── roundup_queue (deferred spend-and-save) ─────────────────────
     // When a USDsui send takes the gasless rail (the only USDsui rail
     // now — see sponsor-prepare/route.ts), the round-up NAVI supply
@@ -591,6 +648,28 @@ async function doEnsureSchema(): Promise<void> {
     // reconciliation recency.
     `CREATE INDEX IF NOT EXISTS idx_float_pools_reconciled
        ON float_pools (reconciled_at)`,
+
+    // ─── kyc_upgrade_intents (compliance §7 tier engine) ─────────────
+    // Append-only log of "user asked to move up to tier N" events. One
+    // row per POST /api/kyc. `ekyc_ref` is the opaque reference the
+    // (mock) eKYC provider hands back; `ekyc_status` is the provider's
+    // verdict at intent time (pending|approved|rejected). Recording an
+    // intent NEVER mutates users.kyc_tier — promotion is a separate,
+    // reviewed write (lib/kyc.ts setUserTier), so a self-service POST
+    // can't grant itself a higher limit. The tier model lives in
+    // lib/kyc.ts; the eKYC adapter in lib/ekyc.ts.
+    `CREATE TABLE IF NOT EXISTS kyc_upgrade_intents (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      from_tier INTEGER NOT NULL,
+      requested_tier INTEGER NOT NULL,
+      ekyc_provider TEXT,
+      ekyc_ref TEXT,
+      ekyc_status TEXT,
+      created_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_kyc_intents_user
+       ON kyc_upgrade_intents(user_id, created_at DESC)`,
   ];
 
   for (const stmt of stmts) {
@@ -699,6 +778,7 @@ export type User = {
   lifetime_saved_usd?: number | null;
   talise_vault_id?: string | null;
   talise_vault_subname_repointed?: number | null;
+  kyc_tier?: number | null;
 };
 
 /**
