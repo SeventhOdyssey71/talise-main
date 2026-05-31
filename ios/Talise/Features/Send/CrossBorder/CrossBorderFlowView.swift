@@ -169,10 +169,14 @@ struct CrossBorderFlowView: View {
             let result = try await CrossBorderAPI.confirm(transferId: quote.transferId)
             draft.confirmResult = result
 
-            // The contract guarantees confirm only returns 200 once the
-            // chain leg is final (onchain_settled+) — but defend against a
-            // regression that returns a pre-settle / failed state with 200.
-            guard result.isChainFinal else {
+            // Success = the transfer was COMMITTED (funds debited, on-chain
+            // leg in flight or done). The live NG corridor returns
+            // `onchain_settling` here — finality + the local payout land via
+            // the server's broadcast-confirm hook — so gating on `isChainFinal`
+            // wrongly flagged a good NG confirm as failed. A 4xx lands in the
+            // `catch` below; only a non-committed 200 (e.g. failed/refunded)
+            // falls through to the failure screen.
+            guard result.isCommitted else {
                 draft.error = .other("The transfer didn't complete. No funds moved.")
                 path = [.amount, .review, .failure]
                 return

@@ -156,6 +156,26 @@ struct CrossBorderConfirmDTO: Codable, Equatable {
     let state: String
     let transferId: String
 
+    /// True once the confirm has COMMITTED the transfer: the user's funds are
+    /// debited and the on-chain settlement leg is in flight or done. This —
+    /// not `isChainFinal` — is the success criterion for the review screen.
+    ///
+    /// The LIVE NG corridor returns `onchain_settling` from confirm (on-chain
+    /// finality + the Paga payout land later via the broadcast-confirm hook,
+    /// per the server's commit-point semantics), so treating only
+    /// `onchain_settled+` as success made a perfectly good NG confirm render
+    /// as "Transfer didn't go through." Anything from `onchain_settling`
+    /// onward is a successful submission; a 4xx (caller's catch) or an
+    /// explicit `failed`/`refunded` is the only real failure.
+    var isCommitted: Bool {
+        switch state {
+        case "onchain_settling", "onchain_settled", "fiat_out_pending", "settled":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// True when the on-chain leg is final (chain-irreversible),
     /// regardless of whether the local fiat payout has landed yet.
     /// Anything at/after `onchain_settled` qualifies.
