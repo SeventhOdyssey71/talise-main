@@ -1,35 +1,60 @@
 import SwiftUI
 
-/// Pre-auth coordinator: drives the user from launch splash through the
-/// brand intro carousel, Google sign-in, KYC-tier picker, and a brief
-/// completion screen. After Free-tier is picked (or the user signs in
-/// with an existing account that already has a tier locally), control
-/// is handed back to `AppSession` which will then route to either the
-/// existing `KYCView` (country + account-type — that's Plan 11 territory)
-/// or to `MainTabView`.
+/// Pre-auth coordinator. State machine drives the post-launch flow:
 ///
-/// State machine is a plain enum + a single `@State step` so the file
-/// reads top-to-bottom. Transitions use SwiftUI's built-in transition
-/// modifiers — `.opacity` for the splash hand-off, `.slide` for the rest
-/// of the flow.
-enum OnboardingStep: Hashable {
+///     splash → welcome → signIn → handlePicker → pinSetup → permissions → done
+///
+/// (The legacy `intro1/2/3` and `kycTier` cases are kept as source files
+/// on disk in case we revive them, but they are no longer routed here.)
+///
+/// Persistence: every transition writes the current step to UserDefaults
+/// under `talise.onboarding.currentStep`. On launch, if `session.phase`
+/// is `.onboarding(...)` AND a saved step exists, we jump straight to
+/// it so the user resumes where they left off. The key is cleared on
+/// `done`.
+///
+/// Progress bar mount: each new screen (`HandlePickerScreen`,
+/// `PinSetupScreen`, `PermissionsScreen`) renders its own
+/// `OnboardingProgressBar` so it can sit naturally above the title.
+/// Sign-in is conceptually step 1 — `SignInScreen` does not currently
+/// show the bar; we surface its "step 1" affordance here via an overlay
+/// when `step == .signIn`. Two-pattern hybrid (per-screen for new
+/// screens, overlay for the existing SignInScreen) was the lowest-risk
+/// option since we deliberately left SignInScreen untouched.
+enum OnboardingStep: String, Hashable {
     case splash
     case welcome
     case intro1
     case intro2
     case intro3
     case signIn
-    case kycTier
+    case kycTier      // legacy — not in active flow
+    case handlePicker
+    case pinSetup
+    case permissions
     case done
 }
 
 struct OnboardingRoot: View {
     @Environment(AppSession.self) private var session
-    @State private var step: OnboardingStep = .splash
-    /// Carried from the SignIn screen into the KYC-tier picker so we can
-    /// finalize the session phase only after the user has chosen a tier
-    /// (or skipped past the upgrade prompts).
+    @State private var step: OnboardingStep
     @State private var signedInUser: UserDTO?
+
+    private static let stepKey = "talise.onboarding.currentStep"
+
+    init() {
+        // Debug-only preview launch arg: -taliseOnboardingPreview <step>
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-taliseOnboardingPreview"),
+           i + 1 < args.count,
+           let preview = OnboardingStep(rawValue: args[i + 1]) {
+            _step = State(initialValue: preview)
+            return
+        }
+        #endif
+        _step = State(initialValue: .splash)
+    }
 
     var body: some View {
         ZStack {
@@ -42,11 +67,16 @@ struct OnboardingRoot: View {
                         .transition(.opacity)
                 case .welcome:
                     WelcomeView(
-                        onContinue: { advance(to: .intro1) },
+                        onContinue: { advance(to: .signIn) },
                         onSignIn: { advance(to: .signIn) }
                     )
                     .transition(.opacity)
                 case .intro1, .intro2, .intro3:
+                    // Legacy carousel — not routed in the new flow but
+                    // left in place so we can re-enable it without a
+                    // refactor. Treat any landing here as a jump to
+                    // signIn (defensive in case a stale persisted step
+                    // arrives from an old build).
                     BrandIntroCarousel(
                         selection: Binding(
                             get: { step },
@@ -56,13 +86,32 @@ struct OnboardingRoot: View {
                     )
                     .transition(.slide)
                 case .signIn:
-                    SignInScreen(onSignedIn: { user in
-                        signedInUser = user
-                        advance(to: .kycTier)
-                    })
+                    ZStack(alignment: .top) {
+                        SignInScreen(onSignedIn: { user in
+                            signedInUser = user
+                            advance(to: .handlePicker)
+                        })
+                        OnboardingProgressBar(totalSteps: 4, currentStep: 1)
+                            .allowsHitTesting(false)
+                    }
                     .transition(.slide)
                 case .kycTier:
-                    KycTierPicker(onFreeChosen: { handleTierSelected() })
+                    // Legacy — defensive jump to the new flow if hit.
+                    KycTierPicker(onFreeChosen: { advance(to: .handlePicker) })
+                        .transition(.slide)
+                case .handlePicker:
+                    HandlePickerScreen(onContinue: { _ in
+                        advance(to: .pinSetup)
+                    })
+                    .transition(.slide)
+                case .pinSetup:
+                    PinSetupScreen(
+                        userId: pinUserId,
+                        onContinue: { advance(to: .permissions) }
+                    )
+                    .transition(.slide)
+                case .permissions:
+                    PermissionsScreen(onContinue: { handleFlowComplete() })
                         .transition(.slide)
                 case .done:
                     OnboardingCompletedView(onDismiss: { finish() })
@@ -71,17 +120,50 @@ struct OnboardingRoot: View {
             }
             .animation(.easeInOut(duration: 0.32), value: step)
         }
+        .onAppear { resumeIfNeeded() }
     }
+
+    // MARK: - Transitions
 
     private func advance(to next: OnboardingStep) {
         withAnimation(.easeInOut(duration: 0.32)) {
             step = next
         }
+        persist(step: next)
     }
 
-    private func handleTierSelected() {
-        // Persist the chosen tier locally — Plan 11 will wire this to the
-        // backend `/api/kyc` once Sumsub lands.
+    private func persist(step: OnboardingStep) {
+        switch step {
+        case .done, .splash:
+            UserDefaults.standard.removeObject(forKey: Self.stepKey)
+        default:
+            UserDefaults.standard.set(step.rawValue, forKey: Self.stepKey)
+        }
+    }
+
+    /// On first appear, resume mid-flow if the user backgrounded the
+    /// app during onboarding. We only resume when AppSession says
+    /// we're still in the onboarding phase — otherwise we run the
+    /// normal splash → welcome opening.
+    private func resumeIfNeeded() {
+        guard case .onboarding = session.phase else { return }
+        guard let raw = UserDefaults.standard.string(forKey: Self.stepKey),
+              let saved = OnboardingStep(rawValue: raw) else { return }
+        // Never resume into splash/welcome (start clean).
+        switch saved {
+        case .handlePicker, .pinSetup, .permissions, .done:
+            step = saved
+        default:
+            break
+        }
+    }
+
+    // MARK: - Completion
+
+    private func handleFlowComplete() {
+        // Mirror the legacy kyc-tier behaviour: stamp a free tier
+        // locally and post the completion notification so the rest of
+        // the app can react.
         UserDefaults.standard.set("free", forKey: "talise.kyc_tier")
         NotificationCenter.default.post(
             name: Notification.Name("io.talise.onboardingCompleted"),
@@ -91,14 +173,19 @@ struct OnboardingRoot: View {
     }
 
     private func finish() {
-        // Hand control back to AppSession. If signIn populated the user,
-        // route via handleSignedIn (preserves the existing AppSession
-        // onboarding → ready transition for country + account-type).
-        // Otherwise — defensive fallback — kick a bootstrap.
+        UserDefaults.standard.removeObject(forKey: Self.stepKey)
         if let user = signedInUser {
             session.handleSignedIn(user: user)
         } else {
             Task { await session.bootstrap() }
         }
+    }
+
+    // MARK: - Helpers
+
+    /// The id PinService keys against. Prefer the signed-in user; fall
+    /// back to whatever AppSession holds (rare — defensive).
+    private var pinUserId: String {
+        signedInUser?.id ?? session.currentUser?.id ?? ""
     }
 }
