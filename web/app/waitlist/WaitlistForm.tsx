@@ -55,13 +55,13 @@ function ClaimedCard({
 }) {
   return (
     <div
-      className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/[0.06] px-5 py-6 text-center sm:px-7 sm:py-7"
+      className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-6 text-center shadow-[0_20px_44px_-18px_rgba(35,78,20,0.20)] sm:px-7 sm:py-7"
       role="status"
       aria-live="polite"
     >
       <span
         aria-hidden
-        className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
+        className="grid h-11 w-11 place-items-center rounded-full bg-[color-mix(in_srgb,var(--color-accent-deep)_14%,#ffffff)] text-[var(--color-accent-deep)]"
       >
         <svg
           width="22"
@@ -77,17 +77,17 @@ function ClaimedCard({
         </svg>
       </span>
 
-      <div className="text-[15px] font-medium text-white sm:text-[16px]">
+      <div className="text-[15px] font-medium text-[var(--color-fg)] sm:text-[16px]">
         <span className="break-all">{handle}@talise.sui</span> is yours.
       </div>
 
-      <p className="max-w-[300px] text-[12px] leading-[1.55] text-white/55 sm:text-[13px]">
+      <p className="max-w-[300px] text-[12px] leading-[1.55] text-[var(--color-fg-muted)] sm:text-[13px]">
         You&apos;re on the list. We&apos;ll email you when it&apos;s your turn.
         {email ? (
           <>
             {" "}
             Open Talise with{" "}
-            <span className="break-all text-white/75">{email}</span> to use it.
+            <span className="break-all text-[var(--color-fg)]">{email}</span> to use it.
           </>
         ) : null}
       </p>
@@ -97,7 +97,7 @@ function ClaimedCard({
           href={explorerUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[11px] text-white/45 underline-offset-2 hover:text-white/70 hover:underline"
+          className="text-[11px] text-[var(--color-fg-dim)] underline-offset-2 hover:text-[var(--color-fg)] hover:underline"
         >
           View on chain
         </a>
@@ -209,15 +209,15 @@ export function WaitlistForm() {
   if (phase === "checking") {
     return (
       <div
-        className="flex items-center justify-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-6 text-center sm:px-6"
+        className="flex items-center justify-center gap-2.5 rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-6 text-center sm:px-6"
         role="status"
         aria-live="polite"
       >
         <span
           aria-hidden
-          className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/70"
+          className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--color-line)] border-t-[var(--color-accent-deep)]"
         />
-        <span className="text-[12px] text-white/55">Checking your account…</span>
+        <span className="text-[12px] text-[var(--color-fg-muted)]">Checking your account…</span>
       </div>
     );
   }
@@ -235,10 +235,10 @@ export function WaitlistForm() {
   return (
     <div className="flex flex-col gap-3">
       <div className="px-1 text-center">
-        <div className="text-[15px] font-medium text-white">
+        <div className="text-[15px] font-medium text-[var(--color-fg)]">
           Sign in to claim your handle.
         </div>
-        <div className="mt-1 text-[12px] leading-[1.55] text-white/55">
+        <div className="mt-1 text-[12px] leading-[1.55] text-[var(--color-fg-muted)]">
           Talise creates a Sui wallet from your Google account. Your
           handle mints to that wallet the moment you click Claim.
         </div>
@@ -246,7 +246,7 @@ export function WaitlistForm() {
 
       {phase === "signedOutCancel" && (
         <div
-          className="px-4 text-center text-[12px] text-white/55"
+          className="px-4 text-center text-[12px] text-[var(--color-fg-muted)]"
           role="status"
           aria-live="polite"
         >
@@ -258,13 +258,13 @@ export function WaitlistForm() {
         type="button"
         onClick={onSignIn}
         disabled={signInPending}
-        className="inline-flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-full bg-white px-5 py-3 text-[14px] font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+        className="inline-flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-3 text-[14px] font-medium text-[var(--color-fg)] shadow-[0_2px_10px_rgba(35,78,20,0.12)] transition hover:border-[var(--color-accent-deep)] hover:shadow-[0_4px_16px_rgba(35,78,20,0.16)] disabled:opacity-50"
       >
         {signInPending ? (
           <>
             <span
               aria-hidden
-              className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-black/25 border-t-black/70"
+              className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--color-line)] border-t-[var(--color-accent-deep)]"
             />
             Opening Google…
           </>
@@ -274,7 +274,7 @@ export function WaitlistForm() {
       </button>
 
       {signInError && (
-        <div className="px-4 text-center text-[12px] text-[#F0A99E]" role="alert">
+        <div className="px-4 text-center text-[12px] text-[#b42318]" role="alert">
           {signInError}
         </div>
       )}
@@ -448,26 +448,26 @@ function HandleClaim({ session }: { session: Session }) {
         .waitlist-form input:-webkit-autofill:hover,
         .waitlist-form input:-webkit-autofill:focus,
         .waitlist-form input:-webkit-autofill:active {
-          -webkit-text-fill-color: #ffffff;
+          -webkit-text-fill-color: #15300c;
           -webkit-box-shadow: 0 0 0 1000px transparent inset;
           transition: background-color 9999s ease-in-out 0s;
-          caret-color: #ffffff;
+          caret-color: #15300c;
           background-clip: content-box !important;
         }
       `}</style>
 
       <div className="px-1 text-center">
-        <div className="text-[15px] font-medium text-white">
+        <div className="text-[15px] font-medium text-[var(--color-fg)]">
           Now claim your @handle.
         </div>
-        <div className="mt-1 text-[12px] text-white/55">
+        <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
           Mints on chain to your wallet the moment you click Claim.
         </div>
       </div>
 
-      <div className="waitlist-form flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] p-1.5 transition-colors focus-within:border-white/40">
+      <div className="waitlist-form flex items-center gap-2 rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] p-1.5 transition-colors focus-within:border-[var(--color-accent-deep)]">
         <div className="flex min-w-0 flex-1 items-center pl-3 pr-1 sm:pl-4">
-          <span className="select-none text-[15px] text-white/55">@</span>
+          <span className="select-none text-[15px] text-[var(--color-fg-muted)]">@</span>
           <input
             id="waitlist-handle"
             name="handle"
@@ -484,7 +484,7 @@ function HandleClaim({ session }: { session: Session }) {
               setHandle(next);
               if (claim === "error") setClaim("idle");
             }}
-            className="min-w-0 flex-1 bg-transparent px-2 py-1 text-[15px] text-white placeholder:text-white/40 focus:outline-none"
+            className="min-w-0 flex-1 bg-transparent px-2 py-1 text-[15px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-dim)] focus:outline-none"
             disabled={claim === "claiming"}
             aria-describedby="handle-hint"
             maxLength={32}
@@ -494,13 +494,13 @@ function HandleClaim({ session }: { session: Session }) {
           type="button"
           onClick={onClaim}
           disabled={!ctaEnabled}
-          className="inline-flex flex-none items-center justify-center gap-2 whitespace-nowrap rounded-full bg-white px-4 py-2.5 text-[14px] font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-50 sm:px-5"
+          className="inline-flex flex-none items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[var(--color-accent-deep)] px-4 py-2.5 text-[14px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] disabled:opacity-50 sm:px-5"
         >
           {claim === "claiming" ? (
             <>
               <span
                 aria-hidden
-                className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-black/25 border-t-black/70"
+                className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white"
               />
               <span className="hidden sm:inline">Claiming…</span>
             </>
@@ -512,31 +512,31 @@ function HandleClaim({ session }: { session: Session }) {
 
       <div id="handle-hint" className="px-4 text-[12px]" aria-live="polite">
         {avail.kind === "idle" && (
-          <span className="text-white/45">
+          <span className="text-[var(--color-fg-dim)]">
             Letters, numbers, hyphens. 3-32 chars.
           </span>
         )}
         {avail.kind === "checking" && (
-          <span className="text-white/55">Checking…</span>
+          <span className="text-[var(--color-fg-muted)]">Checking…</span>
         )}
         {avail.kind === "available" && (
-          <span className="text-[#86E1B1]">
+          <span className="text-[var(--color-accent-deep)]">
             {avail.handle}@talise.sui is available.
           </span>
         )}
         {avail.kind === "taken" && (
-          <span className="text-[#F0A99E]">Taken. Try another.</span>
+          <span className="text-[#b42318]">Taken. Try another.</span>
         )}
         {avail.kind === "invalid" && (
-          <span className="text-white/55">{avail.message}</span>
+          <span className="text-[var(--color-fg-muted)]">{avail.message}</span>
         )}
         {avail.kind === "error" && (
-          <span className="text-[#F0A99E]">{avail.message}</span>
+          <span className="text-[#b42318]">{avail.message}</span>
         )}
       </div>
 
       {claim === "error" && claimError && (
-        <div className="px-4 text-[12px] text-[#F0A99E]" role="alert">
+        <div className="px-4 text-[12px] text-[#b42318]" role="alert">
           {claimError}
         </div>
       )}

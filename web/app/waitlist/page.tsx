@@ -19,13 +19,9 @@ export const metadata: Metadata = {
  */
 export default function WaitlistPage() {
   return (
-    <main className="flex min-h-svh w-full flex-col overflow-x-hidden bg-[var(--color-bg)] text-[var(--color-fg)]">
-      {/* Same soft green wash as the landing hero, scoped so it
-          doesn't fight the form's contrast. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[60vh] bg-gradient-to-b from-[var(--color-accent)]/[0.08] to-transparent blur-3xl"
-      />
+    <main className="landing-mint relative flex min-h-svh w-full flex-col overflow-x-hidden text-[var(--color-fg)]">
+      {/* Premium mint horizon bloom — same language as the landing hero. */}
+      <div aria-hidden className="talise-top-glow" />
 
       {/* Header matches the landing TopBar pattern exactly so the
           two pages feel like one product, not two designs. */}
@@ -39,7 +35,7 @@ export default function WaitlistPage() {
         </Link>
         <Link
           href="/"
-          className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-[var(--color-surface-2)] px-4 py-2 text-[13px] text-[var(--color-fg)] transition hover:bg-[var(--color-surface)] sm:px-5 sm:py-2.5 sm:text-[14px]"
+          className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-2 text-[13px] font-medium text-[var(--color-fg)] shadow-[0_1px_3px_rgba(35,78,20,0.08)] transition hover:border-[var(--color-accent-deep)] hover:text-[var(--color-accent-deep)] hover:shadow-[0_3px_10px_rgba(35,78,20,0.14)] sm:px-5 sm:py-2.5 sm:text-[14px]"
         >
           Back to home
         </Link>
@@ -63,7 +59,7 @@ export default function WaitlistPage() {
           that holds dollars.
         </h1>
 
-        <p className="mt-4 max-w-[420px] text-[14px] leading-[1.55] text-white/65 sm:text-[15px]">
+        <p className="mt-4 max-w-[420px] text-[14px] leading-[1.55] text-[var(--color-fg-muted)] sm:text-[15px]">
           Hold dollars. Send home in seconds. Earn on idle balance.
         </p>
 
@@ -74,17 +70,17 @@ export default function WaitlistPage() {
 
       {/* Minimal footer, matches landing. */}
       <footer className="mx-auto w-full max-w-[1200px] px-5 py-5 sm:px-10">
-        <div className="flex flex-col items-start gap-3 text-[12px] text-white/45 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col items-start gap-3 text-[12px] text-[var(--color-fg-dim)] sm:flex-row sm:items-center sm:justify-between">
           <span>© {new Date().getFullYear()} Talise, Inc. · Built on Sui.</span>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <Link href="/litepaper" className="hover:text-white">
+            <Link href="/litepaper" className="hover:text-[var(--color-fg)]">
               Litepaper
             </Link>
             <a
               href="https://x.com/talisemoney"
               target="_blank"
               rel="noreferrer noopener"
-              className="hover:text-white"
+              className="hover:text-[var(--color-fg)]"
             >
               X / Twitter
             </a>
@@ -92,7 +88,7 @@ export default function WaitlistPage() {
               href="https://sui.io"
               target="_blank"
               rel="noreferrer noopener"
-              className="hover:text-white"
+              className="hover:text-[var(--color-fg)]"
             >
               Sui
             </a>

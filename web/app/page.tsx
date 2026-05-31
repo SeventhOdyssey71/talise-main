@@ -190,8 +190,8 @@ function PhoneCollage() {
         <Image
           src="/talise-app-collage.png"
           alt="Talise iOS app: reviewing a cross-border send, an auto-save, and a completed transfer"
-          width={2202}
-          height={1172}
+          width={6606}
+          height={3516}
           priority
           sizes="(max-width: 768px) 100vw, 1280px"
           className="mx-auto h-auto w-full"
