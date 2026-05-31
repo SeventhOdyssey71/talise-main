@@ -502,11 +502,20 @@ struct HomeView: View {
         // load (not on force-refreshes) so a pull-to-refresh doesn't
         // temporarily flash old data over a live result.
         if !force, let uid = session.currentUser?.id {
-            if balance == nil, let cached = LocalSnapshotStore.loadBalances(userId: uid) {
+            // Balance: a single number the live read corrects within ~1s, so a
+            // recent cache is safe to flash. 1h window covers normal re-opens.
+            if balance == nil,
+               let cached = LocalSnapshotStore.loadBalancesIfFresh(userId: uid, maxAgeSec: 60 * 60) {
                 balance = cached
                 loadingBalance = false   // real number visible; no placeholder
             }
-            if activity.isEmpty, let cached = LocalSnapshotStore.loadActivity(userId: uid),
+            // Activity: "Recent" must be genuinely recent. Only instant-paint
+            // the cached feed if it's <2min old (a close-and-reopen); anything
+            // older loads fresh from the snapshot-backed /api/activity so we
+            // never show a days-old feed as Recent. (Bug: stale cache was
+            // shown and the cold-launch revalidate didn't replace it.)
+            if activity.isEmpty,
+               let cached = LocalSnapshotStore.loadActivityIfFresh(userId: uid, maxAgeSec: 2 * 60),
                !cached.isEmpty {
                 activity = cached
                 activityHasLoadedOnce = true  // suppress skeleton; show cached rows

@@ -20,6 +20,23 @@ enum LocalSnapshotStore {
         "io.talise.snapshot.\(base).\(userId)"
     }
 
+    private static func tsKey(_ base: String, userId: String) -> String {
+        "io.talise.snapshot.\(base).ts.\(userId)"
+    }
+
+    private static func stampNow(_ base: String, userId: String) {
+        UserDefaults.standard.set(
+            Date().timeIntervalSince1970, forKey: tsKey(base, userId: userId)
+        )
+    }
+
+    /// Seconds since this snapshot was last saved, or nil if never saved.
+    private static func ageSeconds(_ base: String, userId: String) -> TimeInterval? {
+        let t = UserDefaults.standard.double(forKey: tsKey(base, userId: userId))
+        guard t > 0 else { return nil }
+        return Date().timeIntervalSince1970 - t
+    }
+
     // MARK: - BalancesDTO
 
     static func loadBalances(userId: String) -> BalancesDTO? {
@@ -29,9 +46,18 @@ enum LocalSnapshotStore {
         return try? JSONDecoder().decode(BalancesDTO.self, from: data)
     }
 
+    /// Last-known balance for instant paint, but ONLY if saved within
+    /// `maxAgeSec`. A stale snapshot would flash a wrong number; beyond the
+    /// window we'd rather show the placeholder and wait for the live read.
+    static func loadBalancesIfFresh(userId: String, maxAgeSec: TimeInterval) -> BalancesDTO? {
+        guard let age = ageSeconds("balances", userId: userId), age <= maxAgeSec else { return nil }
+        return loadBalances(userId: userId)
+    }
+
     static func saveBalances(_ dto: BalancesDTO, userId: String) {
         guard let data = try? JSONEncoder().encode(dto) else { return }
         UserDefaults.standard.set(data, forKey: key("balances", userId: userId))
+        stampNow("balances", userId: userId)
     }
 
     // MARK: - Activity
@@ -46,10 +72,21 @@ enum LocalSnapshotStore {
         return try? JSONDecoder().decode([ActivityEntryDTO].self, from: data)
     }
 
+    /// Last-known activity for instant paint, but ONLY if saved within
+    /// `maxAgeSec`. This is the guard that stops a days-old feed from being
+    /// shown as "Recent" — the home glance must be genuinely recent. Older
+    /// than the window → return nil so the view loads fresh from the (fast,
+    /// snapshot-backed) /api/activity instead.
+    static func loadActivityIfFresh(userId: String, maxAgeSec: TimeInterval) -> [ActivityEntryDTO]? {
+        guard let age = ageSeconds("activity", userId: userId), age <= maxAgeSec else { return nil }
+        return loadActivity(userId: userId)
+    }
+
     static func saveActivity(_ entries: [ActivityEntryDTO], userId: String) {
         let capped = Array(entries.prefix(activityCap))
         guard let data = try? JSONEncoder().encode(capped) else { return }
         UserDefaults.standard.set(data, forKey: key("activity", userId: userId))
+        stampNow("activity", userId: userId)
     }
 
     // MARK: - UserDTO
@@ -73,9 +110,8 @@ enum LocalSnapshotStore {
     /// device.
     static func clear(userId: String) {
         for base in ["balances", "activity", "user"] {
-            UserDefaults.standard.removeObject(
-                forKey: key(base, userId: userId)
-            )
+            UserDefaults.standard.removeObject(forKey: key(base, userId: userId))
+            UserDefaults.standard.removeObject(forKey: tsKey(base, userId: userId))
         }
     }
 }
