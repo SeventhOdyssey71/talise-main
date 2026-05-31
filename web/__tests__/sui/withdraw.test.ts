@@ -189,28 +189,34 @@ describe("POST /api/earn/withdraw/prepare (NAVI)", () => {
   //
   //   (a) The NaviAdapter throws synchronously during build (it does
   //       its own position-health check internally for some inputs).
-  //       Post 2026-05-29 the NAVI append is wrapped in `withTimeout`
-  //       which converts thrown errors into a `false` fallback →
-  //       route returns 504 "try again" (we treat an adapter throw
-  //       and a wedged RPC as equivalent failure modes from the
-  //       caller's perspective — both mean "we couldn't build it").
+  //       The NAVI append is wrapped in `withTimeout`, which now
+  //       distinguishes a thrown adapter error (`kind:"error"`) from a
+  //       wedged RPC (`kind:"timeout"`): the former surfaces as a 502
+  //       NAVI_WITHDRAW_FAILED with the real reason ("no NAVI position
+  //       covers this withdraw"), the latter as a 504 "try again".
   //   (b) Build succeeds and the chain rejects the actual withdraw at
   //       submit time (MoveAbort from NAVI's withdraw entry).
   //
-  // The route can't tell these apart in advance — both are valid
+  // The route can't tell these apart in advance — all three are valid
   // outcomes depending on what data NAVI has cached in its adapter
   // when build runs.
 
-  it("over-withdraw: either fails fast with 504 (adapter throw caught by withTimeout) or succeeds at PREPARE (chain rejects at submit)", async () => {
+  it("over-withdraw: fails fast (502 NAVI_WITHDRAW_FAILED or 504 timeout) or succeeds at PREPARE (chain rejects at submit)", async () => {
     simulateOverdraw = true;
     suppliedBalance = 50;
 
     const res = await postWithdraw({ venue: "navi", amount: 1_000_000 });
 
     if (res.status === 504) {
-      // (a) Adapter throw caught by withTimeout → user-friendly 504.
+      // (a-timeout) RPC wedged → user-friendly 504.
       const json = (await res.json()) as { error: string };
-      expect(json.error).toMatch(/longer than usual/i);
+      expect(json.error).toMatch(/responding slowly|longer than usual/i);
+    } else if (res.status === 502) {
+      // (a-error) Adapter rejected the over-withdraw → fail-fast 502
+      // carrying the real NAVI reason instead of a doomed PTB.
+      const json = (await res.json()) as { error: string; code?: string };
+      expect(json.error.length).toBeGreaterThan(0);
+      expect(json.code).toBe("NAVI_WITHDRAW_FAILED");
     } else {
       // (b) Build succeeded — chain would reject at submit.
       expect(res.status).toBe(200);

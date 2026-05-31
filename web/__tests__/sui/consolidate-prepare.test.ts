@@ -83,6 +83,14 @@ const COIN_TYPE = `0x2::coin::Coin<${USDSUI_TYPE}>`;
 
 const listCoinsMock = vi.fn();
 const getObjectMock = vi.fn();
+// The route now reads the Address Balance accumulator via
+// `client.getBalance({owner, coinType})` to power the two-signal
+// shadow filter. These tests filter the shadow through the getObject
+// cross-check instead (coins carry no version, so the balance-match
+// signal never fires), so a zero accumulator is the safe default.
+const getBalanceMock = vi.fn(async () => ({
+  balance: { addressBalance: "0", coinBalance: "0", balance: "0", coinType: "" },
+}));
 
 vi.mock("@/lib/sui", async () => {
   const actual = await vi.importActual<typeof import("@/lib/sui")>(
@@ -91,6 +99,7 @@ vi.mock("@/lib/sui", async () => {
   return {
     ...actual,
     sui: () => ({
+      getBalance: getBalanceMock,
       listCoins: listCoinsMock,
       getObject: getObjectMock,
       getReferenceGasPrice: async () => ({ referenceGasPrice: "1000" }),

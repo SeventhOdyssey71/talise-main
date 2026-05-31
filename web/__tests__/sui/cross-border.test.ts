@@ -98,6 +98,10 @@ vi.mock("@/lib/transfers", () => ({
 vi.mock("@/lib/db", () => ({
   db: () => ({ execute: dbExecuteMock }),
   ensureSchema: vi.fn(async () => {}),
+  // quoteCrossBorder looks the user up to apply the admin tier-3 bypass.
+  // null → not an admin → the user keeps their real tier, so the tier-0
+  // TIER_BLOCKED / LIMIT_EXCEEDED assertions below stay valid.
+  userById: vi.fn(async () => null),
 }));
 
 // Import AFTER mocks are registered.

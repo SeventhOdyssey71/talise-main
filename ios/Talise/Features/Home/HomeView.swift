@@ -54,14 +54,6 @@ struct HomeView: View {
     @State private var walletSweeping = false
     private let apyHeadline: Double = 0.11
 
-    /// Home shows TODAY-only activity (calendar boundary, local time).
-    /// Older entries still live in `activity` and are reachable via the
-    /// "See all" sheet — keeps Home glanceable while preserving the
-    /// full feed one tap away.
-    private var todayActivity: [ActivityEntryDTO] {
-        let startOfToday = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970 * 1000
-        return activity.filter { $0.timestampMs >= startOfToday }
-    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -247,7 +239,7 @@ struct HomeView: View {
                 // "send" in every messaging app since Telegram. The old
                 // `.fill` + `rotated: -30` combo pushed the body nearly
                 // vertical and lost the directional cue.
-                actionButton(systemName: "paperplane", rotated: 0) {
+                actionButton(systemName: "paperplane", accented: true) {
                     NotificationCenter.default.post(
                         name: .taliseRequestWithdrawCover, object: nil
                     )
@@ -393,7 +385,7 @@ struct HomeView: View {
     private var activityCard: some View {
         VStack(spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Today")
+                Text("Recent")
                     .font(TaliseFont.heading(17, weight: .medium))
                     .kerning(-0.4)
                     .foregroundStyle(TaliseColor.fg)
@@ -445,40 +437,16 @@ struct HomeView: View {
             } else if activity.isEmpty {
                 activityEmptyState
                     .padding(.vertical, 24)
-            } else if todayActivity.isEmpty {
-                todayEmptyState
-                    .padding(.vertical, 24)
             } else {
+                // Top 4 most-recent activity rows (any date). "See all"
+                // opens the full filterable history.
                 VStack(spacing: 10) {
-                    ForEach(todayActivity.prefix(4)) { row in
+                    ForEach(activity.prefix(4)) { row in
                         HistoryRow(entry: row) { receiptEntry = row }
                     }
                 }
             }
         }
-    }
-
-    /// Today-specific empty state — shown when the user has activity in
-    /// their history but nothing has happened yet today. Distinct from
-    /// `activityEmptyState` (which fires when the feed is completely
-    /// empty) so we can guide the user to "See all" for older entries.
-    private var todayEmptyState: some View {
-        VStack(spacing: 6) {
-            Text("Nothing today")
-                .font(TaliseFont.body(14, weight: .light))
-                .foregroundStyle(TaliseColor.fg)
-            Button {
-                historySheetVisible = true
-            } label: {
-                Text("View earlier activity")
-                    .font(TaliseFont.mono(10, weight: .light))
-                    .kerning(-0.32)
-                    .foregroundStyle(TaliseColor.fgDim)
-                    .underline()
-            }
-            .buttonStyle(.plain)
-        }
-        .frame(maxWidth: .infinity)
     }
 
     /// Single-row placeholder matching the glassy HistoryRow look.

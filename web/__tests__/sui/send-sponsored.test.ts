@@ -149,6 +149,20 @@ vi.mock("@/lib/sui", async () => {
   };
 });
 
+// The gasless build sets a ValidDuring expiration keyed off the live
+// epoch and builds the PTB with a SuiJsonRpcClient whose only pre-build
+// call is `core.getChainIdentifier()`. Stub both so no network read
+// happens; StubTransaction.build ignores the client and returns bytes.
+vi.mock("@/lib/sui-epoch", () => ({
+  getCurrentEpoch: vi.fn(async () => 1234),
+}));
+vi.mock("@mysten/sui/jsonRpc", () => ({
+  SuiJsonRpcClient: class {
+    core = { getChainIdentifier: async () => ({ chainIdentifier: "test-chain" }) };
+  },
+  JsonRpcHTTPTransport: class {},
+}));
+
 // Stub the `Transaction` builder so `tx.build({ client })` returns a
 // deterministic non-empty byte buffer. We keep the rest of the public
 // surface (`setSender`, `setGasOwner`, `setGasPrice`, `add`,
@@ -178,6 +192,12 @@ vi.mock("@mysten/sui/transactions", async () => {
     // breaking the sponsored-branch tests that expect the USDsui path
     // to land on `mode:"gasless"`.
     withdrawal = vi.fn(() => ({ kind: "Withdrawal" }));
+    // Current gasless build draws from the Address Balance accumulator
+    // via `tx.balance({ type, balance })` and stamps a ValidDuring
+    // expiration. Both must exist or the build throws "tx.balance is not
+    // a function" and the route falls to its 400 catch.
+    balance = vi.fn(() => ({ kind: "Balance" }));
+    setExpiration = vi.fn();
     pure = {
       address: vi.fn(() => ({ kind: "Input" })),
     };

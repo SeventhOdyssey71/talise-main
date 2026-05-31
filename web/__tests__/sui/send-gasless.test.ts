@@ -133,6 +133,23 @@ vi.mock("@/lib/sui", async () => {
   };
 });
 
+// The gasless build sets a ValidDuring expiration that needs the live
+// epoch — stub it so no network read happens.
+vi.mock("@/lib/sui-epoch", () => ({
+  getCurrentEpoch: vi.fn(async () => 1234),
+}));
+
+// The PTB is now built with a SuiJsonRpcClient (Shinami/public) whose
+// only call before `tx.build` is `core.getChainIdentifier()`. Stub the
+// client + transport so no real JSON-RPC endpoint is contacted; the
+// StubTransaction.build ignores the client and returns fixed bytes.
+vi.mock("@mysten/sui/jsonRpc", () => ({
+  SuiJsonRpcClient: class {
+    core = { getChainIdentifier: async () => ({ chainIdentifier: "test-chain" }) };
+  },
+  JsonRpcHTTPTransport: class {},
+}));
+
 // Stub the `Transaction` builder so `tx.build({ client })` returns a
 // deterministic non-empty byte buffer. Mirrors the sponsored sibling
 // test's stub so the two share a single contract surface.
@@ -154,6 +171,12 @@ vi.mock("@mysten/sui/transactions", async () => {
     // the first argument to `0x2::balance::send_funds<T>`. Stub returns
     // an Argument-shaped value so `moveCall` accepts it.
     withdrawal = vi.fn(() => ({ kind: "Withdrawal" }));
+    // Current gasless build pulls from the Address Balance accumulator
+    // via `tx.balance({ type, balance })` and sets a ValidDuring
+    // expiration. Both must exist on the stub or the build throws
+    // "tx.balance is not a function".
+    balance = vi.fn(() => ({ kind: "Balance" }));
+    setExpiration = vi.fn();
     pure = {
       address: vi.fn(() => ({ kind: "Input" })),
     };

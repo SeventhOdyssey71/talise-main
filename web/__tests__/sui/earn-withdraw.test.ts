@@ -120,7 +120,10 @@ describe("POST /api/earn/withdraw/prepare — speed + outer cap", () => {
       expect(elapsed).toBeLessThan(11_000);
 
       const json = (await res.json()) as { error: string };
-      expect(json.error).toMatch(/longer than usual/i);
+      // Either timer is acceptable: the inner NAVI leg ("NAVI is
+      // responding slowly") at 5s, or the outer cap ("taking longer
+      // than usual") at 10s.
+      expect(json.error).toMatch(/responding slowly|longer than usual/i);
     },
     15_000 // vitest per-test timeout — must exceed the 10s outer cap
   );

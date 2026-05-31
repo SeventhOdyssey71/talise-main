@@ -1,6 +1,6 @@
 import "server-only";
 
-import { db, ensureSchema } from "@/lib/db";
+import { db, ensureSchema, userById } from "@/lib/db";
 import {
   corridorQuote,
   getCorridor,
@@ -12,6 +12,7 @@ import {
 import { getRateTable } from "@/lib/fx-feed";
 import { isCurrency, type Currency } from "@/lib/fx";
 import { getUserTier, TIER_LIMITS, type KycTier } from "@/lib/kyc";
+import { isAdminIdentity } from "@/lib/admin";
 import {
   createTransfer,
   getTransfer,
@@ -271,7 +272,14 @@ export async function quoteCrossBorder(
 
   // (3) KYC gate — corridor access first (TIER_BLOCKED), then the inline
   // per-tx / monthly cap (LIMIT_EXCEEDED).
-  const tier = await getUserTier(userId);
+  //
+  // Admin bypass: allowlisted accounts (web/lib/admin.ts) are treated as
+  // the top tier so they can test cross-border before identity
+  // verification ships. Everyone else uses their real kyc_tier.
+  const realTier = await getUserTier(userId);
+  const adminUser = await userById(userId).catch(() => null);
+  const isAdmin = isAdminIdentity(adminUser?.email, adminUser?.talise_username);
+  const tier: KycTier = isAdmin ? 3 : realTier;
   if (!corridorAccessForTier(corridor, tier)) {
     return {
       ok: false,
