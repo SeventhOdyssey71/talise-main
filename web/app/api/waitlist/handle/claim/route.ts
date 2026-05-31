@@ -16,32 +16,28 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/waitlist/handle/claim
  *
- * Body: { email: string, handle: string }
+ * Body: { handle: string }
  *
  * Auth-required: the caller MUST be signed in via the web session
- * cookie (the user clicked "Sign in with Google" inside the waitlist
- * UI). On claim we:
- *   1. Verify the session matches the email in the request body.
+ * cookie (the user clicked "Sign in with Google" on /waitlist BEFORE
+ * picking a handle — the email used by the row is derived from the
+ * authenticated session, not from the request body). On claim we:
+ *   1. Resolve the user from the session cookie. No session → 401.
  *   2. Confirm `<handle>.talise.sui` is free (DB + on-chain).
- *   3. Reserve in DB with an atomic UPDATE — racers lose at the
- *      partial-unique-index level.
+ *   3. UPSERT the waitlist row (the user may never have hit the legacy
+ *      /api/waitlist endpoint — Google-first flow skips it). The UPSERT
+ *      reserves the handle atomically; racers lose at the partial-
+ *      unique-index level.
  *   4. Mint on chain via the Onara-sponsored operator PTB.
  *   5. Persist the NFT object id + bind the row to the user. Also
  *      write `users.talise_username` so the reverse-lookup paths
  *      pick it up immediately.
  *
- * If the mint fails after step 3, we ROLL BACK the DB reservation so
+ * If the mint fails after step 3, we ROLL BACK the reservation so
  * the user can retry with the same handle (and the partial-unique
- * index doesn't permanently lock it out for everyone).
+ * index doesn't permanently lock it out for everyone). The rollback
+ * is a plain UPDATE — by that point the row is guaranteed to exist.
  */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function validEmail(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  const e = raw.trim().toLowerCase();
-  if (!e || e.length >= 254) return null;
-  return EMAIL_RE.test(e) ? e : null;
-}
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   return new Promise((resolve) => {
@@ -75,16 +71,11 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { email?: unknown; handle?: unknown };
+  let body: { handle?: unknown };
   try {
-    body = (await req.json()) as { email?: unknown; handle?: unknown };
+    body = (await req.json()) as { handle?: unknown };
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
-  }
-
-  const email = validEmail(body.email);
-  if (!email) {
-    return NextResponse.json({ error: "Enter a valid email." }, { status: 400 });
   }
 
   const norm = normalizeWaitlistHandle(body.handle);
@@ -95,9 +86,10 @@ export async function POST(req: Request) {
     );
   }
 
-  // Auth gate. New flow is sign-in-required: the user MUST have a
-  // signed session cookie issued by /auth/callback. No fallback to
-  // email-only DB reservation — that path is gone.
+  // Auth gate. Google-first flow: the user signed in with Google
+  // BEFORE picking a handle, so we always have a session here. The
+  // email used for the waitlist row is derived from the session, not
+  // accepted from the client — no spoofing surface.
   const userId = await readSessionEntryId();
   if (!userId) {
     return NextResponse.json(
@@ -112,10 +104,11 @@ export async function POST(req: Request) {
       { status: 401 }
     );
   }
-  if ((user.email ?? "").trim().toLowerCase() !== email) {
+  const email = (user.email ?? "").trim().toLowerCase();
+  if (!email) {
     return NextResponse.json(
-      { error: "Signed-in email does not match." },
-      { status: 403 }
+      { error: "Your Google account has no email attached." },
+      { status: 400 }
     );
   }
 
@@ -123,17 +116,13 @@ export async function POST(req: Request) {
     await ensureSchema();
     const c = db();
 
-    // Existence + already-claimed gate.
+    // Already-claimed gate. A missing row is fine in the Google-first
+    // flow — the user may have signed in without ever hitting the
+    // legacy /api/waitlist endpoint. The UPSERT below will INSERT.
     const row = await c.execute({
       sql: "SELECT claimed_handle FROM waitlist_signups WHERE email = ? LIMIT 1",
       args: [email],
     });
-    if (row.rows.length === 0) {
-      return NextResponse.json(
-        { error: "Join the waitlist first." },
-        { status: 404 }
-      );
-    }
     const prior = row.rows[0]?.claimed_handle as string | null | undefined;
     if (prior) {
       return NextResponse.json(
@@ -159,25 +148,41 @@ export async function POST(req: Request) {
       );
     }
 
-    // The DB reservation. Two guards make this safe:
-    //  1. `claimed_handle IS NULL` in the WHERE — same email can't
-    //     double-claim if two requests race.
+    // The DB reservation. Three guards make this safe:
+    //  1. The UPSERT's WHERE in the conflict branch: only flip
+    //     `claimed_handle` when the existing row's value is NULL —
+    //     same email can't double-claim if two requests race.
     //  2. The partial-unique index on `claimed_handle` — two different
-    //     emails racing for the same handle: one UPDATE wins, the
+    //     emails racing for the same handle: one write wins, the
     //     other raises a unique-violation we catch as 409.
+    //  3. In the Google-first flow the row may not exist yet, so we
+    //     UPSERT: INSERT a fresh waitlist row when missing.
     //
     // We reserve BEFORE the mint so a concurrent racer can't sneak in
     // between our availability check and the on-chain submit. If the
     // mint subsequently fails we roll back this column to NULL so the
     // user (and others) can retry.
+    const userAgent = req.headers.get("user-agent");
     let claimed = false;
     try {
       const upd = await c.execute({
-        sql: `UPDATE waitlist_signups
-                 SET claimed_handle = ?, handle_claimed_at = ?
-               WHERE email = ? AND claimed_handle IS NULL
+        sql: `INSERT INTO waitlist_signups (
+                 email, created_at, ip, user_agent,
+                 claimed_handle, handle_claimed_at
+               ) VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(email) DO UPDATE SET
+                 claimed_handle = excluded.claimed_handle,
+                 handle_claimed_at = excluded.handle_claimed_at
+                 WHERE waitlist_signups.claimed_handle IS NULL
                RETURNING claimed_handle`,
-        args: [norm.handle, Date.now(), email],
+        args: [
+          email,
+          Date.now(),
+          ip,
+          userAgent,
+          norm.handle,
+          Date.now(),
+        ],
       });
       claimed = upd.rows.length > 0;
     } catch (e) {
@@ -192,8 +197,8 @@ export async function POST(req: Request) {
     }
 
     if (!claimed) {
-      // Either the row vanished (unlikely) or `claimed_handle` flipped
-      // non-NULL between our SELECT and UPDATE — i.e. a same-email
+      // The conflict branch's WHERE blocked the flip — `claimed_handle`
+      // was already non-NULL when we tried to write. A same-email
       // double-claim race.
       return NextResponse.json(
         { error: "You already claimed a handle." },

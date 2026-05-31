@@ -208,9 +208,9 @@ export function WaitlistConfirmation({
                   color: COLORS.fgMuted,
                 }}
               >
-                Thanks for joining the Talise waitlist. We are letting people
-                in privately, in small batches, while we get the product ready
-                for the African remittance corridor.
+                {handle
+                  ? "Your handle is reserved and live on chain. Talise opens to private beta in small batches over the next few weeks, starting with the African remittance corridor."
+                  : "Thanks for joining the Talise waitlist. We are letting people in privately, in small batches, while we get the product ready for the African remittance corridor."}
               </Text>
               <Text
                 style={{
@@ -220,8 +220,9 @@ export function WaitlistConfirmation({
                   color: COLORS.fgMuted,
                 }}
               >
-                When it is your turn we will send one short email with a
-                sign-in link. You will not hear from us between now and then.
+                {handle
+                  ? "We will email you once when the app is ready for you. Nothing in between."
+                  : "When it is your turn we will send one short email with a sign-in link. You will not hear from us between now and then."}
               </Text>
             </Section>
 
