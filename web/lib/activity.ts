@@ -30,6 +30,7 @@ function normCoinType(t: string | undefined | null): string {
 }
 import { findTaliseSubnameForOwner } from "./suins-lookup";
 import { formatHandle } from "./handle";
+import { db } from "./db";
 import { globalRegistryId, namespaceObjectId } from "./payment-kit";
 import { parsePaymentKitNonce, type ParsedTaliseMemo } from "./intents/wrap-payment-kit";
 import { batchCoinMetadata, suiGraphQL } from "./sui-graphql";
@@ -1728,23 +1729,53 @@ export async function getRecentActivity(
     new Set(limited.map((e) => e.counterparty).filter((x): x is string => !!x))
   );
   const nameCache = new Map<string, string | null>();
-  // Leg 3: counterparty-name fan-out. 3s cap across the whole batch;
-  // on timeout every unresolved address falls back to the truncated-
-  // address display iOS already renders when `counterpartyName` is
-  // null. We don't time out individual addresses because the SuiNS
-  // resolver has its own per-address memo cache — slow once, free
-  // forever after.
-  await withTimeout(
-    Promise.all(
-      uniqueCounterparties.map(async (addr) => {
-        const sub = await findTaliseSubnameForOwner(addr);
-        nameCache.set(addr, sub ? formatHandle(sub.username) : null);
-      })
-    ),
-    3_000,
-    "counterparty-names",
-    [] as unknown[]
-  );
+
+  // DB-first: the common case is paying ANOTHER Talise user, and we already
+  // know every Talise user's address→handle in our own `users` table. Resolve
+  // those in ONE indexed query instead of an up-to-4-page listOwnedObjects +
+  // getNameRecord chain walk PER address. Only addresses NOT in our user base
+  // fall through to the (slow) on-chain reverse-SuiNS resolution below.
+  if (uniqueCounterparties.length > 0) {
+    try {
+      const byLower = new Map<string, string>(); // lower(addr) -> original counterparty string
+      for (const a of uniqueCounterparties) byLower.set(a.toLowerCase(), a);
+      const lowers = Array.from(byLower.keys());
+      const placeholders = lowers.map(() => "?").join(",");
+      const r = await db().execute({
+        sql: `SELECT sui_address, talise_username FROM users
+                WHERE LOWER(sui_address) IN (${placeholders})
+                  AND talise_username IS NOT NULL`,
+        args: lowers,
+      });
+      for (const row of r.rows) {
+        const original = byLower.get(String(row.sui_address ?? "").toLowerCase());
+        const uname = row.talise_username ? String(row.talise_username) : null;
+        if (original && uname) nameCache.set(original, formatHandle(uname));
+      }
+    } catch {
+      // Fall through — chain resolution below still covers everything.
+    }
+  }
+
+  // Leg 3: counterparty-name fan-out for the addresses NOT resolved from the
+  // DB above. 3s cap across the whole batch; on timeout every unresolved
+  // address falls back to the truncated-address display iOS already renders
+  // when `counterpartyName` is null. We don't time out individual addresses
+  // because the SuiNS resolver has its own per-address memo cache.
+  const unresolved = uniqueCounterparties.filter((addr) => !nameCache.has(addr));
+  if (unresolved.length > 0) {
+    await withTimeout(
+      Promise.all(
+        unresolved.map(async (addr) => {
+          const sub = await findTaliseSubnameForOwner(addr);
+          nameCache.set(addr, sub ? formatHandle(sub.username) : null);
+        })
+      ),
+      3_000,
+      "counterparty-names",
+      [] as unknown[]
+    );
+  }
   for (const e of limited) {
     if (e.counterparty) e.counterpartyName = nameCache.get(e.counterparty) ?? null;
   }

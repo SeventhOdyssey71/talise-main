@@ -703,6 +703,57 @@ async function doEnsureSchema(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_travel_rule_user ON travel_rule_records(user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_travel_rule_created ON travel_rule_records(created_at DESC)`,
+
+    // ─── fast-load snapshot caches (display-only, stale-while-revalidate) ──
+    // DURABLE, cross-instance caches that let the hot Home endpoints serve a
+    // last-known value in one indexed PK read (~10-50ms) instead of a live
+    // Sui chain read (USDsui balance ~600-1800ms, activity scan ~1-3s). The
+    // perf-cache.ts memoTtl is in-process only, so cold/other serverless
+    // instances re-pay full chain latency — these tables survive cold starts.
+    //
+    // HARD INVARIANT: these are DISPLAY-ONLY. Nothing here may be consulted
+    // for a send/withdraw/sweep build or any limit/eligibility check — those
+    // stay on the live chain + the authoritative send_limit ledger. A stale
+    // snapshot can only ever mislead a pixel, never the bytes of a tx.
+    // `*_refreshed_at` (epoch ms) drives staleness; `*_source` marks where
+    // the row came from ('chain' = fresh live read, 'stale' = served past TTL).
+    `CREATE TABLE IF NOT EXISTS user_balance_snapshot (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id),
+      sui_address TEXT NOT NULL,
+      usdsui DOUBLE PRECISION NOT NULL DEFAULT 0,
+      sui DOUBLE PRECISION NOT NULL DEFAULT 0,
+      sui_price_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+      total_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+      wallet_coins_json TEXT,
+      source TEXT NOT NULL DEFAULT 'chain',
+      refreshed_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
+    // entries_json mirrors the exact ActivityEntry[] the /api/activity route
+    // already serialises, so serving from cache is a verbatim replay.
+    `CREATE TABLE IF NOT EXISTS user_activity_snapshot (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id),
+      address TEXT NOT NULL,
+      limit_n INTEGER NOT NULL DEFAULT 20,
+      entries_json TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'chain',
+      refreshed_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
+    // Tiny global key/value cache for values that are the SAME for every user
+    // (e.g. the SUI/USDC spot price). Shared across instances so a cold
+    // function never pays the 800-2000ms DeepBook quote on the hot path.
+    `CREATE TABLE IF NOT EXISTS global_kv (
+      k TEXT PRIMARY KEY,
+      v_num DOUBLE PRECISION,
+      v_text TEXT,
+      refreshed_at BIGINT NOT NULL
+    )`,
+    // Cache the resolved on-chain *.talise.sui subname so /api/me and the
+    // activity counterparty fan-out stop doing cold reverse-SuiNS walks for a
+    // near-immutable name. NULL until first resolved.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS suins_subname TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS suins_subname_at BIGINT`,
   ];
 
   for (const stmt of stmts) {
@@ -797,6 +848,9 @@ export type User = {
   business_handle: string | null;
   business_industry: string | null;
   talise_username: string | null;
+  /** Cached resolved on-chain `<handle>.talise.sui` subname + when (epoch ms). */
+  suins_subname?: string | null;
+  suins_subname_at?: number | null;
   spot_bm_id?: string | null;
   interests?: string | null;
   notify_on_receive?: number | null;

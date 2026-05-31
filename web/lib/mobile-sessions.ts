@@ -22,7 +22,16 @@ import { db, ensureSchema } from "./db";
  */
 const MOBILE_SESSION_TTL_MS = 1000 * 60 * 60 * 24;
 
-export async function ensureMobileSessionsSchema() {
+// Gate the schema DDL to ONCE per process. verifyMobileBearer() (and
+// issueMobileBearer) used to re-run ~7 CREATE/INDEX/ALTER statements on
+// every authed request — the ALTERs throw-and-swallow every time once the
+// columns exist, wasting a DB round-trip per request on the hot auth path.
+// The memoized promise makes it a no-op after the first call on an instance,
+// mirroring ensureSchema's own `_schemaReadyP` discipline. The `?? undefined`
+// reset on failure lets a transient error retry on the next call.
+let _mobileSchemaReadyP: Promise<void> | null = null;
+
+async function doEnsureMobileSessionsSchema(): Promise<void> {
   await ensureSchema();
   const client = db();
   await client.execute(`
@@ -57,6 +66,17 @@ export async function ensureMobileSessionsSchema() {
       await client.execute(sql);
     } catch {}
   }
+}
+
+export async function ensureMobileSessionsSchema(): Promise<void> {
+  if (!_mobileSchemaReadyP) {
+    _mobileSchemaReadyP = doEnsureMobileSessionsSchema().catch((e) => {
+      // Reset so the next call retries rather than caching a failure.
+      _mobileSchemaReadyP = null;
+      throw e;
+    });
+  }
+  return _mobileSchemaReadyP;
 }
 
 function hash(token: string): string {

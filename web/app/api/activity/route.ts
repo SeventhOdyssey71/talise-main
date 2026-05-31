@@ -3,6 +3,11 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { getRecentActivity, type ActivityEntry } from "@/lib/activity";
 import { memoTtl } from "@/lib/perf-cache";
+import {
+  readActivitySnapshot,
+  writeActivitySnapshot,
+  refreshInBackground,
+} from "@/lib/snapshots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,15 +94,84 @@ function cachedActivity(
   );
 }
 
+/** The iOS-facing row shape. Persisted verbatim in the activity snapshot. */
+type SerializedEntry = {
+  digest: string;
+  timestampMs: number;
+  direction: ActivityEntry["direction"];
+  amountUsdsui: ActivityEntry["amountUsdsui"];
+  amountSui: ActivityEntry["amountSui"];
+  counterparty: ActivityEntry["counterparty"];
+  counterpartyName: ActivityEntry["counterpartyName"];
+  venue: ActivityEntry["venue"];
+  roundupUsdsui: ActivityEntry["roundupUsdsui"];
+  otherCoin: ActivityEntry["otherCoin"];
+};
+
+function serializeEntries(entries: ActivityEntry[]): SerializedEntry[] {
+  return entries.map((e) => ({
+    digest: e.digest,
+    timestampMs: e.timestampMs,
+    direction: e.direction,
+    amountUsdsui: e.amountUsdsui,
+    amountSui: e.amountSui,
+    counterparty: e.counterparty,
+    counterpartyName: e.counterpartyName,
+    venue: e.venue,
+    // Compound spend+save flag — iOS renders "Sent + saved" with both amounts.
+    roundupUsdsui: e.roundupUsdsui,
+    // Non-USDsui/SUI coin movement (WAL, USDC, …) — iOS renders "+ 10 WAL".
+    otherCoin: e.otherCoin,
+  }));
+}
+
+// Display-only snapshot freshness, mirroring /api/balances. The ?fresh=1
+// post-send reconcile ALWAYS bypasses both the snapshot and the memo so a
+// just-landed tx is never hidden.
+const ACTIVITY_SNAPSHOT_SERVE_MAX_MS = 120_000;
+const ACTIVITY_SNAPSHOT_BG_REFRESH_MS = 15_000;
+
+/**
+ * Live chain scan → serialized rows, with write-through to the activity
+ * snapshot. `bypassMemo` forces a fresh scan (the ?fresh=1 reconcile path).
+ * We only persist a NON-EMPTY result so a transient timeout (outerCap → [])
+ * never clobbers a good cached feed.
+ */
+async function computeLiveActivity(
+  user: { id: number; sui_address: string; talise_vault_id: string | null },
+  limit: number,
+  bypassMemo: boolean
+): Promise<SerializedEntry[]> {
+  const raw = bypassMemo
+    ? await outerCap(
+        getRecentActivity(user.sui_address, limit, {
+          includeNonTalise: true,
+          vaultId: user.talise_vault_id ?? null,
+        }),
+        [] as ActivityEntry[]
+      )
+    : await cachedActivity(user.sui_address, limit, user.talise_vault_id ?? null);
+  const serialized = serializeEntries(raw);
+  if (serialized.length > 0) {
+    await writeActivitySnapshot({
+      userId: user.id,
+      address: user.sui_address,
+      entries: serialized,
+      limit,
+      source: "chain",
+    });
+  }
+  return serialized;
+}
+
 /**
  * GET /api/activity?limit=20 — recent on-chain activity for the authed
- * user, served from the same chain-scanner that the web /home and
- * /rewards pages read. Source of truth is the chain, not our local
- * tx_history cache — so sends initiated outside Talise still appear.
+ * user. Source of truth is the chain; a per-user Postgres snapshot serves
+ * an instant first paint and is refreshed from chain in the background.
+ * `?fresh=1` always reads the chain (the post-send reconcile path).
  *
- * Response is the iOS-friendly shape: { entries: [...] } where each
- * entry has the fields HomeView needs to render a row (icon + title +
- * subtitle + amount + signed delta).
+ * Response: { entries: [...] } in the iOS-friendly row shape, plus
+ * additive { refreshedAt, stale, source } the client may ignore.
  */
 export async function GET(req: Request) {
   const userId = await readEntryIdFromRequest(req);
@@ -112,64 +186,43 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const rawLimit = Number(url.searchParams.get("limit") ?? 20);
   const limit = Math.max(1, Math.min(50, Number.isFinite(rawLimit) ? rawLimit : 20));
-  // `fresh=1` bypasses the 5s memoTtl cache. iOS sets this on the
-  // post-send/supply/swap reconcile call so a tx that just landed
-  // isn't hidden behind a stale cache slice. Without this flag, the
-  // optimistic row inserted by `applyOptimisticTx` would be clobbered
-  // by a `loadActivity()` that hit the cached pre-tx list. See
-  // HomeView.applyOptimisticTx → reconcile loop (iOS).
+  // `fresh=1` bypasses BOTH the snapshot and the in-process memo. iOS sets
+  // this on the post-send/supply/swap reconcile so a tx that just landed
+  // isn't hidden behind a stale slice (HomeView.applyOptimisticTx → reconcile).
   const bypassCache = url.searchParams.get("fresh") === "1";
 
-  try {
-    // Mobile feed shows every USDsui/SUI movement, not just Talise
-    // payment-kit txs — users want to see incoming funding from any
-    // wallet, not a curated subset.
-    const entries = bypassCache
-      ? await outerCap(
-          getRecentActivity(user.sui_address, limit, {
-            includeNonTalise: true,
-            vaultId: user.talise_vault_id ?? null,
-          }),
-          [] as ActivityEntry[]
-        )
-      : await cachedActivity(
-          user.sui_address,
-          limit,
-          user.talise_vault_id ?? null
-        );
-    return NextResponse.json(
-      {
-        entries: entries.map((e) => ({
-          digest: e.digest,
-          timestampMs: e.timestampMs,
-          direction: e.direction,
-          amountUsdsui: e.amountUsdsui,
-          amountSui: e.amountSui,
-          counterparty: e.counterparty,
-          counterpartyName: e.counterpartyName,
-          venue: e.venue,
-          // Compound spend+save flag — when set, iOS renders the row as
-          // "Sent + saved" with both amounts. Null on non-compound rows.
-          roundupUsdsui: e.roundupUsdsui,
-          // Non-USDsui / non-SUI coin movement. Set when the user
-          // sent/received WAL, USDC, USDT, etc. iOS renders the
-          // amount as "+ 10 WAL" with `decimals` for client-side
-          // formatting; the row appears even though we don't have a
-          // USD value for the coin.
-          otherCoin: e.otherCoin,
-        })),
-      },
-      {
-        headers: {
-          // Edge-cache short window so repeat hits in the same render
-          // path (HomeView .task + .refreshable racing on appear) don't
-          // even hit our function. Stays below the 1.5s optimistic-tx
-          // reconcile so a post-send refresh sees fresh chain data.
-          // `private` because the body is keyed by the authed user.
-          "Cache-Control":
-            "private, max-age=0, s-maxage=3, stale-while-revalidate=15",
-        },
+  // Snapshot-first: serve a reasonably-fresh last-known feed instantly and
+  // refresh from chain in the background. Never on ?fresh=1.
+  if (!bypassCache) {
+    const snap = await readActivitySnapshot(userId);
+    if (snap && Date.now() - snap.refreshedAt <= ACTIVITY_SNAPSHOT_SERVE_MAX_MS) {
+      const ageMs = Date.now() - snap.refreshedAt;
+      if (ageMs > ACTIVITY_SNAPSHOT_BG_REFRESH_MS) {
+        refreshInBackground(async () => {
+          await computeLiveActivity(
+            { id: user.id, sui_address: user.sui_address, talise_vault_id: user.talise_vault_id ?? null },
+            limit,
+            false
+          );
+        });
       }
+      const entries = (snap.entries as SerializedEntry[]).slice(0, limit);
+      return NextResponse.json(
+        { entries, refreshedAt: snap.refreshedAt, stale: ageMs > ACTIVITY_SNAPSHOT_BG_REFRESH_MS, source: "snapshot" },
+        { headers: { "Cache-Control": "private, no-store" } }
+      );
+    }
+  }
+
+  try {
+    const entries = await computeLiveActivity(
+      { id: user.id, sui_address: user.sui_address, talise_vault_id: user.talise_vault_id ?? null },
+      limit,
+      bypassCache
+    );
+    return NextResponse.json(
+      { entries, refreshedAt: Date.now(), stale: false, source: "chain" },
+      { headers: { "Cache-Control": "private, no-store" } }
     );
   } catch (err) {
     console.warn(`[api/activity] failed: ${(err as Error).message}`);

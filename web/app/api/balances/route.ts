@@ -10,6 +10,13 @@ import {
 import { getSuiUsdcPrice } from "@/lib/deepbook";
 import { memoTtl } from "@/lib/perf-cache";
 import {
+  readBalanceSnapshot,
+  writeBalanceSnapshot,
+  getGlobalNum,
+  setGlobalNum,
+  refreshInBackground,
+} from "@/lib/snapshots";
+import {
   gql,
   BAG_DYNAMIC_FIELDS_QUERY,
   decodeBagKeyVectorU8,
@@ -189,47 +196,76 @@ async function readVaultTotals(vaultId: string): Promise<VaultTotals> {
  * fails for any reason we log and return wallet-only totals — a vault
  * hiccup should never 500 the headline-balance endpoint.
  */
-export async function GET(req: Request) {
-  const userId = await readEntryIdFromRequest(req);
-  if (!userId) {
-    return NextResponse.json({ error: "not authenticated" }, { status: 401 });
-  }
-  const user = await userById(userId);
-  if (!user) {
-    return NextResponse.json({ error: "user not found" }, { status: 404 });
-  }
+// ───────────────────────────────────────────────────────────────────
+// Fast-load policy (display-only snapshot, stale-while-revalidate)
+//
+// The headline USDsui figure is a live gRPC read (~600-1800ms) with no
+// decision consumer (sends are validated by the chain at build/broadcast,
+// not by this number). So we serve a Postgres snapshot instantly when it's
+// reasonably fresh and refresh from chain in the background; the live read
+// only blocks the response when the snapshot is missing or quite stale, or
+// when the caller asks for `?fresh=1` (iOS pull-to-refresh + the optimistic
+// post-send reconcile, which MUST always see the chain).
+const SNAPSHOT_SERVE_MAX_MS = 120_000; // serve a snapshot at most this old
+const SNAPSHOT_BG_REFRESH_MS = 15_000; // ...and warm it in bg if older than this
+const PRICE_DB_TTL_MS = 45_000; // SUI/USDC global price freshness
 
-  // Critical: USDsui — the headline number. Wait for this.
+type BalancesPayload = {
+  address: string;
+  usdsui: number;
+  sui: number;
+  suiPriceUsd: number;
+  totalUsd: number;
+};
+
+/**
+ * SUI/USDC spot — a GLOBAL value (same for every user). Prefer the shared
+ * Postgres row so cold instances never pay the 800-2000ms DeepBook quote;
+ * fall back to the (capped) live quote only when the row is missing, and
+ * warm the row in the background when it's stale.
+ */
+async function resolveSuiPrice(): Promise<number> {
+  const g = await getGlobalNum("sui_usdc_price").catch(() => null);
+  if (g && g.value > 0) {
+    if (Date.now() - g.refreshedAt > PRICE_DB_TTL_MS) {
+      refreshInBackground(async () => {
+        const fresh = await cachedSuiUsdcPrice().catch(() => 0);
+        if (fresh > 0) await setGlobalNum("sui_usdc_price", fresh);
+      });
+    }
+    return g.value;
+  }
+  // No usable row yet — pay the capped live quote once, then persist.
+  const live = await withTimeout(cachedSuiUsdcPrice(), 600, 0);
+  if (live > 0) refreshInBackground(async () => setGlobalNum("sui_usdc_price", live));
+  return live;
+}
+
+/**
+ * The live wallet+vault balance read (the slow path). Folds the vault and
+ * resolves the global price, then write-throughs the snapshot so the next
+ * load is instant.
+ */
+async function computeLiveBalances(user: {
+  id: number;
+  sui_address: string;
+  talise_vault_id: string | null;
+}): Promise<BalancesPayload> {
   const usdsuiPromise = getUsdsuiBalance(user.sui_address).catch(() => ({
     usdsui: 0,
     raw: "0",
   }));
-
-  // Best-effort: SUI balance + spot price for the sweep banner. Capped
-  // at 600ms so a slow DeepBook quote doesn't block the response.
   const suiPromise = withTimeout(
     getSuiBalance(user.sui_address).catch(() => ({ sui: 0, mist: "0" })),
     600,
     { sui: 0, mist: "0" }
   );
-  // Price is cached process-wide for 45s. The cached path returns in <1ms;
-  // the cold path still respects the 600ms cap so a slow DeepBook quote
-  // can't drag the response down.
-  const pricePromise = withTimeout(
-    cachedSuiUsdcPrice(),
-    600,
-    0
-  );
+  const pricePromise = resolveSuiPrice();
 
-  // Vault fold-in. Capped at 800ms so an unusually slow GraphQL fetch
-  // doesn't drag the response down on the cold path; warm hits (10s
-  // memo) resolve in <1ms.
   const vaultId = user.talise_vault_id ?? null;
   const vaultPromise: Promise<VaultTotals> = vaultId
     ? withTimeout(
         readVaultTotals(vaultId).catch((err: unknown) => {
-          // Resilience: never let a vault-read failure poison the
-          // wallet snapshot. Caller still gets the wallet number.
           console.warn(
             `[balances] vault fold-in failed for ${vaultId}: ${
               (err as Error)?.message ?? String(err)
@@ -249,29 +285,84 @@ export async function GET(req: Request) {
     vaultPromise,
   ]);
 
-  // Fold vault contributions into the wallet-shaped fields. iOS reads
-  // these strictly; the response schema is unchanged.
   const combinedUsdsui = usdsui.usdsui + vault.usdsui;
   const combinedSui = sui.sui + vault.sui;
   const totalUsd = combinedUsdsui + combinedSui * (suiPrice || 0);
 
-  // Edge cache: serve repeat hits within 3s from Vercel's CDN. Kept
-  // below the 1.5s optimistic-tx reconcile (see HomeView.applyOptimisticTx)
-  // so a post-send refresh sees fresh on-chain state. `private` keeps the
-  // response from being shared across users — the body is per-user.
-  return NextResponse.json(
-    {
-      address: user.sui_address,
-      usdsui: combinedUsdsui,
-      sui: combinedSui,
-      suiPriceUsd: suiPrice,
-      totalUsd,
-    },
-    {
-      headers: {
-        "Cache-Control": "private, max-age=0, s-maxage=3, stale-while-revalidate=15",
-      },
+  const payload: BalancesPayload = {
+    address: user.sui_address,
+    usdsui: combinedUsdsui,
+    sui: combinedSui,
+    suiPriceUsd: suiPrice,
+    totalUsd,
+  };
+
+  // Write-through: this read becomes the snapshot for the next load.
+  await writeBalanceSnapshot({
+    userId: user.id,
+    suiAddress: user.sui_address,
+    usdsui: combinedUsdsui,
+    sui: combinedSui,
+    suiPriceUsd: suiPrice,
+    totalUsd,
+    source: "chain",
+  });
+
+  return payload;
+}
+
+export async function GET(req: Request) {
+  const userId = await readEntryIdFromRequest(req);
+  if (!userId) {
+    return NextResponse.json({ error: "not authenticated" }, { status: 401 });
+  }
+  const user = await userById(userId);
+  if (!user) {
+    return NextResponse.json({ error: "user not found" }, { status: 404 });
+  }
+
+  const fresh = new URL(req.url).searchParams.get("fresh") === "1";
+
+  // Snapshot-first: serve a reasonably-fresh last-known value instantly and
+  // refresh from chain in the background. Skip entirely on ?fresh=1.
+  if (!fresh) {
+    const snap = await readBalanceSnapshot(userId);
+    if (snap && Date.now() - snap.refreshedAt <= SNAPSHOT_SERVE_MAX_MS) {
+      const ageMs = Date.now() - snap.refreshedAt;
+      if (ageMs > SNAPSHOT_BG_REFRESH_MS) {
+        refreshInBackground(async () => {
+          await computeLiveBalances({
+            id: user.id,
+            sui_address: user.sui_address,
+            talise_vault_id: user.talise_vault_id ?? null,
+          });
+        });
+      }
+      return NextResponse.json(
+        {
+          address: snap.suiAddress || user.sui_address,
+          usdsui: snap.usdsui,
+          sui: snap.sui,
+          suiPriceUsd: snap.suiPriceUsd,
+          totalUsd: snap.totalUsd,
+          refreshedAt: snap.refreshedAt,
+          stale: ageMs > SNAPSHOT_BG_REFRESH_MS,
+          source: "snapshot",
+        },
+        { headers: { "Cache-Control": "private, no-store" } }
+      );
     }
+  }
+
+  // No usable snapshot (or ?fresh=1): live chain read, write-through, return.
+  const payload = await computeLiveBalances({
+    id: user.id,
+    sui_address: user.sui_address,
+    talise_vault_id: user.talise_vault_id ?? null,
+  });
+  return NextResponse.json(
+    { ...payload, refreshedAt: Date.now(), stale: false, source: "chain" },
+    { headers: { "Cache-Control": "private, no-store" } }
   );
 }
 
