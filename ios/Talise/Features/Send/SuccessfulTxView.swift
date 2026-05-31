@@ -20,6 +20,14 @@ import SwiftUI
 struct SuccessfulTxView: View {
     /// Pre-formatted, currency-aware amount, e.g. "$65.00".
     let amountText: String
+    /// Headline line. Defaults to the wallet-to-wallet "Transaction
+    /// Successful!"; cross-border fiat-payout sends override it with
+    /// chain-final-but-not-yet-delivered copy ("Sent to @kenji").
+    var title: String = "Transaction Successful!"
+    /// One-line reassurance under the title. Defaults to the gasless
+    /// wallet-to-wallet line; cross-border sends override it with the
+    /// bank-arrival timeline ("On its way to their bank").
+    var subtitle: String = "gas cost = 0, money arrives < 1s"
     var onShareReceipt: (() -> Void)? = nil
     let onDone: () -> Void
 
@@ -53,18 +61,21 @@ struct SuccessfulTxView: View {
                     .padding(.horizontal, 20)
                     .scrapbookFadeUp(delay: 0.20)
 
-                Text("Transaction Successful!")
+                Text(title)
                     .font(TaliseFont.heading(25, weight: .medium))
                     .kerning(-0.5)
                     .foregroundStyle(mintGreen)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
                     .padding(.top, 18)
                     .scrapbookFadeUp(delay: 0.28)
 
-                Text("gas cost = 0, money arrives < 1s")
+                Text(subtitle)
                     .font(TaliseFont.mono(13, weight: .regular))
                     .kerning(-0.26)
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
                     .padding(.top, 8)
                     .scrapbookFadeUp(delay: 0.34)
 

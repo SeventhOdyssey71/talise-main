@@ -84,6 +84,16 @@ final class SendDraft {
     /// have it from the /api/contacts payload.
     var previousSendsToRecipient: Int?
 
+    /// Optional ISO code of the recipient's home/payout currency. When
+    /// set and different from `currency`, the send is cross-border and
+    /// the Amount/Review screens light up the locked-quote UX (master
+    /// plan §8). Left nil today for same-currency sends — the cross-
+    /// border helpers (CrossBorderQuote.swift) fall back to inferring it
+    /// from the resolved handle, and ultimately to the sender's currency,
+    /// so single-currency sends are unchanged. A future recipient-profile
+    /// lookup will populate this authoritatively.
+    var recipientCurrencyCode: String?
+
     init(currency: TaliseCurrency) {
         self.currency = currency
     }

@@ -90,6 +90,24 @@ struct SendAmountView: View {
                 .contentTransition(.numericText())
                 .animation(.snappy(duration: 0.18), value: usdsuiSecondary)
 
+            // Cross-border only: show what the recipient actually
+            // receives in *their* currency. Hidden for same-currency
+            // sends (recipientReceiveLine == nil) so the single-currency
+            // layout is untouched.
+            if let recipientLine = recipientReceiveLine {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.turn.down.right")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(TaliseColor.accent)
+                    Text(recipientLine)
+                        .font(TaliseFont.mono(12, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .contentTransition(.numericText())
+                }
+                .padding(.top, 1)
+                .animation(.snappy(duration: 0.18), value: recipientLine)
+            }
+
             if exceedsBalance {
                 MicroLabel(
                     text: "OVER AVAILABLE BALANCE",
@@ -152,6 +170,17 @@ struct SendAmountView: View {
         let rate = CurrencySettings.shared.rates[draft.currency.code] ?? 1
         guard rate > 0 else { return 0 }
         return typed / rate
+    }
+
+    /// "Recipient gets ¥15,000" line — present only for cross-border
+    /// sends (different recipient currency). Returns nil for same-
+    /// currency sends so the secondary block collapses to the existing
+    /// single line. Mirrors the post-spread receive figure shown on the
+    /// locked-quote block in Review.
+    private var recipientReceiveLine: String? {
+        guard let recv = draft.liveRecipientReceiveLocal() else { return nil }
+        let amount = TaliseCurrency.recipientSymbolic(recv.amount, currency: recv.currency)
+        return "Recipient gets \(amount)"
     }
 
     private var exceedsBalance: Bool {
