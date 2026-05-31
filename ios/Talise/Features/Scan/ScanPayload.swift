@@ -37,17 +37,60 @@ enum ScanPayload {
             return deep
         }
 
-        // 2. Bare 0x Sui address.
+        // 2. `sui:` / `sui://` payment URI — the exact form our own Receive
+        //    QR encodes (`sui:<address>`) and the de-facto scheme other Sui
+        //    wallets emit. Without this branch the scanner reads our QR but
+        //    rejects it as "not a Talise code" (the `:` fails the bare-handle
+        //    char check and `sui:0x…` isn't a bare 0x address).
+        if let suiUri = parseSuiUri(trimmed) {
+            return suiUri
+        }
+
+        // 3. Bare 0x Sui address.
         if let addr = SuiAddress(trimmed) {
             return Recipient(recipient: addr.raw, amount: nil)
         }
 
-        // 3. Bare @handle / handle / handle.talise.sui / handle.sui.
+        // 4. Bare @handle / handle / handle.talise.sui / handle.sui.
         if let handle = parseHandle(trimmed) {
             return Recipient(recipient: handle, amount: nil)
         }
 
         return nil
+    }
+
+    // MARK: - sui: URI
+
+    /// Parses a `sui:<token>` or `sui://<token>` payment URI, where `<token>`
+    /// is a 0x address (the common case — our Receive QR) or a handle, with an
+    /// optional `?amount=` query. Returns nil for any other scheme so the
+    /// caller falls through to the bare-address / handle checks.
+    private static func parseSuiUri(_ s: String) -> Recipient? {
+        guard let comps = URLComponents(string: s),
+              comps.scheme?.lowercased() == "sui" else {
+            return nil
+        }
+        // `sui:0xABC` → path="0xABC" (no authority); `sui://0xABC` → host="0xABC".
+        let hostToken = comps.host.flatMap { $0.isEmpty ? nil : $0 }
+        let rawToken = (hostToken ?? comps.path)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !rawToken.isEmpty else { return nil }
+
+        let recipient: String
+        if let addr = SuiAddress(rawToken) {
+            recipient = addr.raw
+        } else if let handle = parseHandle(rawToken) {
+            recipient = handle
+        } else {
+            return nil
+        }
+
+        let amount = comps.queryItems?
+            .first(where: { $0.name == "amount" })?
+            .value
+            .flatMap(Double.init)
+
+        return Recipient(recipient: recipient, amount: amount)
     }
 
     // MARK: - Deep link
