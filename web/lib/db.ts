@@ -62,6 +62,12 @@ import postgres, { type Sql } from "postgres";
  *                       Primary writer: web/app/api/kyc/route.ts.
  *                       Tier model: web/lib/kyc.ts; eKYC: web/lib/ekyc.ts.
  *
+ *   transfers           Corridor-agnostic transfers state machine
+ *                       (quoted → debited → onchain_settling →
+ *                       onchain_settled → fiat_out_pending → settled,
+ *                       + failed/refunded). Generalizes paga_offramps for
+ *                       all corridors. Primary writer: web/lib/transfers.ts.
+ *
  *   mobile_sessions     Opaque bearer tokens for the iOS client.
  *                       Created in lib/mobile-sessions.ts; CREATE TABLE
  *                       lives there too, this file only widens its int4
@@ -521,6 +527,45 @@ async function doEnsureSchema(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_paga_offramps_user ON paga_offramps(user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_paga_offramps_status ON paga_offramps(status, created_at DESC)`,
+
+    // ─── transfers (corridor-agnostic state machine) ─────────────────
+    // One row per cross-border / on-ramp / off-ramp / internal transfer.
+    // Generalizes paga_offramps: a TTL-locked quote that walks
+    //   quoted → debited → onchain_settling → onchain_settled →
+    //   fiat_out_pending → settled  (+ failed/refunded)
+    // with the on-chain leg as the commit point. A post-commit fiat-out
+    // failure sets `parked_funds=TRUE` (funds parked, never lost) so a
+    // compensating action can reconcile later. See web/lib/transfers.ts;
+    // the legacy Paga rows in paga_offramps are untouched (PAGA_STATE_MAP
+    // documents the projection). `metadata` is a JSON blob of per-corridor
+    // coordinates (bank, handle, memo).
+    `CREATE TABLE IF NOT EXISTS transfers (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      state TEXT NOT NULL,
+      source_currency TEXT NOT NULL,
+      dest_currency TEXT NOT NULL,
+      usdsui_amount NUMERIC NOT NULL,
+      source_amount NUMERIC NOT NULL,
+      dest_amount NUMERIC NOT NULL,
+      fx_rate NUMERIC NOT NULL,
+      onchain_digest TEXT,
+      provider_reference TEXT,
+      state_reason TEXT,
+      parked_funds BOOLEAN NOT NULL DEFAULT FALSE,
+      metadata TEXT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      debited_at BIGINT,
+      onchain_settled_at BIGINT,
+      settled_at BIGINT,
+      failed_at BIGINT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_transfers_user ON transfers(user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_transfers_state ON transfers(state, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_transfers_parked ON transfers(parked_funds, created_at DESC) WHERE parked_funds = TRUE`,
 
     // ─── roundup_queue (deferred spend-and-save) ─────────────────────
     // When a USDsui send takes the gasless rail (the only USDsui rail
