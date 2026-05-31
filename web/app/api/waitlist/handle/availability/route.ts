@@ -5,7 +5,7 @@ import {
   normalizeReasonMessage,
   normalizeWaitlistHandle,
 } from "@/lib/handle-claim";
-import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import { getClientIp, rateLimitAsync } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   const ip = getClientIp(req);
   // Per-minute throttle — a normal keystroke flow (debounced 350ms on
   // the client) stays well under 30/min.
-  const rl = rateLimit({
+  const rl = await rateLimitAsync({
     key: `waitlist-avail:${ip}`,
     limit: 30,
     windowSec: 60,
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
   // Tighter burst limit on a short window — blunts a fast scripted scan
   // of the handle namespace (enumerating which names are taken) while
   // still comfortably allowing human typing.
-  const burst = rateLimit({
+  const burst = await rateLimitAsync({
     key: `waitlist-avail-burst:${ip}`,
     limit: 8,
     windowSec: 5,

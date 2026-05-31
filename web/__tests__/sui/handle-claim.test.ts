@@ -341,6 +341,7 @@ vi.mock("@/lib/email", () => ({
 // Rate-limit — always allow during tests.
 vi.mock("@/lib/rate-limit", () => ({
   rateLimit: () => ({ ok: true, remaining: 100 }),
+  rateLimitAsync: async () => ({ ok: true, remaining: 100 }),
   getClientIp: () => "127.0.0.1",
 }));
 

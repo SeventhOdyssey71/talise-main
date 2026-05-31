@@ -6,7 +6,8 @@
 import { NextResponse } from "next/server";
 import { db, ensureSchema } from "@/lib/db";
 import { sendWaitlistConfirmation } from "@/lib/email";
-import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimitAsync, getClientIp } from "@/lib/rate-limit";
+import { turnstileConfigured, verifyTurnstile } from "@/lib/turnstile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,20 @@ export const dynamic = "force-dynamic";
  * The Resend call is awaited (so we can flip `confirmation_sent` in the
  * same request) but capped by a 4s timeout — we never wedge the
  * response on a Resend hiccup.
+ *
+ * --- Bot protection (audit F9) ---
+ * This endpoint is UNAUTHENTICATED and triggers a Resend email per new
+ * address, so left open it's an outbound-spam amplifier (a script feeds
+ * victim addresses and Talise emails them). We gate it with Cloudflare
+ * Turnstile, FAIL-CLOSED:
+ *
+ *   - TURNSTILE_SECRET_KEY set  → a missing or invalid `turnstileToken`
+ *     (alias `cf-turnstile-response`) → 403, no row, no email.
+ *   - TURNSTILE_SECRET_KEY unset → fall back to rate-limit-only and log a
+ *     LOUD warning. Rationale: don't break local dev; production MUST set
+ *     the secret before this endpoint is exposed (see web/.env.example).
+ *
+ * The 10/min/IP rate limit stays as defense-in-depth in both modes.
  */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -57,9 +72,13 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 }
 
 export async function POST(req: Request) {
-  let body: { email?: unknown };
+  let body: {
+    email?: unknown;
+    turnstileToken?: unknown;
+    "cf-turnstile-response"?: unknown;
+  };
   try {
-    body = (await req.json()) as { email?: unknown };
+    body = (await req.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
@@ -77,7 +96,9 @@ export async function POST(req: Request) {
 
   // Light per-IP throttle so a script can't enumerate the address book.
   // 10 attempts per minute is well above any legit user's keystroke rate.
-  const rl = rateLimit({ key: `waitlist:${ip}`, limit: 10, windowSec: 60 });
+  // Kept FIRST so abusive callers don't get to hammer Cloudflare's
+  // siteverify on our behalf.
+  const rl = await rateLimitAsync({ key: `waitlist:${ip}`, limit: 10, windowSec: 60 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many attempts. Try again shortly." },
@@ -85,6 +106,29 @@ export async function POST(req: Request) {
         status: 429,
         headers: { "Retry-After": String(rl.retryAfterSec ?? 60) },
       }
+    );
+  }
+
+  // Bot gate (audit F9). Fail-closed when configured; rate-limit-only +
+  // loud warning when not (see the route docblock).
+  if (turnstileConfigured()) {
+    const rawToken =
+      (typeof body.turnstileToken === "string" && body.turnstileToken) ||
+      (typeof body["cf-turnstile-response"] === "string" &&
+        body["cf-turnstile-response"]) ||
+      "";
+    const verified = await verifyTurnstile(rawToken, ip);
+    if (!verified) {
+      return NextResponse.json(
+        { error: "Verification required." },
+        { status: 403 }
+      );
+    }
+  } else {
+    console.warn(
+      "[waitlist] TURNSTILE_SECRET_KEY unset — endpoint is UNPROTECTED " +
+        "(rate-limit only). Set it before exposing /api/waitlist publicly. " +
+        "See audit F9."
     );
   }
 

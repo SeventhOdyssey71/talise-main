@@ -1,30 +1,34 @@
 /**
- * In-process sliding-window rate limiter.
+ * Rate limiter with two backends: a global Upstash-Redis fixed-window
+ * counter (preferred) and an in-process Map fallback.
  *
- * --- Scope ---
- * Single Node process, in-memory Map. Good enough for our launch traffic
- * profile (one Vercel function instance handles thousands of req/s and
- * cold starts reset the counter, which is acceptable for abuse-mitigation
- * rather than strict quota enforcement).
+ * --- Why two backends ---
+ * The in-memory Map is per-instance: on Vercel's multi-lambda fan-out the
+ * effective cap is N× the configured limit (one bucket per warm instance,
+ * reset on every cold start). That's "abuse mitigation", not a real quota
+ * (audit finding F3). When `UPSTASH_REDIS_REST_URL` +
+ * `UPSTASH_REDIS_REST_TOKEN` are set, `rateLimitAsync` instead does an
+ * atomic `INCR` (+ `EXPIRE` on first hit) against Upstash over its REST
+ * API, so the cap is GLOBAL across every instance and region.
  *
- * --- Upgrade path: Upstash Redis ---
- * When we cross ~1k DAU or move to multi-region serverless, swap this
- * Map for an Upstash Redis pipeline:
+ * No SDK dependency: Upstash exposes a plain HTTPS REST endpoint that maps
+ * 1:1 to Redis commands, so we hit it with `fetch`. Keeps the bundle lean.
  *
- *   import { Redis } from "@upstash/redis";
- *   const redis = Redis.fromEnv();
- *   const pipe = redis.pipeline();
- *   pipe.incr(`rl:${key}`);
- *   pipe.expire(`rl:${key}`, windowSec, "NX");
- *   const [count] = await pipe.exec<[number]>();
- *   return count <= limit ? { ok: true } : { ok: false, retryAfterSec: ... };
+ * --- Failure modes (documented) ---
+ *   - Env vars UNSET (local dev, preview without Redis): silently fall
+ *     back to the in-memory Map. Logged once at first use.
+ *   - Env vars set but Redis errors/times out: FAIL OPEN (allow the
+ *     request) and log. A waitlist signup must never 500 because Redis
+ *     hiccuped; the limiter is a guard, not a gate.
  *
- * Required env: UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN.
- * Public API (`rateLimit`, `getClientIp`) stays identical so callers
- * don't change. The 4 currently-hardened routes pick up the swap for
- * free.
+ * --- Public API ---
+ *   - `rateLimitAsync(opts)` → Promise<RateLimitResult>: Redis when
+ *     configured, else in-memory. Use this for new/migrated callers.
+ *   - `rateLimit(opts)` → RateLimitResult: synchronous in-memory only,
+ *     kept for any caller that hasn't migrated. Identical shape.
+ *   - `getClientIp(req)`: unchanged (already hardened, do not touch).
  *
- * --- TODO: extend to these routes next (P1 backlog) ---
+ * --- TODO: extend Redis limiter to these routes next (P1 backlog) ---
  *   - /api/zk/sponsor                (sponsor request before execute)
  *   - /api/send/prepare              (PTB build is expensive)
  *   - /api/onramp/quote
@@ -100,6 +104,124 @@ export function rateLimit(opts: RateLimitOptions): RateLimitResult {
 
   const retryAfterSec = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
   return { ok: false, retryAfterSec };
+}
+
+// ── Upstash Redis backend ────────────────────────────────────────────
+
+function upstashConfig(): { url: string; token: string } | null {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) return { url, token };
+  return null;
+}
+
+// Log the active mode exactly once so prod boot logs make it obvious
+// whether caps are global (Redis) or per-instance (Map) — the F3 signal.
+let modeLogged = false;
+function logModeOnce(redisEnabled: boolean): void {
+  if (modeLogged) return;
+  modeLogged = true;
+  if (redisEnabled) {
+    console.info("[rate-limit] backend=upstash-redis (global, cross-instance)");
+  } else {
+    console.warn(
+      "[rate-limit] backend=in-memory (per-instance; set UPSTASH_REDIS_REST_URL + " +
+        "UPSTASH_REDIS_REST_TOKEN for global caps — audit F3)"
+    );
+  }
+}
+
+/**
+ * Run a Redis command via the Upstash REST API. Commands are sent as a
+ * JSON array body (e.g. `["INCR", "rl:foo"]`) and the result comes back
+ * as `{ result: <value> }`. Throws on transport/HTTP error so the caller
+ * can decide its failure policy.
+ */
+async function upstashCmd(
+  cfg: { url: string; token: string },
+  command: (string | number)[]
+): Promise<unknown> {
+  const res = await fetch(cfg.url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${cfg.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(command),
+    // Never let a slow/dead Redis hang a request. AbortSignal.timeout is
+    // available on Node 18+/Vercel runtime.
+    signal: AbortSignal.timeout(1500),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`upstash ${command[0]} → HTTP ${res.status}`);
+  }
+  const json = (await res.json()) as { result?: unknown; error?: string };
+  if (json.error) throw new Error(`upstash ${command[0]} → ${json.error}`);
+  return json.result;
+}
+
+/**
+ * Global fixed-window rate limit. Uses Upstash Redis when configured
+ * (cap holds across every serverless instance/region); otherwise falls
+ * back to the in-memory `rateLimit`.
+ *
+ * Redis algorithm (the standard Upstash primitive):
+ *   1. `INCR rl:<key>` → current count in this window.
+ *   2. If count === 1 (first hit), `EXPIRE rl:<key> windowSec` so the
+ *      window self-resets. We don't pipeline; two round-trips on the
+ *      first request per window is fine for our QPS.
+ *   3. allow iff count <= limit. retryAfterSec derived from remaining TTL
+ *      (best-effort: falls back to windowSec if TTL fetch is skipped).
+ *
+ * Failure policy: any Redis error → FAIL OPEN (return ok:true) + log.
+ */
+export async function rateLimitAsync(opts: RateLimitOptions): Promise<RateLimitResult> {
+  const cfg = upstashConfig();
+  logModeOnce(cfg !== null);
+
+  if (!cfg) {
+    // No Redis configured — preserve existing per-instance behavior.
+    return rateLimit(opts);
+  }
+
+  const { key, limit, windowSec } = opts;
+  const redisKey = `rl:${key}`;
+
+  try {
+    const raw = await upstashCmd(cfg, ["INCR", redisKey]);
+    const count = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isFinite(count)) {
+      throw new Error(`upstash INCR returned non-numeric: ${String(raw)}`);
+    }
+
+    if (count === 1) {
+      // First request in this window — set the TTL. NX guards against a
+      // race where another instance already set it (harmless either way).
+      await upstashCmd(cfg, ["EXPIRE", redisKey, windowSec, "NX"]);
+    }
+
+    if (count <= limit) {
+      return { ok: true };
+    }
+
+    // Over limit — best-effort remaining TTL for Retry-After. A failed
+    // TTL fetch must not turn an over-limit denial into a 500, so default
+    // to the full window.
+    let retryAfterSec = windowSec;
+    try {
+      const ttl = await upstashCmd(cfg, ["TTL", redisKey]);
+      const ttlNum = typeof ttl === "number" ? ttl : Number(ttl);
+      if (Number.isFinite(ttlNum) && ttlNum > 0) retryAfterSec = ttlNum;
+    } catch {
+      /* keep windowSec default */
+    }
+    return { ok: false, retryAfterSec: Math.max(1, retryAfterSec) };
+  } catch (err) {
+    // FAIL OPEN: a Redis outage must not break the waitlist. Log and allow.
+    console.error("[rate-limit] upstash error, failing open:", err);
+    return { ok: true };
+  }
 }
 
 /**
