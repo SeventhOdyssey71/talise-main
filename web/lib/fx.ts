@@ -5,19 +5,52 @@
  * USD just like USDC). Users see a local African currency (Naira ₦ by
  * default) as primary, with USD as a small secondary line.
  *
- * Rates are a hardcoded Q2 2026 snapshot; a live feed will replace `FX` later.
- * No I/O — these helpers are pure.
+ * Rates here are a hardcoded Q2 2026 snapshot used as the DISPLAY/offline
+ * fallback. The server-authoritative, executable rates for quote generation
+ * live in `fx-feed.ts` (live API + per-corridor spread + max-age breaker).
+ * The helpers in THIS file remain pure (no I/O) and backward-compatible.
+ *
+ * Currencies span the African corridors (NGN/KES/GHS/ZAR), the global/USD
+ * anchor (USD), and the Asian/global expansion set (JPY/SGD/PHP/IDR/VND).
  */
 
-export type Currency = "NGN" | "KES" | "GHS" | "ZAR" | "USD";
+export type Currency =
+  // African corridors
+  | "NGN"
+  | "KES"
+  | "GHS"
+  | "ZAR"
+  // global anchor
+  | "USD"
+  // Asian / global expansion
+  | "JPY"
+  | "SGD"
+  | "PHP"
+  | "IDR"
+  | "VND";
 
-/** Units of `currency` per 1 USD. */
+/**
+ * Units of `currency` per 1 USD — a hardcoded Q2 2026 snapshot.
+ *
+ * Used ONLY as a display fallback and as the seed/sanity reference for the
+ * live feed. Quote pricing MUST go through `fx-feed.ts` (`getQuote`), which
+ * sources executable rates and rejects stale feeds. Do not price money off
+ * these constants.
+ */
 export const FX: Record<Currency, number> = {
+  // African corridors
   NGN: 1620,
   KES: 132,
   GHS: 14,
   ZAR: 18.5,
+  // global anchor
   USD: 1,
+  // Asian / global expansion (Q2 2026 snapshot)
+  JPY: 157,
+  SGD: 1.34,
+  PHP: 58,
+  IDR: 16200,
+  VND: 25400,
 };
 
 /** Display prefix for each currency (note trailing space on multi-char prefixes). */
@@ -27,18 +60,42 @@ export const SYMBOL: Record<Currency, string> = {
   GHS: "GH₵ ",
   ZAR: "R ",
   USD: "$",
+  JPY: "¥",
+  SGD: "S$",
+  PHP: "₱",
+  IDR: "Rp ",
+  VND: "₫ ",
 };
 
 /**
+ * Currencies conventionally displayed without a fractional part (the minor
+ * unit is negligible or unused in everyday pricing). Everything else shows
+ * 2 decimals.
+ */
+const ZERO_DECIMAL: ReadonlySet<Currency> = new Set<Currency>([
+  "NGN",
+  "KES",
+  "GHS",
+  "JPY",
+  "IDR",
+  "VND",
+]);
+
+/** Number of fractional digits to display for a currency. */
+function fractionDigits(currency: Currency): number {
+  return ZERO_DECIMAL.has(currency) ? 0 : 2;
+}
+
+/**
  * Convert a USDsui amount (treated 1:1 with USD) to the given local currency.
- * Returns a number rounded to whole units for NGN/KES/GHS and 2 decimals for ZAR/USD.
+ * Whole units for zero-decimal currencies, 2 decimals otherwise.
  */
 export function usdcToLocal(amountUsdsui: number, currency: Currency): number {
   const raw = amountUsdsui * FX[currency];
-  if (currency === "ZAR" || currency === "USD") {
-    return Math.round(raw * 100) / 100;
+  if (fractionDigits(currency) === 0) {
+    return Math.round(raw);
   }
-  return Math.round(raw);
+  return Math.round(raw * 100) / 100;
 }
 
 /** Locale used for grouping/decimals in each currency's display. */
@@ -48,6 +105,11 @@ const LOCALE: Record<Currency, string> = {
   GHS: "en-GH",
   ZAR: "en-ZA",
   USD: "en-US",
+  JPY: "ja-JP",
+  SGD: "en-SG",
+  PHP: "en-PH",
+  IDR: "id-ID",
+  VND: "vi-VN",
 };
 
 /**
@@ -57,10 +119,10 @@ const LOCALE: Record<Currency, string> = {
  */
 export function formatLocal(amountUsdsui: number, currency: Currency): string {
   const local = usdcToLocal(amountUsdsui, currency);
-  const fractionDigits = currency === "ZAR" || currency === "USD" ? 2 : 0;
+  const digits = fractionDigits(currency);
   const formatted = new Intl.NumberFormat(LOCALE[currency], {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
   }).format(local);
   return `${SYMBOL[currency]}${formatted}`;
 }
@@ -77,4 +139,23 @@ export function defaultCurrency(): Currency {
  */
 export function localToUsdsui(amountLocal: number, currency: Currency): number {
   return amountLocal / FX[currency];
+}
+
+/** All supported currencies, in a stable order (corridors, then anchor, then Asia/global). */
+export const ALL_CURRENCIES: readonly Currency[] = [
+  "NGN",
+  "KES",
+  "GHS",
+  "ZAR",
+  "USD",
+  "JPY",
+  "SGD",
+  "PHP",
+  "IDR",
+  "VND",
+];
+
+/** Type guard: is `x` a supported `Currency`? */
+export function isCurrency(x: unknown): x is Currency {
+  return typeof x === "string" && (ALL_CURRENCIES as readonly string[]).includes(x);
 }
