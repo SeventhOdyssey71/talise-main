@@ -29,7 +29,7 @@ export default async function Landing({
   const params = await searchParams;
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[var(--color-bg)] text-[var(--color-fg)]">
+    <div className="relative min-h-screen overflow-hidden bg-[#264616] text-[var(--color-fg)]">
       <div className="talise-top-glow" aria-hidden />
 
       <TopBar />
