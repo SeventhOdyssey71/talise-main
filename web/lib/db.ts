@@ -61,6 +61,13 @@ import postgres, { type Sql } from "postgres";
  *                       Created in lib/mobile-sessions.ts; CREATE TABLE
  *                       lives there too, this file only widens its int4
  *                       timestamp columns.
+ *
+ *   travel_rule_records FATF Travel Rule (master plan §7) audit log of
+ *                       above-threshold transfer metadata: route, obligation,
+ *                       IVMS-101 payload, Travel Rule network transfer id.
+ *                       Primary writer: web/lib/travel-rule.ts
+ *                       (recordTravelRuleTransfer). Schema only — NOT yet
+ *                       wired into the send path.
  */
 
 // ───────────────────────────────────────────────────────────────────
@@ -531,6 +538,32 @@ async function doEnsureSchema(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_roundup_queue_pending
        ON roundup_queue(created_at) WHERE processed_at IS NULL`,
+
+    // ─── travel_rule_records (FATF Travel Rule audit log) ────────────
+    // Master plan §7: above the ~$1,000 Travel Rule threshold, external
+    // transfers must exchange IVMS-101 originator/beneficiary data. This
+    // table is the audit log of that compliance metadata — route
+    // (INTERNAL / EXTERNAL_VASP / UNHOSTED), the obligation that applied,
+    // the IVMS-101 payload (JSON), and the Travel Rule network transfer
+    // id once a message has been submitted. Written by
+    // `recordTravelRuleTransfer` in web/lib/travel-rule.ts. ADDITIVE only
+    // — NOT yet wired into the send path (see TRAVEL_RULE_INTEGRATION_POINT
+    // in that module).
+    `CREATE TABLE IF NOT EXISTS travel_rule_records (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER,
+      route TEXT NOT NULL,
+      obligation TEXT NOT NULL,
+      amount_usd DOUBLE PRECISION NOT NULL,
+      recipient_kind TEXT NOT NULL,
+      beneficiary_address TEXT,
+      ivms101_json TEXT,
+      network_transfer_id TEXT,
+      status TEXT,
+      created_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_travel_rule_user ON travel_rule_records(user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_travel_rule_created ON travel_rule_records(created_at DESC)`,
   ];
 
   for (const stmt of stmts) {
