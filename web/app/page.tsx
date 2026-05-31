@@ -1342,7 +1342,9 @@ function Diamond() {
 
 function FeatureGlyph({ kind }: { kind: "send" | "leaf" | "sui" }) {
   const stroke = "var(--color-accent)";
-  const fill = "color-mix(in srgb, var(--color-accent) 18%, transparent)";
+  // Solid Talise dark green for the glyph disc — replaces the muddy 18%
+  // mint-on-transparent wash that read as an "overly dark" grey-green.
+  const fill = "#1A470B";
   return (
     <span
       className="grid h-9 w-9 place-items-center rounded-full"
