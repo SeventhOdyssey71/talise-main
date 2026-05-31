@@ -64,15 +64,19 @@ export const MAINNET_GRPC_ENDPOINTS: ReadonlyArray<SuiGrpcEndpoint> = [
     provider: "mysten-fullnode",
     requiresAuth: false,
   },
-  {
-    // Mysten's archival sibling. Mentioned in our internal sub-plan docs as
-    // higher-retention. If it lives on the same upstream cluster as the
-    // primary fullnode (which today's outage suggested), we'll demote it
-    // below Shinami once we have outage correlation data.
-    url: "https://archive.mainnet.sui.io:443",
-    provider: "mysten-archive",
-    requiresAuth: false,
-  },
+  // NOTE (2026-05-31): `https://archive.mainnet.sui.io:443` was REMOVED from
+  // this chain. It was sitting at position #2 but does NOT serve the gRPC
+  // API — every method (getReferenceGasPrice, getObject, getServiceInfo)
+  // returns `RpcError { code: "NOT_FOUND", message: "Not Found" }` and a
+  // plain `curl` of the host root returns HTTP 404. With it here, a primary
+  // (`fullnode`) outage fell THROUGH to this dead host and — because
+  // `NOT_FOUND` wasn't fallback-eligible — the wrapper threw "Not Found"
+  // instead of advancing to Shinami/Dwellir, defeating the entire point of
+  // the fallback chain during the very outage it exists to survive. The
+  // chain now goes straight from the public fullnode to the keyed providers.
+  // `isFallbackEligible` was ALSO hardened to treat a `NOT_FOUND` /
+  // `UNIMPLEMENTED` gRPC status as eligible so any future host that 404s the
+  // gRPC service is skipped rather than killing the chain.
   {
     // Shinami — we already use them for zkLogin + gas station and have a
     // mainnet US1 key in .env.local under SHINAMI_API_KEY.
@@ -119,8 +123,24 @@ export function isFallbackEligible(err: unknown): boolean {
   const e = err as { code?: unknown; message?: unknown; name?: unknown };
   const code = typeof e.code === "string" ? e.code.toLowerCase() : "";
   if (code === "unavailable" || code === "deadline_exceeded") return true;
-  // Numeric gRPC codes: 14 = UNAVAILABLE, 4 = DEADLINE_EXCEEDED.
-  if (typeof e.code === "number" && (e.code === 14 || e.code === 4)) return true;
+  // `NOT_FOUND` / `UNIMPLEMENTED` as a TRANSPORT-level gRPC status (i.e. the
+  // RpcError `.code` field is set) means "this host doesn't speak our gRPC
+  // service" — a per-endpoint capability problem, NOT a bad request. The
+  // dead `archive.mainnet.sui.io` host returned exactly this
+  // (`RpcError { code: "NOT_FOUND", message: "Not Found" }`). Skip to the
+  // next provider. A LEGITIMATE missing object from a healthy fullnode does
+  // NOT set `.code` (it surfaces as `code: undefined` with a descriptive
+  // "Object 0x… not found" message), so this stays safely scoped to the
+  // transport signature and never fans out on a real not-found result.
+  if (code === "not_found" || code === "unimplemented") return true;
+  // Numeric gRPC codes: 14 = UNAVAILABLE, 4 = DEADLINE_EXCEEDED,
+  // 5 = NOT_FOUND, 12 = UNIMPLEMENTED.
+  if (
+    typeof e.code === "number" &&
+    (e.code === 14 || e.code === 4 || e.code === 5 || e.code === 12)
+  ) {
+    return true;
+  }
   const msg = typeof e.message === "string" ? e.message.toLowerCase() : "";
   if (
     msg.includes("no_healthy_upstream") ||

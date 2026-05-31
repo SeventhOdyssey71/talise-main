@@ -51,7 +51,15 @@ import "server-only";
  *     how we filter caps without listing the user's full inventory.
  */
 
-const DEFAULT_ENDPOINT = "https://sui-mainnet.mystenlabs.com/graphql";
+// Canonical Mysten-hosted mainnet GraphQL indexer. The legacy
+// `sui-mainnet.mystenlabs.com` host was retired — it now refuses
+// connections (`fetch failed`) from most networks, which silently broke
+// `batchCoinMetadata` (it fell through to its catch and returned
+// type-string-derived symbols with default 9 decimals on EVERY coin).
+// `graphql.mainnet.sui.io` is the same host the SDK client below
+// (`defaultGraphQLUrl`) and the integration smoke test already use, so
+// every GraphQL path now resolves to one live endpoint.
+const DEFAULT_ENDPOINT = "https://graphql.mainnet.sui.io/graphql";
 
 function endpoint(): string {
   return process.env.SUI_GRAPHQL_URL || DEFAULT_ENDPOINT;

@@ -57,7 +57,11 @@ import {
 } from "../../lib/sui-endpoints";
 
 const PRIMARY_URL = "https://fullnode.mainnet.sui.io:443";
-const SECONDARY_URL = "https://archive.mainnet.sui.io:443";
+// The dead `archive.mainnet.sui.io` host was removed from the registry
+// (it 404s the gRPC service), so the second endpoint in the chain is now
+// the first KEYED provider. We set SHINAMI_API_KEY in the fallback tests so
+// Shinami becomes endpoint #2 and the wrapper has a real second hop.
+const SECONDARY_URL = "https://api.us1.shinami.com/sui/node/v1";
 
 function unavailableError(): Error {
   // Mimic `@protobuf-ts/runtime-rpc/RpcError`: an Error subclass with a
@@ -83,10 +87,13 @@ describe("sui-endpoints fallback wrapper", () => {
   beforeEach(() => {
     ctorCalls.length = 0;
     FakeSuiGrpcClient.responses.clear();
-    // Force the wrapper into a deterministic, auth-free run: clear any
-    // provider keys that may have leaked from the host env so only the
-    // two free Mysten endpoints participate.
-    delete process.env.SHINAMI_API_KEY;
+    // Deterministic two-endpoint chain: the public fullnode (#1, no key) then
+    // Shinami (#2). We set a dummy SHINAMI_API_KEY so Shinami is constructed
+    // as the fallback target — the FakeSuiGrpcClient ignores auth, it just
+    // records the URL + meta. (The dead `archive.mainnet.sui.io` host that
+    // used to sit at #2 was removed from the registry.) Dwellir / QuickNode
+    // stay unkeyed so they're skipped and don't perturb the chain.
+    process.env.SHINAMI_API_KEY = "test-shinami-key";
     delete process.env.DWELLIR_API_KEY;
     delete process.env.QUICKNODE_SUI_GRPC_URL;
     // Wrapper hard-fails on testnet today.
@@ -154,10 +161,80 @@ describe("sui-endpoints fallback wrapper", () => {
     expect(first.requiresAuth).toBe(false);
   });
 
+  it("no longer lists the dead archive.mainnet.sui.io host", () => {
+    // Regression guard: the archive host 404s the gRPC service and must
+    // never re-enter the chain (it would break fallback during an outage).
+    for (const ep of MAINNET_GRPC_ENDPOINTS) {
+      expect(ep.url).not.toContain("archive.mainnet.sui.io");
+    }
+  });
+
   it("isFallbackEligible flags 503 / no_healthy_upstream messages", () => {
     expect(isFallbackEligible(new Error("503 no_healthy_upstream"))).toBe(true);
     expect(isFallbackEligible(new Error("fetch failed"))).toBe(true);
     expect(isFallbackEligible(unavailableError())).toBe(true);
     expect(isFallbackEligible(new Error("nope, address invalid"))).toBe(false);
+  });
+
+  it("isFallbackEligible treats a transport-level NOT_FOUND/UNIMPLEMENTED as eligible", () => {
+    // The dead archive host throws `RpcError { code: "NOT_FOUND",
+    // message: "Not Found" }` for every method — a per-endpoint capability
+    // failure, so we must skip to the next provider rather than throw.
+    const notFound = new Error("Not Found");
+    (notFound as Error & { code: string }).code = "NOT_FOUND";
+    expect(isFallbackEligible(notFound)).toBe(true);
+
+    const unimplemented = new Error("Unimplemented");
+    (unimplemented as Error & { code: string }).code = "UNIMPLEMENTED";
+    expect(isFallbackEligible(unimplemented)).toBe(true);
+
+    // Numeric gRPC status forms too (5 = NOT_FOUND, 12 = UNIMPLEMENTED).
+    const numericNotFound = new Error("not found");
+    (numericNotFound as Error & { code: number }).code = 5;
+    expect(isFallbackEligible(numericNotFound)).toBe(true);
+  });
+
+  it("does NOT fan out on a legitimate missing-object error (no transport code)", () => {
+    // A real fullnode returns a descriptive message with NO `.code` field
+    // for a missing object. That must stay non-eligible so we don't blow
+    // through every provider on a benign not-found result.
+    const missingObj = new Error(
+      "Object 0x00000000000000000000000000000000000000000000000000000000deadbeef not found"
+    );
+    expect(isFallbackEligible(missingObj)).toBe(false);
+  });
+
+  it("walks PAST a NOT_FOUND endpoint to the next healthy one", async () => {
+    // End-to-end: simulate the post-fix outage shape. The public fullnode
+    // (#1) is down (UNAVAILABLE) AND the next attempt hits a host that 404s
+    // the gRPC service (NOT_FOUND). The wrapper must keep going and resolve
+    // on a later endpoint rather than throwing "Not Found". We add a third
+    // keyed provider (Dwellir) as the eventual healthy hop.
+    process.env.DWELLIR_API_KEY = "test-dwellir-key";
+    const DWELLIR_URL = "https://api-sui-mainnet-full.n.dwellir.com:443";
+
+    FakeSuiGrpcClient.responses.set(PRIMARY_URL, async () => {
+      throw unavailableError();
+    });
+    const notFound = new Error("Not Found");
+    (notFound as Error & { code: string }).code = "NOT_FOUND";
+    FakeSuiGrpcClient.responses.set(SECONDARY_URL, async () => {
+      throw notFound;
+    });
+    FakeSuiGrpcClient.responses.set(DWELLIR_URL, async () => ({
+      ok: true,
+      from: "dwellir",
+    }));
+
+    const result = await suiGrpcWithFallback((c) =>
+      (c as unknown as { tag: () => Promise<unknown> }).tag()
+    );
+    expect(result).toEqual({ ok: true, from: "dwellir" });
+    // All three were constructed, in order.
+    expect(ctorCalls.map((c) => c.baseUrl)).toEqual([
+      PRIMARY_URL,
+      SECONDARY_URL,
+      DWELLIR_URL,
+    ]);
   });
 });
