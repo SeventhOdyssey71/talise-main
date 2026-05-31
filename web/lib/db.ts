@@ -57,6 +57,11 @@ import postgres, { type Sql } from "postgres";
  *   paga_offramps       Paga USDsui → NGN bank payout state machine.
  *                       Primary writer: web/app/api/offramp/paga/*.
  *
+ *   kyc_upgrade_intents Append-only log of tier-upgrade requests + the
+ *                       (mock) eKYC verdict. Never mutates users.kyc_tier.
+ *                       Primary writer: web/app/api/kyc/route.ts.
+ *                       Tier model: web/lib/kyc.ts; eKYC: web/lib/ekyc.ts.
+ *
  *   mobile_sessions     Opaque bearer tokens for the iOS client.
  *                       Created in lib/mobile-sessions.ts; CREATE TABLE
  *                       lives there too, this file only widens its int4
@@ -337,6 +342,13 @@ async function doEnsureSchema(): Promise<void> {
     // wallet address to the vault id.
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_id TEXT`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_vault_subname_repointed INTEGER DEFAULT 0`,
+    // KYC tier (master plan §7 compliance). 0 = email-only receive (the
+    // implicit default for every existing + new row); 1..3 unlock higher
+    // send/corridor limits as the user clears progressively stronger
+    // identity checks. The tier model + limit table live in lib/kyc.ts;
+    // getUserTier() reads this column and treats NULL as 0. Default 0 so
+    // fresh inserts (which don't set it) land at the floor tier.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_tier INTEGER DEFAULT 0`,
     // Indexes on hot read paths. UNIQUE constraints above already cover
     // google_sub / sui_address / business_handle / talise_username
     // lookups; these add coverage for the non-unique reads.
@@ -531,6 +543,28 @@ async function doEnsureSchema(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_roundup_queue_pending
        ON roundup_queue(created_at) WHERE processed_at IS NULL`,
+
+    // ─── kyc_upgrade_intents (compliance §7 tier engine) ─────────────
+    // Append-only log of "user asked to move up to tier N" events. One
+    // row per POST /api/kyc. `ekyc_ref` is the opaque reference the
+    // (mock) eKYC provider hands back; `ekyc_status` is the provider's
+    // verdict at intent time (pending|approved|rejected). Recording an
+    // intent NEVER mutates users.kyc_tier — promotion is a separate,
+    // reviewed write (lib/kyc.ts setUserTier), so a self-service POST
+    // can't grant itself a higher limit. The tier model lives in
+    // lib/kyc.ts; the eKYC adapter in lib/ekyc.ts.
+    `CREATE TABLE IF NOT EXISTS kyc_upgrade_intents (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      from_tier INTEGER NOT NULL,
+      requested_tier INTEGER NOT NULL,
+      ekyc_provider TEXT,
+      ekyc_ref TEXT,
+      ekyc_status TEXT,
+      created_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_kyc_intents_user
+       ON kyc_upgrade_intents(user_id, created_at DESC)`,
   ];
 
   for (const stmt of stmts) {
@@ -639,6 +673,7 @@ export type User = {
   lifetime_saved_usd?: number | null;
   talise_vault_id?: string | null;
   talise_vault_subname_repointed?: number | null;
+  kyc_tier?: number | null;
 };
 
 /**
