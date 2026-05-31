@@ -89,10 +89,11 @@ struct SendFlowView: View {
         // No drag indicator — we present as `.fullScreenCover` from
         // AppRoot, not a bottom sheet. Mid-flow swipe-down dismiss
         // would land users on a half-confirmed state.
-        // Mount the PIN host inside the fullScreenCover so its sheet
-        // can present over the Send flow (the AppRoot-level host is
-        // behind the cover and would otherwise be queued by iOS).
-        .pinGateHost()
+        //
+        // The PIN host was removed here alongside dropping PIN re-auth on
+        // the send path — the slide-to-send gesture is now the intent
+        // confirmation. PinGate is still hosted at the AppRoot level for
+        // app-unlock and Earn supply.
     }
 
     // MARK: - Navigation
@@ -117,34 +118,13 @@ struct SendFlowView: View {
         guard let resolved = draft.resolved, draft.amountUsdsui > 0 else { return }
         draft.errorMessage = nil
 
-        // PIN sheet FIRST, while still on the Review screen. We don't
-        // push .sending until the user has actually confirmed —
-        // otherwise the spinner appears before they've approved the
-        // transaction. The sheet is hosted by SendFlowView itself (see
-        // `.pinGateHost()` on `body`) so it surfaces above the
-        // fullScreenCover.
+        // The slide-to-send gesture on the Review screen IS the intent
+        // confirmation now — no PIN/biometric re-auth on the send path.
+        // The session is already zkLogin-authenticated; the slide is a
+        // deliberate, hard-to-trigger-by-accident confirmation gesture
+        // (Cash App style). PIN re-auth remains on Earn supply and app
+        // unlock. Push the in-flight page and run the network round-trip.
         let intentLabel = "Send \(draft.currency.symbol)\(draft.rawAmount)"
-        let recipientLabel = resolved.displayName ?? shortAddress(resolved.address)
-        let amountForPrompt = String(format: "$%.2f", draft.amountUsdsui)
-        do {
-            try await PinGate.shared.requireUserPresence(
-                reason: "Send \(amountForPrompt) to \(recipientLabel)"
-            )
-        } catch PinError.cancelled {
-            // User dismissed the PIN sheet from Review — stay put, no
-            // spinner, no error.
-            return
-        } catch PinError.forgotSignOut {
-            // PinService already cleared this user's hash.
-            session.signOut()
-            return
-        } catch {
-            draft.errorMessage = error.localizedDescription
-            return
-        }
-
-        // PIN confirmed. Now push the in-flight page and run the
-        // network round-trip.
         path.append(.sending)
 
         await performSend(intentLabel: intentLabel, resolved: resolved)

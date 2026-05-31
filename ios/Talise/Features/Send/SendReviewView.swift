@@ -31,18 +31,12 @@ struct SendReviewView: View {
             }
 
             VStack(spacing: 8) {
-                confirmButton
-                if !BiometricGate.hintShown {
-                    Text("Talise asks for your PIN before every transaction. It's stored on this device only.")
-                        .font(TaliseFont.mono(10, weight: .light))
-                        .foregroundStyle(TaliseColor.fgDim)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 12)
+                SlideToConfirm(title: "Slide to send") {
+                    await onConfirm()
                 }
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 18)
-            .onAppear { BiometricGate.markHintShown() }
         }
         .background(TaliseColor.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
@@ -192,19 +186,4 @@ struct SendReviewView: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    // MARK: - Confirm
-
-    private var confirmButton: some View {
-        Button {
-            Task { await onConfirm() }
-        } label: {
-            Text("Confirm with PIN")
-                .font(TaliseFont.heading(16, weight: .medium))
-                .foregroundStyle(TaliseColor.bg)
-                .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .background(TaliseColor.fg)
-                .clipShape(Capsule())
-        }
-    }
 }
