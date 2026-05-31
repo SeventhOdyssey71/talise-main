@@ -21,42 +21,83 @@ import SafariServices
 struct DepositFlowView: View {
     var onClose: () -> Void
 
+    /// "Coming soon" toast for funding paths not yet wired to a backend
+    /// (bank/cash rail). Auto-dismisses; never blocks the user.
+    @State private var comingSoonToast: String?
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 inlineHeader
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        NavigationLink {
-                            DepositOnrampView(onClose: onClose)
-                        } label: {
-                            OptionCardRow(
-                                icon: "creditcard.fill",
-                                title: "Deposit into account",
-                                subtitle: "Fund your wallet with your bank card.",
-                                badge: nil
-                            )
-                        }
-                        .buttonStyle(.plain)
+                    VStack(alignment: .leading, spacing: 22) {
+                        // "Deposit with" section — funding paths as large
+                        // soft cards (icon disc + title + muted subtitle),
+                        // structured like the inspiration's deposit sheet
+                        // but in Talise's dark/glass theme + brand greens.
+                        VStack(alignment: .leading, spacing: 12) {
+                            Eyebrow(text: "Deposit with")
+                                .padding(.leading, 4)
 
-                        NavigationLink {
-                            DepositOnchainView()
-                        } label: {
-                            OptionCardRow(
-                                icon: "qrcode",
-                                title: "Onchain Deposit",
-                                subtitle: "Get paid in USDsui via your Talise QR or address.",
-                                badge: "No fee"
-                            )
+                            // Crypto — bank card on-ramp (Stripe). Live.
+                            NavigationLink {
+                                DepositOnrampView(onClose: onClose)
+                            } label: {
+                                FundingPathCard(
+                                    icon: "creditcard.fill",
+                                    iconTint: TaliseColor.greenMint,
+                                    title: "Cash",
+                                    subtitle: "Buy USDsui with your bank card · powered by Stripe",
+                                    badge: nil
+                                )
+                            }
+                            .buttonStyle(.plain)
+
+                            // Crypto — onchain receive (QR / address). Live,
+                            // no fees.
+                            NavigationLink {
+                                DepositOnchainView()
+                            } label: {
+                                FundingPathCard(
+                                    icon: "qrcode",
+                                    iconTint: TaliseColor.greenMint,
+                                    title: "Crypto",
+                                    subtitle: "Receive USDsui from a wallet via your Talise QR or address",
+                                    badge: "No fees"
+                                )
+                            }
+                            .buttonStyle(.plain)
+
+                            // Bank transfer — not yet wired to a backend.
+                            // Stubbed with a "Soon" badge + coming-soon
+                            // toast so the path is visible without
+                            // pretending it works.
+                            Button {
+                                showComingSoon("Local bank transfers are coming soon.")
+                            } label: {
+                                FundingPathCard(
+                                    icon: "building.columns.fill",
+                                    iconTint: TaliseColor.fgMuted,
+                                    title: "Bank transfer",
+                                    subtitle: "Fund from a local bank account — no card needed",
+                                    badge: "Soon",
+                                    dimmed: true
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+
+                        footer
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
+                    .padding(.bottom, 28)
                 }
             }
             .background(TaliseColor.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .overlay(alignment: .bottom) { comingSoonOverlay }
+            .animation(.snappy(duration: 0.25), value: comingSoonToast)
         }
         .tint(TaliseColor.fg)
     }
@@ -65,23 +106,136 @@ struct DepositFlowView: View {
     /// Replaces the system large-title which read as too heavy / too
     /// large against the rest of the surface.
     private var inlineHeader: some View {
-        HStack(alignment: .center) {
-            Text("Deposit")
-                .font(TaliseFont.heading(26, weight: .medium))
-                .kerning(-0.6)
-                .foregroundStyle(TaliseColor.fg)
-            Spacer()
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .medium))
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center) {
+                Text("Deposit")
+                    .font(TaliseFont.heading(28, weight: .medium))
+                    .kerning(-0.6)
                     .foregroundStyle(TaliseColor.fg)
-                    .frame(width: 32, height: 32)
-                    .background(Circle().fill(TaliseColor.surfaceGlass))
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(TaliseColor.surfaceGlass))
+                }
             }
+            Text("Add money to your Talise wallet.")
+                .font(TaliseFont.body(14, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
         }
         .padding(.horizontal, 20)
         .padding(.top, 18)
-        .padding(.bottom, 14)
+        .padding(.bottom, 18)
+    }
+
+    /// Trust footer — reassurance copy under the funding paths, mono
+    /// micro-label aesthetic so it sits quietly at the bottom.
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(TaliseColor.fgDim)
+            Text("Funds land as USDsui — pegged 1:1 to USD on Sui.")
+                .font(TaliseFont.mono(10, weight: .light))
+                .kerning(0.2)
+                .foregroundStyle(TaliseColor.fgDim)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private var comingSoonOverlay: some View {
+        if let comingSoonToast {
+            Text(comingSoonToast)
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(TaliseColor.fg)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(Capsule().fill(TaliseColor.surfaceGlassStrong))
+                .overlay(Capsule().stroke(TaliseColor.line, lineWidth: 0.5))
+                .padding(.bottom, 32)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private func showComingSoon(_ message: String) {
+        comingSoonToast = message
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            comingSoonToast = nil
+        }
+    }
+}
+
+// MARK: - FundingPathCard
+//
+// Large rounded glass card for a single deposit path. Structure mirrors
+// the inspiration's "Deposit with" sheet (icon disc, title, muted
+// subtitle) but stays in Talise's dark/glass theme. Bigger than the
+// generic OptionCardRow: a 48pt icon disc, 17pt title, generous 18pt
+// padding and a 22pt radius for the premium feel. `dimmed` softens the
+// whole card for not-yet-wired paths.
+
+private struct FundingPathCard: View {
+    let icon: String              // SF Symbol name
+    var iconTint: Color = TaliseColor.greenMint
+    let title: String
+    let subtitle: String
+    var badge: String? = nil      // e.g. "No fees", "Soon"
+    var dimmed: Bool = false
+
+    var body: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(iconTint.opacity(dimmed ? 0.10 : 0.16))
+                    .frame(width: 48, height: 48)
+                Image(systemName: icon)
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(iconTint)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(TaliseFont.heading(17, weight: .medium))
+                        .kerning(-0.3)
+                        .foregroundStyle(TaliseColor.fg)
+                    if let badge {
+                        Text(badge)
+                            .font(TaliseFont.mono(9, weight: .regular))
+                            .kerning(0.4)
+                            .foregroundStyle(badge == "Soon" ? TaliseColor.fgMuted : TaliseColor.greenMint)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule().fill(
+                                    (badge == "Soon" ? TaliseColor.fgMuted : TaliseColor.greenMint)
+                                        .opacity(0.14)
+                                )
+                            )
+                    }
+                }
+                Text(subtitle)
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(TaliseColor.fgDim)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .taliseGlass(cornerRadius: 22)
+        .opacity(dimmed ? 0.7 : 1.0)
     }
 }
 
@@ -202,11 +356,11 @@ private struct DepositOnrampView: View {
     private var iconHero: some View {
         ZStack {
             Circle()
-                .fill(TaliseColor.accent.opacity(0.15))
+                .fill(TaliseColor.greenMint.opacity(0.15))
                 .frame(width: 64, height: 64)
             Image(systemName: "creditcard.fill")
                 .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(TaliseColor.accent)
+                .foregroundStyle(TaliseColor.greenMint)
         }
     }
 
