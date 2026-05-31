@@ -1,19 +1,44 @@
 import SwiftUI
+import AVFoundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Full-screen Scan-to-Pay surface. The user lands here from the Home
-/// top-right disc (the slot previously occupied by Contacts). This is the
-/// *visual* stub — there is intentionally no AVCaptureSession wired up.
+/// top-right disc (the slot previously occupied by Contacts).
 ///
-/// The live camera feed mounts at the `TODO(scan-camera)` site below.
-/// Permission gating (NSCameraUsageDescription + AVCaptureDevice
-/// authorizationStatus) is unlocked by the Permissions onboarding screen,
-/// so by the time the camera plumbing lands here the user will have
-/// already granted access in onboarding. Until then: black background +
-/// corner-bracket viewfinder + balance pill + dismiss affordance.
+/// The live camera feed (`QRScannerView`) mounts behind the overlay; the
+/// corner brackets + caption float on top. Camera permission is requested
+/// in onboarding (`PermissionsScreen`) but we never assume it — we
+/// re-check `AVCaptureDevice.authorizationStatus(for: .video)` on appear
+/// and request if undetermined. Denied/restricted → an inline Settings
+/// prompt. Simulator / no camera → an "unavailable" state. A successful
+/// scan parses the QR (`ScanPayload`), dismisses, and opens the Send flow
+/// pre-filled with the recipient.
 struct ScanToPayView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var balance: BalancesDTO?
     @State private var flashOn = false
+
+    /// Camera authorization gate. Drives which surface we paint.
+    enum CameraState {
+        case checking      // resolving authorizationStatus / requesting
+        case scanning      // authorized + camera present → live preview
+        case denied        // .denied / .restricted → Settings prompt
+        case unavailable   // no capture device (simulator, no back camera)
+    }
+    @State private var cameraState: CameraState = .checking
+    /// Whether the active device has a torch. Hides the flash toggle when
+    /// false (front-only devices, simulator).
+    @State private var hasTorch = false
+    /// Brief "Not a Talise payment code" pill, auto-dismissed.
+    @State private var showUnrecognized = false
+    /// Latches once we've handed a valid scan to the Send flow so a second
+    /// frame can't double-route.
+    @State private var didRoute = false
+    /// Bumped after an unrecognized scan to re-arm QRScannerView's
+    /// debounce so the next code is read.
+    @State private var resumeToken = 0
 
     /// Same formatter HomeView uses for the headline figure — keeps the
     /// pill consistent with the user's "Balance $X.XX" elsewhere in the
@@ -24,22 +49,42 @@ struct ScanToPayView: View {
 
     var body: some View {
         ZStack {
-            // Black backdrop — the camera preview layer will replace this
-            // when wired (it lives behind every overlay, full-bleed, so
-            // the corner brackets sit *on top* of the live frame).
+            // Black backdrop — always present so any letterboxing around
+            // the aspect-fill preview reads as intentional black.
             Color.black.ignoresSafeArea()
 
-            // TODO(scan-camera): mount AVCaptureVideoPreviewLayer here,
-            // ignoringSafeArea, with the AVCaptureMetadataOutput wired
-            // to .qr. Permission grant comes from onboarding (other
-            // agent's territory). Keep the overlays (status bar + frame
-            // + caption) painted *above* the preview.
+            // Live camera feed sits behind the overlay so the corner
+            // brackets + caption float on top of the frame.
+            if cameraState == .scanning {
+                QRScannerView(
+                    torchOn: flashOn,
+                    resumeToken: resumeToken,
+                    onCode: handleScan,
+                    onCameraAvailability: { available in
+                        // The representable resolves availability after we
+                        // optimistically entered .scanning; demote to the
+                        // unavailable surface if there's no usable device.
+                        if !available { cameraState = .unavailable }
+                    },
+                    onTorchAvailability: { hasTorch = $0 }
+                )
+                .ignoresSafeArea()
+            }
 
             overlay
+
+            // Permission / availability surfaces sit above the overlay so
+            // their copy isn't competing with the viewfinder caption.
+            switch cameraState {
+            case .denied:       deniedState
+            case .unavailable:  unavailableState
+            case .checking, .scanning: EmptyView()
+            }
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(false)
         .task { await loadBalance() }
+        .onAppear(perform: resolveCameraAuthorization)
     }
 
     // MARK: - Overlay
@@ -70,13 +115,39 @@ struct ScanToPayView: View {
 
             Spacer(minLength: 0)
 
-            Text("Center the QR code within the frame to scan and pay instantly.")
-                .font(TaliseFont.body(13, weight: .light))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 48)
-                .padding(.bottom, 48)
+            // Swap the instruction caption for the "unrecognized code"
+            // pill when a scan didn't parse — keeps the same vertical slot
+            // so the layout doesn't jump.
+            if showUnrecognized {
+                unrecognizedPill
+                    .padding(.bottom, 48)
+                    .transition(.opacity)
+            } else {
+                Text("Center the QR code within the frame to scan and pay instantly.")
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 48)
+                    .padding(.bottom, 48)
+            }
         }
+    }
+
+    /// Transient "not a Talise code" feedback. We keep scanning underneath
+    /// — this just tells the user the last code wasn't routable.
+    private var unrecognizedPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.9))
+            Text("Not a Talise payment code")
+                .font(TaliseFont.body(13, weight: .regular))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Capsule().fill(.ultraThinMaterial))
+        .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1))
     }
 
     // MARK: - Top status bar
@@ -90,7 +161,11 @@ struct ScanToPayView: View {
             dismissButton
             balancePill
             Spacer()
-            flashToggle
+            // Only paint the flash toggle when the active device actually
+            // has a torch (hidden on the simulator + front-only devices).
+            if hasTorch {
+                flashToggle
+            }
         }
     }
 
@@ -127,10 +202,9 @@ struct ScanToPayView: View {
 
     private var flashToggle: some View {
         Button(action: { flashOn.toggle() }) {
-            // Visual stub — toggles icon state but does not invoke
-            // AVCaptureDevice.torchMode (no capture session yet).
-            // TODO(scan-camera): wire to device.setTorchModeOn() when
-            // the capture session lands.
+            // Drives AVCaptureDevice.torchMode via QRScannerView's
+            // `torchOn` binding (applied in updateUIViewController →
+            // setTorch). The icon swap mirrors the device state.
             Image(systemName: flashOn ? "bolt.fill" : "bolt.slash.fill")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
@@ -143,6 +217,131 @@ struct ScanToPayView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Permission states
+
+    /// Shown for `.denied` / `.restricted`. The user already chose to deny
+    /// (here or in onboarding) so a re-request would be a silent no-op —
+    /// the only path forward is Settings.
+    private var deniedState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "camera.metering.none")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(.white.opacity(0.8))
+            Text("Camera access needed to scan")
+                .font(TaliseFont.heading(17, weight: .semibold))
+                .foregroundStyle(.white)
+            Text("Enable camera access in Settings to scan a payment QR code.")
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 48)
+            Button(action: openSettings) {
+                Text("Open Settings")
+                    .font(TaliseFont.heading(15, weight: .medium))
+                    .foregroundStyle(.black)
+                    .frame(height: 48)
+                    .padding(.horizontal, 28)
+                    .background(Capsule().fill(.white))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+        }
+        .padding(24)
+    }
+
+    /// Shown when there's no usable capture device — the iOS Simulator
+    /// (no camera hardware) and devices without a back camera. Keeps the
+    /// view testable instead of a frozen black screen.
+    private var unavailableState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "video.slash")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(.white.opacity(0.8))
+            Text("Camera unavailable on this device")
+                .font(TaliseFont.heading(17, weight: .semibold))
+                .foregroundStyle(.white)
+            Text("Scan-to-Pay needs a camera. Try this on a physical iPhone.")
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 48)
+        }
+        .padding(24)
+    }
+
+    // MARK: - Authorization
+
+    private func resolveCameraAuthorization() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            cameraState = .scanning
+        case .notDetermined:
+            // Request inline — onboarding may have been skipped, or this
+            // is the user's first camera touchpoint. Don't assume grant.
+            Task {
+                let granted = await AVCaptureDevice.requestAccess(for: .video)
+                await MainActor.run {
+                    cameraState = granted ? .scanning : .denied
+                }
+            }
+        case .denied, .restricted:
+            cameraState = .denied
+        @unknown default:
+            cameraState = .denied
+        }
+    }
+
+    private func openSettings() {
+        #if canImport(UIKit)
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+        #endif
+    }
+
+    // MARK: - Scan routing
+
+    /// Called once per detected QR (QRScannerView debounces). Valid codes
+    /// seed the Send recipient bridge + open the Send cover; unrecognized
+    /// codes flash a pill and keep scanning.
+    private func handleScan(_ raw: String) {
+        guard !didRoute else { return }
+
+        guard let parsed = ScanPayload.parse(raw) else {
+            // Unrecognized code — flash the pill (auto-dismisses) and
+            // re-arm the scanner so the next code is read. We deliberately
+            // do NOT set `didRoute`. Bumping `resumeToken` clears
+            // QRScannerView's `didEmit` latch via resumeDetection().
+            withAnimation { showUnrecognized = true }
+            resumeToken &+= 1
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_600_000_000)
+                withAnimation { showUnrecognized = false }
+            }
+            return
+        }
+
+        didRoute = true
+        // Reuse the exact path ContactsSheet uses to pre-fill Send: write
+        // the recipient token to the shared UserDefaults bridge, then post
+        // the Send-cover request. SendRecipientView (new flow) and
+        // LegacySendView both read + clear `io.talise.send.prefillRecipient`
+        // on appear and auto-resolve it.
+        UserDefaults.standard.set(
+            parsed.recipient,
+            forKey: "io.talise.send.prefillRecipient"
+        )
+        dismiss()
+        // Small delay so this full-screen scanner finishes dismissing
+        // before MainTabView presents the Send cover — back-to-back
+        // present/dismiss on the same hierarchy otherwise drops the
+        // second presentation.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            NotificationCenter.default.post(
+                name: .taliseRequestSendCover, object: nil
+            )
+        }
     }
 
     // MARK: - Data
