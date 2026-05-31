@@ -177,10 +177,10 @@ function PhoneCollage() {
   // `talise-collage-*` keyframes are defined in `globals.css`; they
   // respect prefers-reduced-motion by collapsing to identity transforms.
   return (
-    <div className="motion-collage relative mx-auto mt-14 w-full max-w-[1100px] md:mt-20">
+    <div className="motion-collage relative mx-auto mt-14 w-full max-w-[1280px] md:mt-20">
       <div
         aria-hidden
-        className="talise-collage-glow pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-[80%] max-w-[900px] blur-3xl"
+        className="talise-collage-glow pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-[80%] max-w-[1040px] blur-3xl"
         style={{
           background:
             "radial-gradient(58% 52% at 50% 42%, color-mix(in srgb, var(--color-accent-deep) 50%, transparent), transparent 68%), radial-gradient(46% 42% at 50% 58%, color-mix(in srgb, var(--color-accent) 30%, transparent), transparent 72%)",
@@ -189,11 +189,11 @@ function PhoneCollage() {
       <div className="talise-collage-art">
         <Image
           src="/talise-app-collage.png"
-          alt="Talise iOS app: Earn and Home screens shown side by side"
-          width={2208}
-          height={1242}
+          alt="Talise iOS app: reviewing a cross-border send, an auto-save, and a completed transfer"
+          width={2202}
+          height={1172}
           priority
-          sizes="(max-width: 768px) 100vw, 1100px"
+          sizes="(max-width: 768px) 100vw, 1280px"
           className="mx-auto h-auto w-full"
         />
       </div>
