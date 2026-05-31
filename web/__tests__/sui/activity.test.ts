@@ -18,21 +18,35 @@
  * we still assert the shape but skip the non-empty assertion.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { getRecentActivity, type ActivityEntry } from "../../lib/activity";
+import {
+  suiGraphQL,
+  batchCoinMetadata,
+  _clearGraphQLCache,
+} from "../../lib/sui-graphql";
+import {
+  discoverActiveCoinOwner,
+  PINNED_ACTIVE_COIN_OWNER,
+} from "./harness";
 
-// A real, long-lived mainnet address with steady on-chain tx history.
-// Picked from publicly visible activity on SuiVision (an active LP /
-// deployer address; not user-owned). If this ever goes silent, swap
-// for any other consistently active address — the test is meant to
-// verify shape, not the specific identity.
-const ACTIVE_MAINNET_ADDRESS =
-  "0x6da0aa2c80a6dac6c52ab92dd71ed4d39b71b39a3a5e8c5b58c8a3a3a3a3a3a3";
+// An address that OWNS frequently-moving coin balances on mainnet. We
+// DISCOVER it at runtime (harvest balance-change owners from the recent
+// global tx stream) so the test is self-healing — it always lands on a
+// live coin owner whose feed actually exercises the GraphQL → adapter →
+// classifier pipeline with real data. Falls back to a pinned fixture.
+//
+// The previous fixtures (`0x6da0…a3a3`, `0xa1ec…7e29`) returned ZERO rows
+// via the `transactions(affectedAddress:)` filter on mainnet (verified
+// 2026-05-31), so the "populated feed" assertions passed vacuously and
+// never touched the parser. Package objects like 0x2/0x6 likewise have no
+// owner-side balance deltas. A real coin owner fixes both gaps.
+let ACTIVE_MAINNET_ADDRESS = PINNED_ACTIVE_COIN_OWNER;
+const BACKUP_MAINNET_ADDRESS = PINNED_ACTIVE_COIN_OWNER;
 
-// Backup: Mysten-affiliated address used in their own samples.
-// Falls back if the primary returns 0 rows.
-const BACKUP_MAINNET_ADDRESS =
-  "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29";
+beforeAll(async () => {
+  ACTIVE_MAINNET_ADDRESS = await discoverActiveCoinOwner();
+}, 30_000);
 
 function isWellShaped(e: ActivityEntry): void {
   expect(typeof e.digest).toBe("string");
@@ -73,14 +87,17 @@ function isWellShaped(e: ActivityEntry): void {
 }
 
 describe("getRecentActivity (GraphQL)", () => {
-  it("returns a well-shaped, sorted, deduped activity feed for an active mainnet address", async () => {
-    // Try the primary address first; if empty, fall back to a backup.
-    let entries = await getRecentActivity(ACTIVE_MAINNET_ADDRESS, 20, {
+  it("returns a well-shaped, sorted, deduped, NON-EMPTY feed for an active mainnet address", async () => {
+    // limit=10 → fetchLimit=50 → exactly ONE GraphQL page, which stays
+    // comfortably under `getRecentActivity`'s 6s tx-history timeout fence.
+    // (limit=50 would fan out to 4 serial pages ~8s and trip the fence,
+    // returning [] — that masked real parsing regressions before.)
+    let entries = await getRecentActivity(ACTIVE_MAINNET_ADDRESS, 10, {
       includeNonTalise: true,
       vaultId: null,
     });
     if (entries.length === 0) {
-      entries = await getRecentActivity(BACKUP_MAINNET_ADDRESS, 20, {
+      entries = await getRecentActivity(BACKUP_MAINNET_ADDRESS, 10, {
         includeNonTalise: true,
         vaultId: null,
       });
@@ -89,8 +106,27 @@ describe("getRecentActivity (GraphQL)", () => {
     // Always-true: result is an array of ActivityEntry shape.
     expect(Array.isArray(entries)).toBe(true);
 
+    // The whole point: a genuinely active address must yield real rows.
+    // This is what actually exercises the GraphQL → adapter → classifier
+    // pipeline with live data. (0x2/0x6 framework objects had ZERO
+    // owner-side balance deltas and produced an empty feed — a vacuous
+    // pass — which is why this fixture is a real coin-owning address.)
+    expect(entries.length).toBeGreaterThan(0);
+
     // Shape check on every row.
     for (const e of entries) isWellShaped(e);
+
+    // At least one row must carry a concrete amount on SOME tracked asset
+    // (USDsui, SUI, or another coin) — proves the balance-change parse +
+    // coin-type normalization landed (pre-fix, native SUI/USDsui deltas
+    // were silently dropped by a short-vs-full type-string mismatch).
+    const hasAmount = entries.some(
+      (e) =>
+        e.amountUsdsui !== null ||
+        e.amountSui !== null ||
+        e.otherCoin !== null
+    );
+    expect(hasAmount).toBe(true);
 
     // Sorted newest first.
     for (let i = 1; i < entries.length; i++) {
@@ -103,8 +139,8 @@ describe("getRecentActivity (GraphQL)", () => {
     const digests = new Set(entries.map((e) => e.digest));
     expect(digests.size).toBe(entries.length);
 
-    // If we got entries at all, they should be within the requested limit.
-    expect(entries.length).toBeLessThanOrEqual(20);
+    // Within the requested limit.
+    expect(entries.length).toBeLessThanOrEqual(10);
   }, 30_000);
 
   it("tolerates an address with no activity (returns []), without throwing", async () => {
@@ -133,20 +169,21 @@ describe("getRecentActivity (GraphQL)", () => {
   // ---------------------------------------------------------------------
 
   /**
-   * Lazily fetch a populated feed for the active address. We over-fetch
-   * (limit=50) to maximise the chance that the address has at least two
-   * distinct `direction` values in the window. Falls back to the backup
-   * address if the primary returns empty.
+   * Lazily fetch a populated feed for the active address. limit=10 keeps
+   * the walk to a SINGLE GraphQL page (fetchLimit=50) so it stays under
+   * the 6s tx-history timeout fence — an active address with 50 rows in
+   * one page reliably surfaces multiple `direction` values. Falls back to
+   * the backup address if the primary returns empty.
    */
   let cached: ActivityEntry[] | undefined;
   async function getPopulatedFeed(): Promise<ActivityEntry[]> {
     if (cached) return cached;
-    let entries = await getRecentActivity(ACTIVE_MAINNET_ADDRESS, 50, {
+    let entries = await getRecentActivity(ACTIVE_MAINNET_ADDRESS, 10, {
       includeNonTalise: true,
       vaultId: null,
     });
     if (entries.length === 0) {
-      entries = await getRecentActivity(BACKUP_MAINNET_ADDRESS, 50, {
+      entries = await getRecentActivity(BACKUP_MAINNET_ADDRESS, 10, {
         includeNonTalise: true,
         vaultId: null,
       });
@@ -183,20 +220,35 @@ describe("getRecentActivity (GraphQL)", () => {
     expect(unique.size).toBe(digests.length);
   }, 30_000);
 
-  it("surfaces at least two distinct kinds in a populated feed", async () => {
-    // An active mainnet address with steady tx history should have
-    // BOTH sent + received (or a venue invest/withdraw alongside a
-    // transfer). If the feed has only one direction across 50 rows,
-    // either the address is unusually homogeneous OR the classifier
-    // collapsed everything into one kind — both worth catching.
-    //
-    // We skip the assertion when the feed is empty / too small to
-    // reasonably expect variety (under 5 rows), so the test doesn't
-    // false-positive when the canary address goes quiet.
+  it("assigns every row a recognized direction (classifier ran on real data)", async () => {
+    // Every row in a populated feed must carry a VALID, recognized
+    // direction — proving the classifier actually ran over real,
+    // adapter-normalized tx data rather than crashing or emitting a bogus
+    // label. We deliberately do NOT require two distinct kinds: a
+    // dynamically-discovered active address can legitimately be a
+    // single-purpose actor (e.g. a swap bot whose recent window is all
+    // "swap", or a faucet that's all "sent"), so a strict ">=2 kinds"
+    // assertion would be flaky against live data. The real regression we
+    // guard is "did classification produce sane output for every row".
+    const VALID = new Set([
+      "sent",
+      "received",
+      "invest",
+      "withdraw",
+      "swap",
+      "autoswap",
+    ]);
     const entries = await getPopulatedFeed();
-    if (entries.length < 5) return;
-    const kinds = new Set(entries.map((e) => e.direction));
-    expect(kinds.size).toBeGreaterThanOrEqual(2);
+    if (entries.length === 0) return; // discovered address went quiet
+    for (const e of entries) {
+      expect(VALID.has(e.direction)).toBe(true);
+      // And every classified row carries a concrete amount on SOME asset.
+      expect(
+        e.amountUsdsui !== null ||
+          e.amountSui !== null ||
+          e.otherCoin !== null
+      ).toBe(true);
+    }
   }, 30_000);
 
   it("collapses compound spend+save into one row carrying both legs", async () => {
@@ -239,5 +291,125 @@ describe("getRecentActivity (GraphQL)", () => {
     });
     expect(Array.isArray(entries)).toBe(true);
     expect(entries.length).toBeLessThanOrEqual(5);
+  }, 30_000);
+
+  // ---------------------------------------------------------------------
+  // Raw GraphQL activity-query + pagination shape.
+  //
+  // Exercises the underlying `transactions(filter: { affectedAddress })`
+  // query (the exact query `getRecentActivity` walks) directly against
+  // mainnet, asserting the page shape AND that cursor pagination advances
+  // to a DIFFERENT, non-overlapping page. This is the lower-level proof
+  // that the GraphQL read path the activity feed depends on is correct.
+  // ---------------------------------------------------------------------
+  it("batchCoinMetadata resolves REAL on-chain metadata (endpoint live)", async () => {
+    // Regression guard for the dead GraphQL endpoint: the fetch-layer
+    // default used to point at the retired `sui-mainnet.mystenlabs.com`
+    // host, which `fetch failed` — `batchCoinMetadata` then silently fell
+    // through to its catch and returned a type-string-derived symbol with
+    // a DEFAULT 9 decimals for EVERY coin. Now that the endpoint is live,
+    // we must get the canonical CoinMetadata back from the chain.
+    _clearGraphQLCache();
+    const SUI = "0x2::sui::SUI";
+    const USDC =
+      "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
+    const out = await batchCoinMetadata([SUI, USDC]);
+
+    const sui = out.get(SUI);
+    expect(sui).toBeDefined();
+    expect(sui!.symbol).toBe("SUI");
+    expect(sui!.decimals).toBe(9);
+
+    // USDC is 6-decimals on Sui — if we were still hitting the dead
+    // endpoint this would be the fallback 9. Asserting 6 proves the
+    // live `coinMetadata(coinType:)` query actually answered.
+    const usdc = out.get(USDC);
+    expect(usdc).toBeDefined();
+    expect(usdc!.symbol).toBe("USDC");
+    expect(usdc!.decimals).toBe(6);
+  }, 30_000);
+
+  it("activity GraphQL query returns a well-formed, advancing page", async () => {
+    const PAGE_QUERY = /* GraphQL */ `
+      query ActivityPage($addr: SuiAddress!, $first: Int!, $after: String) {
+        transactions(
+          filter: { affectedAddress: $addr }
+          first: $first
+          after: $after
+        ) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+          nodes {
+            digest
+            effects {
+              status
+              timestamp
+              balanceChangesJson
+            }
+          }
+        }
+      }
+    `;
+    const client = suiGraphQL();
+    const page1 = (await client.query({
+      query: PAGE_QUERY,
+      variables: { addr: ACTIVE_MAINNET_ADDRESS, first: 5, after: null },
+    })) as {
+      data?: {
+        transactions?: {
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          nodes: Array<{
+            digest: string;
+            effects: {
+              status: string | null;
+              timestamp: string | null;
+              balanceChangesJson: unknown | null;
+            } | null;
+          }>;
+        };
+      };
+      errors?: unknown;
+    };
+
+    // No GraphQL errors, and the page is well-shaped.
+    expect(page1.errors).toBeUndefined();
+    const t1 = page1.data?.transactions;
+    expect(t1).toBeDefined();
+    expect(Array.isArray(t1?.nodes)).toBe(true);
+    expect(typeof t1?.pageInfo.hasNextPage).toBe("boolean");
+    expect(t1!.nodes.length).toBeGreaterThan(0);
+
+    // Each node carries the fields `adaptGraphQLNodeToRawTx` consumes.
+    for (const n of t1!.nodes) {
+      expect(typeof n.digest).toBe("string");
+      expect(n.digest.length).toBeGreaterThan(0);
+      expect(n.effects).toBeDefined();
+      // balanceChangesJson is the load-bearing field for amount parsing.
+      expect(Array.isArray(n.effects?.balanceChangesJson)).toBe(true);
+    }
+
+    // Pagination shape holds: when there's a next page, the cursor is a
+    // non-empty string and the next page is DISJOINT from the first.
+    if (t1!.pageInfo.hasNextPage) {
+      expect(typeof t1!.pageInfo.endCursor).toBe("string");
+      expect((t1!.pageInfo.endCursor ?? "").length).toBeGreaterThan(0);
+
+      const page2 = (await client.query({
+        query: PAGE_QUERY,
+        variables: {
+          addr: ACTIVE_MAINNET_ADDRESS,
+          first: 5,
+          after: t1!.pageInfo.endCursor,
+        },
+      })) as typeof page1;
+      const t2 = page2.data?.transactions;
+      expect(t2).toBeDefined();
+      const firstDigests = new Set(t1!.nodes.map((n) => n.digest));
+      for (const n of t2!.nodes ?? []) {
+        expect(firstDigests.has(n.digest)).toBe(false);
+      }
+    }
   }, 30_000);
 });

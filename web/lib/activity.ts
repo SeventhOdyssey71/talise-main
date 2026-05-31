@@ -1,6 +1,33 @@
 import "server-only";
 
+import { normalizeStructTag } from "@mysten/sui/utils";
 import { USDSUI_TYPE } from "./usdsui";
+
+// ─── Canonical coin types ──────────────────────────────────────────────────
+//
+// Sui GraphQL `balanceChangesJson` returns coin types in their FULL
+// zero-padded address form (e.g.
+// `0x0000…0002::sui::SUI`), whereas our constants (`"0x2::sui::SUI"`,
+// `USDSUI_TYPE`) and on-chain event payloads can carry the SHORT form.
+// A naive `===` compare therefore SILENTLY misses every native SUI /
+// USDsui balance change — the activity feed then mislabeled real SUI/USDsui
+// amounts as a generic "other coin" (amountSui/amountUsdsui null,
+// otherCoin = SUI). `normalizeStructTag` zero-pads the address part so both
+// forms collapse to one canonical string; we compare normalized-to-normalized
+// everywhere a coin type meets these constants.
+const SUI_TYPE = "0x2::sui::SUI";
+const SUI_TYPE_N = normalizeStructTag(SUI_TYPE);
+const USDSUI_TYPE_N = normalizeStructTag(USDSUI_TYPE);
+
+/** Normalize a coin type for comparison; returns "" for falsy input. */
+function normCoinType(t: string | undefined | null): string {
+  if (!t) return "";
+  try {
+    return normalizeStructTag(t);
+  } catch {
+    return t;
+  }
+}
 import { findTaliseSubnameForOwner } from "./suins-lookup";
 import { formatHandle } from "./handle";
 import { globalRegistryId, namespaceObjectId } from "./payment-kit";
@@ -770,14 +797,15 @@ function summarize(
     const owner = (ownerOf(b) ?? "").toLowerCase();
     if (!owner) continue;
     const amt = Number(b.amount ?? "0");
-    if (b.coinType === USDSUI_TYPE) {
+    const ct = normCoinType(b.coinType);
+    if (ct === USDSUI_TYPE_N) {
       const human = amt / 1e6;
       if (owner === me) myUsdsui += human;
       else if (!SPONSOR_ADDRESSES.has(owner)) {
         others[owner] ??= { usdsui: 0, sui: 0 };
         others[owner].usdsui += human;
       }
-    } else if (b.coinType === "0x2::sui::SUI") {
+    } else if (ct === SUI_TYPE_N) {
       const human = amt / 1e9;
       if (owner === me) mySui += human;
       else if (!SPONSOR_ADDRESSES.has(owner)) {
@@ -1432,8 +1460,9 @@ export async function getRecentActivity(
       if (tx.effects?.status?.status !== "success") continue;
       for (const b of tx.balanceChanges ?? []) {
         if (!b.coinType) continue;
-        if (b.coinType === USDSUI_TYPE) continue;
-        if (b.coinType === "0x2::sui::SUI") continue;
+        const ct = normCoinType(b.coinType);
+        if (ct === USDSUI_TYPE_N) continue;
+        if (ct === SUI_TYPE_N) continue;
         const owner = (ownerOf(b) ?? "").toLowerCase();
         if (owner !== address.toLowerCase()) continue;
         allOtherCoinTypes.add(b.coinType);
