@@ -7,6 +7,9 @@ struct HomeView: View {
     @Environment(AppSession.self) private var session
     @State private var balance: BalancesDTO?
     @State private var activity: [ActivityEntryDTO] = []
+    /// False only when there is a cached snapshot to show immediately —
+    /// in that case we skip the placeholder/skeleton on first render so
+    /// the user sees real numbers instead of grey blobs.
     @State private var loadingBalance = true
     @State private var loadingActivity = true
     /// True once `/api/activity` has returned at least one successful
@@ -493,13 +496,32 @@ struct HomeView: View {
     // MARK: - Data
 
     private func loadAll(force: Bool) async {
+        // Stale-while-revalidate: seed the UI from the on-disk snapshot
+        // before the network round-trips complete so the user sees real
+        // numbers on the very first frame. Only applied on the initial
+        // load (not on force-refreshes) so a pull-to-refresh doesn't
+        // temporarily flash old data over a live result.
+        if !force, let uid = session.currentUser?.id {
+            if balance == nil, let cached = LocalSnapshotStore.loadBalances(userId: uid) {
+                balance = cached
+                loadingBalance = false   // real number visible; no placeholder
+            }
+            if activity.isEmpty, let cached = LocalSnapshotStore.loadActivity(userId: uid),
+               !cached.isEmpty {
+                activity = cached
+                activityHasLoadedOnce = true  // suppress skeleton; show cached rows
+                loadingActivity = false
+            }
+        }
+
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await loadBalance() }
             group.addTask { await loadActivity() }
-            group.addTask { await loadSweepPreview() }
+            // loadSweepPreview() removed: /api/sweep/prepare no longer
+            // exists on the backend (404s on every open). The banner +
+            // execute path are left intact for the SUI→USDsui sweep flow
+            // triggered from walletCoinBalances (a different endpoint).
             group.addTask { await loadWalletCoinBalances() }
-            // Autoswap archived 2026-05-29 — the post-pull `VaultAPI.sweepNow()`
-            // fire-and-forget is gone alongside the vault routes.
             _ = force
         }
     }
@@ -515,7 +537,13 @@ struct HomeView: View {
         loadingBalance = true
         defer { loadingBalance = false }
         do {
-            balance = try await APIClient.shared.get("/api/balances")
+            let fetched: BalancesDTO = try await APIClient.shared.get("/api/balances")
+            balance = fetched
+            // Persist for the next cold launch so the stale-while-
+            // revalidate path can paint real numbers immediately.
+            if let uid = session.currentUser?.id {
+                LocalSnapshotStore.saveBalances(fetched, userId: uid)
+            }
         } catch {
             // A pull-to-refresh that lands while a prior .task load is
             // still in flight cancels the older request (-999). Wiping
@@ -580,6 +608,12 @@ struct HomeView: View {
             #endif
             activity = mergePendingStubs(into: r.entries)
             activityHasLoadedOnce = true
+            // Persist for the next cold launch (stale-while-revalidate).
+            // Only cache the raw server entries (not the merged stubs) so
+            // we don't persist optimistic rows that may never confirm.
+            if let uid = session.currentUser?.id {
+                LocalSnapshotStore.saveActivity(r.entries, userId: uid)
+            }
             // Silently dismiss the toast if the retry succeeded.
             activityRefreshFailed = false
         } catch {
