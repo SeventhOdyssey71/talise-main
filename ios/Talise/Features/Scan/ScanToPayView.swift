@@ -110,25 +110,19 @@ struct ScanToPayView: View {
         .buttonStyle(.plain)
     }
 
+    /// Inline balance block — eyebrow + amount sit directly on the
+    /// scanner background per the design reference. No glass pill, no
+    /// border. Reads as a status overlay rather than a chip.
     private var balancePill: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Balance")
-                .font(TaliseFont.mono(9, weight: .light))
-                .tracking(1.4)
-                .foregroundStyle(Color.white.opacity(0.6))
+                .font(TaliseFont.mono(10, weight: .regular))
+                .foregroundStyle(Color.white.opacity(0.7))
             Text(balanceFormatted)
-                .font(TaliseFont.heading(15, weight: .medium))
-                .kerning(-0.4)
+                .font(TaliseFont.heading(22, weight: .semibold))
+                .kerning(-0.66)
                 .foregroundStyle(.white)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(
-            Capsule().fill(.ultraThinMaterial)
-        )
-        .overlay(
-            Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
     }
 
     private var flashToggle: some View {
