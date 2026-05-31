@@ -32,6 +32,9 @@ struct ProfileView: View {
     /// "Update handle target" row flips this on; the sheet handles
     /// probe → diff → submit on its own.
     @State private var showRetarget = false
+    /// Drives the `CurrencyPocketsView` presentation — a non-invasive
+    /// entry into the multi-currency pockets surface (master plan §8).
+    @State private var showPockets = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -64,6 +67,18 @@ struct ProfileView: View {
         .sheet(isPresented: $showRetarget) {
             RetargetHandleSheet()
                 .environment(session)
+        }
+        .sheet(isPresented: $showPockets) {
+            NavigationStack {
+                CurrencyPocketsView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showPockets = false }
+                                .foregroundStyle(TaliseColor.accent)
+                        }
+                    }
+            }
+            .environment(session)
         }
     }
 
@@ -296,6 +311,8 @@ struct ProfileView: View {
             VStack(spacing: 0) {
                 currencyRow
                 sectionDivider
+                pocketsRow
+                sectionDivider
                 // autoSwapRow removed 2026-05-29 alongside the autoswap archive.
                 notifyRow
                 sectionDivider
@@ -357,6 +374,30 @@ struct ProfileView: View {
             .padding(.vertical, 14)
             .contentShape(Rectangle())
         }
+    }
+
+    /// Entry into the multi-currency pockets surface (master plan §8).
+    /// Non-invasive — presents `CurrencyPocketsView` as a sheet so the
+    /// core balance display on Home is untouched.
+    private var pocketsRow: some View {
+        Button {
+            showPockets = true
+        } label: {
+            HStack {
+                rowLabel(
+                    title: "Currency pockets",
+                    subtitle: "See your balance in every currency you use."
+                )
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// Entry point for the always-hold-USDsui settings. Opens
