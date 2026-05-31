@@ -28,7 +28,11 @@ enum TaliseFont {
         custom(displayFamily, size: size, fallbackDesign: .default, weight: weight)
     }
 
-    static func mono(_ size: CGFloat = 11, weight: Font.Weight = .light) -> Font {
+    static func mono(_ size: CGFloat = 11, weight: Font.Weight = .regular) -> Font {
+        // Default weight bumped to .regular (was .light) so monospaced
+        // subtexts ("Balance", "$0.00 FEE", "YOUR MONEY LANDS HERE")
+        // read with proper presence on screen. Light JetBrains Mono
+        // reads as washed-out at small sizes against dark backgrounds.
         custom(monoFamily, size: size, fallbackDesign: .monospaced, weight: weight)
     }
 
@@ -54,7 +58,7 @@ struct MicroLabel: View {
 
     var body: some View {
         Text(text)
-            .font(TaliseFont.mono(size, weight: .light))
+            .font(TaliseFont.mono(size, weight: .regular))
             .kerning(-0.32)
             .foregroundStyle(color)
     }
@@ -64,7 +68,7 @@ struct Eyebrow: View {
     let text: String
     var body: some View {
         Text(text.uppercased())
-            .font(TaliseFont.mono(10, weight: .light))
+            .font(TaliseFont.mono(10, weight: .regular))
             .tracking(2.0)
             .foregroundStyle(TaliseColor.fgDim)
     }
