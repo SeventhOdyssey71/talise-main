@@ -31,7 +31,7 @@ struct HomeView: View {
     /// preserve the last successful entries underneath rather than
     /// blanking the card.
     @State private var activityRefreshFailed = false
-    @State private var contactsSheetVisible = false
+    @State private var scanToPaySheetVisible = false
     @State private var sweepPreview: SweepPreviewDTO?
     @State private var sweepAlertVisible = false
     @State private var sweepAlertMessage = ""
@@ -143,13 +143,16 @@ struct HomeView: View {
                 .frame(width: 24, height: 22)
             Spacer()
             Button {
-                contactsSheetVisible = true
+                scanToPaySheetVisible = true
             } label: {
-                // Custom contacts glyph from design (person + stacked
-                // lines). Replaces the SF Symbol `person.2.fill`.
-                Image("ContactsGlyph")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                // Scan-to-Pay entry point. Replaces the prior Contacts
+                // glyph in the same disc slot. `qrcode.viewfinder` reads
+                // immediately as "scan a QR" at the navbar icon size;
+                // we keep the surrounding 6pt padding so the hit target
+                // matches the previous Contacts button.
+                Image(systemName: "qrcode.viewfinder")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(TaliseColor.fg)
                     .frame(width: 22, height: 22)
                     .padding(6)
                     .contentShape(Rectangle())
@@ -157,10 +160,10 @@ struct HomeView: View {
             .buttonStyle(.plain)
         }
         .frame(height: 28)
-        .sheet(isPresented: $contactsSheetVisible) {
-            ContactsSheet()
-                .presentationDetents([.medium, .large])
-                .presentationBackground(TaliseColor.bg)
+        .sheet(isPresented: $scanToPaySheetVisible) {
+            ScanToPayView()
+                .presentationDetents([.large])
+                .presentationBackground(.black)
         }
     }
 
