@@ -18,10 +18,12 @@ struct WelcomeView: View {
     let onContinue: () -> Void
     let onSignIn: () -> Void
 
-    /// Letter spacing for this hero — flat -0.2pt across every text
-    /// site per the design spec. DM Sans's default metrics read a
-    /// touch open; -0.2 tightens just enough to read deliberate.
-    private let kern: CGFloat = -0.2
+    /// Letter spacing per the Figma typography spec. Figma values
+    /// letter-spacing in pixels at the source font size; transposed
+    /// here as `-fontSize × 0.03` because the headline spec resolves
+    /// to exactly that ratio (`23.5 × -0.03 = -0.705`). Body / CTA
+    /// text uses the same 3% to keep the rhythm consistent.
+    private func kern(_ size: CGFloat) -> CGFloat { -size * 0.03 }
 
     var body: some View {
         GeometryReader { proxy in
@@ -104,9 +106,10 @@ struct WelcomeView: View {
 
     private var copyBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // Headline — Figma spec: DM Sans 23.5px / 600 / -0.705 ls.
             Text("Move money without borders")
-                .font(TaliseFont.heading(23, weight: .semibold))
-                .kerning(kern)
+                .font(TaliseFont.heading(23.5, weight: .semibold))
+                .kerning(kern(23.5))
                 .foregroundStyle(TaliseColor.fg)
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
@@ -116,7 +119,7 @@ struct WelcomeView: View {
                 "Moving money across the world is complex, Talise brings simplicity to this. Free transactions, smart money movement."
             )
             .font(TaliseFont.body(13, weight: .light))
-            .kerning(kern)
+            .kerning(kern(13))
             .foregroundStyle(TaliseColor.fgMuted)
             .multilineTextAlignment(.leading)
             .lineSpacing(2)
@@ -129,7 +132,7 @@ struct WelcomeView: View {
         Button(action: onContinue) {
             Text("Get Started")
                 .font(TaliseFont.body(15, weight: .medium))
-                .kerning(kern)
+                .kerning(kern(15))
                 .foregroundStyle(TaliseColor.bg)
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
@@ -149,7 +152,7 @@ struct WelcomeView: View {
         Button(action: onSignIn) {
             Text("I have an account")
                 .font(TaliseFont.body(15, weight: .medium))
-                .kerning(kern)
+                .kerning(kern(15))
                 .foregroundStyle(TaliseColor.fg)
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
@@ -163,7 +166,7 @@ struct WelcomeView: View {
             + Text("Terms and Conditions").underline()
             + Text(" by continuing."))
             .font(TaliseFont.body(11, weight: .light))
-            .kerning(kern)
+            .kerning(kern(11))
             .foregroundStyle(TaliseColor.fgDim)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
