@@ -171,11 +171,14 @@ struct HomeView: View {
 
     private var balanceBlock: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Balance")
-                    .font(TaliseFont.body(16, weight: .light))
-                    .kerning(-0.64)
-                    .foregroundStyle(TaliseColor.fg)
+            VStack(alignment: .leading, spacing: 6) {
+                // Quiet mono eyebrow — moves the "Balance" label into the
+                // same micro-label register as the rest of the app so the
+                // big figure underneath carries the weight on its own.
+                Text("BALANCE")
+                    .font(TaliseFont.mono(10, weight: .regular))
+                    .tracking(2.0)
+                    .foregroundStyle(TaliseColor.fgMuted)
 
                 // USDsui is the primary unit. We render it as `$X.XX`
                 // since it's pegged 1:1 to USD on chain. SUI balance
@@ -183,8 +186,8 @@ struct HomeView: View {
                 // headroom without a "total USD" rollup that can drift
                 // with SUI price.
                 Text(usdsuiFormatted)
-                    .font(TaliseFont.display(28, weight: .medium))
-                    .kerning(-1)
+                    .font(TaliseFont.display(34, weight: .medium))
+                    .kerning(-1.2)
                     .foregroundStyle(TaliseColor.fg)
                     .contentTransition(.numericText())
                     .redacted(reason: loadingBalance ? .placeholder : [])
@@ -220,7 +223,11 @@ struct HomeView: View {
                         walletSweepAlertVisible = true
                     }
                 }
-                actionButton(systemName: "plus") {
+                // Deposit (+) — the primary "add money" affordance. Given
+                // a subtle mint tint so the entry point into the redesigned
+                // Deposit flow reads as the hero action in the row without
+                // shouting over the balance figure.
+                actionButton(systemName: "plus", accented: true) {
                     NotificationCenter.default.post(
                         name: .taliseRequestDepositCover, object: nil
                     )
@@ -272,15 +279,16 @@ struct HomeView: View {
     private func actionButton(
         systemName: String,
         rotated degrees: Double = 0,
+        accented: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(TaliseColor.fg)
+                .foregroundStyle(accented ? TaliseColor.greenMint : TaliseColor.fg)
                 .rotationEffect(.degrees(degrees))
                 .frame(width: 40, height: 40)
-                .taliseGlass(cornerRadius: 10)
+                .taliseGlass(cornerRadius: 10, tint: accented ? TaliseColor.greenMint : nil)
         }
         .buttonStyle(.plain)
     }

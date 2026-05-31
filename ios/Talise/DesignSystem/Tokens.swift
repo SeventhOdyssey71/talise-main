@@ -18,6 +18,11 @@ enum TaliseColor {
     static let line = Color.white.opacity(0.08)
     static let accent = Color(hex: 0x79D96C)                      // "Earn up to 11%" green
     static let accentSoft = Color(hex: 0x2A2A2A)
+    // The two canonical Talise brand greens (matches web/app/globals.css).
+    // `greenMint` is the bright/mint accent that reads ON dark; `greenDeep`
+    // is the forest CTA fill. Additive — existing surfaces keep `accent`.
+    static let greenMint = Color(hex: 0xCAFFB8)                   // mint — readable accent on dark
+    static let greenDeep = Color(hex: 0x4B8A37)                   // forest — solid CTA fill
     static let live = Color(hex: 0x79D96C)
     static let success = Color(hex: 0x79D96C)
     static let warmGold = Color(hex: 0xC08A3E)
