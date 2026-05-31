@@ -90,11 +90,12 @@ struct TaliseApp: App {
         }
     }
 
-    /// Registers Google Sans Variable (bundled at Resources/GoogleSans).
-    /// If the .ttf isn't present in dev, fonts fall back to SF Pro and the
-    /// app still works.
+    /// Registers DM Sans Variable (bundled at Resources/DMSans/) so
+    /// `TaliseFont.displayFamily = "DM Sans"` resolves. If the .ttf is
+    /// missing the call quietly no-ops and fonts fall back to SF Pro —
+    /// useful in dev when the asset hasn't been pulled.
     private static func registerFonts() {
-        let names = ["GoogleSans-Variable.ttf"]
+        let names = ["DMSans-Variable.ttf"]
         for name in names {
             let parts = name.split(separator: ".")
             guard parts.count == 2,

@@ -1,67 +1,89 @@
 import SwiftUI
 
 /// Hero onboarding screen — first thing a fresh install sees after the
-/// splash. Mossy-green radial gradient washes the top half down into
-/// black; the Talise pinwheel sits in the upper-middle; bottom-left
-/// headline + subtitle copy frames two CTAs (primary "Get Started" and
-/// secondary "I have an account" for returning users) over a tiny
-/// Terms acknowledgement footer.
+/// splash. A mossy-green wash fills the top ~38% of the viewport then
+/// falls hard into black; the Talise pinwheel mark sits centered just
+/// below the gradient transition; bottom-left "Move money without
+/// borders" headline + supporting subtitle frames the two CTAs
+/// (primary "Get Started", secondary "I have an account") above a
+/// small Terms acknowledgement footer.
 ///
 /// `onContinue` → start the brand-intro carousel (new user path).
 /// `onSignIn`   → jump straight to the sign-in sheet (returning user).
+///
+/// All text uses DM Sans (variable, registered at app launch) with
+/// -0.2pt letter spacing per the design spec — matches the Figma reference at
+/// `https://www.figma.com/design/w4mQGGahEu1CzR9cK0cnsx/Untitled?node-id=110-2331`.
 struct WelcomeView: View {
     let onContinue: () -> Void
     let onSignIn: () -> Void
 
+    /// Letter spacing for this hero — flat -0.2pt across every text
+    /// site per the design spec. DM Sans's default metrics read a
+    /// touch open; -0.2 tightens just enough to read deliberate.
+    private let kern: CGFloat = -0.2
+
     var body: some View {
-        ZStack {
-            // Black base so the gradient's lower half blends cleanly
-            // into the safe-area.
-            TaliseColor.bg.ignoresSafeArea()
+        GeometryReader { proxy in
+            let H = proxy.size.height
 
-            // Mossy green radial wash anchored at the top. The center
-            // sits just above the screen top so the brightest area is
-            // at the device's top edge, falling off to black around
-            // ~55% of the viewport height. The hex (0x6BA85A) is a
-            // softened forest green — the regular accent (0x79D96C)
-            // is too vivid for a full-width wash.
-            GeometryReader { proxy in
-                RadialGradient(
-                    colors: [
-                        Color(hex: 0x6BA85A).opacity(0.95),
-                        Color(hex: 0x2A3E22).opacity(0.6),
-                        Color.black.opacity(0.0),
+            ZStack(alignment: .top) {
+                // Black base — the gradient stops above the safe-area
+                // bottom so the buttons sit on pure black anyway.
+                TaliseColor.bg.ignoresSafeArea()
+
+                // Top green wash. Linear (not radial) because the
+                // Figma reference shows even-across-width brightness
+                // at the top, fading vertically — radial introduces
+                // unwanted side-darkening. Stops:
+                //   0%   : mossy green at full saturation
+                //   55%  : transition midpoint
+                //   80%  : pure black
+                // The whole gradient is sized to ~42% of the screen
+                // height so the logo lands just below it.
+                LinearGradient(
+                    stops: [
+                        .init(color: Color(hex: 0x6BA85A), location: 0.0),
+                        .init(color: Color(hex: 0x355626), location: 0.45),
+                        .init(color: Color.black, location: 0.85),
+                        .init(color: Color.black, location: 1.0),
                     ],
-                    center: UnitPoint(x: 0.5, y: -0.05),
-                    startRadius: 0,
-                    endRadius: proxy.size.height * 0.55
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-                .ignoresSafeArea()
-            }
+                .frame(height: H * 0.42)
+                .frame(maxWidth: .infinity)
+                .ignoresSafeArea(edges: .top)
 
-            VStack(spacing: 0) {
-                Spacer().frame(height: 120)
+                VStack(spacing: 0) {
+                    // Logo positioned just below the gradient's end —
+                    // ~y=50% of screen height (vertically centered on
+                    // the dark half's upper third). Calculated relative
+                    // to the screen so different device heights keep
+                    // the same visual rhythm.
+                    Spacer().frame(height: H * 0.42)
 
-                logoMark
-                    .frame(width: 96, height: 96)
+                    logoMark
+                        .frame(width: 88, height: 88)
 
-                Spacer()
+                    Spacer(minLength: 0)
 
-                copyBlock
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 20)
+                    copyBlock
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 22)
 
-                primaryCTA
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 12)
+                    primaryCTA
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 12)
 
-                secondaryCTA
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 16)
+                    secondaryCTA
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 18)
 
-                termsFooter
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, 24)
+                    termsFooter
+                        .padding(.horizontal, 32)
+                        .padding(.bottom, 28)
+                }
             }
         }
         .preferredColorScheme(.dark)
@@ -83,15 +105,18 @@ struct WelcomeView: View {
     private var copyBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Move money without borders")
-                .font(TaliseFont.heading(26, weight: .medium))
-                .kerning(-0.6)
+                .font(TaliseFont.heading(23, weight: .semibold))
+                .kerning(kern)
                 .foregroundStyle(TaliseColor.fg)
                 .multilineTextAlignment(.leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
 
             Text(
                 "Moving money across the world is complex, Talise brings simplicity to this. Free transactions, smart money movement."
             )
             .font(TaliseFont.body(13, weight: .light))
+            .kerning(kern)
             .foregroundStyle(TaliseColor.fgMuted)
             .multilineTextAlignment(.leading)
             .lineSpacing(2)
@@ -104,6 +129,7 @@ struct WelcomeView: View {
         Button(action: onContinue) {
             Text("Get Started")
                 .font(TaliseFont.body(15, weight: .medium))
+                .kerning(kern)
                 .foregroundStyle(TaliseColor.bg)
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
@@ -114,27 +140,30 @@ struct WelcomeView: View {
     }
 
     private var secondaryCTA: some View {
+        // Glassmorphic capsule — uses the project's `taliseGlass`
+        // (ultra-thin material + dark tint + specular stroke) so the
+        // pill picks up subtle white edge highlights and reads as a
+        // soft-blur surface against the black page. Press pulse via
+        // `taliseGlassPressable` matches the liquid-glass behavior
+        // used elsewhere in the app.
         Button(action: onSignIn) {
             Text("I have an account")
                 .font(TaliseFont.body(15, weight: .medium))
+                .kerning(kern)
                 .foregroundStyle(TaliseColor.fg)
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
-                .background(TaliseColor.surface2)
-                .clipShape(Capsule())
+                .taliseGlass(cornerRadius: 27)
         }
-        .buttonStyle(.plain)
+        .taliseGlassPressable(cornerRadius: 27)
     }
 
     private var termsFooter: some View {
-        // Light footer ack — `Terms and Conditions` is underlined so it
-        // reads as a link target. No tap handler yet (we don't have a
-        // terms page route); when one ships, wrap the Text in a Button
-        // that opens it.
         (Text("You accept ")
             + Text("Terms and Conditions").underline()
             + Text(" by continuing."))
             .font(TaliseFont.body(11, weight: .light))
+            .kerning(kern)
             .foregroundStyle(TaliseColor.fgDim)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)

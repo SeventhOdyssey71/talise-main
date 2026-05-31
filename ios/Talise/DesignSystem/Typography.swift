@@ -10,7 +10,10 @@ import UIKit
 /// TaliseApp.registerFonts(). Until then everything falls back to SF Pro
 /// / SF Mono — visually close enough that the layout reads right.
 enum TaliseFont {
-    static let displayFamily = "DMSans"
+    // PostScript family name from the registered variable .ttf (verified
+    // via `fc-scan` on the bundled `Resources/DMSans/DMSans-Variable.ttf`
+    // — the family carries a space, the file name doesn't).
+    static let displayFamily = "DM Sans"
     static let monoFamily = "JetBrainsMono"
 
     static func display(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
