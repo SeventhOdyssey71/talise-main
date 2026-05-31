@@ -10,6 +10,11 @@ struct EarnView: View {
     @State private var supplying = false
     @State private var error: String?
     @State private var success: String?
+    /// When non-nil, the full-screen "You just saved …" celebration
+    /// (Figma node 130:2) is presented. Holds the localized, currency-
+    /// formatted amount the user just invested, e.g. "$2.12" or
+    /// "₦12,000.00". Cleared by the sheet's "Back to Invest" button.
+    @State private var savingsPopupAmount: String?
     /// Active position (non-nil supplied amount) the user tapped on —
     /// drives the withdraw sheet. Reset to nil to dismiss.
     @State private var withdrawTarget: YieldVenue?
@@ -55,6 +60,15 @@ struct EarnView: View {
         .taliseScreenBackground()
         .task { await load() }
         .task { await loadRewards() }
+        .fullScreenCover(isPresented: Binding(
+            get: { savingsPopupAmount != nil },
+            set: { if !$0 { savingsPopupAmount = nil } }
+        )) {
+            SavingsSuccessView(
+                amountText: savingsPopupAmount ?? "",
+                onDismiss: { savingsPopupAmount = nil }
+            )
+        }
         .sheet(item: $withdrawTarget) { v in
             WithdrawSheet(venue: v, bestApy: comparison?.best?.apy ?? 0) {
                 // After a successful withdraw, refresh the venue cards
@@ -475,6 +489,12 @@ struct EarnView: View {
                     )
                 )
                 success = result.digest
+                // Capture the localized invested amount BEFORE clearing
+                // the input, then raise the full-screen "You just
+                // saved …" celebration (Figma 130:2). local2 converts
+                // the USD-denominated supply back to the user's display
+                // currency so a ₦ user sees ₦ and a $ user sees $.
+                savingsPopupAmount = TaliseFormat.local2(usd)
                 NotificationCenter.default.post(
                     name: .taliseTxCompleted,
                     object: TaliseTxEvent(

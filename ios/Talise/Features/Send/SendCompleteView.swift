@@ -1,79 +1,47 @@
 import SwiftUI
+import UIKit
 
-/// Step 5: success. Animated checkmark, "Sent", short receipt blurb,
-/// "Lands in about a second" reassurance, Done button that calls
-/// onDone and lets the parent dismiss. Sui mainnet finality is ~0.4s
-/// — anything longer in the copy is misleading.
+/// Step 5: success. Renders the Figma "Successful PopUp" (node 132:2)
+/// celebration — pastel-green field, coin-stack illustration, the sent
+/// amount in the user's currency, "gas cost = 0 / money arrives < 1s",
+/// and a Share Receipt + Done row. `onDone` lets the parent dismiss the
+/// whole Send flow.
 struct SendCompleteView: View {
     @Bindable var draft: SendDraft
     var onDone: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-
-            VStack(spacing: 22) {
-                SendSuccessAnimation(size: 140)
-
-                VStack(spacing: 8) {
-                    Text("Sent")
-                        .font(TaliseFont.heading(34, weight: .medium))
-                        .kerning(-1)
-                        .foregroundStyle(TaliseColor.fg)
-                    Text("Lands in about a second.")
-                        .font(TaliseFont.body(14, weight: .light))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.horizontal, 32)
-
-                receiptBlock
-                    .padding(.horizontal, 32)
-                    .padding(.top, 4)
-            }
-
-            Spacer()
-
-            doneButton
-                .padding(.horizontal, 24)
-                .padding(.bottom, 18)
-        }
-        .background(TaliseColor.bg.ignoresSafeArea())
+        // Amount in the user's display currency (USDsui is 1:1 USD).
+        // local2 mirrors what the rest of the app shows so a ₦ user
+        // sees ₦ here, a $ user sees $.
+        let amountText = TaliseFormat.local2(draft.success?.usdsui ?? draft.amountUsdsui)
+        SuccessfulTxView(
+            amountText: amountText,
+            onShareReceipt: shareReceipt,
+            onDone: onDone
+        )
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    @ViewBuilder
-    private var receiptBlock: some View {
-        // SUCCESS-ONLY. Do NOT render an error fallback here — this
-        // view is reached only when a real on-chain digest landed, and
-        // the failure path now routes to SendFailureView. Previously
-        // this `else if let err` branch was the bug: a 4xx from
-        // sponsor-prepare populated draft.errorMessage AND the catch
-        // navigated here, so the user saw the green checkmark + "Sent"
-        // header with the server error stacked beneath it.
-        if let s = draft.success {
-            VStack(spacing: 6) {
-                Text("\(s.currency.symbol)\(s.displayAmount) → \(s.recipientDisplay)")
-                    .font(TaliseFont.body(14, weight: .light))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                MicroLabel(
-                    text: String(s.digest.prefix(20)) + "…",
-                    color: TaliseColor.fgDim
-                )
-                .kerning(0.5)
-            }
-        }
-    }
-
-    private var doneButton: some View {
-        Button(action: onDone) {
-            Text("Done")
-                .font(TaliseFont.heading(16, weight: .medium))
-                .foregroundStyle(TaliseColor.bg)
-                .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .background(TaliseColor.fg)
-                .clipShape(Capsule())
-        }
+    /// Share the on-chain explorer link for this payment via the system
+    /// share sheet. No-op if we somehow reached this screen without a
+    /// digest (shouldn't happen — .complete is gated on a real digest).
+    private func shareReceipt() {
+        guard let digest = draft.success?.digest, !digest.isEmpty else { return }
+        let url = "https://suivision.xyz/txblock/\(digest)"
+        let av = UIActivityViewController(
+            activityItems: [URL(string: url) ?? url],
+            applicationActivities: nil
+        )
+        guard let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+              let root = scene.keyWindow?.rootViewController else { return }
+        // Walk to the top-most presented controller so the share sheet
+        // mounts above the Send fullScreenCover.
+        var top = root
+        while let presented = top.presentedViewController { top = presented }
+        av.popoverPresentationController?.sourceView = top.view
+        top.present(av, animated: true)
     }
 }

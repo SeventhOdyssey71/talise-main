@@ -21,7 +21,10 @@ import { RESERVED_USERNAMES } from "./handle";
 import { suins } from "./suins-operator";
 
 const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const MIN_LEN = 2;
+// Minimum 3 characters. Two-letter subnames are disallowed (reserved
+// for future premium / brand allocation, and SuiNS treats ultra-short
+// names as a separate tier). "abc" is the shortest claimable handle.
+const MIN_LEN = 3;
 const MAX_LEN = 32;
 
 /** Additional squat targets beyond `lib/handle.ts`'s base reserved set. */
