@@ -66,7 +66,7 @@ function TopBar() {
           the only thing we want users to do. */}
       <Link
         href="#cta"
-        className="rounded-full bg-[var(--color-surface-2)] px-5 py-2.5 text-[14px] text-[var(--color-fg)] transition hover:bg-[var(--color-surface)]"
+        className="rounded-full border border-transparent bg-[var(--color-surface-2)] px-5 py-2.5 text-[14px] text-[var(--color-fg)] transition hover:border-[color-mix(in_srgb,var(--color-accent)_45%,transparent)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)]"
       >
         Sign in
       </Link>
@@ -114,7 +114,7 @@ function Hero({ err }: { err?: string }) {
             them content-sized side by side. */}
         <Link
           href="/waitlist"
-          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-white px-6 text-[14px] font-medium text-black transition-opacity hover:opacity-90 sm:w-auto"
+          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-6 text-[14px] font-medium text-white shadow-[0_8px_28px_-8px_rgba(75,138,55,0.7)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
         >
           Join waitlist
         </Link>
@@ -183,7 +183,7 @@ function PhoneCollage() {
         className="talise-collage-glow pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-[80%] max-w-[900px] blur-3xl"
         style={{
           background:
-            "radial-gradient(60% 55% at 50% 50%, color-mix(in srgb, var(--color-accent) 28%, transparent), transparent 70%)",
+            "radial-gradient(58% 52% at 50% 42%, color-mix(in srgb, var(--color-accent-deep) 50%, transparent), transparent 68%), radial-gradient(46% 42% at 50% 58%, color-mix(in srgb, var(--color-accent) 30%, transparent), transparent 72%)",
         }}
       />
       <div className="talise-collage-art">
@@ -233,7 +233,8 @@ function FeatureGrid() {
 
   return (
     <section id="how" className="border-t border-[var(--color-line)] pt-20">
-      <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+      <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+        <span aria-hidden className="inline-block h-px w-6 bg-[color-mix(in_srgb,var(--color-accent)_70%,transparent)]" />
         how it works
       </div>
       <h2 className="mt-3 max-w-[720px] text-[clamp(28px,4.5vw,46px)] font-medium leading-[1.08] tracking-[-0.01em]">
@@ -250,7 +251,7 @@ function FeatureGrid() {
         {items.map((it) => (
           <article
             key={it.eyebrow}
-            className="motion-feature-card talise-glass rounded-2xl p-6"
+            className="motion-feature-card talise-glass rounded-2xl p-6 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent)_30%,transparent)]"
           >
             <div className="flex items-center justify-between">
               <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
@@ -282,7 +283,8 @@ function WhoItsFor() {
   return (
     <section id="who" className="mt-28 border-t border-[var(--color-line)] pt-20">
       <Reveal>
-        <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+        <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+          <span aria-hidden className="inline-block h-px w-6 bg-[color-mix(in_srgb,var(--color-accent)_70%,transparent)]" />
           who it&apos;s for
         </div>
       </Reveal>
@@ -358,7 +360,8 @@ function SecuritySection() {
   return (
     <section id="security" className="mt-28 border-t border-[var(--color-line)] pt-20">
       <Reveal>
-        <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+        <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+          <span aria-hidden className="inline-block h-px w-6 bg-[color-mix(in_srgb,var(--color-accent)_70%,transparent)]" />
           security
         </div>
       </Reveal>
@@ -377,7 +380,7 @@ function SecuritySection() {
       <div className="mt-12 grid gap-4 md:grid-cols-3">
         {items.map((it, i) => (
           <Reveal key={it.eyebrow} delay={0.12 + i * 0.06}>
-            <article className="talise-glass h-full rounded-2xl p-6">
+            <article className="talise-glass h-full rounded-2xl p-6 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent)_30%,transparent)]">
               <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
                 {it.eyebrow}
               </div>
@@ -426,7 +429,8 @@ function ByTheNumbers() {
   return (
     <section id="numbers" className="mt-28 border-t border-[var(--color-line)] pt-20">
       <Reveal>
-        <div className="font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+        <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+          <span aria-hidden className="inline-block h-px w-6 bg-[color-mix(in_srgb,var(--color-accent)_70%,transparent)]" />
           by the numbers
         </div>
       </Reveal>
@@ -1076,7 +1080,7 @@ function FinalCta() {
             flip the doors open this swaps back to SignInButton. */}
         <Link
           href="/waitlist"
-          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-white px-6 text-[14px] font-medium text-black transition-opacity hover:opacity-90 sm:w-auto"
+          className="inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-6 text-[14px] font-medium text-white shadow-[0_8px_28px_-8px_rgba(75,138,55,0.7)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
         >
           Join waitlist
         </Link>
@@ -1086,7 +1090,7 @@ function FinalCta() {
         Want the full picture?{" "}
         <Link
           href="/litepaper"
-          className="underline decoration-[var(--color-fg-muted)]/40 underline-offset-[3px] hover:decoration-[var(--color-fg)]"
+          className="text-[var(--color-fg-muted)] underline decoration-[var(--color-fg-muted)]/40 underline-offset-[3px] transition-colors hover:text-[var(--color-accent)] hover:decoration-[var(--color-accent)]"
         >
           Read the litepaper
         </Link>
