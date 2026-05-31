@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, userById } from "@/lib/db";
-import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import { getClientIp, rateLimitAsync } from "@/lib/rate-limit";
 import { readSessionEntryId } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   const ip = getClientIp(req);
-  const rl = rateLimit({
+  const rl = await rateLimitAsync({
     key: `waitlist-handle-existing:${ip}`,
     limit: 30,
     windowSec: 60,

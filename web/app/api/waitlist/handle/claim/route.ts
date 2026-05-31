@@ -6,7 +6,7 @@ import {
   normalizeReasonMessage,
   normalizeWaitlistHandle,
 } from "@/lib/handle-claim";
-import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import { getClientIp, rateLimitAsync } from "@/lib/rate-limit";
 import { readSessionEntryId } from "@/lib/session";
 import { mintSubname, suinsOperatorEnabled } from "@/lib/suins-operator";
 
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
   const ip = getClientIp(req);
   // Claim writes — tighter than availability. 6/min is well above any
   // human retry cadence.
-  const rl = rateLimit({
+  const rl = await rateLimitAsync({
     key: `waitlist-claim:${ip}`,
     limit: 6,
     windowSec: 60,
