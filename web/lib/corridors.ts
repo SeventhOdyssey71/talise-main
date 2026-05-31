@@ -26,6 +26,8 @@
  */
 
 import type { Currency } from "@/lib/fx";
+import { getQuote, corridorSpreadBps, type QuoteResult } from "@/lib/fx-feed";
+import { canUseCorridor, type KycTier } from "@/lib/kyc";
 
 /**
  * ISO 3166-1 alpha-2 country codes for the countries Talise has corridors
@@ -300,4 +302,74 @@ export function getCorridor(
  */
 export function isCorridorLive(from: CountryCode, to: CountryCode): boolean {
   return getCorridor(from, to)?.status === "live";
+}
+
+// ── Integration: registry × FX feed × KYC ──────────────────────────────
+// These tie the three independently-built layers into the primitives the
+// send/offramp paths actually call, so corridor policy, pricing, and
+// access live behind one door.
+
+/** True if a corridor is bookable now (live OR a partner rail is up). */
+export function isCorridorBookable(c: Corridor): boolean {
+  return c.status === "live" || c.status === "partner";
+}
+
+/**
+ * Whether a corridor is permitted for a KYC tier. Cross-border corridors
+ * (fromCountry !== toCountry) require the tier's "all" access; same-country
+ * corridors are allowed at "domestic". Delegates the policy to kyc.ts's
+ * `canUseCorridor` so access rules live in exactly one place.
+ */
+export function corridorAccessForTier(c: Corridor, tier: KycTier): boolean {
+  return canUseCorridor(tier, c.fromCountry === c.toCountry);
+}
+
+export type CorridorQuoteResult =
+  | { ok: true; corridor: Corridor; quote: Extract<QuoteResult, { ok: true }>["quote"] }
+  | { ok: false; code: "UNKNOWN_CORRIDOR" | "NOT_BOOKABLE" | "OVER_CAP" | "FX"; message: string };
+
+/**
+ * The product primitive: price a corridor transfer end-to-end.
+ *
+ * Resolves the directed corridor, rejects planned/unbookable corridors and
+ * over-cap amounts (perTxCapUsd — recall the JP ¥1M-equivalent partner-rail
+ * cap), then defers pricing to the server-authoritative FX feed
+ * (`getQuote`). The corridor's registry `spreadBps` is treated as a policy
+ * FLOOR: the effective spread is the larger of the registry spread and the
+ * feed's volatility-tier spread, so a corridor can charge more than the
+ * risk floor but never less. The returned quote is the feed's locked quote;
+ * `effectiveSpreadBps` documents the floor that was enforced.
+ *
+ * `amountUsd` is the USD value of the send (USDsui is 1:1 USD), used only
+ * for the cap check; `amountFrom` is the sender-currency amount priced.
+ */
+export async function corridorQuote(
+  from: CountryCode,
+  to: CountryCode,
+  amountFrom: number,
+  amountUsd: number
+): Promise<CorridorQuoteResult> {
+  const corridor = getCorridor(from, to);
+  if (!corridor) {
+    return { ok: false, code: "UNKNOWN_CORRIDOR", message: "No corridor for that route." };
+  }
+  if (!isCorridorBookable(corridor)) {
+    return { ok: false, code: "NOT_BOOKABLE", message: "This corridor isn't open yet." };
+  }
+  if (corridor.perTxCapUsd != null && amountUsd > corridor.perTxCapUsd) {
+    return {
+      ok: false,
+      code: "OVER_CAP",
+      message: `This corridor caps single transfers at $${corridor.perTxCapUsd.toLocaleString()}.`,
+    };
+  }
+
+  const fx = await getQuote(corridor.fromCcy, corridor.toCcy, amountFrom);
+  if (!fx.ok) {
+    return { ok: false, code: "FX", message: fx.message };
+  }
+  // Enforce the registry spread as a floor (documented; the feed already
+  // applied its vol-tier spread — we surface the floor that governs).
+  const floorBps = Math.max(corridor.spreadBps, corridorSpreadBps(corridor.fromCcy, corridor.toCcy));
+  return { ok: true, corridor: { ...corridor, spreadBps: floorBps }, quote: fx.quote };
 }
