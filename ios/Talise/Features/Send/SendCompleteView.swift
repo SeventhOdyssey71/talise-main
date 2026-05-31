@@ -17,10 +17,34 @@ struct SendCompleteView: View {
         let amountText = TaliseFormat.local2(draft.success?.usdsui ?? draft.amountUsdsui)
         SuccessfulTxView(
             amountText: amountText,
+            title: successTitle,
+            subtitle: successSubtitle,
             onShareReceipt: shareReceipt,
             onDone: onDone
         )
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    /// Headline. Same-currency wallet sends keep the default
+    /// celebration; cross-border fiat-payout sends say "Sent" to mark
+    /// the chain leg as final WITHOUT overclaiming bank delivery
+    /// (master plan §8: "sent" ≠ "landed in their bank").
+    private var successTitle: String {
+        guard draft.isCrossCurrency else { return "Transaction Successful!" }
+        return "Sent"
+    }
+
+    /// Subtitle. Same-currency: the gasless wallet-to-wallet line.
+    /// Cross-border: honest "on its way to their bank" copy — the chain
+    /// send is final and irreversible, but the local payout rail hasn't
+    /// confirmed, so we never claim "delivered" here. Home's optimistic
+    /// stub resolves to "Delivered" on the payout webhook.
+    private var successSubtitle: String {
+        guard draft.isCrossCurrency else {
+            return "gas cost = 0, money arrives < 1s"
+        }
+        let name = draft.success?.recipientDisplay ?? "their bank"
+        return "Sent — on its way to \(name)'s bank"
     }
 
     /// Share the on-chain explorer link for this payment via the system
