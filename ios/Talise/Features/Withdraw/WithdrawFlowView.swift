@@ -59,6 +59,27 @@ struct WithdrawFlowView: View {
                             )
                         }
                         .buttonStyle(.plain)
+
+                        // Cross-border send hand-off. Same dismiss-then-post
+                        // pattern as Onchain Send so the international rail's
+                        // own NavigationStack runs as a root cover, not
+                        // nested inside this Withdraw stack.
+                        Button {
+                            onClose()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                NotificationCenter.default.post(
+                                    name: .taliseRequestCrossBorderCover, object: nil
+                                )
+                            }
+                        } label: {
+                            OptionCardRow(
+                                icon: "globe",
+                                title: "Send abroad",
+                                subtitle: "Send to Nigeria, Japan, the Philippines and more — they get paid in their currency.",
+                                badge: "Live rate"
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
