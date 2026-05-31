@@ -15,9 +15,23 @@
  *   fg               #F2F4F2      primary text
  *   fg-muted         #B9C0BB      secondary text
  *   fg-dim           #6F7872      tertiary, labels, time
- *   accent           #79D96C      Talise green ("Earn up to 11%")
+ *   accent           #CAFFB8      Talise mint — readable accent ON dark
+ *                                  (hero word, links, eyebrows, glyphs)
+ *   accent-light     #CAFFB8      bright/mint green, glow washes, highlights
+ *   accent-deep      #4B8A37      forest green — solid CTA fill behind light
+ *                                  text, radial glow base, section accents
  *   accent-soft      #2A2A2A      pressed-state on accent surfaces
  *   danger           #E08D8A      sent-tx red / destructive
+ *
+ * Brand note: the two canonical greens are #CAFFB8 (mint) + #4B8A37
+ * (forest), the exact pair the iOS success screens, waitlist page, and
+ * confirmation email use. `--color-accent` now resolves to the mint so
+ * accent *text* stays WCAG-readable on the near-black bg; the forest
+ * green is only ever used as a fill behind light text (never as text on
+ * dark). The old #79D96C accent is retired. The only live consumers of
+ * `--color-accent` are the landing page, the waitlist (which wants this
+ * same bright-on-dark mint), and shared glyph/hover bits — the dashboard
+ * is archived, so shifting the token value is safe and cohesive.
  */
 @theme {
   --color-bg: #0a0e0b;
@@ -27,7 +41,9 @@
   --color-fg: #f2f4f2;
   --color-fg-muted: #b9c0bb;
   --color-fg-dim: #6f7872;
-  --color-accent: #79d96c;
+  --color-accent: #caffb8;
+  --color-accent-light: #caffb8;
+  --color-accent-deep: #4b8a37;
   --color-accent-soft: #2a2a2a;
   --color-danger: #e08d8a;
 
@@ -125,17 +141,19 @@ input[type="number"] {
   height: 360px;
   pointer-events: none;
   z-index: 0;
+  /* Forest-green (#4B8A37) deep wash with a mint (#CAFFB8) bloom on top —
+     ties the page-level horizon glow to the two canonical brand greens. */
   background:
     radial-gradient(
       ellipse 100% 90% at 50% -60%,
-      rgba(46, 168, 86, 0.55) 0%,
-      rgba(46, 168, 86, 0.18) 35%,
-      rgba(46, 168, 86, 0.04) 65%,
+      rgba(75, 138, 55, 0.55) 0%,
+      rgba(75, 138, 55, 0.18) 35%,
+      rgba(75, 138, 55, 0.04) 65%,
       transparent 100%
     ),
     radial-gradient(
       ellipse 60% 50% at 50% 0%,
-      rgba(92, 200, 110, 0.32) 0%,
+      rgba(202, 255, 184, 0.30) 0%,
       transparent 50%
     );
   filter: blur(8px);
@@ -180,7 +198,7 @@ input[type="number"] {
 }
 .talise-history-row[data-direction="sent"]    { --row-tint: #c95a4a; }
 .talise-history-row[data-direction="received"]{ --row-tint: #4fb35e; }
-.talise-history-row[data-direction="invest"]  { --row-tint: #79d96c; }
+.talise-history-row[data-direction="invest"]  { --row-tint: #4b8a37; }
 .talise-history-row[data-direction="withdraw"]{ --row-tint: #4fb35e; }
 
 /* Legacy moodboard tile class (still used by hero collage if re-enabled). */
