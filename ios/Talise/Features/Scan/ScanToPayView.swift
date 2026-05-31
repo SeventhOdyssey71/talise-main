@@ -12,9 +12,15 @@ import UIKit
 /// in onboarding (`PermissionsScreen`) but we never assume it — we
 /// re-check `AVCaptureDevice.authorizationStatus(for: .video)` on appear
 /// and request if undetermined. Denied/restricted → an inline Settings
-/// prompt. Simulator / no camera → an "unavailable" state. A successful
-/// scan parses the QR (`ScanPayload`), dismisses, and opens the Send flow
-/// pre-filled with the recipient.
+/// prompt. Simulator / no camera → an "unavailable" state.
+///
+/// A successful scan parses the QR (`ScanPayload`), resolves the recipient
+/// to a display identity (reusing `/api/recipient/resolve` + the local
+/// `SuiAddress` decode the Send flow uses), and presents a
+/// `ConfirmPaymentSheet` over the scanner. The user reviews the recipient +
+/// amount and slides to pay; execution reuses the existing gasless send
+/// pipeline (`ZkLoginCoordinator.signAndSubmitSend`). After a successful
+/// send the whole scan surface dismisses back to Home.
 struct ScanToPayView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var balance: BalancesDTO?
@@ -33,12 +39,18 @@ struct ScanToPayView: View {
     @State private var hasTorch = false
     /// Brief "Not a Talise payment code" pill, auto-dismissed.
     @State private var showUnrecognized = false
-    /// Latches once we've handed a valid scan to the Send flow so a second
-    /// frame can't double-route.
+    /// Latches once we've handed a valid scan to the confirm sheet so a
+    /// second frame can't double-route.
     @State private var didRoute = false
     /// Bumped after an unrecognized scan to re-arm QRScannerView's
     /// debounce so the next code is read.
     @State private var resumeToken = 0
+    /// True while we resolve the scanned recipient to a display identity
+    /// before presenting the confirm sheet — drives the "Resolving…" overlay.
+    @State private var resolving = false
+    /// The resolved payment, set once the scanned recipient resolves. Drives
+    /// the `.sheet(item:)` that presents `ConfirmPaymentSheet`.
+    @State private var pendingPayment: PendingPayment?
 
     /// Same formatter HomeView uses for the headline figure — keeps the
     /// pill consistent with the user's "Balance $X.XX" elsewhere in the
@@ -80,57 +92,135 @@ struct ScanToPayView: View {
             case .unavailable:  unavailableState
             case .checking, .scanning: EmptyView()
             }
+
+            // Brief resolving veil between a valid scan and the confirm
+            // sheet — covers the SuiNS / address lookup so the viewfinder
+            // doesn't keep flashing the success haptic underneath.
+            if resolving {
+                resolvingOverlay
+            }
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(false)
         .task { await loadBalance() }
         .onAppear(perform: resolveCameraAuthorization)
+        .sheet(item: $pendingPayment, onDismiss: rearmAfterConfirm) { payment in
+            ConfirmPaymentSheet(
+                recipient: payment.recipient,
+                scannedAmount: payment.amount,
+                onPaid: {
+                    // Send landed — dismiss the scanner, which tears down
+                    // this nested confirm sheet with it, returning the user
+                    // to Home in one motion.
+                    dismiss()
+                }
+            )
+            .presentationDetents([.height(560), .large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(TaliseColor.bg)
+        }
+    }
+
+    /// After the confirm sheet is dismissed WITHOUT a completed payment (the
+    /// user tapped Cancel or swiped down), re-arm the scanner so they can
+    /// scan again instead of staring at a latched viewfinder.
+    private func rearmAfterConfirm() {
+        pendingPayment = nil
+        didRoute = false
+        resumeToken &+= 1
+    }
+
+    private var resolvingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(.white)
+                Text("Resolving recipient…")
+                    .font(TaliseFont.body(13, weight: .regular))
+                    .foregroundStyle(.white)
+            }
+        }
+        .transition(.opacity)
     }
 
     // MARK: - Overlay
 
+    /// Side of the viewfinder window — also the cut-out for the dimming
+    /// scrim and the radius the corner brackets trace.
+    private let viewfinderSize: CGFloat = 268
+
     private var overlay: some View {
-        VStack(spacing: 0) {
-            topStatusBar
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
+        ZStack {
+            // Soft dimming scrim with the viewfinder window punched out, so
+            // the live frame reads brightest inside the brackets (the inspo
+            // focus-window feel). Only painted over the live preview.
+            if cameraState == .scanning {
+                scrim
+            }
 
-            // The "Scan to pay" title sits just below the status bar.
-            // Kerning ratio matches the Figma spec for the design
-            // language (-size × 0.03 ≈ -0.51 at 17pt).
-            Text("Scan to pay")
-                .font(TaliseFont.heading(17, weight: .semibold))
-                .kerning(-17 * 0.03)
-                .foregroundStyle(.white)
-                .padding(.top, 26)
+            VStack(spacing: 0) {
+                topStatusBar
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
 
-            Spacer(minLength: 0)
-
-            // Viewfinder frame — four corner brackets, 280×280 box.
-            ScanFrame(size: 280, bracketLength: 30, lineWidth: 3)
-                .frame(width: 280, height: 280)
-                // TODO(scan-camera): once the preview is wired, this
-                // frame becomes the metadataObjectsOutput's rectOfInterest
-                // so the scanner only reads codes inside the brackets.
-
-            Spacer(minLength: 0)
-
-            // Swap the instruction caption for the "unrecognized code"
-            // pill when a scan didn't parse — keeps the same vertical slot
-            // so the layout doesn't jump.
-            if showUnrecognized {
-                unrecognizedPill
-                    .padding(.bottom, 48)
-                    .transition(.opacity)
-            } else {
-                Text("Center the QR code within the frame to scan and pay instantly.")
-                    .font(TaliseFont.body(13, weight: .light))
+                // The "Scan to pay" title sits just below the status bar.
+                // Kerning ratio matches the design language (-size × 0.03).
+                Text("Scan to pay")
+                    .font(TaliseFont.heading(18, weight: .semibold))
+                    .kerning(-18 * 0.03)
                     .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 48)
-                    .padding(.bottom, 48)
+                    .padding(.top, 28)
+
+                Spacer(minLength: 0)
+
+                // Viewfinder frame — four rounded corner brackets tracing a
+                // softly-rounded window.
+                ScanFrame(
+                    size: viewfinderSize,
+                    cornerRadius: 28,
+                    bracketLength: 34,
+                    lineWidth: 3
+                )
+                .frame(width: viewfinderSize, height: viewfinderSize)
+
+                Spacer(minLength: 0)
+
+                // Swap the instruction caption for the "unrecognized code"
+                // pill when a scan didn't parse — keeps the same vertical
+                // slot so the layout doesn't jump.
+                if showUnrecognized {
+                    unrecognizedPill
+                        .padding(.bottom, 52)
+                        .transition(.opacity)
+                } else {
+                    Text("Center a Talise QR code inside the frame to pay instantly.")
+                        .font(TaliseFont.body(13, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 56)
+                        .padding(.bottom, 52)
+                }
             }
         }
+    }
+
+    /// Dimming scrim with a rounded-rect cut-out over the viewfinder window.
+    /// `.blendMode(.destinationOut)` punches the window through the fill;
+    /// the `.compositingGroup()` confines the blend to this layer so it
+    /// doesn't erase the camera preview behind it.
+    private var scrim: some View {
+        Rectangle()
+            .fill(Color.black.opacity(0.42))
+            .ignoresSafeArea()
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .frame(width: viewfinderSize, height: viewfinderSize)
+                    .blendMode(.destinationOut)
+            )
+            .compositingGroup()
+            .allowsHitTesting(false)
     }
 
     /// Transient "not a Talise code" feedback. We keep scanning underneath
@@ -303,8 +393,9 @@ struct ScanToPayView: View {
     // MARK: - Scan routing
 
     /// Called once per detected QR (QRScannerView debounces). Valid codes
-    /// seed the Send recipient bridge + open the Send cover; unrecognized
-    /// codes flash a pill and keep scanning.
+    /// resolve the recipient to a display identity and present the
+    /// `ConfirmPaymentSheet`; unrecognized codes flash a pill and keep
+    /// scanning.
     private func handleScan(_ raw: String) {
         guard !didRoute else { return }
 
@@ -322,25 +413,68 @@ struct ScanToPayView: View {
             return
         }
 
+        // Latch so a second frame can't double-route while we resolve.
         didRoute = true
-        // Reuse the exact path ContactsSheet uses to pre-fill Send: write
-        // the recipient token to the shared UserDefaults bridge, then post
-        // the Send-cover request. SendRecipientView (new flow) and
-        // LegacySendView both read + clear `io.talise.send.prefillRecipient`
-        // on appear and auto-resolve it.
-        UserDefaults.standard.set(
-            parsed.recipient,
-            forKey: "io.talise.send.prefillRecipient"
-        )
-        dismiss()
-        // Small delay so this full-screen scanner finishes dismissing
-        // before MainTabView presents the Send cover — back-to-back
-        // present/dismiss on the same hierarchy otherwise drops the
-        // second presentation.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            NotificationCenter.default.post(
-                name: .taliseRequestSendCover, object: nil
+        withAnimation { resolving = true }
+        Task { await resolveAndPresent(parsed) }
+    }
+
+    /// Resolve the scanned recipient token to a display identity, then
+    /// present the confirm sheet. Reuses the SAME resolution the Send flow
+    /// uses: a bare 0x address decodes locally via `SuiAddress`; everything
+    /// else (SuiNS names, Talise handles) goes through `/api/recipient/resolve`.
+    /// A resolution miss re-arms the scanner with the "Not a Talise code"
+    /// pill rather than presenting a confirm sheet for an unroutable target.
+    private func resolveAndPresent(_ parsed: ScanPayload.Recipient) async {
+        // 1. Local address decode — no network hop for a bare 0x scan.
+        if let addr = SuiAddress(parsed.recipient) {
+            let resolution = RecipientResolution(
+                address: addr.raw,
+                displayName: addr.short,
+                display: nil,
+                source: "address"
             )
+            await present(resolution, amount: parsed.amount)
+            return
+        }
+
+        // 2. SuiNS name / Talise handle → server resolver (same endpoint
+        //    SendRecipientView's `scheduleResolve` hits).
+        do {
+            let encoded = parsed.recipient.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed
+            ) ?? parsed.recipient
+            let resolution: RecipientResolution = try await APIClient.shared.get(
+                "/api/recipient/resolve?q=\(encoded)"
+            )
+            await present(resolution, amount: parsed.amount)
+        } catch {
+            await failResolve()
+        }
+    }
+
+    /// Hand a resolved recipient to the confirm sheet.
+    private func present(_ resolution: RecipientResolution, amount: Double?) async {
+        await MainActor.run {
+            withAnimation { resolving = false }
+            pendingPayment = PendingPayment(recipient: resolution, amount: amount)
+        }
+    }
+
+    /// Resolution failed (no SuiNS / handle match, or network error). Drop
+    /// the resolving veil, flash the unrecognized pill, and re-arm scanning.
+    private func failResolve() async {
+        await MainActor.run {
+            withAnimation {
+                resolving = false
+                showUnrecognized = true
+            }
+            didRoute = false
+            resumeToken &+= 1
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_600_000_000)
+                withAnimation { showUnrecognized = false }
+            }
         }
     }
 
@@ -357,16 +491,30 @@ struct ScanToPayView: View {
     }
 }
 
+// MARK: - Pending payment
+
+/// A resolved scan ready to confirm. `Identifiable` so it drives a
+/// `.sheet(item:)`; the `id` is the recipient address since a given scan
+/// resolves to exactly one payment target.
+private struct PendingPayment: Identifiable {
+    let recipient: RecipientResolution
+    let amount: Double?
+    var id: String { recipient.address }
+}
+
 // MARK: - Viewfinder frame
 
-/// Four corner brackets drawn around a centered square. Each bracket is
-/// a short L drawn with `Path` so the shape can scale crisply at any DPI
-/// and so we get rounded line caps without leaning on a `Shape` per
-/// corner.
+/// Four rounded corner brackets tracing a softly-rounded window. Each
+/// bracket runs through the quarter-circle of the window's corner radius
+/// and out along each edge, so the brackets visually belong to a rounded
+/// rect rather than a hard square. Drawn with `Path` + `Canvas` so it
+/// scales crisply at any DPI with round line caps.
 private struct ScanFrame: View {
-    /// Outer side of the square the brackets enclose.
+    /// Side of the (square) window the brackets enclose.
     let size: CGFloat
-    /// Length of each leg of the L.
+    /// Corner radius of the rounded window the brackets trace.
+    let cornerRadius: CGFloat
+    /// Length of each straight leg past the corner arc.
     let bracketLength: CGFloat
     /// Bracket stroke thickness.
     let lineWidth: CGFloat
@@ -374,40 +522,69 @@ private struct ScanFrame: View {
     var body: some View {
         Canvas { ctx, _ in
             let half = lineWidth / 2
-            // Inset each path by half the lineWidth so the outer edge of
-            // the stroke aligns with the bounding box.
-            let minX: CGFloat = half
-            let minY: CGFloat = half
-            let maxX: CGFloat = size - half
-            let maxY: CGFloat = size - half
+            let minX = half
+            let minY = half
+            let maxX = size - half
+            let maxY = size - half
+            // Clamp the radius so the arc + both legs fit on each side.
+            let r = min(cornerRadius, (size - lineWidth) / 2 - 1)
             let L = bracketLength
 
-            // Top-left
+            // Top-left: straight down the left edge → corner arc → straight
+            // along the top edge.
             var p = Path()
-            p.move(to: CGPoint(x: minX, y: minY + L))
-            p.addLine(to: CGPoint(x: minX, y: minY))
-            p.addLine(to: CGPoint(x: minX + L, y: minY))
+            p.move(to: CGPoint(x: minX, y: minY + r + L))
+            p.addLine(to: CGPoint(x: minX, y: minY + r))
+            p.addArc(
+                center: CGPoint(x: minX + r, y: minY + r),
+                radius: r,
+                startAngle: .degrees(180),
+                endAngle: .degrees(270),
+                clockwise: false
+            )
+            p.addLine(to: CGPoint(x: minX + r + L, y: minY))
             ctx.stroke(p, with: .color(.white), style: bracketStyle)
 
-            // Top-right
+            // Top-right.
             p = Path()
-            p.move(to: CGPoint(x: maxX - L, y: minY))
-            p.addLine(to: CGPoint(x: maxX, y: minY))
-            p.addLine(to: CGPoint(x: maxX, y: minY + L))
+            p.move(to: CGPoint(x: maxX - r - L, y: minY))
+            p.addLine(to: CGPoint(x: maxX - r, y: minY))
+            p.addArc(
+                center: CGPoint(x: maxX - r, y: minY + r),
+                radius: r,
+                startAngle: .degrees(270),
+                endAngle: .degrees(0),
+                clockwise: false
+            )
+            p.addLine(to: CGPoint(x: maxX, y: minY + r + L))
             ctx.stroke(p, with: .color(.white), style: bracketStyle)
 
-            // Bottom-right
+            // Bottom-right.
             p = Path()
-            p.move(to: CGPoint(x: maxX, y: maxY - L))
-            p.addLine(to: CGPoint(x: maxX, y: maxY))
-            p.addLine(to: CGPoint(x: maxX - L, y: maxY))
+            p.move(to: CGPoint(x: maxX, y: maxY - r - L))
+            p.addLine(to: CGPoint(x: maxX, y: maxY - r))
+            p.addArc(
+                center: CGPoint(x: maxX - r, y: maxY - r),
+                radius: r,
+                startAngle: .degrees(0),
+                endAngle: .degrees(90),
+                clockwise: false
+            )
+            p.addLine(to: CGPoint(x: maxX - r - L, y: maxY))
             ctx.stroke(p, with: .color(.white), style: bracketStyle)
 
-            // Bottom-left
+            // Bottom-left.
             p = Path()
-            p.move(to: CGPoint(x: minX + L, y: maxY))
-            p.addLine(to: CGPoint(x: minX, y: maxY))
-            p.addLine(to: CGPoint(x: minX, y: maxY - L))
+            p.move(to: CGPoint(x: minX + r + L, y: maxY))
+            p.addLine(to: CGPoint(x: minX + r, y: maxY))
+            p.addArc(
+                center: CGPoint(x: minX + r, y: maxY - r),
+                radius: r,
+                startAngle: .degrees(90),
+                endAngle: .degrees(180),
+                clockwise: false
+            )
+            p.addLine(to: CGPoint(x: minX, y: maxY - r - L))
             ctx.stroke(p, with: .color(.white), style: bracketStyle)
         }
     }
