@@ -219,18 +219,25 @@ export async function GET(req: Request) {
       return NextResponse.redirect(callback.toString());
     }
 
-    // If the user landed via a payment link (or any return-to flow), prefer
-    // that destination over the default home page.
+    // Destination priority:
+    //   1. Explicit returnTo cookie set by the caller (payment link, /waitlist
+    //      sign-in CTA, etc.) — ALWAYS honored, regardless of account_type.
+    //      A user who deliberately landed at /waitlist to claim a handle
+    //      should bounce straight back there, not to a non-existent
+    //      /onboarding page.
+    //   2. account_type → /business or /home for fully-set-up users.
+    //   3. Fallback for brand-new users with no returnTo and no
+    //      account_type: send to /waitlist (the canonical first-step
+    //      surface for a Google-signed-in but unprovisioned user).
+    //      `/onboarding` was the historical default and is now a 404 —
+    //      do NOT regress to it.
     const returnTo = await consumeReturnTo();
-    const defaultDest =
-      user.account_type === "business"
-        ? "/business"
-        : user.account_type === "personal"
-          ? "/home"
-          : "/onboarding";
-    // After onboarding, the return-to is still respected on subsequent sessions.
-    const dest =
-      user.account_type && returnTo ? returnTo : defaultDest;
+    const dest = returnTo
+      ?? (user.account_type === "business"
+            ? "/business"
+            : user.account_type === "personal"
+              ? "/home"
+              : "/waitlist");
     return NextResponse.redirect(new URL(dest, req.url));
   } catch (err) {
     const msg = (err as Error).message.slice(0, 120);
