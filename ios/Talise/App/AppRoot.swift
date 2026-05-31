@@ -88,12 +88,14 @@ struct MainTabView: View {
     @State private var depositCoverVisible = false
     @State private var withdrawCoverVisible = false
     @State private var sendCoverVisible = false
+    @State private var crossBorderCoverVisible = false
     @State private var claimSheetVisible = false
 
     /// True whenever ANY sheet/cover is being presented over the tab
     /// content. Drives the blur applied to the underlying tab.
     private var anySheetUp: Bool {
-        depositCoverVisible || withdrawCoverVisible || sendCoverVisible || claimSheetVisible
+        depositCoverVisible || withdrawCoverVisible || sendCoverVisible
+            || crossBorderCoverVisible || claimSheetVisible
     }
 
     var body: some View {
@@ -139,6 +141,12 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: $sendCoverVisible) {
             SendView(onDone: { sendCoverVisible = false })
         }
+        // Cross-border send — a distinct rail that lives alongside the
+        // same-currency Onchain Send. Its own cover so the multi-step
+        // NavigationStack inside CrossBorderFlowView doesn't nest.
+        .fullScreenCover(isPresented: $crossBorderCoverVisible) {
+            CrossBorderFlowView(onDone: { crossBorderCoverVisible = false })
+        }
         .sheet(isPresented: $claimSheetVisible) {
             ClaimHandleSheet()
                 .presentationDetents([.medium, .large])
@@ -152,6 +160,9 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestSendCover)) { _ in
             sendCoverVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestCrossBorderCover)) { _ in
+            crossBorderCoverVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestClaimSheet)) { _ in
             claimSheetVisible = true
@@ -167,6 +178,10 @@ extension Notification.Name {
     /// existing multi-step `SendView` runs as the root cover, not
     /// nested inside the Withdraw NavigationStack.
     static let taliseRequestSendCover = Notification.Name("io.talise.requestSendCover")
+    /// Cross-border send full cover. Posted by the Withdraw flow's "Send
+    /// abroad" option so the international rail (`CrossBorderFlowView`)
+    /// runs as its own root cover, not nested inside another stack.
+    static let taliseRequestCrossBorderCover = Notification.Name("io.talise.requestCrossBorderCover")
     static let taliseRequestClaimSheet = Notification.Name("io.talise.requestClaimSheet")
 }
 
