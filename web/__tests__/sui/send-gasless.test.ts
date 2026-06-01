@@ -113,6 +113,8 @@ vi.mock("@/lib/perf-cache", () => ({
   readSendLatencySamples: vi.fn(() => []),
   setPendingRoundup: vi.fn(),
   takePendingRoundup: vi.fn(() => null),
+  setPendingInbound: vi.fn(),
+  takePendingInbound: vi.fn(() => null),
 }));
 
 // The gasless branch builds offline on the gRPC client, then runs an
@@ -322,7 +324,11 @@ describe("/api/send/sponsor-prepare (gasless branch, PREPARE only)", () => {
   // and the cron worker (stubbed at /api/cron/process-roundup-queue)
   // executes the NAVI supply as a separate sponsored tx.
 
-  it("USDsui with SnS on still takes gasless rail (mode === 'gasless' regardless of roundup config)", async () => {
+  it("USDsui with SnS on routes to the sponsored atomic-save path (mode 'sponsored')", async () => {
+    // Option A (2026-06-01): a Save-on send can't ride the gasless rail (the
+    // round-up NAVI supply can't co-bundle with `balance::send_funds`), so it
+    // falls through to the sponsored branch, which bundles the transfer + the
+    // NAVI supply ATOMICALLY in one user-signed tx. Plain sends stay gasless.
     vi.mocked(getRoundupConfig).mockResolvedValue({
       enabled: true,
       percentage: 5,
@@ -333,12 +339,15 @@ describe("/api/send/sponsor-prepare (gasless branch, PREPARE only)", () => {
     );
     expect(res.status).toBe(200);
     const json = (await res.json()) as { mode: string; roundupUsd: number };
-    expect(json.mode).toBe("gasless");
-    // 5% of 1.0 → 0.05. This is the amount gasless-submit will enqueue.
+    expect(json.mode).toBe("sponsored");
+    // 5% of 1.0 → 0.05, supplied to NAVI atomically in the same tx.
     expect(json.roundupUsd).toBeCloseTo(0.05, 6);
   });
 
-  it("Roundup queued when SnS on + gasless taken (setPendingRoundup called with right amount)", async () => {
+  it("SnS on no longer defers the round-up — sponsored atomic path, no stash (option A)", async () => {
+    // The old deferred model (stash via setPendingRoundup → roundup_queue →
+    // cron) is RETIRED. A Save-on send routes sponsored and supplies NAVI
+    // atomically in the same tx, so the deferred stash must NOT fire.
     vi.mocked(getRoundupConfig).mockResolvedValue({
       enabled: true,
       percentage: 10,
@@ -349,12 +358,11 @@ describe("/api/send/sponsor-prepare (gasless branch, PREPARE only)", () => {
     );
     expect(res.status).toBe(200);
     const json = (await res.json()) as { mode: string; roundupUsd: number };
-    expect(json.mode).toBe("gasless");
-    // 10% of 2.5 → 0.25. The stash is the bridge between prepare and
-    // submit — the route must call it with the userId (42) and the
-    // rounded-up amount.
-    expect(setPendingRoundup).toHaveBeenCalledWith(42, expect.closeTo(0.25, 6));
+    expect(json.mode).toBe("sponsored");
+    // 10% of 2.5 → 0.25, supplied to NAVI atomically (not deferred).
     expect(json.roundupUsd).toBeCloseTo(0.25, 6);
+    // The dead deferred-stash path must NOT fire for a Save-on send.
+    expect(setPendingRoundup).not.toHaveBeenCalled();
   });
 
   it("SUI transfer still takes sponsored rail (gasless is USDsui-only)", async () => {

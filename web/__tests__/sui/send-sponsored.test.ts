@@ -128,6 +128,8 @@ vi.mock("@/lib/perf-cache", () => ({
   readSendLatencySamples: vi.fn(() => []),
   setPendingRoundup: vi.fn(),
   takePendingRoundup: vi.fn(() => null),
+  setPendingInbound: vi.fn(),
+  takePendingInbound: vi.fn(() => null),
 }));
 
 // The Sui client is consumed in two places:
@@ -248,14 +250,12 @@ describe("/api/send/sponsor-prepare (sponsored branch, PREPARE only)", () => {
     vi.clearAllMocks();
   });
 
-  it("USDsui + roundup enabled → mode:'gasless' with deferred roundupUsd (post 2026-05-29 product directive)", async () => {
-    // Pre 2026-05-29: roundup-enabled USDsui sends took the sponsored
-    // rail so the NAVI supply leg could be co-bundled atomically.
-    // Product directive update: every USDsui send is gasless, full
-    // stop. The roundup is now DEFERRED — sponsor-prepare stashes the
-    // amount, gasless-submit enqueues into `roundup_queue`, and a cron
-    // drains the queue as a separate sponsored tx. See
-    // app/api/cron/process-roundup-queue/route.ts for the cron stub.
+  it("USDsui + roundup enabled → mode:'sponsored' with atomic NAVI round-up supply (option A, 2026-06-01)", async () => {
+    // Option A: a Save-ON USDsui send routes through the SPONSORED branch so
+    // the round-up NAVI supply rides the SAME user-signed tx as the transfer
+    // (`appendNaviSupply`) — real, atomic, user-owned. The gasless rail can't
+    // co-bundle the supply, so Save-on sends are sponsored (Talise pays gas);
+    // plain sends (Save off) stay gasless.
     vi.mocked(getRoundupConfig).mockResolvedValue({
       enabled: true,
       percentage: 5,
@@ -275,13 +275,11 @@ describe("/api/send/sponsor-prepare (sponsored branch, PREPARE only)", () => {
       to: string;
     };
 
-    expect(json.mode).toBe("gasless");
+    expect(json.mode).toBe("sponsored");
     expect(json.asset).toBe("USDsui");
     expect(json.amount).toBe(1.0);
     expect(json.to).toBe(RECIPIENT_ADDR);
-    // 5% of $1.00 → $0.05. Allow tiny FP slack just in case. This
-    // amount is what gasless-submit will enqueue into roundup_queue
-    // post-broadcast.
+    // 5% of $1.00 → $0.05, supplied to NAVI atomically in the same tx.
     expect(json.roundupUsd).toBeCloseTo(0.05, 6);
     expect(typeof json.bytes).toBe("string");
     expect(json.bytes.length).toBeGreaterThan(0);

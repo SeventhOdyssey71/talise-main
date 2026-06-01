@@ -194,16 +194,19 @@ export async function POST(req: Request) {
     }
   }
 
-  // ── USDsui ALWAYS takes the gasless rail ────────────────────────
-  // Product directive (2026-05-29): every plain USDsui send must be
-  // gasless, regardless of Spend-and-Save state. The roundup NAVI
-  // supply leg can NOT be co-bundled (gasless PTB allowlist permits
-  // only `0x2::coin::send_funds<T>`), so when SnS is on we compute
-  // the roundup amount here and surface it to the submit endpoint
-  // via `roundupUsd` — `/api/send/gasless-submit` will enqueue it
-  // into `roundup_queue` after the gasless tx lands. The deferred
-  // cron drains the queue and executes the NAVI supply as a separate
-  // sponsored tx (see `/api/cron/process-roundup-queue`).
+  // ── USDsui routing: gasless for plain sends, SPONSORED when Saving ──
+  // Product directive (2026-06-01, revising 2026-05-29): a PLAIN USDsui
+  // send (no Spend-and-Save) takes the gasless rail. But when SnS is ON,
+  // the round-up NAVI supply CANNOT co-bundle with the gasless PTB
+  // (allowlist permits only `0x2::balance::send_funds<T>`), and a server
+  // cron cannot sign the deferred supply for the user. So a Save-on send
+  // instead falls through to the SPONSORED branch below, which bundles
+  // the transfer + the NAVI supply ATOMICALLY in one user-signed tx
+  // (`appendNaviSupply`). Trade-off: that send is sponsored (Talise pays
+  // gas), not gasless — but the Save is real, atomic, and user-owned.
+  // (This retires the dead `roundup_queue` deferral + the
+  // process-roundup-queue cron: nothing enqueues now that Save-on sends
+  // supply atomically.)
   //
   // Roundup config is memo'd per-user for 60s (toggling is rare
   // relative to send frequency). Defensive fallback on read failure:
@@ -247,7 +250,10 @@ export async function POST(req: Request) {
   // apart.
   let gaslessFellBackReason: "coin" | "anchor" = "coin";
 
-  if (asset === "USDsui") {
+  // Plain USDsui send (Save OFF) → gasless rail. Save-ON sends skip this and
+  // fall through to the sponsored branch below, which supplies the round-up
+  // to NAVI atomically in the same user-signed tx (see the routing note above).
+  if (asset === "USDsui" && deferredRoundupUsd <= 0) {
     try {
       const t0 = Date.now();
       const client = sui();

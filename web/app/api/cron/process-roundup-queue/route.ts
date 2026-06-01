@@ -6,6 +6,15 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/cron/process-roundup-queue
  *
+ * RETIRED (2026-06-01). Spend-and-Save no longer defers the NAVI supply:
+ * a Save-ON send now routes through the SPONSORED path in
+ * `/api/send/sponsor-prepare`, which bundles the transfer + the NAVI
+ * supply ATOMICALLY in one user-signed tx (`appendNaviSupply`). So nothing
+ * enqueues into `roundup_queue` anymore and this drain has no work. Kept as
+ * a harmless empty-200 (any legacy rows simply never need draining); the
+ * route + table can be removed in a later cleanup.
+ *
+ * Historical context (the deferral that this replaced):
  * TODO(P1): drain `roundup_queue` and execute deferred NAVI USDsui
  * supply legs.
  *
