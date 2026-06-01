@@ -7,12 +7,13 @@
  *   module provides a fallback chain so a single Mysten node failure no
  *   longer takes the app offline.
  *
- * What this module is NOT:
- *   - It is NOT wired into `sui()` yet. Callers of `sui()` keep their
- *     current single-endpoint behavior. The substitution is the follow-up
- *     cohort once we've vetted per-endpoint compatibility.
+ * Wiring: `sui()` (lib/sui.ts) routes every whitelisted gRPC method through
+ * `suiGrpcWithFallback` over this chain. The chain is PRIMARY-first; the head
+ * is Hayabusa (a transparent gRPC-Web proxy that races + caches across
+ * fullnodes), so reads/broadcasts get the fastest backend with automatic
+ * fallback to the direct fullnodes below.
  *
- * See: docs/sui-rpc-migration/endpoints.md
+ * See: docs/sui-rpc-migration/endpoints.md, docs/integrations/hayabusa.md
  */
 
 import { SuiGrpcClient } from "@mysten/sui/grpc";
@@ -59,6 +60,22 @@ export type SuiGrpcEndpoint = {
  * set — the wrapper skips it cleanly.
  */
 export const MAINNET_GRPC_ENDPOINTS: ReadonlyArray<SuiGrpcEndpoint> = [
+  {
+    // Hayabusa (unconfirmedlabs) — a transparent Sui gRPC-Web PROXY that races
+    // requests to multiple fullnodes (hedged) and serves immutable responses
+    // from a two-tier cache, returning the fastest result. It's drop-in: any
+    // SuiGrpcClient works unmodified by pointing baseUrl at it. Placed FIRST so
+    // every gRPC read + the broadcast leg go through it; on any transient
+    // failure the chain falls straight through to the direct fullnodes below.
+    // Env-overridable kill switch: set HAYABUSA_GRPC_URL="" to bypass it.
+    // (Hayabusa is a query/transport accelerator — NOT a gas sponsor; Onara
+    // still signs sponsorship. See docs/integrations/hayabusa.md.)
+    url:
+      process.env.HAYABUSA_GRPC_URL ??
+      "https://hayabusa.mainnet.unconfirmed.cloud:443",
+    provider: "hayabusa",
+    requiresAuth: false,
+  },
   {
     url: "https://fullnode.mainnet.sui.io:443",
     provider: "mysten-fullnode",
