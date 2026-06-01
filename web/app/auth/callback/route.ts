@@ -58,7 +58,12 @@ export async function GET(req: Request) {
   const error = url.searchParams.get("error");
 
   if (error) {
-    return redirectAuthError(req, state, error);
+    // Never forward a raw, attacker-controllable provider error string into
+    // the landing banner. Legit OAuth errors are lowercase_snake codes; pass
+    // only a sanitized code, else a generic one. (The render side maps codes
+    // to fixed copy too — defense in depth.)
+    const safe = /^[a-z_]{1,40}$/.test(error) ? error : "oauth_error";
+    return redirectAuthError(req, state, safe);
   }
   if (!code || !state) {
     return redirectAuthError(req, state, "missing_code");
@@ -240,7 +245,11 @@ export async function GET(req: Request) {
               : "/waitlist");
     return NextResponse.redirect(new URL(dest, req.url));
   } catch (err) {
-    const msg = (err as Error).message.slice(0, 120);
-    return redirectAuthError(req, state, msg);
+    // Log the real cause server-side; never reflect raw exception text (it can
+    // echo provider token-endpoint detail) into the client-facing ?err=.
+    console.error(
+      `[auth/callback] sign-in failed: ${(err as Error).message?.slice(0, 200)}`
+    );
+    return redirectAuthError(req, state, "signin_failed");
   }
 }

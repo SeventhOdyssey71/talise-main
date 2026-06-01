@@ -102,7 +102,13 @@ export type WelcomeData = {
 
 export function welcomeWithAddressHtml(d: WelcomeData): string {
   const name = (d.firstName || "friend").trim();
-  const suiscan = `https://suiscan.xyz/testnet/account/${d.suiAddress}`;
+  // Defensive: the address is server-derived (always 0x-hex) today, but
+  // escape + format-guard it so a future caller-controlled value can't break
+  // out of the href attribute or inject markup into the email body.
+  const addrOk = /^0x[0-9a-f]{1,64}$/i.test(d.suiAddress);
+  const suiscan = addrOk
+    ? `https://suiscan.xyz/testnet/account/${d.suiAddress}`
+    : "#";
   const tweet = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
     "I just joined the Talise waitlist. Programmable money on @SuiNetwork. Earning by default."
   )}&url=https%3A%2F%2Ftalise.io`;
@@ -126,7 +132,7 @@ export function welcomeWithAddressHtml(d: WelcomeData): string {
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${SURFACE};border:1px solid ${LINE};border-radius:10px;">
         <tr><td style="padding:18px 20px;">
           <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:${FG_DIM};margin-bottom:8px;">Your Sui address</div>
-          <div style="font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:13px;color:${FG};word-break:break-all;line-height:1.5;">${d.suiAddress}</div>
+          <div style="font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:13px;color:${FG};word-break:break-all;line-height:1.5;">${escapeHtml(d.suiAddress)}</div>
           <div style="margin-top:14px;">
             <a href="${suiscan}" style="color:${ACCENT};text-decoration:underline;font-size:13px;">View on Suiscan &nearr;</a>
           </div>

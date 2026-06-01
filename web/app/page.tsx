@@ -1180,6 +1180,23 @@ function SocialRow() {
 // ───────────────────────────────────────────────────────────────────
 // Small primitives
 
+// Map an auth error CODE to a fixed, friendly message. We NEVER render the raw
+// `?err=` value — it's attacker-controllable (a `/?err=<text>` link is an
+// apex-domain phishing / text-injection vector), so only known copy is shown.
+function friendlyAuthError(code: string): string {
+  const map: Record<string, string> = {
+    access_denied: "Sign-in was cancelled.",
+    unverified_email:
+      "Your Google email isn't verified — verify it and try again.",
+    bad_state: "Your sign-in session expired. Please try again.",
+    bad_audience: "Sign-in configuration error. Please contact support.",
+    missing_code: "Sign-in didn't complete. Please try again.",
+    oauth_error: "Google sign-in failed. Please try again.",
+    signin_failed: "Something went wrong signing in. Please try again.",
+  };
+  return map[code] ?? "Something went wrong signing in. Please try again.";
+}
+
 function ErrorBanner({ err }: { err: string }) {
   return (
     <div
@@ -1189,7 +1206,7 @@ function ErrorBanner({ err }: { err: string }) {
       <span className="font-mono uppercase tracking-[0.18em] opacity-70">
         sign-in error ·{" "}
       </span>
-      {err}
+      {friendlyAuthError(err)}
     </div>
   );
 }
