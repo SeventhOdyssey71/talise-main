@@ -252,13 +252,21 @@ export async function fetchNaviUsdsuiSupplyApy(): Promise<number | null> {
 // convert with the live pool's supply index + decimals.
 //
 // `get_user_state` returns `vector<UserStateInfo>` where each row is the
-// user's scaled (ray-normalised) per-asset position. The redeemable
-// amount in token base units is `scaled * currentSupplyIndex / 1e27`
-// (rounded), then `/10^decimals` for human units. Verified live against
-// `NaviAdapter.getPositions()` — values match to the unit for assets that
-// share decimals; for USDsui (6 decimals) the direct read is actually
-// MORE accurate, since the t2000 adapter hard-codes 9 decimals for some
-// stables.
+// user's scaled (ray-normalised) per-asset position. The redeemable amount
+// is `scaled * currentSupplyIndex / 1e27` (rounded) — but that result is in
+// NAVI's INTERNAL 9-decimal normalised accounting precision, NOT the coin's
+// native decimals. So human units = base / 10^9, regardless of USDsui being
+// a 6-decimal coin.
+//
+// THIS WAS THE BUG 7f5cc4d shipped: it divided by `token.decimals` (6),
+// over-dividing by 10^3 and inflating the position ~1000x (a 0.004646 USDsui
+// dust position read as 4.646928 — which is why the Earn screen showed
+// ₦6,373.94 / "Earned so far" ₦5,615.68 for what is really a few naira).
+// Verified live against `NaviAdapter.getPositions()` (the t2000 adapter,
+// which correctly uses 9): base 4_646_928 / 10^9 = 0.004646928 == adapter's
+// 0.004646, while / 10^6 = 4.646928 was 1000x too high. NAVI normalises every
+// reserve's scaled amount to 9 decimals; that — not the coin precision — is
+// the divisor.
 
 type NaviConfig = { uiGetter: string; storage: string };
 
@@ -290,6 +298,15 @@ const UserStateInfo = bcs.struct("UserStateInfo", {
 });
 
 const RAY = 10n ** 27n;
+
+/**
+ * NAVI normalises every reserve's scaled supply/borrow amount to a fixed
+ * 9-decimal internal precision, independent of the coin's native decimals.
+ * So `rayMul(scaled, index)` is in 9-dp normalised units → divide by 10^9 for
+ * human units. (Confirmed against `NaviAdapter.getPositions()`; see the block
+ * comment above `readNaviUsdsuiSupply`.)
+ */
+const NAVI_NORMALIZED_DECIMALS = 9;
 
 /** rayMul: scaled supply balance × supply index ÷ 1e27 (round half-up). */
 function rayMul(rawScaled: string, supplyIndex: string): bigint {
@@ -340,8 +357,10 @@ export async function readNaviUsdsuiSupply(address: string): Promise<number> {
       String(row.supply_balance),
       String(usdsui.currentSupplyIndex ?? "0")
     );
-    const decimals = Number(usdsui.token?.decimals ?? USDSUI_DECIMALS);
-    const human = Number(base) / 10 ** decimals;
+    // Divide by NAVI's 9-decimal internal normalisation, NOT the coin's native
+    // `token.decimals` (6). See the block comment above — using token.decimals
+    // here is what inflated the position ~1000x.
+    const human = Number(base) / 10 ** NAVI_NORMALIZED_DECIMALS;
     return Number.isFinite(human) && human > 0 ? human : 0;
   } catch {
     return 0;
