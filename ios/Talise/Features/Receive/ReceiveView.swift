@@ -6,10 +6,50 @@ struct ReceiveView: View {
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var copied = false
+    /// Optional USD amount to request. Empty = a plain receive QR; a value
+    /// turns the card into a payment REQUEST (merchant charge / P2P ask) by
+    /// encoding `talise://pay/<handle>?amount=` so the payer's scanner
+    /// prefills the amount. ConfirmPaymentSheet treats `amount` as USD.
+    @State private var amountText = ""
+    @FocusState private var amountFocused: Bool
 
     private var address: String {
         if case .ready(let user) = session.phase { return user.suiAddress }
         return ""
+    }
+
+    /// Bare on-chain handle (e.g. "alice"), nil until the user claims one.
+    private var taliseHandle: String? {
+        if case .ready(let user) = session.phase { return user.taliseHandle }
+        return nil
+    }
+
+    /// Parsed requested amount in USD, if a positive value was entered.
+    private var requestedAmount: Double? {
+        let v = Double(amountText.trimmingCharacters(in: .whitespaces))
+        guard let v, v > 0 else { return nil }
+        return v
+    }
+
+    /// What the QR encodes. With an amount → a payable request link
+    /// (handle-first so the payer sees the @handle; address fallback).
+    /// Without an amount → the plain `sui:<address>` receive code that
+    /// external Sui wallets also understand.
+    private var qrContent: String {
+        if let amt = requestedAmount {
+            let a = String(format: "%.2f", amt)
+            if let h = taliseHandle, !h.isEmpty {
+                return "talise://pay/\(h)?amount=\(a)"
+            }
+            return "sui:\(address)?amount=\(a)"
+        }
+        return "sui:\(address)"
+    }
+
+    /// What Copy/Share emit — the request link when an amount is set, else
+    /// the raw address.
+    private var shareContent: String {
+        requestedAmount != nil ? qrContent : address
     }
 
     /// Receive card title. Prefers the on-chain handle; if the user
@@ -35,6 +75,9 @@ struct ReceiveView: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
 
+                amountField
+                    .padding(.horizontal, 24)
+
                 qrCard
                     .padding(.horizontal, 24)
 
@@ -48,6 +91,40 @@ struct ReceiveView: View {
         .presentationDragIndicator(.visible)
     }
 
+    /// Optional "request a specific amount" input. Empty → the card is a
+    /// plain receive code; a value turns it into a payment request (merchant
+    /// charge or P2P ask) that the payer's scanner prefills.
+    private var amountField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Request a specific amount (optional)")
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(TaliseColor.fgDim)
+            HStack(spacing: 8) {
+                Text("$")
+                    .font(TaliseFont.heading(20, weight: .medium))
+                    .foregroundStyle(TaliseColor.fgSubtle)
+                TextField("0.00", text: $amountText)
+                    .keyboardType(.decimalPad)
+                    .focused($amountFocused)
+                    .font(TaliseFont.heading(20, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                if !amountText.isEmpty {
+                    Button {
+                        amountText = ""
+                        amountFocused = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(TaliseColor.fgDim)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 52)
+            .background(RoundedRectangle(cornerRadius: 14).fill(TaliseColor.surface2))
+        }
+    }
+
     private var qrCard: some View {
         VStack(spacing: 18) {
             Text(handleLine)
@@ -55,7 +132,13 @@ struct ReceiveView: View {
                 .kerning(-0.8)
                 .foregroundStyle(TaliseColor.fgSubtle)
 
-            QRView(content: "sui:\(address)")
+            if let amt = requestedAmount {
+                Text("Requesting $\(String(format: "%.2f", amt))")
+                    .font(TaliseFont.heading(15, weight: .medium))
+                    .foregroundStyle(TaliseColor.accent)
+            }
+
+            QRView(content: qrContent)
                 .frame(width: 220, height: 220)
                 .padding(16)
                 .background(Color.white)
@@ -76,10 +159,10 @@ struct ReceiveView: View {
         HStack(spacing: 12) {
             actionButton(
                 icon: copied ? "checkmark" : "doc.on.doc",
-                label: copied ? "Copied" : "Copy address",
+                label: copied ? "Copied" : (requestedAmount != nil ? "Copy link" : "Copy address"),
                 primary: false
             ) {
-                UIPasteboard.general.string = address
+                UIPasteboard.general.string = shareContent
                 withAnimation(.easeInOut(duration: 0.15)) { copied = true }
                 Task {
                     try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -88,10 +171,10 @@ struct ReceiveView: View {
             }
             actionButton(
                 icon: "square.and.arrow.up",
-                label: "Share",
+                label: requestedAmount != nil ? "Share request" : "Share",
                 primary: true
             ) {
-                share(text: address)
+                share(text: shareContent)
             }
         }
     }
