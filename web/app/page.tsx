@@ -156,7 +156,7 @@ function AppStoreButton() {
     <div
       role="img"
       aria-label="iOS app coming soon"
-      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-7 text-[14px] font-medium text-[var(--color-fg-muted)] shadow-[0_1px_4px_rgba(35,78,20,0.10)] cursor-not-allowed select-none sm:w-auto"
+      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-dashed border-[color-mix(in_srgb,var(--color-accent-deep)_38%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent-deep)_5%,transparent)] px-7 text-[14px] font-medium text-[var(--color-fg-dim)] cursor-not-allowed select-none sm:w-auto"
     >
       <AppleGlyph />
       <span>iOS · Coming soon</span>
