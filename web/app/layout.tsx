@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { JetBrains_Mono, Instrument_Serif } from "next/font/google";
 // Google Sans Variable, self-hosted via @fontsource. Google's marketing
 // font isn't on the public Google Fonts API, but Fontsource ships an
@@ -51,7 +52,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       className={`${mono.variable} ${serif.variable}`}
     >
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Vercel Web Analytics — privacy-friendly route/pageview metrics
+            (no cookies, no PII). Surfaces at the project's /analytics tab. */}
+        <Analytics />
+      </body>
     </html>
   );
 }
