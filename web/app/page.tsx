@@ -1222,7 +1222,7 @@ function StatRow() {
       {stats.map(([label, value, sub]) => (
         <div
           key={label}
-          className="motion-stat rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-4 text-left shadow-[0_8px_24px_-10px_rgba(35,78,20,0.14),0_1px_3px_rgba(35,78,20,0.05)]"
+          className="motion-stat rounded-2xl border border-[#d6e8c6] bg-[#f6fbef] px-5 py-4 text-left shadow-[0_8px_24px_-10px_rgba(35,78,20,0.14),0_1px_3px_rgba(35,78,20,0.05)]"
         >
           <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
             {label}
