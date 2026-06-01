@@ -15,6 +15,37 @@ import {
   fetchUserUsdsuiSupply,
 } from "./deepbook-margin";
 import { fetchNaviUsdsuiSupplyApy } from "./navi-supply";
+import { getGlobalNum, setGlobalNum, refreshInBackground } from "./snapshots";
+
+/** Resolve a promise to `fallback` if it doesn't settle within `ms`. The
+ *  underlying work keeps running; we just stop waiting on the hot path. */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+/**
+ * A venue APY backed by a durable global cache. If the live read produced a
+ * usable value, return it and warm the cache in the background; otherwise
+ * fall back to the last-known cached value so a slow/failed RPC leg never
+ * drops the venue (the "No live venues" regression). Returns null only when
+ * we have neither a live nor a cached APY for this venue.
+ */
+async function resolveApy(key: string, live: number | null | undefined): Promise<number | null> {
+  if (typeof live === "number" && Number.isFinite(live) && live > 0) {
+    refreshInBackground(async () => setGlobalNum(key, live));
+    return live;
+  }
+  const cached = await getGlobalNum(key).catch(() => null);
+  return cached && cached.value > 0 ? cached.value : null;
+}
+
+/** Per-leg cap so one slow venue read can't hang the whole comparison.
+ *  5s clears the ~4.2s SDK summary read (so existing earners' supplied
+ *  still loads) while staying well under the iOS 15s request deadline. */
+const YIELD_LEG_TIMEOUT_MS = 5_000;
 
 /**
  * Server-side yield queries — all stateless (no zkLogin signer needed).
@@ -94,36 +125,47 @@ export type YieldComparison = {
 export async function getYieldComparison(
   address: string
 ): Promise<YieldComparison> {
+  // Every leg is timeout-capped AND failure-tolerant so one slow/flaky
+  // venue read can't stall (or empty) the comparison. The fast Navi open
+  // API (~1s) carries the APY; the slower SDK summary (~4s) only adds the
+  // user's supplied balance — so the Navi venue shows even if the SDK leg
+  // is slow or down. Each APY is cached in global_kv, so cold serverless
+  // instances and transient RPC outages still return last-known venues.
   const [naviSnap, dbApy, dbSupply, naviApyLive] = await Promise.all([
-    getEarnSnapshot(address).catch(() => null),
-    fetchUsdsuiMarginApy().catch(() => null),
-    fetchUserUsdsuiSupply(address).catch(() => null),
+    withTimeout(getEarnSnapshot(address).catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
+    withTimeout(fetchUsdsuiMarginApy().catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
+    withTimeout(fetchUserUsdsuiSupply(address).catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
     // Live USDsui supply APY from Navi's open API. The SDK's
-    // `getFinancialSummary` keys APY off USDC's pool (a SDK bug —
-    // see fetchNaviUsdsuiSupplyApy comment), so we override with the
-    // portal-accurate value whenever the API is reachable. Falls back
-    // to the SDK number when null.
-    fetchNaviUsdsuiSupplyApy().catch(() => null),
+    // `getFinancialSummary` keys APY off USDC's pool (a SDK bug — see
+    // fetchNaviUsdsuiSupplyApy), so this portal-accurate value wins.
+    withTimeout(fetchNaviUsdsuiSupplyApy().catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
+  ]);
+
+  // Resolve each APY against the durable cache (live → cache it; else fall
+  // back to last-known) so a timed-out/failed leg doesn't drop the venue.
+  const [naviApy, deepbookApy] = await Promise.all([
+    resolveApy("navi_usdsui_apy", naviApyLive ?? naviSnap?.apy),
+    resolveApy("deepbook_usdsui_apy", dbApy?.apy),
   ]);
 
   const venues: YieldVenue[] = [];
-  if (naviSnap) {
+  if (naviApy != null) {
     venues.push({
       id: "navi",
       name: "NAVI lending",
-      apy: naviApyLive ?? naviSnap.apy,
-      supplied: naviSnap.supplied,
-      meta: { pendingUsd: naviSnap.totalPendingUsd },
+      apy: naviApy,
+      supplied: naviSnap?.supplied ?? 0,
+      meta: { pendingUsd: naviSnap?.totalPendingUsd ?? 0 },
     });
   }
-  if (dbApy) {
+  if (deepbookApy != null) {
     venues.push({
       id: "deepbook",
       name: "DeepBook margin",
-      apy: dbApy.apy,
+      apy: deepbookApy,
       supplied: dbSupply?.amount ?? 0,
       meta: {
-        utilization: dbApy.utilization,
+        utilization: dbApy?.utilization ?? 0,
         supplierCapId: dbSupply?.supplierCapId,
       },
     });

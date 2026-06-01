@@ -43,9 +43,14 @@ export async function GET(req: Request) {
     const naviVenue = cmp.venues.find((v) => v.id === "navi");
     if (naviVenue && (naviVenue.supplied ?? 0) > 0) {
       try {
-        const activity = await getRecentActivity(user.sui_address, 200, {
-          includeNonTalise: false,
-        });
+        // Cap the 200-tx replay so a slow chain scan can't stall the Earn
+        // response — the breakdown is a nice-to-have, the APY/venue is not.
+        const activity = await Promise.race([
+          getRecentActivity(user.sui_address, 200, { includeNonTalise: false }),
+          new Promise<Awaited<ReturnType<typeof getRecentActivity>>>((r) =>
+            setTimeout(() => r([]), 4_000)
+          ),
+        ]);
         const naviRows = activity
           .filter((a) => (a.venue ?? "").toLowerCase() === "navi")
           .map((a) => ({
