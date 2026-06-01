@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { triggerOauthSignIn } from "@/lib/zkclient";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Tick01Icon } from "@hugeicons/core-free-icons";
 
 /**
  * Waitlist form. Google-first flow:
@@ -63,18 +65,7 @@ function ClaimedCard({
         aria-hidden
         className="grid h-11 w-11 place-items-center rounded-full bg-[color-mix(in_srgb,var(--color-accent-deep)_14%,#ffffff)] text-[var(--color-accent-deep)]"
       >
-        <svg
-          width="22"
-          height="22"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M20 6 9 17l-5-5" />
-        </svg>
+        <HugeiconsIcon icon={Tick01Icon} size={22} color="currentColor" strokeWidth={2.2} />
       </span>
 
       <div className="text-[15px] font-medium text-[var(--color-fg)] sm:text-[16px]">
