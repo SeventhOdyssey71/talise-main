@@ -84,17 +84,14 @@ function TopBar() {
 function Hero({ err }: { err?: string }) {
   return (
     <section className="pt-12 pb-12 text-center md:pt-20 md:pb-16">
-      {/* Centered headline. Italic accent on "For free." picks up
-          Instrument Serif from the layout fonts. Forced break after
-          "the" so the layout is two lines: "Send money across the" /
-          "globe. For free." — keeps the accent inline with the noun
-          it modifies instead of orphaning on its own row. */}
+      {/* Centered headline; the accent line ("In their currency.") is the
+          same sans font as the rest of the headline, set apart only by the
+          forest accent colour. */}
       <h1 className="motion-headline mx-auto max-w-[940px] text-[clamp(40px,6vw,72px)] font-medium leading-[1.05] tracking-[-0.025em] text-[var(--color-fg)]">
         Send money worldwide.
         <br />
         <span
           className="text-[var(--color-accent)]"
-          style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
         >
           In their currency.
         </span>
@@ -102,9 +99,9 @@ function Hero({ err }: { err?: string }) {
 
       <p className="motion-subtitle mx-auto mt-6 max-w-[580px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
         Send to a Talise handle and your money lands in their currency in
-        seconds — naira, cedis, yen, or dollars. We put dollars on the wire and
+        seconds: naira, cedis, yen, or dollars. We put dollars on the wire and
         local money at each end, with the chain entirely out of the way.
-        Private beta — join the waitlist.
+        Private beta. Join the waitlist.
       </p>
 
       {/* Dual CTAs: waitlist + iOS placeholder. On small screens they
@@ -217,7 +214,7 @@ function FeatureGrid() {
       eyebrow: "01 / send",
       title: "Across borders, in seconds.",
       body:
-        "Send to a handle, a phone, or a wallet. We move dollars on Sui and pay out in the receiver's own currency — naira, cedis, yen, dollars — faster than any traditional rail.",
+        "Send to a handle, a phone, or a wallet. We move dollars on Sui and pay out in the receiver's own currency, whether naira, cedis, yen, or dollars, faster than any traditional rail.",
       glyph: "send",
     },
     {
@@ -246,7 +243,6 @@ function FeatureGrid() {
         One app. Every corridor.{" "}
         <span
           className="text-[var(--color-fg-muted)]"
-          style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
         >
           Arrives in seconds.
         </span>
@@ -298,7 +294,6 @@ function WhoItsFor() {
           Made for the people moving money{" "}
           <span
             className="text-[var(--color-accent)]"
-            style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
           >
             across the world.
           </span>
@@ -375,7 +370,6 @@ function SecuritySection() {
           No seed phrases.{" "}
           <span
             className="text-[var(--color-fg-muted)]"
-            style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
           >
             No keys to lose.
           </span>
@@ -423,11 +417,11 @@ function ByTheNumbers() {
     },
     {
       value: "Onchain reach",
-      caption: "Stablecoins, blue chips, DeFi yield — all in one app.",
+      caption: "Stablecoins, blue chips, and DeFi yield, all in one app.",
     },
     {
-      value: "Built for Africa",
-      caption: "Naira, cedis, shillings, rand. Native rails, local cash out.",
+      value: "Every corridor",
+      caption: "Naira, cedis, yen, dollars. Local rails in, local cash out.",
     },
   ];
 
@@ -444,7 +438,6 @@ function ByTheNumbers() {
           What you can{" "}
           <span
             className="text-[var(--color-accent)]"
-            style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
           >
             expect.
           </span>
@@ -539,7 +532,6 @@ function SignInDeep() {
           Sign in.{" "}
           <span
             className="text-[var(--color-fg-muted)]"
-            style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
           >
             Don't sign up.
           </span>
@@ -575,7 +567,6 @@ function RoundupDeep() {
         Round up. Save up.{" "}
         <span
           className="text-[var(--color-accent)]"
-          style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
         >
           Earn up.
         </span>
@@ -626,7 +617,6 @@ function EarnDeep() {
           Idle money should{" "}
           <span
             className="text-[var(--color-accent)]"
-            style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
           >
             compound.
           </span>
@@ -661,7 +651,6 @@ function UsernameDeep() {
         A username,{" "}
         <span
           className="text-[var(--color-fg-muted)]"
-          style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
         >
           not a wallet address.
         </span>
@@ -704,7 +693,6 @@ function GaslessDeep() {
           No SUI required.{" "}
           <span
             className="text-[var(--color-accent)]"
-            style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
           >
             Ever.
           </span>
@@ -835,7 +823,6 @@ function FauxUsernameCard() {
         <span className="text-[var(--color-fg-dim)]">@</span>
         <span
           className="text-[var(--color-accent)]"
-          style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
         >
           talise
         </span>
@@ -1030,7 +1017,6 @@ function PersonaStories() {
         Built for the{" "}
         <span
           className="text-[var(--color-accent)]"
-          style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
         >
           diaspora.
         </span>
@@ -1068,7 +1054,6 @@ function FinalCta() {
         Send. Save. Earn.{" "}
         <span
           className="text-[var(--color-accent)]"
-          style={{ fontFamily: "var(--font-serif)", fontStyle: "italic" }}
         >
           Free to send.
         </span>
@@ -1076,8 +1061,8 @@ function FinalCta() {
       <p className="mx-auto mt-5 max-w-[560px] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
         Talise covers the network fee on every transfer between Talise
         handles. No first-transfer gimmick. We make money on a small spread
-        when coins auto-swap to USDsui and when balances cash out to local
-        currency, the same way Wise and Revolut do, only smaller.
+        when money moves between currencies and when balances cash out to
+        local currency, the same way Wise and Revolut do, only smaller.
       </p>
       <div className="mx-auto mt-9 flex w-full max-w-[280px] flex-col items-stretch gap-2 sm:max-w-none sm:flex-row sm:items-center sm:justify-center">
         {/* Talise is in private beta — every Get started/Sign up CTA
@@ -1228,7 +1213,7 @@ function ErrorBanner({ err }: { err: string }) {
 
 function StatRow() {
   const stats: Array<[string, string, string]> = [
-    ["avg send fee", "0%", "vs ~5% Wise"],
+    ["avg send fee", "0%", "vs ~6% legacy"],
     ["finality", "<1s", "sub-second on Sui"],
     ["fee at $100", "$0.00", "no markup"],
   ];

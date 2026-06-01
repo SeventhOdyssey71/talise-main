@@ -50,8 +50,7 @@ export default function WaitlistPage() {
         <h1 className="text-balance break-words text-[30px] font-medium leading-[1.08] tracking-[-0.025em] sm:text-[40px] lg:text-[44px]">
           Get an{" "}
           <span
-            className="italic text-[var(--color-accent)]"
-            style={{ fontFamily: "var(--font-serif)" }}
+            className="text-[var(--color-accent)]"
           >
             @handle
           </span>{" "}
