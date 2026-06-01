@@ -71,12 +71,15 @@ function TopBar() {
       {/* Nav links removed — the page is short enough that #how / #who
           anchor scrolls add noise rather than helping. The hero CTA is
           the only thing we want users to do. */}
-      <Link
-        href="#cta"
-        className="rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-2 text-[14px] font-medium text-[var(--color-fg)] shadow-[0_1px_3px_rgba(35,78,20,0.08)] transition hover:border-[var(--color-accent-deep)] hover:text-[var(--color-accent-deep)] hover:shadow-[0_3px_10px_rgba(35,78,20,0.14)]"
+      {/* Sign-in is gated until launch — render as a non-interactive
+          placeholder (same language as the "iOS · Coming soon" pill). */}
+      <span
+        role="img"
+        aria-label="Sign in coming soon"
+        className="cursor-not-allowed select-none rounded-full border border-dashed border-[color-mix(in_srgb,var(--color-accent-deep)_38%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent-deep)_5%,transparent)] px-5 py-2 text-[14px] font-medium text-[var(--color-fg-dim)]"
       >
         Sign in
-      </Link>
+      </span>
     </header>
   );
 }
@@ -179,7 +182,7 @@ function PhoneCollage() {
   // `talise-collage-*` keyframes are defined in `globals.css`; they
   // respect prefers-reduced-motion by collapsing to identity transforms.
   return (
-    <div className="motion-collage relative mx-auto mt-14 w-full max-w-[1280px] md:mt-20">
+    <div className="motion-collage relative left-1/2 mt-12 w-screen max-w-none -translate-x-1/2 md:left-auto md:mx-auto md:mt-20 md:w-full md:max-w-[1280px] md:translate-x-0">
       <div
         aria-hidden
         className="talise-collage-glow pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-[80%] max-w-[1040px] blur-3xl"
@@ -344,10 +347,10 @@ function SecuritySection() {
         "Your wallet is derived from your Google account through a zero-knowledge proof. There's nothing to write down, nothing to lose. If you switch phones, you sign in again and the same wallet comes back.",
     },
     {
-      eyebrow: "sponsored gas",
-      title: "Talise pays the chain fee.",
+      eyebrow: "gasless on sui",
+      title: "USDsui transfers are gasless.",
       body:
-        "You never need to hold SUI to send USDsui. Every transaction is sponsored from a Talise gas pool, so the fee on the user side is zero, and you see one number when you send: the amount that lands.",
+        "USDsui sends ride Sui's native gasless rail, so there's no gas token to hold and no fee to pay. For anything else, Talise sponsors the chain fee from its own gas pool. You only ever see one number when you send: the amount that lands.",
     },
     {
       eyebrow: "app attest",
@@ -413,14 +416,14 @@ function ByTheNumbers() {
     },
     {
       value: "0% gas",
-      caption: "Stablecoin transfers are sponsored. Talise covers every fee.",
+      caption: "USDsui transfers are gasless on Sui. No gas token, no fee.",
     },
     {
       value: "Onchain reach",
       caption: "Stablecoins, blue chips, and DeFi yield, all in one app.",
     },
     {
-      value: "Every corridor",
+      value: "Multiple corridors",
       caption: "Naira, cedis, yen, dollars. Local rails in, local cash out.",
     },
   ];
@@ -1059,10 +1062,9 @@ function FinalCta() {
         </span>
       </h2>
       <p className="mx-auto mt-5 max-w-[560px] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
-        Talise covers the network fee on every transfer between Talise
-        handles. No first-transfer gimmick. We make money on a small spread
-        when money moves between currencies and when balances cash out to
-        local currency, the same way Wise and Revolut do, only smaller.
+        Sending between Talise handles is free. We earn a small spread only
+        when money changes currency or cashes out, the way Wise and Revolut
+        do, only smaller.
       </p>
       <div className="mx-auto mt-9 flex w-full max-w-[280px] flex-col items-stretch gap-2 sm:max-w-none sm:flex-row sm:items-center sm:justify-center">
         {/* Talise is in private beta — every Get started/Sign up CTA
@@ -1084,8 +1086,7 @@ function FinalCta() {
         >
           Read the litepaper
         </Link>
-        . We document the FX spread, the yield rebate, and how Talise stays
-        solvent on a free-transfer product.
+        .
       </p>
     </section>
   );
@@ -1149,29 +1150,11 @@ function SiteFooter() {
 function SocialRow() {
   const socials: Array<{ href: string; label: string; icon: ReactNode }> = [
     {
-      href: "https://x.com/talise_io",
+      href: "https://x.com/taliseio",
       label: "Talise on X",
       icon: (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-        </svg>
-      ),
-    },
-    {
-      href: "https://github.com/SeventhOdyssey71",
-      label: "Talise on GitHub",
-      icon: (
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.69-3.88-1.54-3.88-1.54-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.34.95.1-.75.4-1.26.72-1.55-2.55-.29-5.24-1.27-5.24-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.17.91-.25 1.89-.38 2.86-.39.97 0 1.95.13 2.86.39 2.18-1.48 3.14-1.17 3.14-1.17.62 1.58.23 2.75.11 3.04.73.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.37-5.25 5.66.41.36.78 1.06.78 2.14v3.18c0 .31.21.68.79.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z" />
-        </svg>
-      ),
-    },
-    {
-      href: "https://discord.gg/talise",
-      label: "Talise on Discord",
-      icon: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.07.07 0 0 0-.075.036c-.21.375-.444.864-.608 1.25a18.25 18.25 0 0 0-5.487 0 12.51 12.51 0 0 0-.617-1.25.077.077 0 0 0-.075-.036A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.893.077.077 0 0 0-.04.106c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.183 0-2.157-1.086-2.157-2.42 0-1.333.955-2.419 2.157-2.419 1.212 0 2.176 1.095 2.157 2.42 0 1.333-.955 2.419-2.157 2.419zm7.975 0c-1.183 0-2.157-1.086-2.157-2.42 0-1.333.955-2.419 2.157-2.419 1.212 0 2.176 1.095 2.157 2.42 0 1.333-.945 2.419-2.157 2.419z" />
         </svg>
       ),
     },

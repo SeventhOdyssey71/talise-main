@@ -76,7 +76,7 @@ export default function WaitlistPage() {
               Litepaper
             </Link>
             <a
-              href="https://x.com/talisemoney"
+              href="https://x.com/taliseio"
               target="_blank"
               rel="noreferrer noopener"
               className="hover:text-[var(--color-fg)]"
