@@ -51,11 +51,22 @@ type StoredAuth = {
 
 function readStored(): StoredAuth | null {
   if (typeof window === "undefined") return null;
-  // localStorage persists across tabs and reloads. We fall back to
-  // sessionStorage so any pre-existing flow still finds its key.
-  const raw =
-    localStorage.getItem(ZK_STORAGE_KEY) ??
-    sessionStorage.getItem(ZK_STORAGE_KEY);
+  // SESSION-SCOPE ONLY. The stored blob contains the ephemeral signing
+  // PRIVATE key — a same-origin script (any XSS) that can read it can drain
+  // the wallet. localStorage persists + is readable across the whole origin,
+  // so we never keep the key there. Prefer sessionStorage; if a legacy
+  // localStorage copy exists (older builds wrote both), migrate it into
+  // sessionStorage ONCE and purge the localStorage copy so a returning user
+  // isn't logged out by this change.
+  let raw = sessionStorage.getItem(ZK_STORAGE_KEY);
+  if (!raw) {
+    const legacy = localStorage.getItem(ZK_STORAGE_KEY);
+    if (legacy) {
+      sessionStorage.setItem(ZK_STORAGE_KEY, legacy);
+      localStorage.removeItem(ZK_STORAGE_KEY);
+      raw = legacy;
+    }
+  }
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as StoredAuth;
@@ -70,9 +81,16 @@ function readStored(): StoredAuth | null {
 }
 
 function writeStored(s: StoredAuth) {
-  // Write to both stores so cross-tab flows + legacy callers all see it.
-  localStorage.setItem(ZK_STORAGE_KEY, JSON.stringify(s));
+  // sessionStorage ONLY — never localStorage (the blob holds the ephemeral
+  // signing key; see readStored). The OAuth sign-in redirect stays in the
+  // same tab, so sessionStorage survives it. Defensively purge any legacy
+  // localStorage copy a prior build may have written.
   sessionStorage.setItem(ZK_STORAGE_KEY, JSON.stringify(s));
+  try {
+    localStorage.removeItem(ZK_STORAGE_KEY);
+  } catch {
+    /* private mode / storage disabled — non-fatal */
+  }
 }
 
 export function clearStored() {

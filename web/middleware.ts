@@ -6,14 +6,34 @@ import { NextResponse, type NextRequest } from "next/server";
  * Applied to every path — runs at the edge before the route handler so
  * the headers are present even on cached or static responses.
  *
- * NOTE: CSP is deliberately omitted in this pass. Talise renders
- * inline-styled email previews, embeds third-party iframes for onramp /
- * offramp partners, and uses Next.js Script tags that inject hashed
- * inline bootstrap — landing a strict CSP without first auditing every
- * route would break product flows. Tracked as P1 in
- * `docs/security/audit.md` — must ship before public launch.
+ * CSP: shipped in REPORT-ONLY mode (2026-06-01). A strict enforcing CSP can
+ * break product flows (inline-styled emails, third-party onramp/offramp
+ * iframes, Next.js inline bootstrap), so we monitor first: violations are
+ * reported but nothing is blocked. PROMOTE to enforcing (rename the header to
+ * `Content-Security-Policy` + switch script-src to a per-request nonce instead
+ * of 'unsafe-inline') once the Vercel/console reports confirm zero legitimate
+ * violations. Until then this still hardens against the worst case alongside
+ * the session-only ephemeral-key storage (web/lib/zkclient.ts).
  */
+const CSP_REPORT_ONLY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self' https://accounts.google.com",
+  // 'unsafe-inline' is a temporary allowance for Next's inline bootstrap +
+  // Vercel Analytics; replace with a nonce when promoting to enforcing.
+  "script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https://lh3.googleusercontent.com https://images.unsplash.com",
+  "font-src 'self' data:",
+  "connect-src 'self' https://accounts.google.com https://*.vercel-insights.com https://va.vercel-scripts.com",
+].join("; ");
+
 const SECURITY_HEADERS: Record<string, string> = {
+  // Monitor-only CSP (see note above) — defense-in-depth against XSS without
+  // risking a broken product flow before launch.
+  "Content-Security-Policy-Report-Only": CSP_REPORT_ONLY,
   // Two-year HSTS with preload — matches the chrome://hsts requirement.
   // Safe because every Talise host already serves HTTPS exclusively.
   "Strict-Transport-Security":
