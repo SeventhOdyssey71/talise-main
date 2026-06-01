@@ -1131,6 +1131,21 @@ export async function userByGoogleSub(sub: string): Promise<User | null> {
   return (r.rows[0] as unknown as User) ?? null;
 }
 
+/**
+ * Look up a user by their Sui address (UNIQUE). Case-insensitive — send
+ * paths lowercase the recipient, but the stored address may be mixed case.
+ * Used to resolve the RECIPIENT of an inbound transfer so we can notify them.
+ * Returns null for an external (non-Talise) address.
+ */
+export async function userBySuiAddress(address: string): Promise<User | null> {
+  await ensureSchema();
+  const r = await db().execute({
+    sql: "SELECT * FROM users WHERE LOWER(sui_address) = LOWER(?) LIMIT 1",
+    args: [address],
+  });
+  return (r.rows[0] as unknown as User) ?? null;
+}
+
 export async function userByBusinessHandle(
   handle: string
 ): Promise<User | null> {

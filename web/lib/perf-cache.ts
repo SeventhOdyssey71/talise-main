@@ -105,3 +105,38 @@ export function takePendingRoundup(userId: number): number | null {
   if (Date.now() - hit.atMs > PENDING_ROUNDUP_TTL_MS) return null;
   return hit.amountUsd;
 }
+
+// Pending inbound-settlement notification. Stashed by the SENDER's userId at
+// sponsor-prepare (which knows the recipient + amount) and consumed at
+// gasless-submit once the tx confirms, so we can notify the RECIPIENT. Same
+// best-effort / same-instance / 2-min-TTL caveat as the roundup stash above:
+// a missed stash just means no notification for that send, never a failure.
+type PendingInbound = {
+  to: string;
+  amountUsd: number;
+  senderName: string;
+  atMs: number;
+};
+const pendingInboundByUser = new Map<number, PendingInbound>();
+const PENDING_INBOUND_TTL_MS = 120_000;
+
+export function setPendingInbound(
+  userId: number,
+  info: { to: string; amountUsd: number; senderName: string }
+): void {
+  if (!info.to || !Number.isFinite(info.amountUsd) || info.amountUsd <= 0) {
+    pendingInboundByUser.delete(userId);
+    return;
+  }
+  pendingInboundByUser.set(userId, { ...info, atMs: Date.now() });
+}
+
+export function takePendingInbound(
+  userId: number
+): { to: string; amountUsd: number; senderName: string } | null {
+  const hit = pendingInboundByUser.get(userId);
+  if (!hit) return null;
+  pendingInboundByUser.delete(userId);
+  if (Date.now() - hit.atMs > PENDING_INBOUND_TTL_MS) return null;
+  return { to: hit.to, amountUsd: hit.amountUsd, senderName: hit.senderName };
+}

@@ -10,7 +10,8 @@ import { sui } from "@/lib/sui";
 import { fromBase64 } from "@mysten/sui/utils";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
 import { requireAppAttestStructural } from "@/lib/app-attest";
-import { takePendingRoundup } from "@/lib/perf-cache";
+import { takePendingRoundup, takePendingInbound } from "@/lib/perf-cache";
+import { notifyInboundSettlement } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
@@ -136,6 +137,17 @@ export async function POST(req: Request) {
           );
         }
       })();
+    }
+
+    // Notify the recipient that money landed (email now; push once APNs is
+    // wired). Fire-and-forget — never gates the response, never throws.
+    const inbound = takePendingInbound(userId);
+    if (inbound) {
+      void notifyInboundSettlement({
+        recipientAddress: inbound.to,
+        amountUsd: inbound.amountUsd,
+        senderName: inbound.senderName,
+      });
     }
 
     // Rewards earn — fire-and-forget, same shape as sponsor-execute.

@@ -16,6 +16,7 @@ import {
   memoTtl,
   recordSendLatency,
   setPendingRoundup,
+  setPendingInbound,
 } from "@/lib/perf-cache";
 // NOTE: ensurePaymentRegistry() is intentionally NOT imported here.
 // The registry has existed on chain for weeks; the only legitimate caller
@@ -361,6 +362,15 @@ export async function POST(req: Request) {
       // the bridge between prepare ↔ submit lives entirely server-side
       // in the perf-cache stash (per-user, 2-minute TTL).
       setPendingRoundup(userId, deferredRoundupUsd);
+
+      // Stash inbound-settlement notification info for gasless-submit to fire
+      // once the tx confirms (we know the recipient + amount here; the submit
+      // leg only has opaque bytes). Best-effort, same-instance — see perf-cache.
+      setPendingInbound(userId, {
+        to,
+        amountUsd: amountNum,
+        senderName: user.business_name ?? user.name ?? "Someone on Talise",
+      });
 
       console.log(
         `[send/sponsor-prepare gasless] total=${tBuild - t0}ms amount=${amountNum} USDsui deferredRoundupUsd=${deferredRoundupUsd}`
