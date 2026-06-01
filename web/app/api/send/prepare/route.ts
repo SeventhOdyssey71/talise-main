@@ -8,6 +8,8 @@ import { USDSUI_TYPE } from "@/lib/usdsui";
 import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 import { getRoundupConfig } from "@/lib/rewards/roundup";
 import { appendNaviSupply } from "@/lib/navi-supply";
+import { checkSendAllowed, recordSend } from "@/lib/send-limits";
+import { screenTransfer } from "@/lib/screening";
 
 export const runtime = "nodejs";
 
@@ -77,6 +79,54 @@ export async function POST(req: Request) {
   const onchain = BigInt(Math.round(amountNum * 10 ** decimals));
   if (onchain <= 0n) {
     return NextResponse.json({ error: "amount too small" }, { status: 400 });
+  }
+
+  // ── Compliance screening — HARD STOP (mirrors /api/send/sponsor-prepare) ──
+  // This legacy build path mints signable bytes too, so it MUST run the same
+  // screen before producing them — otherwise it's a screening bypass. Runs
+  // AFTER recipient/amount validation, BEFORE any PTB bytes are built.
+  // `screenTransfer` is fail-closed on a sanctioned-name hit, fail-open on a
+  // provider/transport error (a vendor outage must not 500 every send).
+  const screen = await screenTransfer({
+    senderAddr: user.sui_address,
+    recipientAddr: to,
+    senderName: user.business_name ?? user.name,
+    recipientName: null,
+  });
+  if (!screen.allow) {
+    console.warn(
+      `[send/prepare] SCREENING_BLOCK user=${userId} to=${to} cause=${screen.cause} reason=${screen.reason}`
+    );
+    return NextResponse.json(
+      {
+        error: "This transfer was blocked by a compliance screen.",
+        code: "SCREENING_BLOCK",
+        reason: screen.reason,
+      },
+      { status: 403 }
+    );
+  }
+
+  // ── Rolling transaction-limit gate (USDsui only — the cap engine is
+  // fiat-USD; USDsui is 1:1 USD). Fail-open by contract. ────────────────────
+  if (asset === "USDsui") {
+    const decision = await checkSendAllowed(userId, amountNum);
+    if (!decision.allowed) {
+      console.warn(
+        `[send/prepare] LIMIT_EXCEEDED user=${userId} tier=${decision.tier} ` +
+          `window=${decision.window} amount=${amountNum} used=${decision.used} limit=${decision.limit}`
+      );
+      return NextResponse.json(
+        {
+          error: `This send would exceed your ${decision.window} limit of $${decision.limit.toLocaleString()}. You've sent $${decision.used.toLocaleString()} in this window.`,
+          code: "LIMIT_EXCEEDED",
+          window: decision.window,
+          limit: decision.limit,
+          used: decision.used,
+        },
+        { status: 403 }
+      );
+    }
   }
 
   try {
@@ -172,6 +222,10 @@ export async function POST(req: Request) {
         client: sui() as never,
         onlyTransactionKind: true,
       });
+
+      // Reserve against the rolling limit window (USDsui only; best-effort —
+      // recordSend never throws, mirrors sponsor-prepare's reservation model).
+      void recordSend({ userId, amountUsd: amountNum, asset, digest: null });
 
       return NextResponse.json({
         transactionKindB64: toBase64(kind),
