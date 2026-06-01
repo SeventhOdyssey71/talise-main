@@ -1,5 +1,43 @@
 import { jwtToAddress } from "@mysten/sui/zklogin";
 import { randomBytes } from "node:crypto";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+// Google's published signing keys (JWKS). `createRemoteJWKSet` fetches +
+// caches the keys and rotates them automatically, so this is created once.
+const GOOGLE_JWKS = createRemoteJWKSet(
+  new URL("https://www.googleapis.com/oauth2/v3/certs")
+);
+
+type GoogleClaims = {
+  sub: string;
+  email: string;
+  email_verified?: boolean;
+  name?: string;
+  picture?: string;
+  aud: string;
+  iss: string;
+  exp: number;
+};
+
+/**
+ * Verify a Google `id_token`'s SIGNATURE against Google's JWKS and validate
+ * `iss` / `aud` / `exp`. Use this for ANY client-submitted token (e.g. the iOS
+ * PKCE flow posts its own id_token to /api/auth/mobile/exchange).
+ *
+ * `decodeJwt` only base64-decodes the payload — trusting it for a
+ * client-submitted token is an account-takeover hole (an attacker can forge
+ * any `sub`). This throws on a bad signature, wrong issuer/audience, or expiry.
+ */
+export async function verifyGoogleIdToken(
+  idToken: string,
+  audiences: string[]
+): Promise<GoogleClaims> {
+  const { payload } = await jwtVerify(idToken, GOOGLE_JWKS, {
+    issuer: ["https://accounts.google.com", "accounts.google.com"],
+    audience: audiences,
+  });
+  return payload as unknown as GoogleClaims;
+}
 
 /**
  * Generate a random user salt for zkLogin.

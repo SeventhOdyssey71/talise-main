@@ -9,7 +9,7 @@ import { assembleZkLoginSignature, readSigningCookie } from "@/lib/zksigner";
 import { onara } from "@/lib/onara";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
 import { requireAppAttestStructural } from "@/lib/app-attest";
-import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import { recordSendLatency } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
@@ -102,10 +102,13 @@ export async function POST(req: Request) {
   }
 
   // Rate-limit: 30 sponsored executions per hour per user. Money-moving
-  // route — this throttles a compromised bearer / abusive client without
-  // hurting normal usage. Falls back to IP for unauthenticated edge cases.
-  const rl = rateLimit({
-    key: `zk-sponsor-execute:user:${userId}:${getClientIp(req)}`,
+  // route. Keyed on userId ALONE (F7): mixing in a client-controllable IP
+  // (x-forwarded-for) let an attacker rotate buckets to blow past the cap.
+  // Uses the GLOBAL Upstash limiter (F6) so the cap holds across all
+  // serverless instances, not per-lambda (falls back to in-memory if Redis
+  // is unset).
+  const rl = await rateLimitAsync({
+    key: `zk-sponsor-execute:user:${userId}`,
     limit: 30,
     windowSec: 3600,
   });

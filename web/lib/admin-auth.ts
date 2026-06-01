@@ -35,8 +35,8 @@ export function isDevOpen(): boolean {
   return process.env.NODE_ENV !== "production" && adminToken() === null;
 }
 
-/** Length-guarded constant-time-ish compare against the configured token. */
-function tokenMatches(candidate: string | null | undefined): boolean {
+/** Length-guarded constant-time compare against the configured token. */
+export function tokenMatches(candidate: string | null | undefined): boolean {
   const expected = adminToken();
   if (!expected || !candidate) return false;
   if (candidate.length !== expected.length) return false;

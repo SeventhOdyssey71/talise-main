@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { decodeJwt, deriveSuiAddress, generateSalt } from "@/lib/zklogin";
+import { verifyGoogleIdToken, deriveSuiAddress, generateSalt } from "@/lib/zklogin";
 import {
   upsertUser,
   userByGoogleSub,
@@ -70,31 +70,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
 
-  let claims: ReturnType<typeof decodeJwt>;
-  try {
-    claims = decodeJwt(body.idToken);
-  } catch (err) {
-    return NextResponse.json(
-      { error: "malformed id_token: " + (err as Error).message },
-      { status: 400 }
-    );
-  }
-
-  if (claims.iss !== "https://accounts.google.com" && claims.iss !== "accounts.google.com") {
-    return NextResponse.json({ error: "bad issuer" }, { status: 401 });
-  }
-  if (claims.email_verified === false) {
-    return NextResponse.json({ error: "email not verified" }, { status: 401 });
-  }
-
   // Audience must match our iOS OAuth client (allow optional web fallback
   // for dev). Configure via env so we don't ship hard-coded client ids.
   const allowedAudiences = [
     process.env.GOOGLE_CLIENT_ID_IOS,
     process.env.GOOGLE_CLIENT_ID,
   ].filter(Boolean) as string[];
-  if (allowedAudiences.length === 0 || !allowedAudiences.includes(claims.aud)) {
-    return NextResponse.json({ error: "bad audience" }, { status: 401 });
+  if (allowedAudiences.length === 0) {
+    console.error("[mobile/exchange] no Google client id configured (GOOGLE_CLIENT_ID_IOS/GOOGLE_CLIENT_ID)");
+    return NextResponse.json({ error: "server misconfigured" }, { status: 500 });
+  }
+
+  // CRITICAL: the id_token is CLIENT-SUBMITTED (iOS runs its own OAuth), so we
+  // must verify its SIGNATURE against Google's JWKS before trusting any claim.
+  // `verifyGoogleIdToken` enforces signature + iss + aud + exp; without it a
+  // forged token carrying a victim's `sub` would mint that victim's bearer
+  // (account + wallet takeover). See docs/security/backend-audit-2026-06-01 (F1).
+  let claims: Awaited<ReturnType<typeof verifyGoogleIdToken>>;
+  try {
+    claims = await verifyGoogleIdToken(body.idToken, allowedAudiences);
+  } catch (err) {
+    console.warn(`[mobile/exchange] id_token verification failed: ${(err as Error).message}`);
+    return NextResponse.json({ error: "invalid id_token" }, { status: 401 });
+  }
+  if (claims.email_verified === false) {
+    return NextResponse.json({ error: "email not verified" }, { status: 401 });
   }
 
   // Salt + address (Shinami on mainnet, local otherwise).
