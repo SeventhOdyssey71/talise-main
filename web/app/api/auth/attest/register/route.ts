@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
-import { db, ensureSchema } from "@/lib/db";
-import { consumeAttestChallenge } from "@/lib/app-attest";
+import { db } from "@/lib/db";
+import {
+  consumeAttestChallenge,
+  ensureAttestKeysSchema,
+  appAttestMode,
+} from "@/lib/app-attest";
+import { verifyAttestation } from "@/lib/app-attest-verify";
 
 export const runtime = "nodejs";
 
@@ -16,22 +21,8 @@ export const runtime = "nodejs";
  * verification. Until that ships, a stolen bearer can still register
  * a forged attestation; the challenge layer just prevents replays.
  *
- * Schema is idempotent.
+ * Schema is idempotent (shared with the gate via ensureAttestKeysSchema).
  */
-async function ensureAttestSchema() {
-  await ensureSchema();
-  await db().execute(`
-    CREATE TABLE IF NOT EXISTS app_attest_keys (
-      key_id TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id),
-      attestation_blob TEXT NOT NULL,
-      counter INTEGER NOT NULL DEFAULT 0,
-      created_at BIGINT NOT NULL,
-      revoked INTEGER NOT NULL DEFAULT 0
-    )
-  `);
-}
-
 export async function POST(req: Request) {
   const userId = await readEntryIdFromRequest(req);
   if (!userId) {
@@ -55,27 +46,50 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: consumed.reason }, { status: 400 });
   }
 
-  // TODO(P1-5 phase 2): full Apple App Attest verification:
-  //   - decode CBOR attestation, walk authData,
-  //   - verify AppleAppAttestRoot CA chain on the attestation cert,
-  //   - check `nonce` extension matches SHA256(challenge || appId),
-  //   - verify RPID hash == SHA256(teamID || "." || bundleID),
-  //   - assert counter starts at 0,
-  //   - persist credentialPublicKey + AAGUID so future asserts can
-  //     be verified via signature + counter monotonicity.
-  // See `TODO-APPATTEST.md` for the runbook.
+  // F4: verify the attestation + extract the credential public key. In "log"
+  // mode we store the verified key + log any chain warning but never reject
+  // (no lockout before the Apple root CA is pinned and a real device fixture
+  // validates the x5c chain). In "enforce" mode a deterministic failure is 401.
+  let publicKeyB64: string | null = null;
+  let chainVerified = 0;
+  try {
+    const att = verifyAttestation({
+      attestationBase64: body.attestation,
+      challenge: body.challenge,
+    });
+    publicKeyB64 = att.publicKeyDer.toString("base64");
+    chainVerified = att.chainVerified ? 1 : 0;
+    if (att.warnings.length) {
+      console.warn(
+        `[attest/register] user=${userId} key=${body.keyId} warnings: ${att.warnings.join("; ")}`
+      );
+    }
+  } catch (e) {
+    console.warn(
+      `[attest/register] verification failed user=${userId} key=${body.keyId}: ${(e as Error).message}`
+    );
+    if (appAttestMode() === "enforce") {
+      return NextResponse.json(
+        { error: "attestation verification failed" },
+        { status: 401 }
+      );
+    }
+    // log/off: fall through and store the raw blob without a verified key.
+  }
 
-  await ensureAttestSchema();
+  await ensureAttestKeysSchema();
   await db().execute({
     sql: `INSERT INTO app_attest_keys
-            (key_id, user_id, attestation_blob, counter, created_at)
-          VALUES (?, ?, ?, 0, ?)
+            (key_id, user_id, attestation_blob, public_key, chain_verified, counter, created_at)
+          VALUES (?, ?, ?, ?, ?, 0, ?)
           ON CONFLICT (key_id) DO UPDATE SET
             user_id = EXCLUDED.user_id,
             attestation_blob = EXCLUDED.attestation_blob,
+            public_key = EXCLUDED.public_key,
+            chain_verified = EXCLUDED.chain_verified,
             counter = 0,
             created_at = EXCLUDED.created_at`,
-    args: [body.keyId, userId, body.attestation, Date.now()],
+    args: [body.keyId, userId, body.attestation, publicKeyB64, chainVerified, Date.now()],
   });
   return NextResponse.json({ ok: true });
 }

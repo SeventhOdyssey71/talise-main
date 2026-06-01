@@ -2,7 +2,24 @@ import "server-only";
 
 import { db, ensureSchema } from "@/lib/db";
 import { isMobileRequest } from "@/lib/mobile-sessions";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
+import { verifyAssertion } from "@/lib/app-attest-verify";
+
+/**
+ * Enforcement mode (F4 rollout):
+ *   off     — gate disabled (no verification at all)
+ *   log     — full verification runs; failures are LOGGED but never block
+ *             (default — safe while legacy keys drain + before device-fixture
+ *             validation of the attestation x5c chain)
+ *   enforce — verification failures return 401
+ * Set via TALISE_APP_ATTEST_MODE. Flip to "enforce" only after a real
+ * device-captured attestation validates the register path + the Apple root CA
+ * is pinned (APPLE_APP_ATTEST_ROOT_CA_PEM).
+ */
+export function appAttestMode(): "off" | "log" | "enforce" {
+  const m = (process.env.TALISE_APP_ATTEST_MODE ?? "log").toLowerCase();
+  return m === "enforce" ? "enforce" : m === "off" ? "off" : "log";
+}
 
 /**
  * Stateful App Attest support.
@@ -138,8 +155,111 @@ export function requireAppAttestStructural(req: Request): Response | null {
       { status: 401, headers: { "content-type": "application/json" } }
     );
   }
-  // TODO(P1-5 phase 2): verify the assertion bytes against the
-  // stored attestation, counter monotonicity, RPID hash, and the
-  // request payload hash. See TODO-APPATTEST.md.
+  // Legacy structural-only gate. Superseded by `requireAppAttest` below
+  // (full assertion verification). Kept until the money routes migrate to the
+  // body-aware async gate.
   return null;
+}
+
+// ─── Attested key storage + per-request assertion gate (F4) ──────────────
+
+/** Shared schema for the attested-key table (created lazily; mirrors register). */
+export async function ensureAttestKeysSchema(): Promise<void> {
+  await ensureSchema();
+  await db().execute(`
+    CREATE TABLE IF NOT EXISTS app_attest_keys (
+      key_id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      attestation_blob TEXT NOT NULL,
+      public_key TEXT,
+      chain_verified INTEGER NOT NULL DEFAULT 0,
+      counter INTEGER NOT NULL DEFAULT 0,
+      created_at BIGINT NOT NULL,
+      revoked INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  await db().execute(`ALTER TABLE app_attest_keys ADD COLUMN IF NOT EXISTS public_key TEXT`);
+  await db().execute(
+    `ALTER TABLE app_attest_keys ADD COLUMN IF NOT EXISTS chain_verified INTEGER NOT NULL DEFAULT 0`
+  );
+}
+
+export async function getAttestedKey(
+  keyId: string
+): Promise<{ publicKeyB64: string | null; counter: number; userId: number } | null> {
+  await ensureAttestKeysSchema();
+  const r = await db().execute({
+    sql: `SELECT public_key, counter, user_id FROM app_attest_keys WHERE key_id = ? AND revoked = 0 LIMIT 1`,
+    args: [keyId],
+  });
+  const row = r.rows[0];
+  if (!row) return null;
+  return {
+    publicKeyB64: (row.public_key as string | null) ?? null,
+    counter: Number(row.counter) || 0,
+    userId: Number(row.user_id),
+  };
+}
+
+export async function bumpAttestCounter(keyId: string, newCounter: number): Promise<void> {
+  // Guarded so a stale/racing assertion can't lower the counter.
+  await db().execute({
+    sql: `UPDATE app_attest_keys SET counter = ? WHERE key_id = ? AND counter < ?`,
+    args: [newCounter, keyId, newCounter],
+  });
+}
+
+/**
+ * Full per-request App Attest gate. Verifies the assertion signature over
+ * SHA256(rawBody), counter monotonicity, and rpId against the stored key.
+ * The caller reads `req.text()` once, parses it, and passes the raw string
+ * here. Honors `appAttestMode()`: "log" verifies + logs but NEVER blocks;
+ * "enforce" returns 401 on failure. Money routes migrate to this (read raw →
+ * parse → requireAppAttest) once enforce is ready + device-validated.
+ */
+export async function requireAppAttest(
+  req: Request,
+  rawBody: string
+): Promise<Response | null> {
+  const mode = appAttestMode();
+  if (mode === "off") return null;
+  if (!isMobileRequest(req)) return null;
+  const url = new URL(req.url);
+  if (!pathRequiresAppAttest(url.pathname)) return null;
+  if (process.env.TALISE_APP_ATTEST_REQUIRED === "0") return null;
+
+  const fail = (status: number, msg: string): Response | null => {
+    if (mode === "log") {
+      console.warn(`[attest] LOG-ONLY would block ${url.pathname}: ${msg}`);
+      return null;
+    }
+    return new Response(JSON.stringify({ error: msg }), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const assertion = req.headers.get("x-app-attest");
+  const keyId = req.headers.get("x-app-attest-keyid");
+  if (!assertion || !keyId) return fail(401, "missing App Attest headers");
+
+  try {
+    const stored = await getAttestedKey(keyId);
+    if (!stored || !stored.publicKeyB64) {
+      // Unknown key, or a legacy key from before verification existed → tell
+      // the client to re-bootstrap (re-attest) rather than hard-fail.
+      return fail(401, "attest_reregister");
+    }
+    const clientDataHash = createHash("sha256").update(rawBody, "utf8").digest();
+    const { newCounter } = verifyAssertion({
+      assertionBase64: assertion,
+      clientDataHash,
+      publicKeyDer: Buffer.from(stored.publicKeyB64, "base64"),
+      storedCounter: stored.counter,
+    });
+    await bumpAttestCounter(keyId, newCounter);
+    return null;
+  } catch (e) {
+    return fail(401, `assertion invalid: ${(e as Error).message}`);
+  }
 }

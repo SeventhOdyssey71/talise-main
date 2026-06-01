@@ -43,6 +43,7 @@
     "@types/qrcode": "^1.5.6",
     "@vercel/analytics": "^2.0.1",
     "ai": "^6.0.185",
+    "cbor-x": "^1.6.4",
     "country-flag-icons": "^1.6.17",
     "framer-motion": "^12.38.0",
     "gsap": "^3.15.0",
