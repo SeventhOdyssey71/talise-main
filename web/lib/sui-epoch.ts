@@ -67,3 +67,32 @@ export async function getCurrentEpoch(): Promise<number> {
 export async function getMaxEpoch(): Promise<number> {
   return (await getCurrentEpoch()) + MAX_EPOCH_HORIZON;
 }
+
+// Chain identifier is the base58 genesis-checkpoint digest — IMMUTABLE per
+// network. The gasless `ValidDuring` expiration must carry it as `chain`.
+// Cached for 6h (effectively forever; the re-fetch only guards against a
+// pathological process that outlives a network swap) and read through the
+// same multi-endpoint fallback as the epoch so a single-fullnode outage
+// doesn't break the send build.
+const CHAIN_ID_TTL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Current Sui network's chain identifier (base58 genesis digest).
+ *
+ * Used by the gasless send build to set `ValidDuring.chain`. Reads via the
+ * unified `core.getChainIdentifier()` (resolves directly to
+ * `{ chainIdentifier }`, unlike the `ledgerService.getServiceInfo` UnaryCall)
+ * wrapped in `suiGrpcWithFallback` so it walks past an unhealthy primary.
+ */
+export async function getChainIdentifier(): Promise<string> {
+  return memoTtl("sui:chain-identifier", CHAIN_ID_TTL_MS, async () => {
+    const res = await suiGrpcWithFallback(async (client) =>
+      client.core.getChainIdentifier()
+    );
+    const id = (res as { chainIdentifier?: string } | null)?.chainIdentifier;
+    if (!id) {
+      throw new Error("core.getChainIdentifier returned no chainIdentifier");
+    }
+    return id;
+  });
+}

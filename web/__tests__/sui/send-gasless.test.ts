@@ -115,9 +115,17 @@ vi.mock("@/lib/perf-cache", () => ({
   takePendingRoundup: vi.fn(() => null),
 }));
 
-// Minimal Sui client stub. The gasless branch only needs the client
-// reference forwarded into `tx.build({ client })` — the stubbed
-// Transaction below ignores it. `getReferenceGasPrice` is included
+// The gasless branch builds offline on the gRPC client, then runs an
+// explicit post-build `simulateTransaction` to validate the PTB.
+// `$kind: "Transaction"` is the success discriminant; a test can drive a
+// `FailedTransaction` via `simulateTransactionMock.mockResolvedValueOnce`.
+const { simulateTransactionMock } = vi.hoisted(() => ({
+  simulateTransactionMock: vi.fn(async () => ({ $kind: "Transaction" })),
+}));
+
+// Minimal Sui client stub. The gasless branch forwards the client into
+// `tx.build({ client })` (the stubbed Transaction ignores it) and calls
+// `client.simulateTransaction(...)`. `getReferenceGasPrice` is included
 // in case the build path ever queries it (it currently doesn't, since
 // the route pre-stamps `setGasPrice(0n)`).
 vi.mock("@/lib/sui", async () => {
@@ -128,26 +136,17 @@ vi.mock("@/lib/sui", async () => {
     ...actual,
     sui: () => ({
       getReferenceGasPrice: async () => ({ referenceGasPrice: "1000" }),
+      simulateTransaction: simulateTransactionMock,
     }),
     network: () => "mainnet" as const,
   };
 });
 
 // The gasless build sets a ValidDuring expiration that needs the live
-// epoch — stub it so no network read happens.
+// epoch + the chain identifier — stub both so no network read happens.
 vi.mock("@/lib/sui-epoch", () => ({
   getCurrentEpoch: vi.fn(async () => 1234),
-}));
-
-// The PTB is now built with a SuiJsonRpcClient (Shinami/public) whose
-// only call before `tx.build` is `core.getChainIdentifier()`. Stub the
-// client + transport so no real JSON-RPC endpoint is contacted; the
-// StubTransaction.build ignores the client and returns fixed bytes.
-vi.mock("@mysten/sui/jsonRpc", () => ({
-  SuiJsonRpcClient: class {
-    core = { getChainIdentifier: async () => ({ chainIdentifier: "test-chain" }) };
-  },
-  JsonRpcHTTPTransport: class {},
+  getChainIdentifier: vi.fn(async () => "test-chain"),
 }));
 
 // Stub the `Transaction` builder so `tx.build({ client })` returns a
@@ -162,6 +161,9 @@ vi.mock("@mysten/sui/transactions", async () => {
     setGasOwner = vi.fn();
     setGasPrice = vi.fn();
     setGasBudget = vi.fn();
+    // Empty-array gas payment — the load-bearing call that makes the
+    // gRPC build go offline (skips the resolve-time simulate).
+    setGasPayment = vi.fn();
     add = vi.fn(() => ({ kind: "Result" }));
     moveCall = vi.fn(() => ({ kind: "Result" }));
     transferObjects = vi.fn();
@@ -280,6 +282,35 @@ describe("/api/send/sponsor-prepare (gasless branch, PREPARE only)", () => {
     expect(json.code).toBe("BELOW_GASLESS_MINIMUM");
     expect(json.minMicros).toBe("10000");
     expect(json.error).toMatch(/0\.01/);
+  });
+
+  it("gasless simulate FailedTransaction (accumulator underfunded) → 400 ACCUMULATOR_UNDERFUNDED", async () => {
+    // The offline gRPC build always succeeds; the EXPLICIT post-build
+    // simulate is what now catches an underfunded accumulator. A
+    // FailedTransaction must surface the validator's reason
+    // (effects.status.error.description) so the route categorizes it —
+    // SnS off → a clean 400, and NO signable bytes handed back to iOS.
+    simulateTransactionMock.mockResolvedValueOnce({
+      $kind: "FailedTransaction",
+      FailedTransaction: {
+        effects: {
+          status: {
+            error: {
+              description:
+                "Invalid withdraw reservation. Gasless transactions must use the entire balance, or leave at least 10000 for token type USDSUI",
+            },
+          },
+        },
+      },
+    } as never);
+    const res = await POST(
+      buildReq({ to: RECIPIENT_ADDR, amount: 0.5, asset: "USDsui" })
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { code: string; error: string };
+    expect(json.code).toBe("ACCUMULATOR_UNDERFUNDED");
+    // The build must NOT have produced signable bytes.
+    expect((json as { bytes?: string }).bytes).toBeUndefined();
   });
 
   // ─── Post 2026-05-29 product-directive tests ────────────────────

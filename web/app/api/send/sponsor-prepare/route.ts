@@ -11,9 +11,7 @@ import { getRoundupConfig } from "@/lib/rewards/roundup";
 import { appendNaviSupply } from "@/lib/navi-supply";
 import { onara } from "@/lib/onara";
 import { screenTransfer } from "@/lib/screening";
-import { getCurrentEpoch } from "@/lib/sui-epoch";
-import { SuiJsonRpcClient, JsonRpcHTTPTransport } from "@mysten/sui/jsonRpc";
-import { shinamiSuiNodeJsonRpc } from "@/lib/shinami";
+import { getCurrentEpoch, getChainIdentifier } from "@/lib/sui-epoch";
 import {
   memoTtl,
   recordSendLatency,
@@ -56,86 +54,6 @@ export const runtime = "nodejs";
 
 const SUPPORTED_ASSETS = new Set(["USDsui", "SUI"]);
 const ADDRESS_RE = /^0x[a-f0-9]{64}$/i;
-
-// Singleton JSON-RPC client used ONLY by the gasless build path. We
-// need it because @mysten/sui 2.16.3's gRPC SDK has a build-time bug
-// with `ValidDuring` expiration encoding ("unknown
-// TransactionExpirationKind"). The bytes produced by the JSON-RPC
-// build are network-agnostic and are accepted by gRPC executeTransaction
-// downstream in `/api/send/gasless-submit`. Lazily initialized to defer
-// any env-var resolution to first use.
-//
-// Routing: when `SHINAMI_NODE_API_KEY` is set, the singleton points at
-// Shinami's paid Sui-node JSON-RPC (`api.us1.shinami.com/sui/node/v1`)
-// with the `X-Api-Key` header wrapped into the fetch function the SDK
-// uses. Otherwise it falls back to the free public mainnet fullnode.
-// Both singletons are cached separately so a one-shot retry after a
-// Shinami 401/403 can reuse the public client without rebuilding.
-let _jsonRpcShinami: SuiJsonRpcClient | null = null;
-let _jsonRpcPublic: SuiJsonRpcClient | null = null;
-
-function publicFullnodeUrl(net: string): string {
-  return net === "mainnet"
-    ? "https://fullnode.mainnet.sui.io:443"
-    : `https://fullnode.${net}.sui.io:443`;
-}
-
-function buildPublicJsonRpc(): SuiJsonRpcClient {
-  if (_jsonRpcPublic) return _jsonRpcPublic;
-  const net = network();
-  _jsonRpcPublic = new SuiJsonRpcClient({
-    network: net,
-    url: publicFullnodeUrl(net),
-  });
-  return _jsonRpcPublic;
-}
-
-function buildShinamiJsonRpc(
-  shinami: { url: string; headers: Record<string, string> },
-): SuiJsonRpcClient {
-  if (_jsonRpcShinami) return _jsonRpcShinami;
-  const net = network();
-  // The SDK's transport layer exposes both a per-request `headers`
-  // hook (`rpc.headers`) AND a custom `fetch` wrapper. We use BOTH:
-  //   - `rpc.headers` is the canonical path for static auth headers
-  //     (Shinami's `X-Api-Key`). Cheaper than wrapping fetch.
-  //   - `fetch` wrapper exists as a defensive merge layer — if a
-  //     future SDK call ever bypasses the configured `rpc.headers`,
-  //     the wrapper still appends the auth header.
-  // The build-time `tx.build({ client })` path eventually issues
-  // standard JSON-RPC POSTs through this transport, so either hook
-  // would suffice today; the belt+suspenders is for SDK churn.
-  const transport = new JsonRpcHTTPTransport({
-    url: shinami.url,
-    rpc: { headers: shinami.headers },
-    fetch: (input, init) => {
-      const hdrs: Record<string, string> = {
-        ...((init?.headers as Record<string, string> | undefined) ?? {}),
-        ...shinami.headers,
-      };
-      return fetch(input as RequestInfo, { ...init, headers: hdrs });
-    },
-  });
-  _jsonRpcShinami = new SuiJsonRpcClient({ network: net, transport });
-  return _jsonRpcShinami;
-}
-
-function getJsonRpcClient(): SuiJsonRpcClient {
-  const shinami = shinamiSuiNodeJsonRpc();
-  return shinami ? buildShinamiJsonRpc(shinami) : buildPublicJsonRpc();
-}
-
-/**
- * Returns true if an error from a JSON-RPC build looks like a
- * Shinami-auth failure (401/403). Used to gate the one-shot retry
- * against the public fullnode. Be conservative — anything not
- * obviously auth-related should NOT retry (a retry loop on real bugs
- * is a swallowed-bug magnet).
- */
-function isShinamiAuthFailure(err: unknown): boolean {
-  const msg = (err as Error)?.message ?? String(err);
-  return /\b(401|403)\b/.test(msg) || /unauthori[sz]ed|forbidden/i.test(msg);
-}
 
 export async function POST(req: Request) {
   const onaraUrl = process.env.ONARA_URL;
@@ -336,28 +254,18 @@ export async function POST(req: Request) {
       tx.setSender(user.sui_address);
 
       // ───────────────────────────────────────────────────────────────
-      // DIRECTIVE (2026-05-30): accumulator-only PTB + ValidDuring
-      // expiration to satisfy the validator's escape-hatch rule.
+      // DIRECTIVE (2026-05-30, revised 2026-06-01): accumulator-only PTB
+      // + ValidDuring expiration, built OFFLINE on the gRPC client.
       //
       // The validator requires every PTB to EITHER carry an
       // address-owned input OR set a `ValidDuring` expiration with at
       // most two epochs of validity. A pure accumulator pull
       // (`tx.balance({balance})`) has no address-owned input, so the
-      // escape hatch is mandatory. This is exactly what the SDK's own
-      // parallel executor does in `addressBalance` gas mode — see
-      // `@mysten/sui/transactions/executor/parallel.mjs`
-      // (#getValidDuringExpiration), which we mirror verbatim below.
-      //
-      // CRITICAL: build the PTB with a `SuiJsonRpcClient`, NOT the
-      // gRPC client. The gRPC SDK's resolveTransactionPlugin chokes on
-      // the `ValidDuring` variant with "unknown TransactionExpirationKind"
-      // (see `web/scripts/probe-valid-during.mjs` — gRPC build fails,
-      // JSON-RPC build succeeds, dryRun OK, gRPC simulate accepts the
-      // resulting bytes). The execute path stays on gRPC because
-      // `executeTransaction` is byte-encoded and the gRPC service
-      // accepts the encoded ValidDuring just fine — it's only the
-      // SDK's build-time simulate that has the bug. Drop the JSON-RPC
-      // dep here once Mysten ships gRPC ValidDuring decoding.
+      // escape hatch is mandatory. This mirrors the SDK's own parallel
+      // executor in `addressBalance` gas mode
+      // (`@mysten/sui/transactions/executor/parallel.mjs`
+      // #getValidDuringExpiration) — INCLUDING its `setGasPayment([])`,
+      // which is the load-bearing line (see the build step below).
       tx.moveCall({
         target: "0x2::balance::send_funds",
         typeArguments: [USDSUI_TYPE],
@@ -371,21 +279,13 @@ export async function POST(req: Request) {
       tx.setGasPrice(0n);
       tx.setGasBudget(0n);
 
-      // ValidDuring escape hatch: tells the validator this PTB is
-      // valid for the current + next epoch, which is the maximum
-      // window the gasless rail allows. `chain` MUST be the base58
-      // chainIdentifier from `core.getChainIdentifier()`, NOT a
-      // network label.
-      //
-      // Endpoint selection: `getJsonRpcClient()` returns Shinami when
-      // `SHINAMI_NODE_API_KEY` is set, else the public fullnode. The
-      // chain-id + epoch lookups go through the same client so the
-      // entire gasless build leans on one paid endpoint (when
-      // configured) instead of mixing public + paid hosts mid-flow.
-      let jsonClient = getJsonRpcClient();
-      let usingShinami = shinamiSuiNodeJsonRpc() !== null;
+      // ValidDuring escape hatch: tells the validator this PTB is valid
+      // for the current + next epoch, the maximum window the gasless rail
+      // allows. `chain` MUST be the base58 chainIdentifier (immutable per
+      // network), NOT a network label. Both reads are memoized and walk
+      // the gRPC multi-endpoint fallback (lib/sui-epoch.ts).
       const [chainId, currentEpoch] = await Promise.all([
-        jsonClient.core.getChainIdentifier().then((r) => r.chainIdentifier),
+        getChainIdentifier(),
         getCurrentEpoch(),
       ]);
       const epochBig = BigInt(currentEpoch);
@@ -400,33 +300,59 @@ export async function POST(req: Request) {
         },
       });
 
-      // Build via JSON-RPC — see comment above. gRPC SDK fails here
-      // with "unknown TransactionExpirationKind".
-      //
-      // One-shot retry: if Shinami rejects auth (401/403 — most
-      // likely cause is a rotated or revoked key, NOT a transient
-      // outage), rebuild ONCE against the public fullnode. We do
-      // NOT retry on other error classes — the validator-side
-      // gasless rejections below are categorized by the outer catch
-      // and a retry there would just swallow real bugs.
-      let bytes: Uint8Array;
-      try {
-        bytes = await tx.build({ client: jsonClient as never });
-      } catch (buildErr) {
-        if (usingShinami && isShinamiAuthFailure(buildErr)) {
-          console.warn(
-            `[send/sponsor-prepare] Shinami JSON-RPC build rejected (auth) — retrying via public fullnode. detail=${(buildErr as Error).message?.slice(0, 200)}`
-          );
-          // Invalidate the Shinami singleton so subsequent requests
-          // re-discover the key (no point holding a cached client
-          // that we know is broken).
-          _jsonRpcShinami = null;
-          jsonClient = buildPublicJsonRpc();
-          usingShinami = false;
-          bytes = await tx.build({ client: jsonClient as never });
-        } else {
-          throw buildErr;
-        }
+      // THE load-bearing line. An empty-array gas payment flips the SDK's
+      // `needsTransactionResolution()` to false, so `tx.build()` SKIPS its
+      // build-time validator simulate and BCS-serializes the PTB offline.
+      // Without it the gRPC build fires a resolve-time simulate that still
+      // rejects the `ValidDuring` variant in @mysten/sui 2.16.3 ("unknown
+      // TransactionExpirationKind"); WITH it the gRPC build produces bytes
+      // BYTE-IDENTICAL to the old JSON-RPC build (verified live, fixed
+      // nonce — see web/scripts/probe-grpc-gasless.mjs). This is what lets
+      // the whole gasless build run on gRPC; the JSON-RPC dependency is
+      // gone (JSON-RPC fullnodes sunset ~July 2026 regardless).
+      tx.setGasPayment([]);
+
+      // Build OFFLINE on the gRPC client — the only client touch during
+      // build is the CoinWithBalance intent's balance read.
+      const bytes = await tx.build({ client: client as never });
+
+      // The offline build skips the validator simulate, so run an EXPLICIT
+      // gRPC simulate to preserve the prepare-time categorization the
+      // JSON-RPC build used to give us (underfunded accumulator, the
+      // "use the whole balance or leave ≥10000" dust rule, etc.). A
+      // FailedTransaction throws with the validator's status text so the
+      // catch below maps it to the right user-facing code — and, critically,
+      // we NEVER hand iOS signable bytes for a tx the validator would reject
+      // at execute. `simulateTransaction` is whitelisted on the sui() proxy,
+      // so this walks the same multi-endpoint fallback as every other read.
+      const sim = (await client.simulateTransaction({
+        transaction: bytes,
+        include: { effects: true },
+      } as never)) as {
+        $kind?: string;
+        FailedTransaction?: {
+          effects?: {
+            status?:
+              | { error?: { description?: string; message?: string } }
+              | string;
+          };
+        };
+      };
+      if (sim.$kind !== "Transaction") {
+        // Surface the validator's HUMAN-READABLE reason so the catch below
+        // can categorize it (ACCUMULATOR_UNDERFUNDED, the "leave ≥10000"
+        // dust rule, etc.). The gRPC FailedTransaction nests it at
+        // effects.status.error.description; fall back to the stringified
+        // status / discriminant if the shape ever differs.
+        const status = sim?.FailedTransaction?.effects?.status;
+        const reason =
+          (typeof status === "object" && status?.error
+            ? status.error.description ?? status.error.message
+            : undefined) ??
+          (typeof status === "string"
+            ? status
+            : JSON.stringify(status ?? sim.$kind));
+        throw new Error(`gasless simulate rejected: ${reason}`);
       }
       const tBuild = Date.now();
 
@@ -554,29 +480,26 @@ export async function POST(req: Request) {
       // sponsorship for the bundled NAVI leg, and we fall through.
       const isSnsActive = deferredRoundupUsd > 0;
       // Detect the "no address-owned input available" failure mode:
-      // after a user's Coin<USDsui> objects are all consolidated into
-      // the accumulator (which happens as a side-effect of the first
-      // successful gasless send via tx.balance()'s auto-fallback), the
-      // next gasless tx fails with:
+      // a fully-consolidated user (all USDsui in the accumulator, no
+      // Coin<T> anchor) used to dead-end with:
       //   "Invalid transaction expiration: Transactions must either
       //    have address-owned inputs, or a ValidDuring expiration with
       //    at most two epochs of validity"
-      // The Epoch / ValidDuring escape hatches are blocked by a
-      // validator-side gRPC encoding bug ("unknown
-      // TransactionExpirationKind") so we surface a precise 400
-      // explaining the dead-end + how to recover (receive any inbound
-      // USDsui to land a fresh Coin<T> object → next send works).
+      // because the ValidDuring escape hatch couldn't be built. As of
+      // 2026-06-01 we DO build ValidDuring offline (via setGasPayment([])
+      // — see the build step above), so this case now succeeds GASLESSLY
+      // and this branch is a defensive net that should rarely, if ever,
+      // fire. Kept because the post-build simulate could still surface
+      // this string on some unforeseen state, and the send must land.
       if (
         /Invalid transaction expiration/i.test(msg) ||
         /address-owned inputs/i.test(msg) ||
         /ValidDuring expiration/i.test(msg)
       ) {
-        // PRODUCT DECISION (per user's forensic analysis): when the
-        // user is fully consolidated into the accumulator (no Coin
-        // anchor available) and the validator's ValidDuring escape
-        // hatch is still broken upstream, the send MUST still land.
-        // Fall through to Onara-sponsored Payment Kit instead of
-        // refusing.
+        // PRODUCT DECISION (per user's forensic analysis): if a fully
+        // consolidated user (no Coin anchor) ever does dead-end here, the
+        // send MUST still land. Fall through to Onara-sponsored Payment
+        // Kit instead of refusing.
         //
         // Surfaced to iOS as `mode: "sponsored-anchor-fallback"` so
         // analytics + logs can distinguish this specific dead-end

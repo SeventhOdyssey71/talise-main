@@ -40,31 +40,28 @@ PATTERN='SuiJsonRpcClient|@mysten/sui/jsonRpc|\bsuiJsonRpc\b'
 #   • ios/Talise/Auth/ZkLoginCoordinator.swift — sub-plan 5.6 parked pending
 #     iOS deploy-target decision. Excluded from the sweep, not the lint.
 # Additional deliberate exceptions (post-Phase-5, justified):
-#   • web/app/api/send/sponsor-prepare/route.ts → the gasless rail builds its
-#       PTB with a SuiJsonRpcClient: the sponsored ValidDuring build needs
-#       core.getChainIdentifier() + tx.build({client}), which the gRPC proxy
-#       does not expose. Reads elsewhere stay on gRPC/GraphQL.
 #   • web/lib/navi-supply.ts → @t2000/sdk's NaviAdapter calls
 #       devInspectTransactionBlock (a JSON-RPC-only method), so it needs a
 #       dedicated SuiJsonRpcClient (see the comment above naviJsonRpcClient()).
-#   • web/__tests__/sui/*.test.ts (below) → these MOCK "@mysten/sui/jsonRpc"
-#       (vi.mock) to stub the gasless build in tests; no runtime JSON-RPC.
 #   • web/scripts/probe-* → operator/debug probes; not on any runtime path.
+#
+# Removed 2026-06-01: web/app/api/send/sponsor-prepare/route.ts and the
+# web/__tests__/sui/{send-gasless,send-sponsored,broadcast-config}.test.ts
+# trio. The gasless build moved off SuiJsonRpcClient onto an offline gRPC
+# build (tx.setGasPayment([]) + post-build gRPC simulate), so none of them
+# reference a banned symbol anymore.
 ALLOWLIST=(
   "web/lib/coins.ts"
   "web/lib/payment-kit.ts"
   "web/lib/t2000.ts"
   "web/lib/yield.ts"
   "web/lib/navi-supply.ts"
-  "web/app/api/send/sponsor-prepare/route.ts"
-  "web/__tests__/sui/broadcast-config.test.ts"
-  "web/__tests__/sui/send-gasless.test.ts"
-  "web/__tests__/sui/send-sponsored.test.ts"
   "web/scripts/bootstrap-payment-registry.mjs"
   "web/scripts/debug-navi-earned.mjs"
   "web/scripts/probe-navi-withdraw.mjs"
   "web/scripts/probe-shinami-broadcast.mjs"
   "web/scripts/probe-valid-during.mjs"
+  "web/scripts/probe-grpc-gasless.mjs"
   "web/scripts/recover-stranded.mjs"
   "web/scripts/sweep-accumulator.mjs"
   "web/scripts/sweep-now.mjs"

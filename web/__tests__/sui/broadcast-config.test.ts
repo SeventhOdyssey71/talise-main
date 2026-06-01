@@ -84,12 +84,15 @@ describe("/api/sui/broadcast-config", () => {
   });
 });
 
-// ─── Structural test: sponsor-prepare's JSON-RPC client construction ──
+// ─── Structural test: shinamiSuiNodeJsonRpc() construction shape ──
 //
-// The brief: when `SHINAMI_NODE_API_KEY` is set, the gasless build's
-// `SuiJsonRpcClient` must be constructed with Shinami's URL AND a
-// `fetch` option that injects `X-Api-Key`. We don't hit live Shinami —
-// we mock the constructor and inspect what the route passed to it.
+// The brief: when `SHINAMI_NODE_API_KEY` is set, the helper that backs
+// the broadcast-config route must return Shinami's node URL AND a header
+// set that injects `X-Api-Key`. We don't hit live Shinami — we inspect
+// the helper's return shape and its fetch-header merge directly.
+// (The send gasless build no longer constructs a JSON-RPC client at all
+// — it builds offline on gRPC as of 2026-06-01 — but this Shinami helper
+// is still used by the broadcast-config route, so its shape still matters.)
 
 describe("shinamiSuiNodeJsonRpc() — JSON-RPC client construction shape", () => {
   beforeEach(() => {

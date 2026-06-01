@@ -144,23 +144,23 @@ vi.mock("@/lib/sui", async () => {
     ...actual,
     sui: () => ({
       getReferenceGasPrice: async () => ({ referenceGasPrice: "1000" }),
+      // The gasless branch builds offline on the gRPC client, then runs an
+      // explicit post-build `simulateTransaction`. `$kind: "Transaction"`
+      // is the success discriminant — return it so the USDsui path lands
+      // on `mode:"gasless"` (these tests assert the gasless branch wins
+      // unless round-up forces the sponsored fall-through).
+      simulateTransaction: async () => ({ $kind: "Transaction" }),
     }),
     network: () => "mainnet" as const,
   };
 });
 
 // The gasless build sets a ValidDuring expiration keyed off the live
-// epoch and builds the PTB with a SuiJsonRpcClient whose only pre-build
-// call is `core.getChainIdentifier()`. Stub both so no network read
-// happens; StubTransaction.build ignores the client and returns bytes.
+// epoch + chain identifier. Stub both so no network read happens;
+// StubTransaction.build ignores the client and returns bytes.
 vi.mock("@/lib/sui-epoch", () => ({
   getCurrentEpoch: vi.fn(async () => 1234),
-}));
-vi.mock("@mysten/sui/jsonRpc", () => ({
-  SuiJsonRpcClient: class {
-    core = { getChainIdentifier: async () => ({ chainIdentifier: "test-chain" }) };
-  },
-  JsonRpcHTTPTransport: class {},
+  getChainIdentifier: vi.fn(async () => "test-chain"),
 }));
 
 // Stub the `Transaction` builder so `tx.build({ client })` returns a
@@ -180,6 +180,8 @@ vi.mock("@mysten/sui/transactions", async () => {
     setGasOwner = vi.fn();
     setGasPrice = vi.fn();
     setGasBudget = vi.fn();
+    // Empty-array gas payment — makes the gRPC gasless build go offline.
+    setGasPayment = vi.fn();
     add = vi.fn(() => ({ kind: "Result" }));
     moveCall = vi.fn(() => ({ kind: "Result" }));
     transferObjects = vi.fn();
