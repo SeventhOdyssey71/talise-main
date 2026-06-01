@@ -131,11 +131,50 @@ function serializeEntries(entries: ActivityEntry[]): SerializedEntry[] {
 const ACTIVITY_SNAPSHOT_SERVE_MAX_MS = 120_000;
 const ACTIVITY_SNAPSHOT_BG_REFRESH_MS = 15_000;
 
+// How many newest immutable events we retain in the snapshot floor. Home shows
+// 4, "See all" requests up to 50; keeping 50 covers both and bounds the row.
+const ACTIVITY_SNAPSHOT_CAP = 50;
+
 /**
- * Live chain scan → serialized rows, with write-through to the activity
- * snapshot. `bypassMemo` forces a fresh scan (the ?fresh=1 reconcile path).
- * We only persist a NON-EMPTY result so a transient timeout (outerCap → [])
- * never clobbers a good cached feed.
+ * Stable de-dup key for an activity row. On-chain rows carry a unique tx
+ * `digest`; for any (rare) digest-less row fall back to a synthetic key so it
+ * still de-dups across merges instead of multiplying.
+ */
+function entryKey(e: SerializedEntry): string {
+  return e.digest && e.digest.length > 0
+    ? `d:${e.digest}`
+    : `s:${e.direction}:${e.timestampMs}:${e.amountUsdsui ?? ""}:${e.amountSui ?? ""}`;
+}
+
+/**
+ * MONOTONIC merge. On-chain history is IMMUTABLE — a row that existed last time
+ * must never disappear because this refresh's chain scan was partial, timed
+ * out, or transiently empty. So we union the prior snapshot with the fresh scan
+ * by `digest`: existing rows are the floor, the fresh scan may UPGRADE a
+ * same-digest row's classification and ADD newer rows, but can never DELETE
+ * one. Result is sorted newest-first and capped. This is what makes history
+ * strictly non-decreasing across refreshes.
+ */
+function mergeMonotonic(
+  existing: SerializedEntry[],
+  fresh: SerializedEntry[]
+): SerializedEntry[] {
+  const byKey = new Map<string, SerializedEntry>();
+  for (const e of existing) byKey.set(entryKey(e), e);
+  for (const e of fresh) byKey.set(entryKey(e), e); // fresh wins on collision
+  return Array.from(byKey.values())
+    .sort((a, b) => b.timestampMs - a.timestampMs)
+    .slice(0, ACTIVITY_SNAPSHOT_CAP);
+}
+
+/**
+ * Live chain scan → serialized rows, merged into the per-user snapshot as a
+ * monotonic floor (see `mergeMonotonic`). `bypassMemo` forces a fresh scan
+ * (the ?fresh=1 reconcile path). Because the merge can only ADD to the prior
+ * snapshot, a partial/empty/failed scan can never shrink the returned feed.
+ * We persist only when the fresh scan actually returned rows, so a pure
+ * failure (fresh === []) leaves the existing snapshot AND its `refreshedAt`
+ * untouched (it stays "due for refresh" rather than looking falsely fresh).
  */
 async function computeLiveActivity(
   user: { id: number; sui_address: string; talise_vault_id: string | null },
@@ -151,17 +190,22 @@ async function computeLiveActivity(
         [] as ActivityEntry[]
       )
     : await cachedActivity(user.sui_address, limit, user.talise_vault_id ?? null);
-  const serialized = serializeEntries(raw);
-  if (serialized.length > 0) {
+  const fresh = serializeEntries(raw);
+
+  const prev = await readActivitySnapshot(user.id);
+  const prevEntries = (prev?.entries as SerializedEntry[] | undefined) ?? [];
+  const merged = mergeMonotonic(prevEntries, fresh);
+
+  if (fresh.length > 0) {
     await writeActivitySnapshot({
       userId: user.id,
       address: user.sui_address,
-      entries: serialized,
-      limit,
+      entries: merged,
+      limit: ACTIVITY_SNAPSHOT_CAP,
       source: "chain",
     });
   }
-  return serialized;
+  return merged.slice(0, limit);
 }
 
 /**
@@ -226,7 +270,18 @@ export async function GET(req: Request) {
     );
   } catch (err) {
     console.warn(`[api/activity] failed: ${(err as Error).message}`);
-    // Soft fail — HomeView falls back to "Nothing here yet".
-    return NextResponse.json({ entries: [] });
+    // Last resort: serve the immutable snapshot floor rather than blanking the
+    // feed. History must never shrink just because a live compute threw.
+    const snap = await readActivitySnapshot(userId).catch(() => null);
+    const entries = snap ? (snap.entries as SerializedEntry[]).slice(0, limit) : [];
+    return NextResponse.json(
+      {
+        entries,
+        refreshedAt: snap?.refreshedAt ?? 0,
+        stale: true,
+        source: "snapshot-fallback",
+      },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
   }
 }

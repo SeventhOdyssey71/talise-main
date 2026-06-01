@@ -69,7 +69,12 @@ enum LocalSnapshotStore {
         guard let data = UserDefaults.standard.data(
             forKey: key("activity", userId: userId)
         ) else { return nil }
-        return try? JSONDecoder().decode([ActivityEntryDTO].self, from: data)
+        // Tolerant per-row decode — a single shape change (e.g. an app update
+        // that added a field) must not discard the whole cached feed.
+        guard let wrapped = try? JSONDecoder().decode(
+            [FailableDecodable<ActivityEntryDTO>].self, from: data
+        ) else { return nil }
+        return wrapped.compactMap { $0.value }
     }
 
     /// Last-known activity for instant paint, but ONLY if saved within

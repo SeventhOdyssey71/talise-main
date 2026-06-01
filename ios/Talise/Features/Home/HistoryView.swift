@@ -6,10 +6,19 @@ import SwiftUI
 /// chips (All / Received / Sent). Same glassmorphic row treatment as
 /// Home, just unlimited and filterable.
 struct HistoryView: View {
-    @State private var entries: [ActivityEntryDTO] = []
+    /// Seeded with Home's already-loaded rows so "See all" opens instantly
+    /// with the last-good (immutable) history and never flashes empty while
+    /// the full /api/activity?limit=50 fetch lands.
+    let initialEntries: [ActivityEntryDTO]
+    @State private var entries: [ActivityEntryDTO]
     @State private var loading = true
     @State private var filter: Filter = .all
     @State private var receiptEntry: ActivityEntryDTO?
+
+    init(initialEntries: [ActivityEntryDTO] = []) {
+        self.initialEntries = initialEntries
+        _entries = State(initialValue: initialEntries)
+    }
 
     enum Filter: String, CaseIterable, Identifiable {
         case all, sent, received, earn, swap
@@ -152,11 +161,19 @@ struct HistoryView: View {
         loading = true
         defer { loading = false }
         do {
-            struct Response: Decodable { let entries: [ActivityEntryDTO] }
-            let r: Response = try await APIClient.shared.get("/api/activity?limit=50")
-            entries = r.entries
+            // ActivityResponse decodes rows tolerantly (one bad row can't
+            // discard the rest).
+            let r: ActivityResponse = try await APIClient.shared.get("/api/activity?limit=50")
+            // On-chain history is immutable — only replace on a real result.
+            // An empty response must never blank already-shown rows.
+            if !r.entries.isEmpty || entries.isEmpty {
+                entries = r.entries
+            }
         } catch {
-            entries = []
+            // Cancellations (-999) fire whenever the sheet re-renders/re-
+            // presents; a transient transport error shouldn't wipe the list
+            // either. Keep whatever we already have — never blank to [].
+            if APIError.isCancellation(error) { return }
         }
     }
 }

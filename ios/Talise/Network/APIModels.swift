@@ -155,8 +155,36 @@ struct ActivityOtherCoin: Codable, Hashable {
     }
 }
 
+/// Decodes `T`, swallowing a per-element failure to `nil` instead of aborting
+/// the whole array. Decoding `[FailableDecodable<T>]` never throws on a bad
+/// element (each `init` uses `try?`), so one malformed or new-shaped row can't
+/// discard the entire — immutable — activity history.
+struct FailableDecodable<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws {
+        value = try? T(from: decoder)
+    }
+}
+
 struct ActivityResponse: Codable {
     let entries: [ActivityEntryDTO]
+
+    init(entries: [ActivityEntryDTO]) { self.entries = entries }
+
+    private enum CodingKeys: String, CodingKey { case entries }
+
+    // Tolerant decode — see `FailableDecodable`. A single unparseable row is
+    // dropped, not allowed to throw away every other row.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let wrapped = try c.decode([FailableDecodable<ActivityEntryDTO>].self, forKey: .entries)
+        entries = wrapped.compactMap { $0.value }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(entries, forKey: .entries)
+    }
 }
 
 struct SendBuildRequest: Codable {

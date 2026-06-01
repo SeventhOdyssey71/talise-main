@@ -82,9 +82,11 @@ struct HomeView: View {
                 usernameCard
                     .padding(.horizontal, 32)
                     .padding(.top, 24)
-                activityCard
-                    .padding(.horizontal, 32)
-                    .padding(.top, 22)
+                // Recent/activity feed moved OFF the home surface (2026-06-01)
+                // into the navbar "History" icon → opens HistoryView. Home now
+                // stays focused on balance + identity + send/receive. `activity`
+                // is still warmed in the background so the History sheet opens
+                // instantly seeded.
                 Color.clear.frame(height: 120)
             }
         }
@@ -113,7 +115,7 @@ struct HomeView: View {
                 .presentationBackground(TaliseColor.bg)
         }
         .sheet(isPresented: $historySheetVisible) {
-            HistoryView()
+            HistoryView(initialEntries: activity)
                 .presentationDetents([.large])
                 .presentationBackground(TaliseColor.bg)
         }
@@ -137,22 +139,40 @@ struct HomeView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 24, height: 22)
             Spacer()
-            Button {
-                scanToPaySheetVisible = true
-            } label: {
-                // Scan-to-Pay entry point. Replaces the prior Contacts
-                // glyph in the same disc slot. `qrcode.viewfinder` reads
-                // immediately as "scan a QR" at the navbar icon size;
-                // we keep the surrounding 6pt padding so the hit target
-                // matches the previous Contacts button.
-                Image(systemName: "qrcode.viewfinder")
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(TaliseColor.fg)
-                    .frame(width: 22, height: 22)
-                    .padding(6)
-                    .contentShape(Rectangle())
+            HStack(spacing: 2) {
+                // History — moved off the Home surface into the navbar so the
+                // home screen stays focused on balance + send/receive. Opens
+                // the full activity sheet (HistoryView), seeded with any rows
+                // already warmed in `activity` for an instant paint.
+                Button {
+                    historySheetVisible = true
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 21, weight: .regular))
+                        .foregroundStyle(TaliseColor.fg)
+                        .frame(width: 22, height: 22)
+                        .padding(6)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("History")
+
+                // Scan-to-Pay entry point. `qrcode.viewfinder` reads
+                // immediately as "scan a QR" at the navbar icon size; the 6pt
+                // padding keeps a comfortable hit target.
+                Button {
+                    scanToPaySheetVisible = true
+                } label: {
+                    Image(systemName: "qrcode.viewfinder")
+                        .font(.system(size: 22, weight: .regular))
+                        .foregroundStyle(TaliseColor.fg)
+                        .frame(width: 22, height: 22)
+                        .padding(6)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Scan to pay")
             }
-            .buttonStyle(.plain)
         }
         .frame(height: 28)
         .sheet(isPresented: $scanToPaySheetVisible) {
@@ -615,12 +635,20 @@ struct HomeView: View {
                 print("[activity] decoded \(r.entries.count) entries")
             }
             #endif
-            activity = mergePendingStubs(into: r.entries)
+            // On-chain history is immutable — never let a transient empty or
+            // short response downgrade what's already on screen. Accept the
+            // new feed only when it has rows (or when we have nothing yet);
+            // otherwise keep the prior rows.
+            let merged = mergePendingStubs(into: r.entries)
+            if !merged.isEmpty || activity.isEmpty {
+                activity = merged
+            }
             activityHasLoadedOnce = true
-            // Persist for the next cold launch (stale-while-revalidate).
-            // Only cache the raw server entries (not the merged stubs) so
-            // we don't persist optimistic rows that may never confirm.
-            if let uid = session.currentUser?.id {
+            // Persist for the next cold launch (stale-while-revalidate). Only
+            // cache the raw server entries (not the merged stubs) so we don't
+            // persist optimistic rows that may never confirm — AND only when
+            // non-empty, so an empty response never poisons the good cache.
+            if let uid = session.currentUser?.id, !r.entries.isEmpty {
                 LocalSnapshotStore.saveActivity(r.entries, userId: uid)
             }
             // Silently dismiss the toast if the retry succeeded.
@@ -637,6 +665,15 @@ struct HomeView: View {
                 print("[activity] load failed: \(error)")
             }
             #endif
+            // Last resort: if we have NOTHING on screen and the live read
+            // failed, fall back to the un-gated local snapshot. Immutable
+            // history (even slightly stale) beats a blank "Recent" card.
+            if activity.isEmpty, let uid = session.currentUser?.id,
+               let cached = LocalSnapshotStore.loadActivity(userId: uid),
+               !cached.isEmpty {
+                activity = mergePendingStubs(into: cached)
+                activityHasLoadedOnce = true
+            }
             // Keep the last-known rows on screen. Only mark refresh
             // failure if we have nothing to show — otherwise the user
             // sees their prior history and a small "couldn't refresh"
