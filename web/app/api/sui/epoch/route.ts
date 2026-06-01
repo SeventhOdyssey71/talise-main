@@ -17,7 +17,19 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const epoch = await getCurrentEpoch();
-    return NextResponse.json({ epoch: String(epoch) });
+    // The epoch is GLOBAL and flips only ~every 24h, and the only consumer
+    // (`maxEpoch = epoch + 2`) tolerates a ~2-epoch window — so this is safe
+    // to serve from Vercel's CDN. Edge-caching it keeps sign-in fast: a cold
+    // serverless instance otherwise pays an ~850ms gRPC read here BEFORE the
+    // Google screen opens.
+    return NextResponse.json(
+      { epoch: String(epoch) },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
+        },
+      }
+    );
   } catch (err) {
     console.warn(`[api/sui/epoch] RPC failed: ${(err as Error).message}`);
     return NextResponse.json(

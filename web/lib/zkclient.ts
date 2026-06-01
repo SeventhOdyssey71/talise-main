@@ -144,22 +144,32 @@ const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export async function triggerOauthSignIn(opts?: { returnTo?: string }) {
   if (typeof window === "undefined") return;
 
-  if (opts?.returnTo && opts.returnTo.startsWith("/")) {
-    await fetch("/api/auth/return-to", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ returnTo: opts.returnTo }),
-    }).catch(() => {});
-  }
-
-  const { nonce } = await provisionEphemeralAuth();
+  // Fire the three independent pre-redirect calls CONCURRENTLY so the Google
+  // screen opens as soon as the slowest settles, not the sum of all three:
+  //   • return-to cookie (optional)
+  //   • ephemeral key + nonce (needs the Sui epoch — now edge-cached)
+  //   • OAuth state cookie
   const state = crypto.randomUUID();
-  const r = await fetch("/api/auth/state", {
+  const returnToP =
+    opts?.returnTo && opts.returnTo.startsWith("/")
+      ? fetch("/api/auth/return-to", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ returnTo: opts.returnTo }),
+        }).catch(() => {})
+      : Promise.resolve(undefined);
+  const stateP = fetch("/api/auth/state", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ state }),
   });
-  if (!r.ok) throw new Error("could not prepare state");
+
+  const [, { nonce }, stateRes] = await Promise.all([
+    returnToP,
+    provisionEphemeralAuth(),
+    stateP,
+  ]);
+  if (!stateRes.ok) throw new Error("could not prepare state");
 
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
   if (!clientId) throw new Error("OAuth env missing");
