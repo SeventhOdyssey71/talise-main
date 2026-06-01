@@ -45,7 +45,7 @@ export function AdminShell({ via, children }: { via: AdminVia; children: ReactNo
 
   return (
     <div className="min-h-screen bg-bg text-fg">
-      <div className="mx-auto flex max-w-[1400px]">
+      <div className="flex w-full">
         {/* Sidebar */}
         <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-line bg-surface/40 p-4 md:flex">
           <div className="mb-6 flex items-center gap-2 px-2">
