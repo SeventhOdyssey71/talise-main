@@ -1,7 +1,8 @@
 import "server-only";
 
-import { userBySuiAddress } from "@/lib/db";
+import { userBySuiAddress, deviceTokensForUser } from "@/lib/db";
 import { sendInboundReceivedEmail } from "@/lib/email";
+import { sendApnsPush } from "@/lib/apns";
 
 /**
  * Notify the RECIPIENT that an inbound transfer settled on chain.
@@ -34,9 +35,28 @@ export async function notifyInboundSettlement(input: {
       );
     }
 
-    // TODO(push): once `device_token` registration (POST /api/devices/register)
-    // and the APNs auth key (.p8 / key id / team id) are in env, look up this
-    // recipient's device tokens and send an APNs push here.
+    // Push (APNs) — fire to every registered device. No-ops cleanly when APNs
+    // isn't configured (sendApnsPush returns { skipped: true }).
+    try {
+      const tokens = await deviceTokensForUser(recipient.id);
+      if (tokens.length > 0) {
+        const title = "Money received";
+        const pbody = `${input.senderName} sent you $${input.amountUsd.toFixed(2)}`;
+        await Promise.all(
+          tokens.map((t) =>
+            sendApnsPush(t, { title, body: pbody }).then((r) => {
+              if (!r.ok && !r.skipped) {
+                console.warn(
+                  `[notify] apns push failed token=${t.slice(0, 8)}…: ${r.reason}`
+                );
+              }
+            })
+          )
+        );
+      }
+    } catch (e) {
+      console.warn(`[notify] push leg failed: ${(e as Error).message}`);
+    }
   } catch (e) {
     console.warn(
       `[notify] inbound settlement notify failed: ${(e as Error).message}`

@@ -1,12 +1,14 @@
 import SwiftUI
 import CoreText
 import UIKit
+import UserNotifications
 #if DEBUG
 import ObjectiveC.runtime
 #endif
 
 @main
 struct TaliseApp: App {
+    @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
     @State private var session = AppSession()
     @Environment(\.scenePhase) private var scenePhase
     @State private var locked = false
@@ -87,6 +89,15 @@ struct TaliseApp: App {
                         break
                     }
                 }
+                .onChange(of: session.phase) { _, newPhase in
+                    // Register for push + sync the device token once the user
+                    // is signed in, so /api/devices/register carries a bearer.
+                    // Idempotent — safe to fire on every transition to ready.
+                    if case .ready = newPhase {
+                        PushRegistrar.shared.register()
+                        PushRegistrar.shared.syncIfNeeded()
+                    }
+                }
         }
     }
 
@@ -127,5 +138,80 @@ private struct AppLockOverlay: View {
                     .foregroundStyle(TaliseColor.fg)
             }
         }
+    }
+}
+
+// MARK: - Push notifications
+
+/// Requests APNs authorization, registers for remote notifications, and syncs
+/// the device token to the backend (`POST /api/devices/register`). Push
+/// DELIVERY is server-gated on the Talise APNs credentials — this side just
+/// gets permission, the token, and hands it to the server.
+final class PushRegistrar {
+    static let shared = PushRegistrar()
+    private init() {}
+
+    /// Latest APNs device token (hex), set by the app delegate callback.
+    private(set) var lastToken: String?
+
+    /// Request notification authorization (the system prompts only once) and
+    /// register for remote notifications. Idempotent — safe to call on every
+    /// transition to `.ready`.
+    func register() {
+        UNUserNotificationCenter.current()
+            .requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                guard granted else { return }
+                DispatchQueue.main.async {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
+    }
+
+    /// Called from the app delegate when APNs hands us a token. Stores it and
+    /// POSTs it (best-effort; APIClient attaches the bearer when signed in).
+    func didReceive(deviceToken: Data) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        lastToken = hex
+        Task { await sync(token: hex) }
+    }
+
+    /// Re-POST the last-known token (e.g. right after sign-in completes, when
+    /// a token captured pre-auth can finally be associated with the account).
+    func syncIfNeeded() {
+        guard let t = lastToken else { return }
+        Task { await sync(token: t) }
+    }
+
+    private func sync(token: String) async {
+        struct Body: Encodable { let token: String; let platform: String }
+        struct Ack: Decodable { let ok: Bool? }
+        do {
+            let _: Ack = try await APIClient.shared.post(
+                "/api/devices/register",
+                body: Body(token: token, platform: "ios")
+            )
+        } catch {
+            // Best-effort: a 401 before sign-in is expected; we re-sync on ready.
+        }
+    }
+}
+
+/// Minimal app delegate purely to receive the APNs device-token callbacks
+/// (SwiftUI's App lifecycle doesn't surface them).
+final class PushAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        PushRegistrar.shared.didReceive(deviceToken: deviceToken)
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        #if DEBUG
+        print("[push] APNs registration failed: \(error.localizedDescription)")
+        #endif
     }
 }

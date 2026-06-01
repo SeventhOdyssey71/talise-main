@@ -603,6 +603,20 @@ async function doEnsureSchema(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_roundup_queue_pending
        ON roundup_queue(created_at) WHERE processed_at IS NULL`,
 
+    // ─── device_token (APNs push registration) ──────────────────────
+    // One row per device push token. `token` is UNIQUE so a re-register
+    // (e.g. token rotation, or the same device under a new account)
+    // upserts cleanly. Consumed by the inbound-settlement push leg in
+    // lib/notify.ts via deviceTokensForUser().
+    `CREATE TABLE IF NOT EXISTS device_token (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      token TEXT UNIQUE NOT NULL,
+      platform TEXT NOT NULL DEFAULT 'ios',
+      updated_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_device_token_user ON device_token(user_id)`,
+
     // ─── float_pools (treasury / corridor inventory) ─────────────────
     // Per-corridor, per-currency inventory balances for the treasury
     // float model (master plan §6). "instant" = pre-positioned float on
@@ -1144,6 +1158,38 @@ export async function userBySuiAddress(address: string): Promise<User | null> {
     args: [address],
   });
   return (r.rows[0] as unknown as User) ?? null;
+}
+
+/**
+ * Register (upsert) an APNs/push device token for a user. `token` is UNIQUE,
+ * so re-registering the same device — or moving it to a new account —
+ * rebinds it rather than duplicating.
+ */
+export async function registerDeviceToken(
+  userId: number,
+  token: string,
+  platform = "ios"
+): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: `INSERT INTO device_token (user_id, token, platform, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (token) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            platform = EXCLUDED.platform,
+            updated_at = EXCLUDED.updated_at`,
+    args: [userId, token, platform, Date.now()],
+  });
+}
+
+/** All registered push tokens for a user (one per device). */
+export async function deviceTokensForUser(userId: number): Promise<string[]> {
+  await ensureSchema();
+  const r = await db().execute({
+    sql: "SELECT token FROM device_token WHERE user_id = ?",
+    args: [userId],
+  });
+  return r.rows.map((row) => String((row as { token: string }).token));
 }
 
 export async function userByBusinessHandle(
