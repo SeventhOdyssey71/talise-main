@@ -1,20 +1,14 @@
 import "server-only";
 
-import {
-  SuiJsonRpcClient,
-  getJsonRpcFullnodeUrl,
-} from "@mysten/sui/jsonRpc";
-import {
-  getFinancialSummary,
-  getPendingRewardsByAddress,
-  type FinancialSummary,
-  type PendingReward,
-} from "@t2000/sdk";
+import type { PendingReward } from "@t2000/sdk";
 import {
   fetchUsdsuiMarginApy,
   fetchUserUsdsuiSupply,
 } from "./deepbook-margin";
-import { fetchNaviUsdsuiSupplyApy } from "./navi-supply";
+import {
+  fetchNaviUsdsuiSupplyApy,
+  readNaviUsdsuiSupply,
+} from "./navi-supply";
 import { getGlobalNum, setGlobalNum, refreshInBackground } from "./snapshots";
 
 /** Resolve a promise to `fallback` if it doesn't settle within `ms`. The
@@ -43,17 +37,24 @@ async function resolveApy(key: string, live: number | null | undefined): Promise
 }
 
 /** Per-leg cap so one slow venue read can't hang the whole comparison.
- *  5s clears the ~4.2s SDK summary read (so existing earners' supplied
- *  still loads) while staying well under the iOS 15s request deadline. */
+ *  The direct NAVI read (config+pools cached → a single per-user
+ *  `devInspect`) settles well under this; it stays comfortably below the
+ *  iOS 15s request deadline. */
 const YIELD_LEG_TIMEOUT_MS = 5_000;
 
 /**
  * Server-side yield queries — all stateless (no zkLogin signer needed).
  *
- * `getFinancialSummary` returns the user's NAVI position summary directly
- * from chain: how much USDsui they have supplied, what APY they're earning,
- * and a projected daily yield. `getPendingRewardsByAddress` returns every
- * claimable reward token (in their own coin types) with USD valuations.
+ * The NAVI position is read DIRECTLY (no @t2000/sdk): `readNaviUsdsuiSupply`
+ * does one `devInspect` of NAVI's on-chain `get_user_state` getter for the
+ * supplied balance, and `fetchNaviUsdsuiSupplyApy` reads the portal-accurate
+ * APY from NAVI's open API. This replaced @t2000/sdk's `getFinancialSummary`
+ * (which cost ~4.2s and keyed the APY off USDC's pool — a SDK bug).
+ *
+ * Pending rewards are not surfaced from the direct read (NAVI's reward
+ * getter would add a second `devInspect`; the only consumer is the USD
+ * total in `/api/yield/comparison`, which tolerates 0). `pending` is kept
+ * in the return shape (empty) so callers + the iOS Codable don't change.
  */
 
 export type EarnSnapshot = {
@@ -63,39 +64,23 @@ export type EarnSnapshot = {
   apy: number;
   /** Projected daily yield at the current APY. */
   dailyYield: number;
-  /** Pending claimable rewards (per token). */
+  /** Pending claimable rewards (per token). Currently always empty —
+   *  see the module note above. */
   pending: PendingReward[];
   /** Sum of USD valuations across all pending rewards. */
   totalPendingUsd: number;
 };
 
-let _client: SuiJsonRpcClient | null = null;
-function client(): SuiJsonRpcClient {
-  if (_client) return _client;
-  _client = new SuiJsonRpcClient({
-    url: getJsonRpcFullnodeUrl("mainnet"),
-    network: "mainnet",
-  });
-  return _client;
-}
-
 export async function getEarnSnapshot(address: string): Promise<EarnSnapshot> {
-  const [summary, pending] = await Promise.all([
-    getFinancialSummary(client() as never, address).catch(
-      () => null as FinancialSummary | null
-    ),
-    getPendingRewardsByAddress(address).catch(() => [] as PendingReward[]),
+  const [supplied, apyLive] = await Promise.all([
+    readNaviUsdsuiSupply(address).catch(() => 0),
+    fetchNaviUsdsuiSupplyApy().catch(() => null),
   ]);
 
-  const supplied = summary?.savingsBalance ?? 0;
-  const apy = summary?.saveApy ?? 0;
-  const dailyYield = summary?.dailyYield ?? supplied * (apy / 365);
-  const totalPendingUsd = pending.reduce(
-    (s, r) => s + (r.estimatedValueUsd ?? 0),
-    0
-  );
+  const apy = apyLive ?? 0;
+  const dailyYield = supplied * (apy / 365);
 
-  return { supplied, apy, dailyYield, pending, totalPendingUsd };
+  return { supplied, apy, dailyYield, pending: [], totalPendingUsd: 0 };
 }
 
 /**
@@ -127,17 +112,19 @@ export async function getYieldComparison(
 ): Promise<YieldComparison> {
   // Every leg is timeout-capped AND failure-tolerant so one slow/flaky
   // venue read can't stall (or empty) the comparison. The fast Navi open
-  // API (~1s) carries the APY; the slower SDK summary (~4s) only adds the
-  // user's supplied balance — so the Navi venue shows even if the SDK leg
-  // is slow or down. Each APY is cached in global_kv, so cold serverless
-  // instances and transient RPC outages still return last-known venues.
+  // API (~1s) carries the APY; the direct NAVI position read (one cached
+  // open-API hop + a per-user `devInspect`, ~1–2s) only adds the user's
+  // supplied balance — so the Navi venue shows even if that leg is slow or
+  // down. Each APY is cached in global_kv, so cold serverless instances and
+  // transient RPC outages still return last-known venues.
   const [naviSnap, dbApy, dbSupply, naviApyLive] = await Promise.all([
     withTimeout(getEarnSnapshot(address).catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
     withTimeout(fetchUsdsuiMarginApy().catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
     withTimeout(fetchUserUsdsuiSupply(address).catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
-    // Live USDsui supply APY from Navi's open API. The SDK's
-    // `getFinancialSummary` keys APY off USDC's pool (a SDK bug — see
-    // fetchNaviUsdsuiSupplyApy), so this portal-accurate value wins.
+    // Live USDsui supply APY from Navi's open API — the same
+    // portal-accurate value `getEarnSnapshot` already uses. Fetched
+    // separately here so the venue's APY survives even if the snapshot
+    // (position) leg times out.
     withTimeout(fetchNaviUsdsuiSupplyApy().catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
   ]);
 

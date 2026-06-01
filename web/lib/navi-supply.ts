@@ -1,6 +1,10 @@
 import "server-only";
 
-import { coinWithBalance, type Transaction } from "@mysten/sui/transactions";
+import {
+  coinWithBalance,
+  Transaction,
+} from "@mysten/sui/transactions";
+import { bcs } from "@mysten/sui/bcs";
 import { NaviAdapter } from "@t2000/sdk";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { USDSUI_TYPE, isUsdsui } from "./usdsui";
@@ -180,35 +184,168 @@ export async function appendNaviWithdraw(
  * fall back to the SDK number (still wrong, but better than 0).
  */
 const NAVI_POOLS_URL = "https://open-api.naviprotocol.io/api/navi/pools?env=prod";
+const NAVI_CONFIG_URL = "https://open-api.naviprotocol.io/api/navi/config?env=prod";
 
 type NaviPoolRow = {
+  /** NAVI reserve/asset id (matches the on-chain `UserStateInfo.asset_id`). */
+  id: number;
   coinType: string;
+  /** Ray-scaled (1e27) supply index — multiply the user's raw scaled
+   *  supply balance by this to get the redeemable amount in base units. */
+  currentSupplyIndex?: string;
+  token?: { decimals?: number; symbol?: string };
   supplyIncentiveApyInfo?: { apy?: string };
 };
 
-async function fetchNaviUsdsuiSupplyApyOnce(): Promise<number | null> {
+/**
+ * Fetch + cache NAVI's full pool list from the public open API.
+ *
+ * Shared by the APY read AND the direct position read (below) so a single
+ * 60s-cached round-trip serves both — the hot path then only pays for the
+ * per-user `devInspect` (~1–2s) instead of re-fetching pool metadata each
+ * time. Returns `[]` on any fetch/parse failure so callers degrade to
+ * null/0 rather than throwing.
+ */
+async function fetchNaviPoolsOnce(): Promise<NaviPoolRow[]> {
   try {
     const res = await fetch(NAVI_POOLS_URL, {
-      // Don't cache at the fetch layer — memoTtl above handles TTL.
+      // Don't cache at the fetch layer — memoTtl handles TTL.
       cache: "no-store",
       // Conservative deadline so a slow Navi response doesn't stall
       // the whole /api/yield/comparison handler.
       signal: AbortSignal.timeout(4000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const body = (await res.json()) as { data?: NaviPoolRow[] };
-    const pools = body?.data ?? [];
-    const row = pools.find((p) => p.coinType && isUsdsui("0x" + p.coinType.replace(/^0x/, "")));
-    const apyPct = parseFloat(row?.supplyIncentiveApyInfo?.apy ?? "");
-    if (!Number.isFinite(apyPct) || apyPct < 0 || apyPct > 200) return null;
-    return apyPct / 100;
+    return body?.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchNaviPools(): Promise<NaviPoolRow[]> {
+  return memoTtl("navi:pools", 60_000, fetchNaviPoolsOnce);
+}
+
+function findUsdsuiPool(pools: NaviPoolRow[]): NaviPoolRow | undefined {
+  return pools.find(
+    (p) => p.coinType && isUsdsui("0x" + p.coinType.replace(/^0x/, ""))
+  );
+}
+
+export async function fetchNaviUsdsuiSupplyApy(): Promise<number | null> {
+  const pools = await fetchNaviPools();
+  const row = findUsdsuiPool(pools);
+  const apyPct = parseFloat(row?.supplyIncentiveApyInfo?.apy ?? "");
+  if (!Number.isFinite(apyPct) || apyPct < 0 || apyPct > 200) return null;
+  return apyPct / 100;
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Direct NAVI position read (no @t2000/sdk).
+//
+// `@t2000/sdk`'s `NaviAdapter.getPositions()` cost ~4–9s on the hot path
+// because it re-initialised the pool registry from chain and routed the
+// read through a heavyweight summary. We read the user's USDsui supply
+// the SAME way NAVI's own getters do — a single `devInspect` of
+// `<uiGetter>::getter_unchecked::get_user_state(storage, address)` — and
+// convert with the live pool's supply index + decimals.
+//
+// `get_user_state` returns `vector<UserStateInfo>` where each row is the
+// user's scaled (ray-normalised) per-asset position. The redeemable
+// amount in token base units is `scaled * currentSupplyIndex / 1e27`
+// (rounded), then `/10^decimals` for human units. Verified live against
+// `NaviAdapter.getPositions()` — values match to the unit for assets that
+// share decimals; for USDsui (6 decimals) the direct read is actually
+// MORE accurate, since the t2000 adapter hard-codes 9 decimals for some
+// stables.
+
+type NaviConfig = { uiGetter: string; storage: string };
+
+async function fetchNaviConfigOnce(): Promise<NaviConfig | null> {
+  try {
+    const res = await fetch(NAVI_CONFIG_URL, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: Partial<NaviConfig> };
+    const cfg = body?.data;
+    if (!cfg?.uiGetter || !cfg?.storage) return null;
+    return { uiGetter: cfg.uiGetter, storage: cfg.storage };
   } catch {
     return null;
   }
 }
 
-export async function fetchNaviUsdsuiSupplyApy(): Promise<number | null> {
-  return memoTtl("navi:usdsui-supply-apy", 60_000, fetchNaviUsdsuiSupplyApyOnce);
+async function fetchNaviConfig(): Promise<NaviConfig | null> {
+  return memoTtl("navi:config", 5 * 60_000, fetchNaviConfigOnce);
+}
+
+/** On-chain `UserStateInfo` struct returned by `get_user_state`. */
+const UserStateInfo = bcs.struct("UserStateInfo", {
+  asset_id: bcs.u8(),
+  borrow_balance: bcs.u256(),
+  supply_balance: bcs.u256(),
+});
+
+const RAY = 10n ** 27n;
+
+/** rayMul: scaled supply balance × supply index ÷ 1e27 (round half-up). */
+function rayMul(rawScaled: string, supplyIndex: string): bigint {
+  let r: bigint;
+  let i: bigint;
+  try {
+    r = BigInt(rawScaled);
+    i = BigInt(supplyIndex);
+  } catch {
+    return 0n;
+  }
+  if (r === 0n || i === 0n) return 0n;
+  return (r * i + RAY / 2n) / RAY;
+}
+
+/**
+ * Read the user's redeemable USDsui supply balance (human units) directly
+ * from NAVI's on-chain getter. Returns 0 for an empty position and 0 on
+ * any failure (never throws into the hot path).
+ */
+export async function readNaviUsdsuiSupply(address: string): Promise<number> {
+  try {
+    const [cfg, pools] = await Promise.all([
+      fetchNaviConfig(),
+      fetchNaviPools(),
+    ]);
+    const usdsui = findUsdsuiPool(pools);
+    if (!cfg || !usdsui) return 0;
+
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${cfg.uiGetter}::getter_unchecked::get_user_state`,
+      arguments: [tx.object(cfg.storage), tx.pure.address(address)],
+    });
+
+    const inspect = await naviJsonRpcClient().devInspectTransactionBlock({
+      transactionBlock: tx,
+      sender: address,
+    });
+    const bytes = inspect.results?.[0]?.returnValues?.[0]?.[0];
+    if (!bytes) return 0;
+
+    const rows = bcs.vector(UserStateInfo).parse(Uint8Array.from(bytes));
+    const row = rows.find((r) => Number(r.asset_id) === Number(usdsui.id));
+    if (!row) return 0;
+
+    const base = rayMul(
+      String(row.supply_balance),
+      String(usdsui.currentSupplyIndex ?? "0")
+    );
+    const decimals = Number(usdsui.token?.decimals ?? USDSUI_DECIMALS);
+    const human = Number(base) / 10 ** decimals;
+    return Number.isFinite(human) && human > 0 ? human : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -251,12 +388,9 @@ export type NaviPositionDetail = {
 };
 
 export async function fetchNaviCurrentValue(address: string): Promise<number> {
-  const a = await adapter();
-  const positions = await a.getPositions(address);
-  const row = positions.supplies.find(
-    (s) => s.asset === NAVI_ASSET || s.asset.toLowerCase() === "usdsui"
-  );
-  return row?.amount ?? 0;
+  // Direct on-chain read (see `readNaviUsdsuiSupply`) — dropped the
+  // @t2000/sdk `NaviAdapter.getPositions()` path, which cost ~4–9s.
+  return readNaviUsdsuiSupply(address);
 }
 
 /**
