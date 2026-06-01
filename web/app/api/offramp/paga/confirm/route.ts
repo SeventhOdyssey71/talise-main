@@ -115,6 +115,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "quote expired" }, { status: 410 });
   }
 
+  // F2: a given on-chain debit digest may back AT MOST ONE payout. Reject a
+  // digest already consumed by ANY quote (cheap early-out; the atomic debit
+  // below is the hard guard via the UNIQUE index). Without this, N quotes for
+  // the same amount + ONE real transfer = N NGN payouts.
+  const dup = await c.execute({
+    sql: "SELECT id FROM paga_offramps WHERE onchain_digest = ? LIMIT 1",
+    args: [txDigest],
+  });
+  if (dup.rows[0]) {
+    return NextResponse.json(
+      { error: "this transaction was already used for a payout" },
+      { status: 409 }
+    );
+  }
+
   // ─── On-chain verification ────────────────────────────────────────
   const expectedUsdsui = toNumber(row.usdsui_amount);
   // Convert to raw minor units (BigInt) for chain-side comparison.
@@ -170,11 +185,26 @@ export async function POST(req: Request) {
   // from 'quoted'. If another concurrent confirm raced us, the UPDATE
   // affects 0 rows and we bail out without double-paying.
   const debitNow = Date.now();
-  const upd = await c.execute({
-    sql: `UPDATE paga_offramps SET status='debited', debited_at=?
-          WHERE id = ? AND status='quoted'`,
-    args: [debitNow, quoteId],
-  });
+  let upd;
+  try {
+    // Bind the digest in the SAME atomic transition. The NOT EXISTS guard
+    // makes a reused digest a clean 0-row no-op; the UNIQUE index is the hard
+    // backstop for a true concurrent race (one wins, the other throws → 409).
+    upd = await c.execute({
+      sql: `UPDATE paga_offramps SET status='debited', debited_at=?, onchain_digest=?
+            WHERE id = ? AND status='quoted'
+              AND NOT EXISTS (SELECT 1 FROM paga_offramps WHERE onchain_digest = ?)`,
+      args: [debitNow, txDigest, quoteId, txDigest],
+    });
+  } catch (e) {
+    console.warn(
+      `[offramp/confirm] digest-bind race for ${txDigest}: ${(e as Error).message}`
+    );
+    return NextResponse.json(
+      { error: "this transaction was already used for a payout" },
+      { status: 409 }
+    );
+  }
   if (upd.rowsAffected === 0) {
     return NextResponse.json({ error: "quote no longer debitable" }, { status: 409 });
   }

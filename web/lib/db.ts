@@ -541,6 +541,12 @@ async function doEnsureSchema(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_paga_offramps_user ON paga_offramps(user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_paga_offramps_status ON paga_offramps(status, created_at DESC)`,
+    // F2 (single-use payout): bind the consumed on-chain debit digest to the
+    // quote so ONE USDsui transfer can never back N NGN payouts. Partial
+    // UNIQUE index — legacy/quoted NULL rows don't collide; the first confirm
+    // to set a digest wins, any other quote reusing it fails the constraint.
+    `ALTER TABLE paga_offramps ADD COLUMN IF NOT EXISTS onchain_digest TEXT`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_paga_offramps_digest ON paga_offramps(onchain_digest) WHERE onchain_digest IS NOT NULL`,
 
     // ─── transfers (corridor-agnostic state machine) ─────────────────
     // One row per cross-border / on-ramp / off-ramp / internal transfer.

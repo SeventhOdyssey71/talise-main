@@ -46,7 +46,23 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 };
 
-export function middleware(_req: NextRequest) {
+// F13: cap request bodies on the API surface. Next.js App Router doesn't
+// impose a small default, so a multi-MB/GB POST is a cheap allocation/parse
+// DoS. 1 MB is far above any legitimate Talise payload (signable bytes are
+// tens of KB; webhooks are small). Chunked/absent Content-Length falls
+// through to the route's own parse — no regression.
+const MAX_API_BODY_BYTES = 1_048_576;
+
+export function middleware(req: NextRequest) {
+  if (
+    req.nextUrl.pathname.startsWith("/api/") &&
+    (req.method === "POST" || req.method === "PUT" || req.method === "PATCH")
+  ) {
+    const len = Number(req.headers.get("content-length") ?? "0");
+    if (Number.isFinite(len) && len > MAX_API_BODY_BYTES) {
+      return NextResponse.json({ error: "payload too large" }, { status: 413 });
+    }
+  }
   // Note: we deliberately do NOT redirect www→apex here. The Vercel
   // project's primary domain is www.talise.io and Vercel already 307s
   // the apex over to www. A second redirect in the opposite direction
