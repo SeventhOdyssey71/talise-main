@@ -17,6 +17,14 @@ import SwiftProtobuf
 
 @MainActor
 public final class SuiGrpcClient {
+    // NOTE: this stays on the DIRECT Sui fullnode — do NOT point it at Hayabusa.
+    // Hayabusa is a gRPC-WEB proxy (application/grpc-web+proto, grpc-status in
+    // headers), but grpc-swift's HTTP2ClientTransport speaks NATIVE gRPC
+    // (application/grpc + HTTP/2 trailers) — the two are wire-incompatible, so
+    // routing here through Hayabusa would break every call. The web backend
+    // already proxies its gRPC-Web reads through Hayabusa, so the app's
+    // API-mediated data is accelerated there; only iOS's few DIRECT gRPC reads
+    // use this fullnode. (See docs/integrations/hayabusa.md.)
     public static let shared = SuiGrpcClient(host: "fullnode.mainnet.sui.io", port: 443)
 
     private let host: String

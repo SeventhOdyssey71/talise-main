@@ -236,11 +236,15 @@ let _sui: SuiGrpcClient | null = null;
 function suiClient(): SuiGrpcClient {
   if (_sui) return _sui;
   const net = clientNetwork();
-  // gRPC fullnode endpoint — same host as JSON-RPC, port 443.
-  // Mirrors `defaultGrpcBaseUrl` in lib/sui.ts (server-side equivalent).
+  // gRPC-Web endpoint for the browser client. On mainnet we route through
+  // Hayabusa (the same transparent gRPC-Web proxy the server uses) — it's
+  // CORS-ready and races multiple fullnodes internally, so it's both faster
+  // AND more reliable than a single direct fullnode for a browser with no
+  // fallback chain. Env-overridable (NEXT_PUBLIC_HAYABUSA_GRPC_URL="" → direct).
+  const HAYABUSA = "https://hayabusa.mainnet.unconfirmed.cloud:443";
   const baseUrl =
     net === "mainnet"
-      ? "https://fullnode.mainnet.sui.io:443"
+      ? process.env.NEXT_PUBLIC_HAYABUSA_GRPC_URL ?? HAYABUSA
       : "https://fullnode.testnet.sui.io:443";
   _sui = new SuiGrpcClient({ network: net, baseUrl });
   return _sui;
