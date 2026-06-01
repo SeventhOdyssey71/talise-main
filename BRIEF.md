@@ -2,6 +2,12 @@
 
 Source: `mystenlabs.notion.site/defi-payments-problem-statement` (fetched 2026-05-17)
 
+> **⚠️ CORRECTED 2026-06-01.** The original logistics in this file were wrong. Verified live against
+> the Notion problem statement + the Participant Handbook: the **submission deadline is June 21, 2026**
+> (NOT May 23 — it has NOT passed), prize sponsors are NOT assigned per-place, and the scored rubric
+> is the four weighted axes below (the "Strong/Top-tier project" bullets are guidance, not the rubric).
+> See `docs/hackathon/HACKATHON-REVIEW.md` + `docs/hackathon/PLAN.md` for the current strategy.
+
 ## Programmable Money, Payments & Financial Systems on Sui
 
 ### Problem
@@ -79,15 +85,32 @@ Track challenges: payment systems, financial workflows, capital management tools
 
 ---
 
-## Track logistics
+## Track logistics (corrected 2026-06-01 from the Participant Handbook)
 
 | | |
 |---|---|
-| Prize pool | $62,500 |
-| 1st | $30,000 (sponsor: OpenZeppelin) |
-| 2nd | $15,000 |
-| 3rd | $10,000 (sponsor: OtterSec) |
-| 4th | $7,500 |
-| Submission deadline | 2026-05-23 |
-| Demo days | 2026-06-13 / 2026-06-14 |
-| Winners announced | end of June 2026 |
+| Prize pool (DeFi & Payments) | $62,500 |
+| 1st / 2nd / 3rd / 4th | $30,000 / $15,000 / $10,000 / $7,500 |
+| Prize sponsors | OpenZeppelin + OtterSec (**overall**, not per-place); Scallop (Award Sponsor); Walrus (Headline Partner) |
+| Payout | 50% at winner announcement, 50% after **mainnet** deployment (100% upfront if on mainnet by August) |
+| Building period | May 7 – June 21, 2026 |
+| **Submission deadline** | **June 21, 2026 (Pacific)** |
+| Shortlist announced | July 8, 2026 |
+| Demo Day (shortlisted, live) | July 20–21, 2026 |
+| Winners announced | August 27, 2026 |
+| Submit via | DeepSurge portal (`deepsurge.xyz`) |
+
+### Judging rubric (VERIFIED — weighted, from the Participant Handbook)
+
+- **Real-World Application — 50%** — meaningful problem-solving, market relevance, long-term value
+- **Product & UX — 20%** — quality, usability, polish
+- **Technical Implementation — 20%** — technical quality, reliability, meaningful Sui integration
+- **Presentation & Vision — 10%** — clarity, storytelling, long-term vision
+
+> The "Strong project" / "Top-tier project" bullets above are descriptive guidance from the problem
+> statement, NOT the scored rubric. The four weighted axes here are what's judged.
+
+### Required deliverables
+
+Public GitHub repo · ≤5-min demo video (YouTube) · deployment (testnet or mainnet) · Package ID ·
+1:1 logo (JPG/PNG) · project name + description · website (optional). Submit via DeepSurge.

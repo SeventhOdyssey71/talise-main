@@ -3,6 +3,18 @@
 Track: **Sui Overflow 2026 — Programmable Money, Payments & Financial Systems** ($62.5K pool, 1st = $30K).
 Source brief: `BRIEF.md` (verbatim copy of the Mysten Notion page; the live Notion fetch is rate-limited but the captured text matches the public track description and is the authoritative input here).
 
+> **⚠️ CORRECTED 2026-06-01 — read before trusting anything below:**
+> 1. **Deadline is June 21, 2026 (Pacific) — it has NOT passed.** ~3 weeks remain from June 1.
+>    (Shortlist Jul 8 · Demo Day Jul 20–21 · Winners Aug 27.) Earlier "2026-05-23 / deadline passed"
+>    notes in this file are WRONG.
+> 2. **The scored rubric is weighted:** Real-World Application **50%** · Product/UX 20% · Technical
+>    20% · Presentation 10%. The "Strong project / Top-tier project" traits below are descriptive
+>    guidance, NOT the rubric — so this doc over-indexes on technical depth (only 20%) and under-weights
+>    real-world application (50%).
+> 3. **The product narrative below is an EARLIER direction** (auto-swap / DeepBook-margin / Cetus /
+>    agent-chat / XAUM). Auto-swap is shelved (LITEPAPER §10). The shipped product + current strategy
+>    live in `docs/hackathon/HACKATHON-REVIEW.md` and `docs/hackathon/PLAN.md`.
+
 ## TL;DR (why Talise wins)
 
 Talise is a consumer payments app for the African remittance corridor where Sui is invisible plumbing. A diaspora worker signs in with Google (zkLogin), gets `@handle.talise.sui` as their address, and any inbound coin — SUI, USDC, USDT — is auto-converted on-chain to **USDsui** and delivered straight to the recipient's wallet within 60 seconds, with gas sponsored by Onara. The user never sees gas, slippage, or a swap UI; they see naira. Under the hood we ship a real Move package (`TaliseVault` + `AutoSwapCap` capability gate, four versions deployed, 100% test coverage on v2), a cron-driven worker that closes claim→swap→deliver as one PTB via the Cetus aggregator, and Navi-backed yield ("Earn") that lets idle USDsui earn the real Navi USDC supply APY. Programmable money built into the act of receiving — not as a separate DeFi tab.
@@ -57,7 +69,7 @@ The brief calls out four explicit top-tier axes plus the four "strong project" b
 
 ## Sprint to demo (top 3 gaps + fixes)
 
-These are the changes that move us from "strong" to "top-tier" against the rubric. Each is scoped to fit before the 2026-05-23 submission deadline (≈2 days of work each).
+These are the changes that move us from "strong" to "top-tier" against the rubric. Each is scoped to fit before the **June 21, 2026** submission deadline (~3 weeks of runway from June 1). NOTE: re-prioritize these against the REAL weighted rubric — Real-World Application is 50%, so loop-closure + the demo video matter far more than additional Move/PTB engineering (Technical is only 20%).
 
 ### Gap 1 — Off-ramp loop closure (impacts: real-world applicability, end-to-end integration)
 The demo currently ends with "USDsui in wallet." Judges from OpenZeppelin / OtterSec will ask "and then what?" Without a fiat exit the remittance pitch is incomplete.
@@ -143,4 +155,4 @@ Adapted from `move/talise/AUTOSWAP.md` with the send/receipt and yield paths add
 ## Notes for the writeup
 
 - The Notion link `mystenlabs.notion.site/defi-payments-problem-statement` did not return content when WebFetched (the public Notion CDN gates the page body for unauthenticated viewers). Talise's `BRIEF.md` contains a verbatim capture from 2026-05-17 which is what this document is mapped against. If the official rubric introduces additional axes after that capture, this document will be stale on those axes only.
-- Submission deadline 2026-05-23. Today is 2026-05-26 — **this document is being written after the stated submission deadline**. If that deadline is firm and not extended, the "Sprint to demo" section is moot and should be reframed as "what we'd ship for the demo day on 2026-06-13 if shortlisted." Flagging here rather than silently re-scoping.
+- ~~Submission deadline 2026-05-23~~ **CORRECTED: the deadline is June 21, 2026 (Pacific) and has NOT passed.** The earlier panic ("written after the deadline") was based on a wrong date captured on 2026-05-17. As of June 1 there are ~3 weeks of build time left, so the "Sprint to demo" section is live and actionable — not moot. Demo Day for shortlisted teams is July 20–21, 2026.

@@ -38,7 +38,10 @@
 - **Today:**
 - **Blockers:**
 
-## 2026-05-23 (Fri) — Submission day
+## Submission day — target ~2026-06-18/19 (deadline 2026-06-21 Pacific)
+
+> Corrected 2026-06-01: the real submission deadline is **June 21, 2026**, not May 23. Aim to submit
+> a few days early via DeepSurge (public repo, ≤5-min video, Package ID, mainnet, 1:1 logo).
 
 - **Yesterday:**
 - **Today:** Submit.
