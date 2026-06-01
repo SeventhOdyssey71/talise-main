@@ -4,6 +4,7 @@ import {
   MAINNET_GRPC_ENDPOINTS,
   buildClientForEndpoint,
   suiGrpcWithFallback,
+  suiGrpcBroadcast,
 } from "./sui-endpoints";
 
 export type Network = "testnet" | "mainnet";
@@ -86,6 +87,22 @@ const TOP_LEVEL_RPC_METHODS = new Set<string>([
 ]);
 
 /**
+ * The subset of RPC methods that must BYPASS the Hayabusa read/cache proxy and
+ * go straight to a direct fullnode: writes (`executeTransaction`,
+ * `signAndExecuteTransaction`) and the non-cacheable, state-dependent dry-run
+ * (`simulateTransaction`). Hayabusa forbids writes (PERMISSION_DENIED) and 502s
+ * on simulate, and neither error is fallback-eligible — so without this they'd
+ * die on Hayabusa and never reach the fullnode behind it (the Save-OFF gasless
+ * send bug). Routed through `suiGrpcBroadcast`; everything else keeps the
+ * Hayabusa-first read chain. See lib/sui-endpoints.ts:suiGrpcBroadcast.
+ */
+const BROADCAST_METHODS = new Set<string>([
+  "executeTransaction",
+  "signAndExecuteTransaction",
+  "simulateTransaction",
+]);
+
+/**
  * Service-level properties whose methods are all async RPC calls. Accessing
  * one of these on the proxy returns a nested proxy that wraps each method
  * call.
@@ -139,10 +156,15 @@ function buildFallbackProxy(): SuiGrpcClient {
       }
       const name = prop as string;
 
-      // Whitelisted top-level RPC method — wrap with fallback.
+      // Whitelisted top-level RPC method — wrap with fallback. Writes +
+      // simulate bypass the Hayabusa read proxy (suiGrpcBroadcast); everything
+      // else uses the Hayabusa-first read chain (suiGrpcWithFallback).
       if (TOP_LEVEL_RPC_METHODS.has(name)) {
+        const runner = BROADCAST_METHODS.has(name)
+          ? suiGrpcBroadcast
+          : suiGrpcWithFallback;
         return async (...args: unknown[]) => {
-          return suiGrpcWithFallback(async (c) => {
+          return runner(async (c) => {
             const fn = (c as unknown as Record<string, unknown>)[name] as (
               ...a: unknown[]
             ) => Promise<unknown>;
@@ -152,16 +174,22 @@ function buildFallbackProxy(): SuiGrpcClient {
       }
 
       // Service-level property — return a nested proxy where every method
-      // call goes through the fallback chain.
+      // call goes through the fallback chain. The transaction-execution
+      // service is writes by definition, so it bypasses the Hayabusa read
+      // proxy (suiGrpcBroadcast); read services keep the Hayabusa-first chain.
       if (SERVICE_NAMES.has(name)) {
         if (serviceProxyCache.has(name)) {
           return serviceProxyCache.get(name);
         }
+        const serviceRunner =
+          name === "transactionExecutionService"
+            ? suiGrpcBroadcast
+            : suiGrpcWithFallback;
         const serviceProxy = new Proxy({}, {
           get(_svc, methodName) {
             if (typeof methodName === "symbol") return undefined;
             return async (...args: unknown[]) => {
-              return suiGrpcWithFallback(async (c) => {
+              return serviceRunner(async (c) => {
                 const svc = (c as unknown as Record<string, unknown>)[
                   name
                 ] as Record<string, (...a: unknown[]) => Promise<unknown>>;

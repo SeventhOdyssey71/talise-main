@@ -339,8 +339,9 @@ export async function POST(req: Request) {
       // FailedTransaction throws with the validator's status text so the
       // catch below maps it to the right user-facing code — and, critically,
       // we NEVER hand iOS signable bytes for a tx the validator would reject
-      // at execute. `simulateTransaction` is whitelisted on the sui() proxy,
-      // so this walks the same multi-endpoint fallback as every other read.
+      // at execute. `simulateTransaction` is routed through the sui() proxy's
+      // BROADCAST chain (suiGrpcBroadcast), which bypasses the Hayabusa read
+      // proxy — Hayabusa 502s simulate, so this must hit a direct fullnode.
       const sim = (await client.simulateTransaction({
         transaction: bytes,
         include: { effects: true },

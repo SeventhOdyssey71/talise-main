@@ -269,3 +269,61 @@ export async function suiGrpcWithFallback<T>(
   }
   throw lastErr;
 }
+
+// ─── Write / simulate path (Hayabusa-excluded) ────────────────────────────────
+
+/**
+ * Provider names that are READ/cache accelerators and MUST NOT receive a write
+ * or a simulation. Hayabusa is a gRPC-Web proxy that races + caches IMMUTABLE
+ * reads; it flatly `PERMISSION_DENIED` ("Forbidden")s `executeTransaction` and
+ * 502s ("Bad Gateway") on `simulateTransaction`. Worse, neither error is
+ * `isFallbackEligible`, so a write/simulate routed through the normal chain
+ * dies on Hayabusa and never reaches the direct fullnode behind it — which is
+ * exactly why Save-OFF gasless sends failed while the sponsored rail (Onara
+ * HTTP, no gRPC) worked. Empirically proven: scripts/probe-hayabusa-execute.mjs.
+ */
+const WRITE_INELIGIBLE_PROVIDERS = new Set<string>(["hayabusa"]);
+
+/**
+ * Like `suiGrpcWithFallback`, but for WRITE / SIMULATE calls
+ * (`executeTransaction`, `simulateTransaction`, `signAndExecuteTransaction`).
+ * Walks the SAME ordered chain but SKIPS read-only proxies (Hayabusa) entirely,
+ * sending the call straight to the direct fullnodes (mysten-fullnode → Shinami
+ * → Dwellir → QuickNode) with the usual transient-error fallback between them.
+ *
+ * A broadcast must never even be ATTEMPTED on a caching/racing read layer —
+ * both because it just fails there and because we never want a cache anywhere
+ * near a transaction submission. Excluding it up front is correct and cheaper
+ * than failing-then-falling-through.
+ */
+export async function suiGrpcBroadcast<T>(
+  fn: (client: SuiGrpcClient) => Promise<T>,
+): Promise<T> {
+  const net = network();
+  if (net !== "mainnet") {
+    throw new Error(`suiGrpcBroadcast: only mainnet is supported (got ${net})`);
+  }
+
+  let lastErr: unknown = new Error("no broadcast endpoints attempted");
+  let attempted = 0;
+  for (const endpoint of MAINNET_GRPC_ENDPOINTS) {
+    if (WRITE_INELIGIBLE_PROVIDERS.has(endpoint.provider)) continue; // never broadcast through a read proxy
+    const client = buildClientForEndpoint(endpoint, net);
+    if (!client) continue; // skipped (no key / empty URL)
+    attempted += 1;
+    try {
+      return await fn(client);
+    } catch (err) {
+      lastErr = err;
+      if (!isFallbackEligible(err)) throw err;
+      continue;
+    }
+  }
+
+  if (attempted === 0) {
+    throw new Error(
+      "suiGrpcBroadcast: no direct fullnode endpoints were attempted (Hayabusa is excluded for writes; every direct endpoint was empty or missing its API key)",
+    );
+  }
+  throw lastErr;
+}
