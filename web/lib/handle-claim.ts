@@ -38,6 +38,12 @@ const EXTRA_RESERVED: ReadonlySet<string> = new Set([
   "self",
   "owner",
   "operator",
+  // Admin allowlist handles (lib/admin.ts ADMIN_HANDLES) — MUST stay reserved
+  // so claiming one can't escalate to admin (F5). Keep in sync with admin.ts.
+  "eromonsele",
+  "admin",
+  "support",
+  "talise",
   "test",
   "demo",
   "billing",
