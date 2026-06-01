@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readSessionEntryId } from "@/lib/session";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import { userById } from "@/lib/db";
 import {
   callProverWithFallback,
@@ -35,6 +36,14 @@ export async function POST(req: Request) {
   const userId = await readSessionEntryId();
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
+  }
+  // Per-user global rate limit on this money route (anti-abuse / anti-DDoS).
+  const rl = await rateLimitAsync({ key: `t2000-execute:user:${userId}`, limit: 30, windowSec: 3600 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 3600) } }
+    );
   }
   const user = await userById(userId);
   if (!user) {
@@ -83,6 +92,17 @@ export async function POST(req: Request) {
     typeof body.maxEpoch !== "number"
   ) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  }
+  // F11: validate the money amount — `typeof === number` above still admits
+  // NaN / Infinity / negative / absurd values that flow into the signing path.
+  if (amountRequired) {
+    const amt = body.amount as number;
+    if (!Number.isFinite(amt) || amt <= 0 || amt > 1_000_000_000) {
+      return NextResponse.json(
+        { error: "amount must be a positive, finite number" },
+        { status: 400 }
+      );
+    }
   }
 
   try {

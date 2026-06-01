@@ -6,6 +6,7 @@ import {
 } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { mintZkProof } from "@/lib/zksigner";
+import { rateLimitAsync } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -26,6 +27,15 @@ export async function POST(req: Request) {
   const userId = await readEntryIdFromRequest(req);
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
+  }
+  // Per-user global rate limit — the prover is expensive (Shinami quota +
+  // compute); cap warm-cache prefetch abuse without hurting normal load.
+  const rl = await rateLimitAsync({ key: `zk-proof:user:${userId}`, limit: 60, windowSec: 3600 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 3600) } }
+    );
   }
   const user = await userById(userId);
   if (!user) {

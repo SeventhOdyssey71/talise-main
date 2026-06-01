@@ -5,6 +5,7 @@ import { memoTtl } from "@/lib/perf-cache";
 import { ensurePaymentRegistry } from "@/lib/pk-bootstrap";
 import { initNaviAdapter } from "@/lib/navi-supply";
 import { getCurrentEpoch } from "@/lib/sui-epoch";
+import { rateLimitAsync, getClientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -21,7 +22,17 @@ export const runtime = "nodejs";
  *
  * No auth needed. The values are global, not per-user.
  */
-export async function POST() {
+export async function POST(req: Request) {
+  // Per-IP rate limit (F15): this route is unauthenticated and does Onara +
+  // chain + NAVI-init work, so without a cap it's a cost-amplification / DDoS
+  // target. Generous (dashboard load fires it once) but bounded.
+  const rl = await rateLimitAsync({ key: `zk-warmup:${getClientIp(req)}`, limit: 60, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } }
+    );
+  }
   const onaraUrl = process.env.ONARA_URL;
   if (!onaraUrl) {
     return NextResponse.json({ ok: false, error: "no onara" }, { status: 503 });

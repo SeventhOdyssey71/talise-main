@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import { userById } from "@/lib/db";
 import { checkSendAllowed, recordSend } from "@/lib/send-limits";
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
@@ -68,6 +69,14 @@ export async function POST(req: Request) {
   const userId = await readEntryIdFromRequest(req);
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
+  }
+  // Per-user global rate limit on this money route (anti-abuse / anti-DDoS).
+  const rl = await rateLimitAsync({ key: `sponsor-prepare:user:${userId}`, limit: 30, windowSec: 3600 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 3600) } }
+    );
   }
   const user = await userById(userId);
   if (!user) {

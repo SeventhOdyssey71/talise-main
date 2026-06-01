@@ -12,6 +12,7 @@ import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 import { takePendingRoundup, takePendingInbound } from "@/lib/perf-cache";
 import { notifyInboundSettlement } from "@/lib/notify";
+import { rateLimitAsync } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -33,6 +34,14 @@ export async function POST(req: Request) {
   const userId = await readEntryIdFromRequest(req);
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
+  }
+  // Per-user global rate limit on this money route (anti-abuse / anti-DDoS).
+  const rl = await rateLimitAsync({ key: `gasless-submit:user:${userId}`, limit: 30, windowSec: 3600 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 3600) } }
+    );
   }
   const user = await userById(userId);
   if (!user) {
