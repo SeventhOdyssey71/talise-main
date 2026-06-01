@@ -35,6 +35,8 @@ struct HomeView: View {
     /// blanking the card.
     @State private var activityRefreshFailed = false
     @State private var scanToPaySheetVisible = false
+    /// Drives the Request/Receive sheet opened from the quick-actions grid.
+    @State private var receiveSheetVisible = false
     @State private var sweepPreview: SweepPreviewDTO?
     @State private var sweepAlertVisible = false
     @State private var sweepAlertMessage = ""
@@ -82,11 +84,16 @@ struct HomeView: View {
                 usernameCard
                     .padding(.horizontal, 32)
                     .padding(.top, 24)
-                // Recent/activity feed moved OFF the home surface (2026-06-01)
-                // into the navbar "History" icon → opens HistoryView. Home now
-                // stays focused on balance + identity + send/receive. `activity`
-                // is still warmed in the background so the History sheet opens
+                // Recent/activity feed lives behind the navbar "History" icon
+                // (2026-06-01). The space below the identity card is now a
+                // quick-actions grid (Earn / Rewards / Scan / Request) so the
+                // home surface reads full + purposeful instead of a black void.
+                // `activity` is still warmed in the background so History opens
                 // instantly seeded.
+                quickActions
+                    .padding(.horizontal, 32)
+                    .padding(.top, 28)
+                // Bottom inset so the last card row clears the floating nav pill.
                 Color.clear.frame(height: 120)
             }
         }
@@ -116,6 +123,11 @@ struct HomeView: View {
         }
         .sheet(isPresented: $historySheetVisible) {
             HistoryView(initialEntries: activity)
+                .presentationDetents([.large])
+                .presentationBackground(TaliseColor.bg)
+        }
+        .sheet(isPresented: $receiveSheetVisible) {
+            ReceiveView()
                 .presentationDetents([.large])
                 .presentationBackground(TaliseColor.bg)
         }
@@ -396,6 +408,110 @@ struct HomeView: View {
     private var currentHandle: String? {
         guard case .ready(let user) = session.phase else { return nil }
         return user.displayHandle()
+    }
+
+    // MARK: - Quick actions grid
+
+    /// 2×2 shortcut grid filling the space under the identity card. Top row
+    /// is the value/earn pair (green chips — the money-grows cards); bottom
+    /// row is the action pair (neutral-glass chips — pay/get-paid). Mirrors
+    /// the card-grid pattern from the reference fintech layout while staying
+    /// on the two-green Talise palette and the app's glass treatment.
+    private var quickActions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            MicroLabel(text: "QUICK ACTIONS", color: TaliseColor.fgDim)
+                .kerning(2.0)
+                .padding(.leading, 4)
+            HStack(spacing: 12) {
+                quickCard(
+                    icon: "leaf.fill",
+                    title: "Earn",
+                    value: String(format: "Up to %.0f%% APY", apyHeadline * 100),
+                    valueColor: TaliseColor.accent,
+                    chipFill: TaliseColor.greenDeep,
+                    chipIcon: TaliseColor.greenMint
+                ) {
+                    NotificationCenter.default.post(
+                        name: .taliseSelectTab, object: MainTabView.Tab.invest
+                    )
+                }
+                quickCard(
+                    icon: "gift.fill",
+                    title: "Rewards",
+                    value: "Cashback & perks",
+                    valueColor: TaliseColor.fgMuted,
+                    chipFill: TaliseColor.greenMint,
+                    chipIcon: TaliseColor.greenDeep
+                ) {
+                    NotificationCenter.default.post(
+                        name: .taliseSelectTab, object: MainTabView.Tab.rewards
+                    )
+                }
+            }
+            HStack(spacing: 12) {
+                quickCard(
+                    icon: "qrcode.viewfinder",
+                    title: "Scan to pay",
+                    value: "Pay any QR",
+                    valueColor: TaliseColor.fgMuted,
+                    chipFill: TaliseColor.surfaceGlassStrong,
+                    chipIcon: TaliseColor.fg
+                ) {
+                    scanToPaySheetVisible = true
+                }
+                quickCard(
+                    icon: "arrow.down.left",
+                    title: "Request",
+                    value: "Get paid",
+                    valueColor: TaliseColor.fgMuted,
+                    chipFill: TaliseColor.surfaceGlassStrong,
+                    chipIcon: TaliseColor.fg
+                ) {
+                    receiveSheetVisible = true
+                }
+            }
+        }
+    }
+
+    /// One quick-action tile: a tinted icon chip top-left, then title +
+    /// value pinned to the bottom (Spacer between), wrapped in the shared
+    /// glass card. Fixed min height so both tiles in a row stay level.
+    private func quickCard(
+        icon: String,
+        title: String,
+        value: String,
+        valueColor: Color,
+        chipFill: Color,
+        chipIcon: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(chipFill)
+                        .frame(width: 42, height: 42)
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(chipIcon)
+                }
+                Spacer(minLength: 16)
+                Text(title)
+                    .font(TaliseFont.heading(16, weight: .medium))
+                    .kerning(-0.4)
+                    .foregroundStyle(TaliseColor.fg)
+                Text(value)
+                    .font(TaliseFont.body(12, weight: .light))
+                    .kerning(-0.2)
+                    .foregroundStyle(valueColor)
+                    .lineLimit(1)
+                    .padding(.top, 2)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
+            .taliseGlass(cornerRadius: 22)
+        }
+        .buttonStyle(LiquidGlassPressStyle(cornerRadius: 22))
     }
 
     // MARK: - Activity card
