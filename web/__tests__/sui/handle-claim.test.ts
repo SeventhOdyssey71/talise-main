@@ -335,6 +335,15 @@ vi.mock("@/lib/suins-operator", () => ({
 
 // Email send — no-op success.
 vi.mock("@/lib/email", () => ({
+  // The claim route now pre-renders the email concurrently with the mint
+  // and sends the prepared payload after; stub both halves (+ the legacy
+  // one-shot helper) so the route's email calls resolve in tests.
+  prerenderWaitlistConfirmation: vi.fn(async () => ({
+    html: "<p>noop</p>",
+    subject: "noop",
+    to: "noop@talise.sui",
+  })),
+  sendPrerenderedWaitlistConfirmation: vi.fn(async () => ({ ok: true, id: "noop" })),
   sendWaitlistConfirmation: vi.fn(async () => ({ ok: true, id: "noop" })),
 }));
 

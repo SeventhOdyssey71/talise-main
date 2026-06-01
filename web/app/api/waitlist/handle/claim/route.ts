@@ -1,6 +1,9 @@
 import { NextResponse, after } from "next/server";
 import { db, ensureSchema, userById } from "@/lib/db";
-import { sendWaitlistConfirmation } from "@/lib/email";
+import {
+  prerenderWaitlistConfirmation,
+  sendPrerenderedWaitlistConfirmation,
+} from "@/lib/email";
 import {
   isWaitlistHandleAvailable,
   normalizeReasonMessage,
@@ -358,6 +361,29 @@ export async function POST(req: Request) {
       );
     }
 
+    // Kick off the confirmation-email RENDER concurrently with the mint.
+    // `render()` (React-Email → HTML) is pure — no network, no side
+    // effects — so it is always safe to start here and lets the
+    // (occasionally tens-of-ms) render overlap the slow on-chain mint
+    // instead of running serially after it. Only the Resend API call is
+    // left for the post-mint critical path, fired in `after()` below.
+    //
+    // We attach a no-op `.catch` so a render failure can never produce an
+    // unhandled rejection while the mint is in flight; if the render did
+    // fail we simply skip the email (logged in `after()`). This promise
+    // is ONLY consumed on the success path after the mint resolves — it is
+    // never sent on any error/rollback branch.
+    const preparedEmailPromise = prerenderWaitlistConfirmation({
+      to: email,
+      name: user.name ?? null,
+      claimedHandle: norm.handle,
+    }).catch((e) => {
+      console.warn(
+        `[waitlist/handle/claim] confirmation email render failed email=${email} handle=${norm.handle}: ${(e as Error).message}`
+      );
+      return null;
+    });
+
     let mintDigest = "";
     let mintNftId: string | null = null;
     try {
@@ -412,13 +438,15 @@ export async function POST(req: Request) {
     // of dropping the email silently. Errors are logged but never
     // surface to the user, who has already seen "your handle is
     // claimed."
+    //
+    // The HTML was already rendered concurrently with the mint above, so
+    // by the time we get here `preparedEmailPromise` has almost always
+    // resolved — `after()` does only the Resend API call, nothing else.
     after(async () => {
       try {
-        await sendWaitlistConfirmation({
-          to: email,
-          name: user.name ?? null,
-          claimedHandle: norm.handle,
-        });
+        const prepared = await preparedEmailPromise;
+        if (!prepared) return; // render failed earlier (already logged)
+        await sendPrerenderedWaitlistConfirmation(prepared);
       } catch (e) {
         console.warn(
           `[waitlist/handle/claim] confirmation email failed email=${email} handle=${norm.handle}: ${(e as Error).message}`
