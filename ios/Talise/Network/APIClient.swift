@@ -202,7 +202,7 @@ private actor InFlightRegistry {
     }
 }
 
-private final class PinningDelegate: NSObject, URLSessionDelegate {
+private final class PinningDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate {
     /// SPKI SHA-256 hashes (base64) of the pinned leaf certs. Rotate with
     /// overlap when the cert is renewed.
     private let pinnedSPKIs: Set<String> = [
@@ -210,6 +210,41 @@ private final class PinningDelegate: NSObject, URLSessionDelegate {
         // back to system trust evaluation only (no extra security but no
         // accidental lockout during dev).
     ]
+
+    /// Re-attach our auth headers across a `*.talise.io` redirect.
+    ///
+    /// URLSession drops `Authorization` (and other sensitive headers) on any
+    /// cross-host redirect as a security default. The apex `talise.io`
+    /// 307-redirects to `www.talise.io`, so without this every authed read
+    /// would arrive at www stripped of its bearer → 401 → blank balance /
+    /// history / recipient resolve. We re-attach the bearer + App Attest
+    /// headers ONLY when the redirect target is a Talise host (never leak the
+    /// token to a foreign origin). The base URL now targets www directly so
+    /// this should rarely fire, but it keeps a future redirect from silently
+    /// breaking auth again.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let originalHeaders = task.originalRequest?.allHTTPHeaderFields,
+              let newHost = request.url?.host,
+              newHost == "talise.io" || newHost.hasSuffix(".talise.io")
+        else {
+            completionHandler(request)
+            return
+        }
+        var req = request
+        for header in ["Authorization", "X-App-Attest", "X-App-Attest-KeyId"] {
+            if req.value(forHTTPHeaderField: header) == nil,
+               let value = originalHeaders[header] {
+                req.setValue(value, forHTTPHeaderField: header)
+            }
+        }
+        completionHandler(req)
+    }
 
     func urlSession(
         _ session: URLSession,
