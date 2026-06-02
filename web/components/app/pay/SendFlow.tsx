@@ -122,8 +122,11 @@ export function SendFlow() {
     return rate > 0 ? typedLocal / rate : typedLocal;
   }, [typedLocal, rate]);
 
+  const balancesKnown = balances != null;
   const available = balances?.usdsui ?? 0;
-  const overBalance = amountUsd > 0 && amountUsd > available + 1e-9;
+  // Don't flag "over balance" until we actually know the balance — otherwise a
+  // cold load flashes the warning (and a ₦0 wallet pill) before the snapshot lands.
+  const overBalance = balancesKnown && amountUsd > 0 && amountUsd > available + 1e-9;
   const canReview = amountUsd > 0 && !overBalance;
 
   // ── Deep-link prefill (?to=&amount=) ──────────────────────────────────────
@@ -312,7 +315,7 @@ export function SendFlow() {
           amountUsd={amountUsd}
           overBalance={overBalance}
           available={available}
-          availableLabel={formatLocal(available)}
+          availableLabel={balancesKnown ? formatLocal(available) : "—"}
           canReview={canReview}
           onKey={onAmountKey}
           onBackspace={onBackspace}

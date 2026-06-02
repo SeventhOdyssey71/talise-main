@@ -23,6 +23,7 @@ export {
   useActivity,
   useContacts,
   resolveRecipient,
+  seedResource,
 } from "./hooks";
 export type { Me, Balances, ActivityEntry, Contact } from "./hooks";
 

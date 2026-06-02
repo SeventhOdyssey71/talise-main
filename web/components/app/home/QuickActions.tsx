@@ -35,17 +35,23 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge }: TileProps) 
   const inner = (
     <>
       <span
-        className="flex size-11 items-center justify-center rounded-2xl text-accent"
+        className="flex size-9 items-center justify-center rounded-xl text-accent sm:size-11 sm:rounded-2xl"
         style={{ background: "var(--color-accent-soft)" }}
       >
-        <HugeiconsIcon icon={icon} size={21} strokeWidth={1.9} color="var(--color-accent)" />
+        <HugeiconsIcon icon={icon} size={19} strokeWidth={1.9} color="var(--color-accent)" />
       </span>
-      <span className="mt-2.5 flex flex-col">
-        <span className="text-[14px] font-semibold leading-tight text-fg">{label}</span>
-        <span className="mt-0.5 text-[11px] leading-tight text-fg-dim">{sublabel}</span>
+      <span className="mt-2 flex min-w-0 flex-col sm:mt-2.5">
+        <span className="truncate text-[13px] font-semibold leading-tight text-fg sm:text-[14px]">
+          {label}
+        </span>
+        {/* Sublabel only on >=sm — on a 4-up mobile row it wraps ("Pay / anyone")
+            and looks broken; the label alone reads clean. */}
+        <span className="mt-0.5 hidden text-[11px] leading-tight text-fg-dim sm:block">
+          {sublabel}
+        </span>
       </span>
       {badge && (
-        <span className="absolute right-3 top-3 rounded-full border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">
+        <span className="absolute right-2.5 top-2.5 rounded-full border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider text-fg-dim sm:text-[9px]">
           {badge}
         </span>
       )}
@@ -53,7 +59,7 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge }: TileProps) 
   );
 
   const cls =
-    "talise-glass relative flex flex-col items-start rounded-3xl px-3.5 py-4 text-left transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:translate-y-0 active:scale-[0.98]";
+    "talise-glass relative flex flex-col items-start rounded-2xl px-3 py-3 text-left transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:translate-y-0 active:scale-[0.98] sm:rounded-3xl sm:px-3.5 sm:py-4";
 
   if (href) {
     return (

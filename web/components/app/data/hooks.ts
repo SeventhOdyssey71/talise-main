@@ -11,8 +11,128 @@
  * reflects money movement without a manual refresh.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "./api";
+
+// ── SWR-lite shared cache ──────────────────────────────────────────────────
+// Every read hook is backed by one module-level cache keyed by endpoint, with
+// in-flight de-dupe + cross-component subscription + background revalidation.
+// Why this matters:
+//   • SPEED — navigating between screens renders the cached value INSTANTLY
+//     (no per-screen refetch waterfall / loading flash).
+//   • CONSISTENCY — every component that reads balances sees the same number
+//     (this is what was causing the Send screen to flash "₦0" while the
+//     dashboard showed the real balance — each hook fetched on its own).
+//   • EFFICIENCY — N components mounting the same endpoint = ONE request.
+// (This is browser code, so Date.now()/timers are fine here.)
+
+type CacheEntry = {
+  data?: unknown;
+  error?: ApiError;
+  promise?: Promise<void>;
+  fetchedAt?: number;
+  subs: Set<() => void>;
+  fetcher?: (fresh: boolean) => Promise<unknown>;
+};
+
+const cache = new Map<string, CacheEntry>();
+
+function entryFor(key: string): CacheEntry {
+  let e = cache.get(key);
+  if (!e) {
+    e = { subs: new Set() };
+    cache.set(key, e);
+  }
+  return e;
+}
+
+/**
+ * Pre-populate a cache key with a server-resolved value (e.g. AppShell seeds
+ * `/api/me` from the session the layout already resolved). Avoids a redundant
+ * client round-trip on load and keeps the value authoritative. No-op if a
+ * client value already landed.
+ */
+export function seedResource(key: string, data: unknown) {
+  const e = entryFor(key);
+  if (e.data === undefined) {
+    e.data = data;
+    e.fetchedAt = Date.now();
+    e.subs.forEach((fn) => fn());
+  }
+}
+
+function revalidate(key: string, fresh: boolean): Promise<void> {
+  const e = entryFor(key);
+  if (!e.fetcher) return Promise.resolve();
+  if (e.promise && !fresh) return e.promise; // de-dupe concurrent loads
+  const fetcher = e.fetcher;
+  const p = (async () => {
+    try {
+      e.data = await fetcher(fresh);
+      e.error = undefined;
+      e.fetchedAt = Date.now();
+    } catch (err) {
+      e.error = err instanceof ApiError ? err : new ApiError(0, String(err));
+    } finally {
+      e.promise = undefined;
+      e.subs.forEach((fn) => fn());
+    }
+  })();
+  e.promise = p;
+  e.subs.forEach((fn) => fn()); // announce load start (no-op if value already cached)
+  return p;
+}
+
+function useResource<T>(key: string, fetcher: (fresh: boolean) => Promise<T>) {
+  const e = entryFor(key);
+  e.fetcher = fetcher as (fresh: boolean) => Promise<unknown>; // keep latest closure
+  const [, bump] = useState(0);
+
+  useEffect(() => {
+    const en = entryFor(key);
+    const rerender = () => bump((n) => n + 1);
+    en.subs.add(rerender);
+    // Fetch once if we've never resolved this key; otherwise the cached value
+    // renders immediately and we revalidate quietly in the background.
+    if (en.data === undefined && en.error === undefined && !en.promise) {
+      void revalidate(key, false);
+    } else if (en.data !== undefined && en.fetchedAt && Date.now() - en.fetchedAt > 30_000) {
+      void revalidate(key, false);
+    }
+    return () => {
+      en.subs.delete(rerender);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  const refresh = useCallback(
+    (fresh = true) => revalidate(key, fresh),
+    [key]
+  );
+
+  return {
+    data: e.data as T | undefined,
+    error: e.error ?? null,
+    loading: e.data === undefined && e.error === undefined,
+    refresh,
+  };
+}
+
+// One global listener: a successful tx force-revalidates balances + activity
+// across every mounted component at once.
+(function wireTxOnce() {
+  if (typeof window === "undefined") return;
+  const w = window as unknown as { __taliseTxWired?: boolean };
+  if (w.__taliseTxWired) return;
+  w.__taliseTxWired = true;
+  window.addEventListener("talise:tx", () => {
+    for (const key of cache.keys()) {
+      if (key.startsWith("/api/balances") || key.startsWith("/api/activity")) {
+        void revalidate(key, true);
+      }
+    }
+  });
+})();
 
 // ── Shared shapes ───────────────────────────────────────────────────────
 
@@ -61,140 +181,44 @@ export type Contact = {
 // ── useMe ────────────────────────────────────────────────────────────────
 
 export function useMe() {
-  const [me, setMe] = useState<Me | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<ApiError | null>(null);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await api<Me>("/api/me");
-      setMe(data);
-      setError(null);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) setMe(null);
-      setError(e instanceof ApiError ? e : new ApiError(0, String(e)));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  return { me, loading, error, refresh };
+  const { data, error, loading, refresh } = useResource<Me>("/api/me", (fresh) =>
+    api<Me>("/api/me", { fresh })
+  );
+  return { me: data ?? null, loading, error, refresh: () => refresh(true) };
 }
 
 // ── useBalances ────────────────────────────────────────────────────────────
 
 export function useBalances() {
-  const [data, setData] = useState<Balances | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<ApiError | null>(null);
-  const mounted = useRef(true);
-
-  const load = useCallback(async (fresh: boolean) => {
-    setLoading(true);
-    try {
-      const b = await api<Balances>("/api/balances", { fresh });
-      if (!mounted.current) return;
-      setData(b);
-      setError(null);
-    } catch (e) {
-      if (!mounted.current) return;
-      setError(e instanceof ApiError ? e : new ApiError(0, String(e)));
-    } finally {
-      if (mounted.current) setLoading(false);
-    }
-  }, []);
-
-  const refresh = useCallback(() => load(false), [load]);
-  const refreshFresh = useCallback(() => load(true), [load]);
-
-  useEffect(() => {
-    mounted.current = true;
-    void load(false);
-    const onTx = () => void load(true);
-    window.addEventListener("talise:tx", onTx);
-    return () => {
-      mounted.current = false;
-      window.removeEventListener("talise:tx", onTx);
-    };
-  }, [load]);
-
-  return { data, loading, error, refresh, refreshFresh };
+  const { data, error, loading, refresh } = useResource<Balances>("/api/balances", (fresh) =>
+    api<Balances>("/api/balances", { fresh })
+  );
+  return {
+    data: data ?? null,
+    loading,
+    error,
+    refresh: () => refresh(false),
+    refreshFresh: () => refresh(true),
+  };
 }
 
 // ── useActivity ────────────────────────────────────────────────────────────
 
 export function useActivity(limit = 25) {
-  const [entries, setEntries] = useState<ActivityEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<ApiError | null>(null);
-  const mounted = useRef(true);
-
-  const load = useCallback(
-    async (fresh: boolean) => {
-      setLoading(true);
-      try {
-        const res = await api<{ entries: ActivityEntry[] }>("/api/activity", {
-          query: { limit },
-          fresh,
-        });
-        if (!mounted.current) return;
-        setEntries(res.entries ?? []);
-        setError(null);
-      } catch (e) {
-        if (!mounted.current) return;
-        setError(e instanceof ApiError ? e : new ApiError(0, String(e)));
-      } finally {
-        if (mounted.current) setLoading(false);
-      }
-    },
-    [limit]
+  const { data, error, loading, refresh } = useResource<{ entries: ActivityEntry[] }>(
+    `/api/activity?limit=${limit}`,
+    (fresh) => api<{ entries: ActivityEntry[] }>("/api/activity", { query: { limit }, fresh })
   );
-
-  const refresh = useCallback(() => load(true), [load]);
-
-  useEffect(() => {
-    mounted.current = true;
-    void load(false);
-    const onTx = () => void load(true);
-    window.addEventListener("talise:tx", onTx);
-    return () => {
-      mounted.current = false;
-      window.removeEventListener("talise:tx", onTx);
-    };
-  }, [load]);
-
-  return { entries, loading, error, refresh };
+  return { entries: data?.entries ?? [], loading, error, refresh: () => refresh(true) };
 }
 
 // ── useContacts ────────────────────────────────────────────────────────────
 
 export function useContacts() {
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await api<{ contacts: Contact[] }>("/api/contacts");
-        if (!cancelled) setContacts(res.contacts ?? []);
-      } catch {
-        if (!cancelled) setContacts([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return { contacts, loading };
+  const { data, loading } = useResource<{ contacts: Contact[] }>("/api/contacts", () =>
+    api<{ contacts: Contact[] }>("/api/contacts")
+  );
+  return { contacts: data?.contacts ?? [], loading };
 }
 
 // ── resolveRecipient ─────────────────────────────────────────────────────

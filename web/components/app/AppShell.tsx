@@ -31,7 +31,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { CurrencyProvider, useCurrency } from "./data/currency";
 import { ToastProvider } from "./data/toast";
-import { useBalances, type Me } from "./data";
+import { useBalances, seedResource, type Me } from "./data";
 import { triggerOauthSignIn } from "@/lib/zkclient";
 import { Diamond } from "@/components/Diamond";
 import type { IconSvgElement } from "@hugeicons/react";
@@ -321,9 +321,10 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
           </div>
         </header>
 
-        {/* Mobile mini-bar */}
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-[color-mix(in_srgb,var(--color-bg)_82%,transparent)] px-4 py-3 backdrop-blur-xl lg:hidden">
-          <Logo compact />
+        {/* Mobile mini-bar — transparent, sits on the mint gradient and scrolls
+            away with the content (no bar background / border). */}
+        <header className="relative z-30 flex items-center justify-between px-4 pb-1 pt-3 lg:hidden">
+          <Logo />
           <div className="flex items-center gap-2.5">
             <BalanceChip />
             <button
@@ -387,6 +388,10 @@ export function AppShell({ me, children }: AppShellProps) {
   if (!me) {
     return <SignInScreen />;
   }
+  // Seed the client me-cache from the session the layout already resolved, so
+  // useMe() in any page is correct (real @handle) + instant, with no /api/me
+  // round-trip on load. Idempotent; a later client fetch can still update it.
+  seedResource("/api/me", me);
   return (
     <CurrencyProvider>
       <ToastProvider>
