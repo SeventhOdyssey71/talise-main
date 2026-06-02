@@ -13,6 +13,7 @@ import "server-only";
 
 const ADMIN_EMAILS = new Set<string>([
   "rolandojude18@gmail.com",
+  "exorbilabs@gmail.com",
 ]);
 
 // Bare handles (no "@", no ".talise.sui"). "eromonsele@talise.sui" → "eromonsele".

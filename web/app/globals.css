@@ -334,3 +334,77 @@ input[type="number"] {
     filter: none;
   }
 }
+
+/*
+ * ── App-shell additions (beta web app under /app) ─────────────────────────
+ * Namespaced helpers for the dark liquid-glass app shell + primitives.
+ * Do NOT alter the @theme tokens or the .landing-mint block above.
+ */
+
+/* SlideToConfirm: never let the drag select page text. */
+.talise-noselect {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Toast entrance — rise + fade in. */
+@keyframes taliseToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.talise-toast-in {
+  animation: taliseToastIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Sheet entrance — backdrop fades, panel rises (mobile) / scales (desktop). */
+@keyframes taliseSheetBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes taliseSheetPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.talise-sheet-backdrop {
+  animation: taliseSheetBackdropIn 180ms ease both;
+}
+.talise-sheet-panel {
+  animation: taliseSheetPanelIn 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Subtle dark scrollbars inside the app chrome. */
+.talise-appshell ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.talise-appshell ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.talise-appshell ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.16);
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .talise-toast-in,
+  .talise-sheet-backdrop,
+  .talise-sheet-panel {
+    animation: none;
+  }
+}

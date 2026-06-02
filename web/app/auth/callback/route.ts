@@ -241,7 +241,7 @@ export async function GET(req: Request) {
       ?? (user.account_type === "business"
             ? "/business"
             : user.account_type === "personal"
-              ? "/home"
+              ? "/app"
               : "/waitlist");
     return NextResponse.redirect(new URL(dest, req.url));
   } catch (err) {
