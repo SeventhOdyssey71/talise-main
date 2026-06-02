@@ -45,8 +45,8 @@ export function InsightsSection() {
               {i > 0 && <div className="mx-4 h-px bg-line" />}
               <div className="flex items-center gap-3.5 px-4 py-3">
                 <span
-                  className="flex size-9 shrink-0 items-center justify-center rounded-full font-medium text-accent"
-                  style={{ background: "color-mix(in srgb, var(--color-accent) 12%, transparent)" }}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-full text-[12px] font-medium text-accent"
+                  style={{ background: "var(--color-accent-soft)" }}
                 >
                   {initials(c.name, c.address)}
                 </span>
@@ -69,7 +69,10 @@ export function InsightsSection() {
 
       {data && data.topCounterparties.length === 0 && !loading && (
         <GlassCard radius={20} className="flex items-center gap-3 px-4 py-4">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full text-fg-dim">
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-accent"
+            style={{ background: "var(--color-accent-soft)" }}
+          >
             <HugeiconsIcon icon={Analytics02Icon} size={18} strokeWidth={1.6} />
           </span>
           <p className="text-[13px] text-fg-muted">
@@ -98,7 +101,7 @@ function Tile({
         {label}
       </span>
       {loading ? (
-        <span className="mt-2 block h-5 w-12 rounded-full bg-white/10" />
+        <span className="mt-2 block h-5 w-12 rounded-full bg-surface-2" />
       ) : (
         <span
           className={`mt-1 block truncate text-[18px] font-medium tracking-[-0.02em] tabular-nums ${

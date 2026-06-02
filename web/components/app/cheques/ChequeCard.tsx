@@ -46,7 +46,7 @@ export function ChequeCard({
         background:
           "linear-gradient(135deg, #f7f3e8 0%, #ede6d5 100%)",
         boxShadow:
-          "0 14px 40px -10px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.5)",
+          "0 16px 38px -16px rgba(35,78,20,0.28), inset 0 1px 0 rgba(255,255,255,0.5)",
         color: INK,
         fontFamily: "var(--font-serif), Georgia, serif",
       }}

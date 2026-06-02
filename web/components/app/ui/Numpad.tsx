@@ -20,7 +20,7 @@ export function Numpad({ onKey, onBackspace, className = "" }: NumpadProps) {
           key={k}
           type="button"
           onClick={() => onKey(k)}
-          className="flex h-14 items-center justify-center rounded-2xl text-2xl font-medium text-fg tabular-nums transition-colors hover:bg-white/[0.04] active:bg-white/[0.07]"
+          className="flex h-14 items-center justify-center rounded-2xl text-2xl font-medium text-fg tabular-nums transition-colors hover:bg-accent-soft active:bg-[color-mix(in_srgb,var(--color-accent-deep)_18%,#ffffff)]"
         >
           {k}
         </button>
@@ -29,7 +29,7 @@ export function Numpad({ onKey, onBackspace, className = "" }: NumpadProps) {
         type="button"
         onClick={onBackspace}
         aria-label="Delete"
-        className="flex h-14 items-center justify-center rounded-2xl text-fg-muted transition-colors hover:bg-white/[0.04] active:bg-white/[0.07]"
+        className="flex h-14 items-center justify-center rounded-2xl text-fg-muted transition-colors hover:bg-accent-soft active:bg-[color-mix(in_srgb,var(--color-accent-deep)_18%,#ffffff)]"
       >
         <HugeiconsIcon icon={Delete02Icon} size={24} strokeWidth={2} />
       </button>

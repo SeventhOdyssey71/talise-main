@@ -14,7 +14,7 @@ export function EmptyState({ icon, title, subtitle, action }: EmptyStateProps) {
       {icon && (
         <span
           className="mb-4 flex size-14 items-center justify-center rounded-full text-accent"
-          style={{ background: "color-mix(in srgb, var(--color-accent) 10%, transparent)" }}
+          style={{ background: "var(--color-accent-soft)" }}
         >
           {icon}
         </span>

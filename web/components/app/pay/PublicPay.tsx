@@ -11,8 +11,10 @@
  * visitor isn't signed in, the app's send pipeline triggers Google sign-in and
  * returns them to the prefilled review.
  *
- * Self-contained dark/brand styling — it lives outside AppShell, so it can't
- * rely on the shell's providers (no useCurrency here). Amounts are shown in USD.
+ * Self-contained light-mint styling — it lives outside AppShell, so it carries
+ * its own `.landing-mint` root (flips tokens + reskins `.talise-glass` to the
+ * white lifted card) and can't rely on the shell's providers (no useCurrency
+ * here). Amounts are shown in USD.
  */
 
 import { useState } from "react";
@@ -69,16 +71,16 @@ export function PublicPay({ slug, amountUsd, memo }: PublicPayProps) {
   };
 
   return (
-    <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-bg px-5 py-10 text-fg">
-      <div className="talise-top-glow" />
+    <main className="landing-mint relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-5 py-10 text-fg">
+      <div className="talise-top-glow" aria-hidden />
 
       <div className="relative z-10 w-full max-w-sm">
         {/* Brand mark */}
         <div className="mb-8 flex justify-center">
           <Link href="/" className="inline-flex items-center gap-2.5">
             <span
-              className="flex size-7 items-center justify-center rounded-[9px] font-display text-[15px] font-bold text-[#0a0e0b]"
-              style={{ background: "var(--color-accent)" }}
+              className="flex size-7 items-center justify-center rounded-[9px] font-display text-[15px] font-bold text-white"
+              style={{ background: "var(--color-accent-deep)" }}
             >
               T
             </span>
@@ -131,7 +133,7 @@ export function PublicPay({ slug, amountUsd, memo }: PublicPayProps) {
           <div className="mt-8">
             <Link
               href={target}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-accent-deep px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_10px_30px_-12px_rgba(75,138,55,0.7)] transition-[transform,filter] duration-150 hover:brightness-110 active:scale-[0.98]"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-accent-deep px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-[transform,background-color] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
             >
               Pay with Talise
               <HugeiconsIcon icon={ArrowRight01Icon} size={18} strokeWidth={2.4} color="#fff" />

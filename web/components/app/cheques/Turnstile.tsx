@@ -80,7 +80,7 @@ export function Turnstile({ onToken, className = "" }: TurnstileProps) {
         if (cancelled || !ref.current || !window.turnstile) return;
         widgetId.current = window.turnstile.render(ref.current, {
           sitekey,
-          theme: "dark",
+          theme: "light",
           size: "flexible",
           callback: (token) => onTokenRef.current(token),
           "expired-callback": () => onTokenRef.current(null),

@@ -37,7 +37,7 @@ export function EarnRules({ rates }: { rates: PointRates | null }) {
             <div className="flex items-center gap-3.5 px-3.5 py-3.5">
               <span
                 className="flex size-9 shrink-0 items-center justify-center rounded-full text-accent"
-                style={{ background: "color-mix(in srgb, var(--color-accent) 14%, transparent)" }}
+                style={{ background: "var(--color-accent-soft)" }}
               >
                 <HugeiconsIcon icon={rule.icon} size={16} strokeWidth={1.8} />
               </span>

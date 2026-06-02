@@ -45,12 +45,12 @@ function RewardsLink() {
   return (
     <Link
       href="/app/earn/rewards"
-      className="talise-glass group flex items-center gap-3.5 px-4 py-3.5 transition-[transform,border-color] duration-200 hover:-translate-y-0.5 hover:border-white/15"
+      className="talise-glass group flex items-center gap-3.5 px-4 py-3.5 transition-[transform,border-color] duration-200 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
       style={{ borderRadius: 20 }}
     >
       <span
         className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-        style={{ background: "color-mix(in srgb, var(--color-accent) 12%, transparent)" }}
+        style={{ background: "var(--color-accent-soft)" }}
       >
         <HugeiconsIcon icon={GiftCardIcon} size={19} strokeWidth={1.8} />
       </span>

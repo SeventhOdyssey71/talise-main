@@ -66,8 +66,8 @@ function Logo({ compact = false }: { compact?: boolean }) {
   return (
     <Link href="/app" className="inline-flex items-center gap-2.5">
       <span
-        className="flex size-7 items-center justify-center rounded-[9px] font-display text-[15px] font-bold text-[#0a0e0b]"
-        style={{ background: "var(--color-accent)" }}
+        className="flex size-7 items-center justify-center rounded-[9px] font-display text-[15px] font-bold text-white"
+        style={{ background: "var(--color-accent-deep)" }}
       >
         T
       </span>
@@ -88,9 +88,9 @@ function BalanceChip() {
   return (
     <Link
       href="/app"
-      className="talise-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 transition-colors hover:border-white/15"
+      className="talise-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
     >
-      <span className="size-1.5 rounded-full" style={{ background: "var(--color-accent)" }} />
+      <span className="size-1.5 rounded-full" style={{ background: "var(--color-accent-deep)" }} />
       <span className="text-[13px] font-semibold tabular-nums text-fg" style={{ letterSpacing: "-0.01em" }}>
         {loading && !data ? "—" : formatUsd(data?.totalUsd ?? 0)}
       </span>
@@ -107,7 +107,7 @@ function CurrencySelect() {
       value={currency}
       onChange={(e) => setCurrency(e.target.value)}
       aria-label="Display currency"
-      className="cursor-pointer rounded-full bg-white/[0.04] px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-wider text-fg-muted outline-none transition-colors hover:bg-white/[0.07] focus:ring-1 focus:ring-white/20"
+      className="cursor-pointer rounded-full border border-line bg-surface px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-wider text-fg-muted outline-none transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] focus:ring-1 focus:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)]"
     >
       {currencies.map((c) => (
         <option key={c.code} value={c.code} className="bg-surface text-fg">
@@ -137,8 +137,8 @@ function Avatar({ me, size = 28 }: { me: Me; size?: number }) {
   }
   return (
     <span
-      className="flex items-center justify-center rounded-full text-[12px] font-semibold text-[#0a0e0b]"
-      style={{ width: size, height: size, background: "var(--color-accent)" }}
+      className="flex items-center justify-center rounded-full text-[12px] font-semibold text-white"
+      style={{ width: size, height: size, background: "var(--color-accent-deep)" }}
     >
       {initial}
     </span>
@@ -162,18 +162,18 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
         color={active ? "var(--color-accent)" : undefined}
         className={active ? "" : "text-fg-muted"}
       />
-      <span className={`flex-1 text-[14px] font-medium ${active ? "text-fg" : "text-fg-muted"}`}>
+      <span className={`flex-1 text-[14px] font-medium ${active ? "text-accent" : "text-fg-muted"}`}>
         {item.label}
       </span>
       {badge && (
-        <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">
+        <span className="rounded-full border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">
           {badge}
         </span>
       )}
     </>
   );
   const cls = `flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors ${
-    active ? "talise-glass" : "hover:bg-white/[0.04]"
+    active ? "bg-accent-soft" : "hover:bg-accent-soft"
   } ${dimmed ? "opacity-55" : ""}`;
   if (dimmed) {
     return (
@@ -193,7 +193,7 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
 
 function SignInScreen() {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-bg">
+    <div className="landing-mint talise-appshell relative min-h-screen overflow-hidden text-fg">
       <div className="talise-top-glow" />
       <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6">
         <div className="talise-glass w-full max-w-sm rounded-[28px] px-7 py-9 text-center">
@@ -208,9 +208,9 @@ function SignInScreen() {
           <button
             type="button"
             onClick={() => triggerOauthSignIn({ returnTo: "/app" })}
-            className="mt-7 inline-flex w-full items-center justify-center gap-3 rounded-full bg-white px-5 py-3 text-[15px] font-semibold text-[#0a0e0b] transition-transform active:scale-[0.98]"
+            className="mt-7 inline-flex w-full items-center justify-center gap-3 rounded-full bg-accent-deep px-5 py-3 text-[15px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-[transform,background] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
           >
-            <HugeiconsIcon icon={GoogleIcon} size={20} color="#0a0e0b" />
+            <HugeiconsIcon icon={GoogleIcon} size={20} color="#ffffff" />
             Continue with Google
           </button>
         </div>
@@ -240,18 +240,18 @@ function MobileMenu({ me, open, onClose }: { me: Me; open: boolean; onClose: () 
             <div className="truncate text-[12px] text-fg-dim">{me.email}</div>
           </div>
         </div>
-        <div className="my-1 h-px bg-white/[0.06]" />
-        <Link href="/app/settings" onClick={onClose} className="flex items-center gap-3 px-4 py-2.5 text-[14px] text-fg-muted hover:bg-white/[0.04]">
+        <div className="my-1 h-px bg-line" />
+        <Link href="/app/settings" onClick={onClose} className="flex items-center gap-3 px-4 py-2.5 text-[14px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg">
           <HugeiconsIcon icon={Settings01Icon} size={18} strokeWidth={1.8} /> Settings
         </Link>
-        <Link href="/app/ramps" onClick={onClose} className="flex items-center justify-between px-4 py-2.5 text-[14px] text-fg-muted hover:bg-white/[0.04]">
+        <Link href="/app/ramps" onClick={onClose} className="flex items-center justify-between px-4 py-2.5 text-[14px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg">
           <span className="flex items-center gap-3">
             <HugeiconsIcon icon={CreditCardIcon} size={18} strokeWidth={1.8} /> Ramps
           </span>
-          <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">Soon</span>
+          <span className="rounded-full border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">Soon</span>
         </Link>
-        <div className="my-1 h-px bg-white/[0.06]" />
-        <a href="/auth/logout" className="flex items-center gap-3 px-4 py-2.5 text-[14px] text-fg-muted hover:bg-white/[0.04]">
+        <div className="my-1 h-px bg-line" />
+        <a href="/auth/logout" className="flex items-center gap-3 px-4 py-2.5 text-[14px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg">
           <HugeiconsIcon icon={Logout01Icon} size={18} strokeWidth={1.8} /> Sign out
         </a>
       </div>
@@ -272,7 +272,7 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
   }, [pathname]);
 
   return (
-    <div className="relative min-h-screen bg-bg text-fg">
+    <div className="landing-mint talise-appshell relative min-h-screen text-fg">
       <div className="talise-top-glow" />
 
       {/* ── Desktop sidebar (lg+) ── */}
@@ -284,7 +284,7 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
           {PRIMARY.map((item) => (
             <SidebarItem key={item.href} item={item} active={isActive(pathname, item.href)} />
           ))}
-          <div className="my-3 h-px bg-white/[0.06]" />
+          <div className="my-3 h-px bg-line" />
           <SidebarItem
             item={{ label: "Ramps", href: "/app/ramps", icon: CreditCardIcon as IconSvgElement }}
             active={false}
@@ -300,7 +300,7 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
           <CurrencySelect />
           <Link
             href="/app/settings"
-            className="talise-glass flex items-center gap-2.5 rounded-2xl px-3 py-2.5 transition-colors hover:border-white/15"
+            className="talise-glass flex items-center gap-2.5 rounded-2xl px-3 py-2.5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
           >
             <Avatar me={me} size={30} />
             <div className="min-w-0 flex-1">
@@ -316,7 +316,7 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
       {/* ── Main area ── */}
       <div className="relative z-10 lg:pl-60">
         {/* Desktop topbar */}
-        <header className="sticky top-0 z-20 hidden items-center justify-between border-b border-line bg-bg/70 px-8 py-4 backdrop-blur-xl lg:flex">
+        <header className="sticky top-0 z-20 hidden items-center justify-between border-b border-line bg-[color-mix(in_srgb,var(--color-bg)_82%,transparent)] px-8 py-4 backdrop-blur-xl lg:flex">
           <h1 className="text-[19px] font-semibold tracking-[-0.02em] text-fg">{title}</h1>
           <div className="flex items-center gap-3">
             <BalanceChip />
@@ -324,7 +324,7 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
         </header>
 
         {/* Mobile mini-bar */}
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-bg/70 px-4 py-3 backdrop-blur-xl lg:hidden">
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-[color-mix(in_srgb,var(--color-bg)_82%,transparent)] px-4 py-3 backdrop-blur-xl lg:hidden">
           <Logo compact />
           <div className="flex items-center gap-2.5">
             <BalanceChip />
@@ -333,7 +333,7 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
               onClick={() => setMenuOpen((v) => !v)}
               aria-label="Account menu"
               aria-expanded={menuOpen}
-              className="rounded-full ring-1 ring-white/10 transition-transform active:scale-95"
+              className="rounded-full ring-1 ring-line transition-transform active:scale-95"
             >
               <Avatar me={me} size={32} />
             </button>
@@ -359,7 +359,7 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
                 aria-label={item.label}
                 aria-current={active ? "page" : undefined}
                 className={`flex flex-col items-center gap-0.5 rounded-full px-3.5 py-1.5 transition-colors ${
-                  active ? "bg-white/[0.07]" : ""
+                  active ? "bg-accent-soft" : ""
                 }`}
               >
                 <HugeiconsIcon

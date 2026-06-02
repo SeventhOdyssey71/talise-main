@@ -44,12 +44,13 @@ export function Sheet({ open, onClose, title, children, size = "md" }: SheetProp
       aria-modal="true"
       aria-label={title}
     >
-      {/* Backdrop */}
+      {/* Backdrop — soft dark-green scrim (not pure black) + light blur. */}
       <button
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="talise-sheet-backdrop absolute inset-0 bg-black/55 backdrop-blur-sm"
+        className="talise-sheet-backdrop absolute inset-0 backdrop-blur-sm"
+        style={{ background: "rgba(21,48,12,0.35)" }}
       />
       {/* Panel */}
       <div
@@ -58,7 +59,7 @@ export function Sheet({ open, onClose, title, children, size = "md" }: SheetProp
       >
         {/* Mobile grab handle */}
         <div className="flex justify-center pt-2.5 sm:hidden">
-          <span className="h-1 w-10 rounded-full bg-white/15" />
+          <span className="h-1 w-10 rounded-full bg-line" />
         </div>
         {(title || true) && (
           <div className="flex items-center justify-between gap-3 px-5 pb-2 pt-3 sm:pt-5">
@@ -67,7 +68,7 @@ export function Sheet({ open, onClose, title, children, size = "md" }: SheetProp
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="flex size-8 items-center justify-center rounded-full text-fg-dim transition-colors hover:bg-white/5 hover:text-fg"
+              className="flex size-8 items-center justify-center rounded-full text-fg-dim transition-colors hover:bg-accent-soft hover:text-fg"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={18} strokeWidth={2} />
             </button>

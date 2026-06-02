@@ -13,17 +13,20 @@ export type StatusTone =
 
 export type StatusPillProps = { label: string; tone?: StatusTone };
 
-// Each tone → {fg text colour, faint matching background tint}.
+// Each tone → {fg text colour, faint matching background tint}. Tuned for the
+// light-mint canvas: forest text on a soft-mint fill for positive states, a
+// warm ochre for pending/paused, fg-muted on surface-2 for neutral/completed,
+// and a deep terracotta on a soft-red wash for danger (all AA on light).
 const TONES: Record<StatusTone, { color: string; bg: string }> = {
-  funded: { color: "var(--color-accent)", bg: "color-mix(in srgb, var(--color-accent) 12%, transparent)" },
-  active: { color: "var(--color-accent)", bg: "color-mix(in srgb, var(--color-accent) 12%, transparent)" },
-  success: { color: "var(--color-accent)", bg: "color-mix(in srgb, var(--color-accent) 12%, transparent)" },
-  claimed: { color: "#9fe6a8", bg: "color-mix(in srgb, #9fe6a8 12%, transparent)" },
-  completed: { color: "var(--color-fg-muted)", bg: "rgba(255,255,255,0.06)" },
-  paused: { color: "#e6c46b", bg: "color-mix(in srgb, #e6c46b 14%, transparent)" },
-  pending: { color: "#e6c46b", bg: "color-mix(in srgb, #e6c46b 14%, transparent)" },
-  danger: { color: "var(--color-danger)", bg: "color-mix(in srgb, var(--color-danger) 14%, transparent)" },
-  neutral: { color: "var(--color-fg-dim)", bg: "rgba(255,255,255,0.05)" },
+  funded: { color: "var(--color-accent)", bg: "var(--color-accent-soft)" },
+  active: { color: "var(--color-accent)", bg: "var(--color-accent-soft)" },
+  success: { color: "var(--color-accent)", bg: "var(--color-accent-soft)" },
+  claimed: { color: "var(--color-accent)", bg: "var(--color-accent-soft)" },
+  completed: { color: "var(--color-fg-muted)", bg: "var(--color-surface-2)" },
+  paused: { color: "#8a6a16", bg: "color-mix(in srgb, #d9a52a 22%, #ffffff)" },
+  pending: { color: "#8a6a16", bg: "color-mix(in srgb, #d9a52a 22%, #ffffff)" },
+  danger: { color: "#b3473b", bg: "color-mix(in srgb, #c95a4a 16%, #ffffff)" },
+  neutral: { color: "var(--color-fg-dim)", bg: "var(--color-surface-2)" },
 };
 
 /** Small capsule status badge, mono uppercase label, tone-tinted. */

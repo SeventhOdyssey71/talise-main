@@ -42,7 +42,7 @@ type MeResp = { id: string; name: string | null };
  */
 export default function PublicClaimPage() {
   return (
-    <Suspense fallback={<main className="min-h-dvh bg-bg" />}>
+    <Suspense fallback={<main className="landing-mint min-h-dvh bg-bg" />}>
       <ClaimInner />
     </Suspense>
   );
@@ -157,16 +157,9 @@ function ClaimInner() {
   }, [id, secret, token, preview]);
 
   return (
-    <main className="relative min-h-dvh bg-bg text-fg">
-      {/* Subtle top green glow */}
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-64"
-        style={{
-          background:
-            "radial-gradient(60% 100% at 50% 0%, color-mix(in srgb, var(--color-accent) 16%, transparent) 0%, transparent 70%)",
-        }}
-        aria-hidden
-      />
+    <main className="landing-mint relative min-h-dvh bg-bg text-fg">
+      {/* Soft top-of-page mint bloom (matches the landing) */}
+      <div className="talise-top-glow" aria-hidden />
 
       <div className="relative mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 py-8">
         {/* Brand header */}
@@ -226,7 +219,7 @@ function ClaimInner() {
                   <button
                     type="button"
                     onClick={signIn}
-                    className="flex w-full items-center justify-center gap-3 rounded-full bg-white px-5 py-3.5 text-[15px] font-semibold text-[#1f1f1f] transition-[transform,filter] active:scale-[0.98] hover:brightness-95"
+                    className="flex w-full items-center justify-center gap-3 rounded-full border border-line bg-surface px-5 py-3.5 text-[15px] font-semibold text-fg shadow-[0_6px_18px_-10px_rgba(35,78,20,0.3)] transition-[transform,border-color] active:scale-[0.98] hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
                   >
                     <GoogleMark />
                     Continue with Google
@@ -244,7 +237,7 @@ function ClaimInner() {
                     type="button"
                     onClick={claim}
                     disabled={claiming || signedIn === null}
-                    className="flex w-full items-center justify-center gap-2 rounded-full bg-accent-deep px-5 py-3.5 text-[15px] font-semibold text-white shadow-[0_10px_30px_-12px_rgba(75,138,55,0.7)] transition-[transform,filter] active:scale-[0.98] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="flex w-full items-center justify-center gap-2 rounded-full bg-accent-deep px-5 py-3.5 text-[15px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-[transform,background-color] active:scale-[0.98] hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {claiming ? "Claiming…" : `Claim $${preview.amountUsd.toFixed(2)}`}
                   </button>
@@ -274,10 +267,10 @@ function LoadingBlock() {
   return (
     <div className="space-y-4">
       <div
-        className="w-full animate-pulse rounded-2xl bg-white/[0.04]"
+        className="w-full animate-pulse rounded-2xl bg-surface-2"
         style={{ aspectRatio: "16 / 8.6" }}
       />
-      <div className="mx-auto h-10 w-full animate-pulse rounded-full bg-white/[0.04]" />
+      <div className="mx-auto h-10 w-full animate-pulse rounded-full bg-surface-2" />
     </div>
   );
 }
@@ -300,7 +293,7 @@ function ErrorBlock({ message }: { message: string }) {
       <p className="max-w-xs text-[14px] text-fg-muted">{message}</p>
       <a
         href="/"
-        className="mt-2 rounded-full border border-line px-5 py-2.5 text-[14px] font-medium text-fg transition-colors hover:border-white/15"
+        className="mt-2 rounded-full border border-line bg-surface px-5 py-2.5 text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
       >
         Go to Talise
       </a>
@@ -311,10 +304,7 @@ function ErrorBlock({ message }: { message: string }) {
 function CashedBlock({ amount, name }: { amount: number; name: string | null }) {
   return (
     <div className="flex flex-col items-center gap-4 text-center">
-      <span
-        className="flex size-16 items-center justify-center rounded-full text-accent"
-        style={{ background: "color-mix(in srgb, var(--color-accent) 12%, transparent)" }}
-      >
+      <span className="flex size-16 items-center justify-center rounded-full bg-accent-soft text-accent">
         <HugeiconsIcon icon={CheckmarkBadge01Icon} size={38} />
       </span>
       <span
@@ -331,7 +321,7 @@ function CashedBlock({ amount, name }: { amount: number; name: string | null }) 
       </p>
       <a
         href="/app"
-        className="mt-2 rounded-full bg-accent-deep px-6 py-3 text-[15px] font-semibold text-white shadow-[0_10px_30px_-12px_rgba(75,138,55,0.7)] transition-[filter] hover:brightness-110"
+        className="mt-2 rounded-full bg-accent-deep px-6 py-3 text-[15px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)]"
       >
         Open my wallet
       </a>

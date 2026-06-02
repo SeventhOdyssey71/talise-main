@@ -69,9 +69,7 @@ export function EarnDisclosureSheet({
               <div className="flex items-start gap-3.5 px-4 py-4">
                 <span
                   className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full text-accent"
-                  style={{
-                    background: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-                  }}
+                  style={{ background: "var(--color-accent-soft)" }}
                 >
                   <HugeiconsIcon icon={p.icon} size={18} strokeWidth={1.8} />
                 </span>

@@ -50,6 +50,7 @@ import {
   ApiError,
   type Contact,
 } from "@/components/app";
+import { CoinBurst } from "@/components/app/anim/CoinBurst";
 
 const EXPLORER = "https://suiscan.xyz/mainnet/tx/";
 
@@ -393,7 +394,7 @@ function StepHeader({
           type="button"
           onClick={onBack}
           aria-label="Back"
-          className="talise-glass flex size-9 items-center justify-center rounded-full text-fg transition-colors hover:border-white/15"
+          className="talise-glass flex size-9 items-center justify-center rounded-full text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
         >
           <HugeiconsIcon icon={ArrowLeft01Icon} size={18} strokeWidth={2} />
         </button>
@@ -406,7 +407,7 @@ function StepHeader({
           type="button"
           onClick={onCancel}
           aria-label="Cancel"
-          className="talise-glass flex size-9 items-center justify-center rounded-full text-fg-muted transition-colors hover:border-white/15"
+          className="talise-glass flex size-9 items-center justify-center rounded-full text-fg-muted transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
         >
           <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2} />
         </button>
@@ -501,7 +502,7 @@ function AmountStep({
           type="button"
           onClick={onMax}
           disabled={available <= 0}
-          className="talise-glass rounded-full px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:border-white/15 disabled:opacity-40"
+          className="talise-glass rounded-full px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] disabled:opacity-40"
         >
           Max
         </button>
@@ -589,7 +590,7 @@ function RecipientStep({
               type="button"
               onClick={onClear}
               aria-label="Clear"
-              className="flex size-6 shrink-0 items-center justify-center rounded-full text-fg-dim transition-colors hover:bg-white/5 hover:text-fg"
+              className="flex size-6 shrink-0 items-center justify-center rounded-full text-fg-dim transition-colors hover:bg-accent-soft hover:text-fg"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
             </button>
@@ -646,7 +647,7 @@ function RecipientStep({
                 key={c.address}
                 type="button"
                 onClick={() => onPickContact(c)}
-                className="flex items-center gap-3 rounded-2xl px-2 py-2.5 text-left transition-colors hover:bg-white/[0.04]"
+                className="flex items-center gap-3 rounded-2xl px-2 py-2.5 text-left transition-colors hover:bg-accent-soft"
               >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-[12px] font-semibold text-fg">
                   {contactInitials(c)}
@@ -808,17 +809,9 @@ function SuccessStep({
 
   return (
     <div className="flex flex-col items-center pt-6 text-center">
-      <span
-        className="mb-6 flex size-20 items-center justify-center rounded-full"
-        style={{ background: "color-mix(in srgb, var(--color-accent) 14%, transparent)" }}
-      >
-        <HugeiconsIcon
-          icon={CheckmarkCircle02Icon}
-          size={44}
-          color="var(--color-accent)"
-          strokeWidth={2}
-        />
-      </span>
+      {/* Coins drop + scatter + settle over the amount — the web port of the
+          iOS send-success coin drop. Plays once on mount. */}
+      <CoinBurst size={148} />
 
       <Eyebrow>Sent</Eyebrow>
       <div
@@ -839,7 +832,7 @@ function SuccessStep({
           href={explorerUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="talise-glass inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-[14px] font-medium text-fg transition-colors hover:border-white/15"
+          className="talise-glass inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
         >
           View on Suiscan
           <HugeiconsIcon icon={ArrowUpRight01Icon} size={15} strokeWidth={2} />

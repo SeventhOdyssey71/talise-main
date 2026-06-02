@@ -71,8 +71,8 @@ export function ActivityScreen() {
               aria-pressed={active}
               className={
                 active
-                  ? "shrink-0 rounded-full bg-fg px-4 py-2 text-[13px] font-semibold text-bg transition-colors"
-                  : "shrink-0 rounded-full bg-surface-2 px-4 py-2 text-[13px] font-medium text-fg-muted transition-colors hover:text-fg"
+                  ? "shrink-0 rounded-full bg-accent-soft px-4 py-2 text-[13px] font-semibold text-accent transition-colors"
+                  : "shrink-0 rounded-full bg-surface-2 px-4 py-2 text-[13px] font-medium text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg"
               }
             >
               {f.label}
@@ -127,16 +127,13 @@ function rowKey(row: ActivityRow): string {
 
 function SkeletonRow() {
   return (
-    <div
-      className="talise-glass flex w-full items-center gap-3.5 px-4 py-3.5 sm:px-5"
-      style={{ borderRadius: 18 }}
-    >
-      <span className="size-[38px] shrink-0 animate-pulse rounded-full bg-white/5" />
+    <div className="talise-history-row flex w-full items-center gap-3.5 px-4 py-3.5 sm:px-5">
+      <span className="size-[38px] shrink-0 animate-pulse rounded-full bg-surface-2" />
       <span className="flex min-w-0 flex-1 flex-col gap-2">
-        <span className="h-3 w-28 animate-pulse rounded-full bg-white/5" />
-        <span className="h-2.5 w-20 animate-pulse rounded-full bg-white/5" />
+        <span className="h-3 w-28 animate-pulse rounded-full bg-surface-2" />
+        <span className="h-2.5 w-20 animate-pulse rounded-full bg-surface-2" />
       </span>
-      <span className="h-3.5 w-16 animate-pulse rounded-full bg-white/5" />
+      <span className="h-3.5 w-16 animate-pulse rounded-full bg-surface-2" />
     </div>
   );
 }

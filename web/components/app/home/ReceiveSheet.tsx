@@ -61,7 +61,7 @@ export function ReceiveSheet({
           type="button"
           onClick={copyAddress}
           disabled={!address}
-          className="talise-glass mt-5 inline-flex max-w-full items-center gap-2.5 rounded-full px-4 py-2.5 transition-colors hover:border-white/15 active:scale-[0.98] disabled:opacity-50"
+          className="talise-glass mt-5 inline-flex max-w-full items-center gap-2.5 rounded-full px-4 py-2.5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:scale-[0.98] disabled:opacity-50"
         >
           <span className="truncate font-mono text-[12px] text-fg-muted">{short}</span>
           <HugeiconsIcon

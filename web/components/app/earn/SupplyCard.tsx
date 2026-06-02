@@ -16,9 +16,9 @@ import { useMemo, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Plant02Icon,
-  CheckmarkCircle02Icon,
   ArrowRight02Icon,
 } from "@hugeicons/core-free-icons";
+import { PiggySave } from "@/components/app/anim/PiggySave";
 import {
   GlassCard,
   Eyebrow,
@@ -183,10 +183,11 @@ export function SupplyCard() {
       {/* Supply card / success state */}
       {successDigest ? (
         <GlassCard className="px-5 py-8 text-center" radius={24} tint="#caffb8">
-          <span className="mx-auto mb-3 flex size-14 items-center justify-center rounded-full text-accent"
-            style={{ background: "color-mix(in srgb, var(--color-accent) 18%, transparent)" }}>
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={30} strokeWidth={2} />
-          </span>
+          {/* Piggy drops in + a coin falls into the slot with a little gulp —
+              the web port of the iOS savings-success piggy. Plays once. */}
+          <div className="mx-auto mb-1 grid place-items-center">
+            <PiggySave size={132} />
+          </div>
           <p className="text-[18px] font-medium tracking-[-0.02em] text-fg">Now earning</p>
           <p className="mt-1 font-mono text-[11px] text-fg-dim">
             {successDigest.slice(0, 18)}…
@@ -289,7 +290,7 @@ function VenueRow({
     <div className="flex items-center gap-3.5 px-4 py-3.5">
       <span
         className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-        style={{ background: "color-mix(in srgb, var(--color-accent) 12%, transparent)" }}
+        style={{ background: "var(--color-accent-soft)" }}
       >
         <HugeiconsIcon icon={Plant02Icon} size={19} strokeWidth={1.8} />
       </span>
@@ -298,7 +299,7 @@ function VenueRow({
           <span className="text-[15px] font-medium text-fg">{venueLabel(venue.venue)}</span>
           {best && (
             <span className="rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-accent"
-              style={{ background: "color-mix(in srgb, var(--color-accent) 14%, transparent)" }}>
+              style={{ background: "var(--color-accent-soft)" }}>
               Best
             </span>
           )}
@@ -343,12 +344,12 @@ function VenueRow({
 
 function VenueSkeleton() {
   return (
-    <div className="talise-glass flex items-center justify-between px-4 py-4 opacity-50" style={{ borderRadius: 20 }}>
+    <div className="talise-glass flex items-center justify-between px-4 py-4 opacity-70" style={{ borderRadius: 20 }}>
       <div className="space-y-2">
-        <div className="h-2.5 w-16 rounded-full bg-white/10" />
-        <div className="h-2 w-24 rounded-full bg-white/10" />
+        <div className="h-2.5 w-16 rounded-full bg-surface-2" />
+        <div className="h-2 w-24 rounded-full bg-surface-2" />
       </div>
-      <div className="h-4 w-14 rounded-full bg-white/10" />
+      <div className="h-4 w-14 rounded-full bg-surface-2" />
     </div>
   );
 }

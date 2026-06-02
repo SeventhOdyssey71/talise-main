@@ -52,7 +52,7 @@ export function RoundupCard() {
       <div className="flex items-start gap-3.5">
         <span
           className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-          style={{ background: "color-mix(in srgb, var(--color-accent) 12%, transparent)" }}
+          style={{ background: "var(--color-accent-soft)" }}
         >
           <HugeiconsIcon icon={PiggyBankIcon} size={19} strokeWidth={1.8} />
         </span>
@@ -84,7 +84,7 @@ export function RoundupCard() {
             className="h-1.5 w-full cursor-pointer appearance-none rounded-full disabled:opacity-50"
             style={{
               accentColor: "var(--color-accent-deep)",
-              background: `linear-gradient(to right, var(--color-accent-deep) ${((percentage - 1) / 9) * 100}%, rgba(255,255,255,0.12) ${((percentage - 1) / 9) * 100}%)`,
+              background: `linear-gradient(to right, var(--color-accent-deep) ${((percentage - 1) / 9) * 100}%, var(--color-surface-2) ${((percentage - 1) / 9) * 100}%)`,
             }}
             aria-label="Round-up percentage"
           />
@@ -95,7 +95,7 @@ export function RoundupCard() {
         className="flex items-center justify-between px-3.5 py-3"
         style={{
           borderRadius: 14,
-          background: "color-mix(in srgb, var(--color-accent) 7%, transparent)",
+          background: "var(--color-accent-soft)",
         }}
       >
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-dim">
@@ -129,12 +129,16 @@ function Switch({
       style={{
         background: on
           ? "var(--color-accent-deep)"
-          : "rgba(255,255,255,0.12)",
+          : "var(--color-surface-2)",
+        boxShadow: on ? "none" : "inset 0 0 0 1px var(--color-line)",
       }}
     >
       <span
-        className="inline-block size-5 transform rounded-full bg-white shadow transition-transform duration-200"
-        style={{ transform: on ? "translateX(22px)" : "translateX(2px)" }}
+        className="inline-block size-5 transform rounded-full bg-white transition-transform duration-200"
+        style={{
+          transform: on ? "translateX(22px)" : "translateX(2px)",
+          boxShadow: "0 2px 6px -2px rgba(35,78,20,0.45)",
+        }}
       />
     </button>
   );

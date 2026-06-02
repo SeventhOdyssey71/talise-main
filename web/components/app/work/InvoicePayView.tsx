@@ -98,15 +98,12 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
   };
 
   return (
-    <main className="talise-top-glow min-h-dvh bg-bg px-5 py-10 text-fg sm:py-16">
+    <main className="landing-mint talise-appshell talise-top-glow min-h-dvh bg-bg px-5 py-10 text-fg sm:py-16">
       <div className="mx-auto w-full max-w-xl">
         {/* Brand row */}
         <div className="mb-7 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 text-fg">
-            <span
-              className="flex size-8 items-center justify-center rounded-xl text-accent"
-              style={{ background: "color-mix(in srgb, var(--color-accent) 14%, transparent)" }}
-            >
+            <span className="flex size-8 items-center justify-center rounded-xl bg-[var(--color-accent-soft)] text-accent">
               <HugeiconsIcon icon={Invoice01Icon} size={18} strokeWidth={1.8} />
             </span>
             <span className="text-[17px] font-semibold tracking-tight">Talise</span>
@@ -158,7 +155,7 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
               <div className="overflow-hidden rounded-2xl border border-line">
                 <table className="w-full text-left text-[14px]">
                   <thead>
-                    <tr className="border-b border-line bg-white/[0.02]">
+                    <tr className="border-b border-line bg-[var(--color-surface-2)]">
                       <th className="px-4 py-2.5 font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim">
                         Description
                       </th>
@@ -239,12 +236,12 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
                 </p>
               </>
             ) : invoice.status === "paid" ? (
-              <div className="flex items-center justify-center gap-2 rounded-full bg-white/[0.03] py-3 text-[14px] text-accent">
+              <div className="flex items-center justify-center gap-2 rounded-full bg-[var(--color-accent-soft)] py-3 text-[14px] text-accent">
                 <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} strokeWidth={2} />
                 This invoice has been paid. Thank you.
               </div>
             ) : (
-              <div className="flex items-center justify-center gap-2 rounded-full bg-white/[0.03] py-3 text-[14px] text-fg-dim">
+              <div className="flex items-center justify-center gap-2 rounded-full bg-[var(--color-surface-2)] py-3 text-[14px] text-fg-dim">
                 <HugeiconsIcon icon={Cancel01Icon} size={18} strokeWidth={2} />
                 This invoice was voided by the issuer.
               </div>

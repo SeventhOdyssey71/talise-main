@@ -134,19 +134,19 @@ export function SlideToConfirm({
       }}
       aria-disabled={disabled}
     >
-      {/* Progress fill */}
+      {/* Progress fill — soft-mint wash that deepens toward the forest knob. */}
       <div
         className="pointer-events-none absolute inset-y-0 left-0"
         style={{
           width: x + knob + 8,
-          background: `color-mix(in srgb, ${tint} 24%, transparent)`,
+          background: `color-mix(in srgb, ${tint} 18%, #ffffff)`,
           borderRadius: 999,
           transition: dragging ? "none" : "width 320ms cubic-bezier(0.22,1,0.36,1)",
         }}
       />
       {/* Label */}
       <span
-        className="pointer-events-none absolute inset-0 flex items-center justify-center text-[15px] font-semibold text-fg"
+        className="pointer-events-none absolute inset-0 flex items-center justify-center text-[15px] font-semibold text-fg-muted"
         style={{ opacity: 1 - progress * 0.9, letterSpacing: "-0.01em" }}
       >
         {done ? "Confirmed" : pending ? "Sending…" : label}
@@ -178,7 +178,7 @@ export function SlideToConfirm({
           transform: `translate(${x}px, -50%)`,
           background: tint,
           color: "#fff",
-          boxShadow: "0 6px 18px -6px rgba(0,0,0,0.55)",
+          boxShadow: "0 6px 18px -6px rgba(35,78,20,0.55)",
           transition: dragging ? "none" : "transform 320ms cubic-bezier(0.22,1,0.36,1)",
           touchAction: "none",
         }}

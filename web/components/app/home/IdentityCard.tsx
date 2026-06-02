@@ -41,10 +41,10 @@ export function IdentityCard({ me }: { me: Me | null }) {
         </span>
         <span
           className="flex size-6 items-center justify-center rounded-full"
-          style={{ background: "color-mix(in srgb, var(--color-accent) 14%, transparent)" }}
+          style={{ background: "var(--color-accent-soft)" }}
           aria-hidden
         >
-          <span className="size-2 rounded-full" style={{ background: "var(--color-accent)" }} />
+          <span className="size-2 rounded-full" style={{ background: "var(--color-accent-deep)" }} />
         </span>
       </div>
 

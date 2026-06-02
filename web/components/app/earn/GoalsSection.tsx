@@ -26,7 +26,10 @@ import {
 } from "@/components/app";
 import { useGoals, type Goal } from "./earn-data";
 
-const GOAL_COLORS = ["#caffb8", "#8fd0ff", "#ffd28f", "#e0a8ff", "#ffa8c8", "#a8ffe0"];
+// Decorative ring/swatch palette. These are FILL colours (progress-ring
+// strokes), so they must read against the white goal card — the leading swatch
+// is the Talise forest, not the pale mint (#caffb8 is invisible on white).
+const GOAL_COLORS = ["#3d7a29", "#3a93d6", "#d99a2a", "#9a5cd6", "#d6618f", "#2faf8a"];
 
 export function GoalsSection() {
   const { goals, loading, refresh } = useGoals();
@@ -149,7 +152,7 @@ function ProgressRing({ pct, color }: { pct: number; color: string }) {
         cy={size / 2}
         r={r}
         fill="none"
-        stroke="rgba(255,255,255,0.1)"
+        stroke="var(--color-line)"
         strokeWidth={stroke}
       />
       <circle
@@ -178,11 +181,11 @@ function ProgressRing({ pct, color }: { pct: number; color: string }) {
 
 function GoalSkeleton() {
   return (
-    <div className="talise-glass flex items-center gap-3.5 p-4 opacity-50" style={{ borderRadius: 20 }}>
-      <div className="size-[52px] shrink-0 rounded-full bg-white/10" />
+    <div className="talise-glass flex items-center gap-3.5 p-4 opacity-70" style={{ borderRadius: 20 }}>
+      <div className="size-[52px] shrink-0 rounded-full bg-surface-2" />
       <div className="flex-1 space-y-2">
-        <div className="h-2.5 w-24 rounded-full bg-white/10" />
-        <div className="h-2 w-32 rounded-full bg-white/10" />
+        <div className="h-2.5 w-24 rounded-full bg-surface-2" />
+        <div className="h-2 w-32 rounded-full bg-surface-2" />
       </div>
     </div>
   );

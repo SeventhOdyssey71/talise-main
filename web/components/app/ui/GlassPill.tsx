@@ -22,10 +22,12 @@ export function GlassPill({
   const pad = size === "sm" ? "px-3 py-1.5 text-xs gap-1.5" : "px-4 py-2 text-sm gap-2";
   const style: CSSProperties = { borderRadius: 999 };
   if (tint) {
-    style.background = `color-mix(in srgb, ${tint} 12%, rgba(255,255,255,0.025))`;
+    // Soft tint fill over white + tint-coloured text — reads as a light
+    // pale-mint chip on the mint canvas rather than a dark glass capsule.
+    style.background = `color-mix(in srgb, ${tint} 12%, #ffffff)`;
     style.color = tint;
   }
-  const cls = `talise-glass inline-flex items-center font-medium text-fg transition-[transform,border-color] duration-150 hover:border-white/15 active:scale-[0.97] ${pad}`;
+  const cls = `talise-glass inline-flex items-center font-medium text-fg transition-[transform,border-color] duration-150 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:scale-[0.97] ${pad}`;
 
   const inner = (
     <>

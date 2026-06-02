@@ -175,7 +175,7 @@ function ReceiptBody({ row }: { row: ActivityRow }) {
           href={suiscanUrl(row.digest)}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-accent-deep text-[15px] font-semibold text-white shadow-[0_10px_30px_-12px_rgba(75,138,55,0.7)] transition-[transform,filter] duration-150 hover:brightness-110 active:scale-[0.98]"
+          className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-accent-deep text-[15px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-[transform,background-color] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
         >
           <HugeiconsIcon icon={LinkSquare02Icon} size={16} strokeWidth={2} />
           View on Suiscan
@@ -221,5 +221,5 @@ function DetailRow({
 }
 
 function Divider() {
-  return <div className="mx-3 h-px bg-white/5" />;
+  return <div className="mx-3 h-px bg-line" />;
 }

@@ -123,34 +123,34 @@ function RewardsSkeleton() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <div className="space-y-4 lg:col-span-3">
           <GlassCard className="h-40 p-6">
-            <div className="h-3 w-20 animate-pulse rounded-full bg-white/[0.06]" />
-            <div className="mt-4 h-12 w-40 animate-pulse rounded-lg bg-white/[0.06]" />
-            <div className="mt-6 h-2 w-full animate-pulse rounded-full bg-white/[0.06]" />
+            <div className="h-3 w-20 animate-pulse rounded-full bg-surface-2" />
+            <div className="mt-4 h-12 w-40 animate-pulse rounded-lg bg-surface-2" />
+            <div className="mt-6 h-2 w-full animate-pulse rounded-full bg-surface-2" />
           </GlassCard>
           <div className="grid grid-cols-2 gap-3">
             <GlassCard className="h-24 p-5">
-              <div className="h-3 w-16 animate-pulse rounded-full bg-white/[0.06]" />
-              <div className="mt-4 h-7 w-24 animate-pulse rounded bg-white/[0.06]" />
+              <div className="h-3 w-16 animate-pulse rounded-full bg-surface-2" />
+              <div className="mt-4 h-7 w-24 animate-pulse rounded bg-surface-2" />
             </GlassCard>
             <GlassCard className="h-24 p-5">
-              <div className="h-3 w-16 animate-pulse rounded-full bg-white/[0.06]" />
-              <div className="mt-4 h-7 w-24 animate-pulse rounded bg-white/[0.06]" />
+              <div className="h-3 w-16 animate-pulse rounded-full bg-surface-2" />
+              <div className="mt-4 h-7 w-24 animate-pulse rounded bg-surface-2" />
             </GlassCard>
           </div>
           <GlassCard className="h-56 p-5">
-            <div className="h-3 w-24 animate-pulse rounded-full bg-white/[0.06]" />
+            <div className="h-3 w-24 animate-pulse rounded-full bg-surface-2" />
             <div className="mt-5 space-y-5">
               {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="h-4 w-full animate-pulse rounded bg-white/[0.05]" />
+                <div key={i} className="h-4 w-full animate-pulse rounded bg-surface-2" />
               ))}
             </div>
           </GlassCard>
         </div>
         <div className="lg:col-span-2">
           <GlassCard className="h-56 p-6">
-            <div className="h-3 w-28 animate-pulse rounded-full bg-white/[0.06]" />
-            <div className="mt-5 h-12 w-full animate-pulse rounded-2xl bg-white/[0.06]" />
-            <div className="mt-5 h-12 w-full animate-pulse rounded-full bg-white/[0.06]" />
+            <div className="h-3 w-28 animate-pulse rounded-full bg-surface-2" />
+            <div className="mt-5 h-12 w-full animate-pulse rounded-2xl bg-surface-2" />
+            <div className="mt-5 h-12 w-full animate-pulse rounded-full bg-surface-2" />
           </GlassCard>
         </div>
       </div>

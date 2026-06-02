@@ -36,7 +36,7 @@ export function OptionRow({
     <>
       <span
         className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-        style={{ background: "color-mix(in srgb, var(--color-accent) 12%, transparent)" }}
+        style={{ background: "var(--color-accent-soft)" }}
       >
         {icon}
       </span>
@@ -46,8 +46,8 @@ export function OptionRow({
       </span>
       {badge && (
         <span
-          className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim"
-          style={{ background: "rgba(255,255,255,0.05)" }}
+          className="shrink-0 rounded-full border border-line px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim"
+          style={{ background: "var(--color-surface-2)" }}
         >
           {badge}
         </span>

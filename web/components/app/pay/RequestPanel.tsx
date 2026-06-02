@@ -210,7 +210,7 @@ export function RequestPanel() {
           {qrValue ? (
             <QrImage value={qrValue} size={216} />
           ) : (
-            <div className="size-[240px] animate-pulse rounded-[20px] bg-white/5" />
+            <div className="size-[240px] animate-pulse rounded-[20px] bg-surface-2" />
           )}
         </div>
 
@@ -224,7 +224,7 @@ export function RequestPanel() {
           onClick={() =>
             mode === "receive" ? copy(address, "addr") : copy(paymentLink, "link")
           }
-          className="talise-glass inline-flex flex-1 items-center justify-center gap-2 rounded-full px-5 py-3 text-[14px] font-medium text-fg transition-colors hover:border-white/15"
+          className="talise-glass inline-flex flex-1 items-center justify-center gap-2 rounded-full px-5 py-3 text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
         >
           <HugeiconsIcon
             icon={copied ? Tick02Icon : Copy01Icon}
@@ -275,7 +275,7 @@ function SegButton({
       onClick={onClick}
       aria-pressed={active}
       className={`flex flex-1 items-center justify-center gap-2 rounded-full py-2 text-[13px] font-medium transition-colors ${
-        active ? "bg-white/[0.08] text-fg" : "text-fg-dim hover:text-fg-muted"
+        active ? "bg-accent-soft text-accent" : "text-fg-dim hover:text-fg-muted"
       }`}
     >
       <HugeiconsIcon

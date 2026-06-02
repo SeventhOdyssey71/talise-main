@@ -135,7 +135,7 @@ export function WithdrawSheet({
               />
               <GlassPill
                 size="sm"
-                tint="#caffb8"
+                tint="#3c7a2a"
                 onClick={() => setPartial((supplied * rate).toFixed(2))}
               >
                 MAX

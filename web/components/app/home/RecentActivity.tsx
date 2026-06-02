@@ -86,12 +86,12 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
 function RowSkeleton() {
   return (
     <div className="talise-history-row flex items-center gap-3.5 px-3.5 py-3">
-      <span className="size-9 shrink-0 animate-pulse rounded-full bg-white/[0.06]" />
+      <span className="size-9 shrink-0 animate-pulse rounded-full bg-surface-2" />
       <span className="min-w-0 flex-1 space-y-2">
-        <span className="block h-2.5 w-24 animate-pulse rounded-full bg-white/[0.06]" />
-        <span className="block h-2 w-16 animate-pulse rounded-full bg-white/[0.05]" />
+        <span className="block h-2.5 w-24 animate-pulse rounded-full bg-surface-2" />
+        <span className="block h-2 w-16 animate-pulse rounded-full bg-[color-mix(in_srgb,var(--color-surface-2)_70%,transparent)]" />
       </span>
-      <span className="h-3 w-14 animate-pulse rounded-full bg-white/[0.06]" />
+      <span className="h-3 w-14 animate-pulse rounded-full bg-surface-2" />
     </div>
   );
 }

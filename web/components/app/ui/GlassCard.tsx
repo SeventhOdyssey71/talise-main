@@ -30,11 +30,14 @@ export function GlassCard({
   const Tag = (as ?? (onClick ? "button" : "div")) as "div" | "button";
   const style: CSSProperties = { borderRadius: radius };
   if (tint) {
-    style.background = `linear-gradient(to bottom, color-mix(in srgb, ${tint} 14%, transparent) 0%, transparent 80%), color-mix(in srgb, ${tint} 5%, rgba(255,255,255,0.025))`;
+    // Light-mint tint: a faint wash of the tint colour over a near-white card
+    // (matches the .landing-mint .talise-glass fill), so tinted cards stay
+    // airy and legible rather than turning dark/glassy.
+    style.background = `linear-gradient(to bottom, color-mix(in srgb, ${tint} 12%, #ffffff) 0%, color-mix(in srgb, ${tint} 5%, #f3faea) 100%)`;
   }
   const interactiveCls =
     interactive || onClick
-      ? "transition-[transform,border-color,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:border-white/15 active:translate-y-0 active:scale-[0.995] cursor-pointer"
+      ? "transition-[transform,border-color,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:translate-y-0 active:scale-[0.995] cursor-pointer"
       : "";
   return (
     <Tag

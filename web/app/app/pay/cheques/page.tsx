@@ -130,9 +130,10 @@ export default function ChequesPage() {
               aria-selected={active}
               onClick={() => setTab(t.id)}
               className={`flex-1 rounded-full px-4 py-2 text-[14px] font-semibold transition-colors ${
-                active ? "text-[#0a130d]" : "text-fg-muted hover:text-fg"
+                active
+                  ? "bg-accent-soft text-accent"
+                  : "text-fg-muted hover:bg-accent-soft hover:text-fg"
               }`}
-              style={active ? { background: "var(--color-accent)" } : undefined}
             >
               {t.label}
             </button>
@@ -308,7 +309,7 @@ function WriteTab({ onIssued }: { onIssued: () => void }) {
             style={{
               background: gateCountry
                 ? "var(--color-accent-deep)"
-                : "rgba(255,255,255,0.12)",
+                : "var(--color-surface-2)",
             }}
           >
             <span
@@ -613,10 +614,7 @@ function CashTab() {
   if (cashed != null) {
     return (
       <div className="flex flex-col items-center gap-4 py-8 text-center">
-        <span
-          className="flex size-16 items-center justify-center rounded-full text-accent"
-          style={{ background: "color-mix(in srgb, var(--color-accent) 12%, transparent)" }}
-        >
+        <span className="flex size-16 items-center justify-center rounded-full bg-accent-soft text-accent">
           <HugeiconsIcon icon={CheckmarkBadge01Icon} size={36} />
         </span>
         <div>
@@ -705,7 +703,7 @@ function CashTab() {
             onChange={(e) => setLink(e.target.value)}
             rows={2}
             placeholder="https://talise.io/c/…"
-            className="w-full resize-none rounded-2xl border border-line bg-black/20 p-3.5 font-mono text-[13px] text-fg outline-none placeholder:text-fg-dim focus:border-white/15"
+            className="w-full resize-none rounded-2xl border border-line bg-surface-2 p-3.5 font-mono text-[13px] text-fg outline-none placeholder:text-fg-dim focus:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
           />
         </Field>
         <PrimaryButton onClick={open} loading={loading} disabled={!link.trim()} full>

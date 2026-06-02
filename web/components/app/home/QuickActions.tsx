@@ -36,7 +36,7 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge }: TileProps) 
     <>
       <span
         className="flex size-11 items-center justify-center rounded-2xl text-accent"
-        style={{ background: "color-mix(in srgb, var(--color-accent) 13%, transparent)" }}
+        style={{ background: "var(--color-accent-soft)" }}
       >
         <HugeiconsIcon icon={icon} size={21} strokeWidth={1.9} color="var(--color-accent)" />
       </span>
@@ -45,7 +45,7 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge }: TileProps) 
         <span className="mt-0.5 text-[11px] leading-tight text-fg-dim">{sublabel}</span>
       </span>
       {badge && (
-        <span className="absolute right-3 top-3 rounded-full bg-white/[0.06] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">
+        <span className="absolute right-3 top-3 rounded-full border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">
           {badge}
         </span>
       )}
@@ -53,7 +53,7 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge }: TileProps) 
   );
 
   const cls =
-    "talise-glass relative flex flex-col items-start rounded-3xl px-3.5 py-4 text-left transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-white/15 active:translate-y-0 active:scale-[0.98]";
+    "talise-glass relative flex flex-col items-start rounded-3xl px-3.5 py-4 text-left transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:translate-y-0 active:scale-[0.98]";
 
   if (href) {
     return (

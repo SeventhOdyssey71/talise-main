@@ -211,10 +211,10 @@ export function SettingsScreen() {
           <img
             src={me.picture}
             alt=""
-            className="size-20 rounded-full border border-white/10 object-cover shadow-[0_10px_28px_-12px_rgba(0,0,0,0.6)]"
+            className="size-20 rounded-full border border-line object-cover shadow-[0_14px_34px_-18px_rgba(35,78,20,0.28)]"
           />
         ) : (
-          <div className="flex size-20 items-center justify-center rounded-full border border-white/10 bg-surface-2 text-[28px] font-medium text-fg shadow-[0_10px_28px_-12px_rgba(0,0,0,0.6)]">
+          <div className="flex size-20 items-center justify-center rounded-full bg-accent-deep text-[28px] font-medium text-white shadow-[0_14px_34px_-18px_rgba(35,78,20,0.28)]">
             {initials}
           </div>
         )}
@@ -274,10 +274,7 @@ export function SettingsScreen() {
               <div className="flex items-start gap-3.5">
                 <span
                   className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-                  style={{
-                    background:
-                      "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-                  }}
+                  style={{ background: "var(--color-accent-soft)" }}
                 >
                   <HugeiconsIcon
                     icon={CheckmarkBadge02Icon}
@@ -313,10 +310,7 @@ export function SettingsScreen() {
           <label className="talise-history-row flex w-full cursor-pointer items-center gap-3.5 px-3.5 py-3">
             <span
               className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-              style={{
-                background:
-                  "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-              }}
+              style={{ background: "var(--color-accent-soft)" }}
             >
               <HugeiconsIcon icon={GlobalIcon} size={20} strokeWidth={1.8} />
             </span>
@@ -360,10 +354,7 @@ export function SettingsScreen() {
           <div className="talise-history-row flex w-full items-center gap-3.5 px-3.5 py-3">
             <span
               className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-              style={{
-                background:
-                  "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-              }}
+              style={{ background: "var(--color-accent-soft)" }}
             >
               <HugeiconsIcon
                 icon={Notification01Icon}
@@ -395,10 +386,7 @@ export function SettingsScreen() {
           <div className="flex items-start gap-3.5">
             <span
               className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-              style={{
-                background:
-                  "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-              }}
+              style={{ background: "var(--color-accent-soft)" }}
             >
               <HugeiconsIcon icon={Wallet01Icon} size={20} strokeWidth={1.8} />
             </span>
@@ -417,7 +405,7 @@ export function SettingsScreen() {
             <button
               type="button"
               onClick={copyAddress}
-              className="talise-glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-fg transition-[transform,border-color] hover:border-white/15 active:scale-[0.97]"
+              className="talise-glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-fg transition-[transform,border-color] hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:scale-[0.97]"
             >
               <HugeiconsIcon
                 icon={copied ? Tick02Icon : Copy01Icon}
@@ -431,7 +419,7 @@ export function SettingsScreen() {
               href={`https://suiscan.xyz/mainnet/account/${me.suiAddress}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="talise-glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-fg transition-[transform,border-color] hover:border-white/15 active:scale-[0.97]"
+              className="talise-glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-fg transition-[transform,border-color] hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:scale-[0.97]"
             >
               <HugeiconsIcon
                 icon={ArrowUpRight01Icon}
@@ -461,10 +449,7 @@ export function SettingsScreen() {
           >
             <span
               className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-              style={{
-                background:
-                  "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-              }}
+              style={{ background: "var(--color-accent-soft)" }}
             >
               <HugeiconsIcon icon={Mail01Icon} size={20} strokeWidth={1.8} />
             </span>
@@ -485,10 +470,7 @@ export function SettingsScreen() {
           >
             <span
               className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-              style={{
-                background:
-                  "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-              }}
+              style={{ background: "var(--color-accent-soft)" }}
             >
               <HugeiconsIcon icon={Notebook01Icon} size={20} strokeWidth={1.8} />
             </span>
@@ -539,11 +521,11 @@ function Toggle({
       disabled={busy}
       onClick={() => onChange(!on)}
       className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
-        on ? "bg-accent-deep" : "bg-white/12"
+        on ? "bg-accent-deep" : "bg-surface-2 border border-line"
       }`}
     >
       <span
-        className={`absolute flex size-5 items-center justify-center rounded-full bg-white shadow transition-transform ${
+        className={`absolute flex size-5 items-center justify-center rounded-full bg-white shadow-[0_2px_6px_-2px_rgba(35,78,20,0.45)] transition-transform ${
           on ? "translate-x-[22px]" : "translate-x-[3px]"
         }`}
       >

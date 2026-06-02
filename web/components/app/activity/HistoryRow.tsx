@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { useCurrency } from "@/components/app";
-import { DirectionBadge, tintColor } from "./DirectionBadge";
+import { DirectionBadge } from "./DirectionBadge";
 import {
   type ActivityRow,
+  type Category,
   categoryOf,
   titleOf,
   counterpartyLabel,
@@ -15,9 +15,11 @@ import {
 } from "./types";
 
 /**
- * One activity row. Neutral liquid-glass at rest; on hover/press it picks up
- * a faint directional tint (red = sent, green = received/withdraw, mint =
- * invest/swap). The whole row is a button that opens the receipt sheet.
+ * One activity row. A clean white→faint-mint lifted card at rest; on
+ * hover/press it picks up a faint directional tint (warm red = sent,
+ * forest = received/withdraw/invest/swap) and an accent-tinted hairline,
+ * via the `.talise-history-row` rule in globals.css. The whole row is a
+ * button that opens the receipt sheet.
  *
  * Layout is responsive without a media query: the badge + title/subtitle
  * stack flexes left, the amount sits hard-right with tabular numerals, so it
@@ -32,9 +34,7 @@ export function HistoryRow({
   onOpen: () => void;
 }) {
   const { formatLocal } = useCurrency();
-  const [hover, setHover] = useState(false);
   const category = categoryOf(row);
-  const tint = tintColor(category);
   const sub = counterpartyLabel(row);
   const time = relativeTime(row.timestampMs);
 
@@ -42,25 +42,9 @@ export function HistoryRow({
     <button
       type="button"
       onClick={onOpen}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onPointerDown={() => setHover(true)}
-      onPointerUp={() => setHover(false)}
-      className="talise-glass group relative flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-[transform,background-color] duration-200 ease-out active:scale-[0.995] sm:px-5"
-      style={{ borderRadius: 18 }}
+      data-direction={directionAttr(category)}
+      className="talise-history-row group relative flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-[transform,background-color,border-color] duration-200 ease-out active:scale-[0.995] sm:px-5"
     >
-      {/* Directional tint wash — only while hovered/pressed */}
-      {tint && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 transition-opacity duration-200"
-          style={{
-            borderRadius: 18,
-            background: `color-mix(in srgb, ${tint} 16%, transparent)`,
-            opacity: hover ? 1 : 0,
-          }}
-        />
-      )}
       <span className="relative flex min-w-0 flex-1 items-center gap-3.5">
         <DirectionBadge category={category} />
         <span className="flex min-w-0 flex-col gap-0.5">
@@ -82,6 +66,29 @@ export function HistoryRow({
       </span>
     </button>
   );
+}
+
+/**
+ * Map the visual category onto the `data-direction` contract consumed by
+ * `.landing-mint .talise-history-row` in globals.css (sent → warm red tint;
+ * received/withdraw/invest/swap → forest tint). Swap rides the invest tint.
+ */
+function directionAttr(
+  category: Category
+): "sent" | "received" | "invest" | "withdraw" | undefined {
+  switch (category) {
+    case "sent":
+      return "sent";
+    case "received":
+      return "received";
+    case "withdraw":
+      return "withdraw";
+    case "invest":
+    case "swap":
+      return "invest";
+    default:
+      return undefined;
+  }
 }
 
 /** Trailing amount. Swaps render "X → Y"; everything else a signed credit. */

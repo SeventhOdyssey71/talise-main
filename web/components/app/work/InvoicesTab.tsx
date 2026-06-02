@@ -202,7 +202,7 @@ function InvoiceCard({
         <button
           type="button"
           onClick={onCopy}
-          className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:text-fg"
+          className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-surface-2)] px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg"
         >
           <HugeiconsIcon icon={Copy01Icon} size={13} strokeWidth={2} />
           Copy link
@@ -212,7 +212,7 @@ function InvoiceCard({
             <button
               type="button"
               onClick={onMarkPaid}
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-accent transition-colors hover:bg-white/[0.04]"
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-accent transition-colors hover:bg-accent-soft"
             >
               <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} strokeWidth={2} />
               Mark paid
@@ -443,7 +443,7 @@ function CreateInvoiceSheet({
         </Field>
 
         {/* Live preview total */}
-        <div className="flex items-center justify-between rounded-2xl border border-line bg-white/[0.02] px-4 py-3.5">
+        <div className="flex items-center justify-between rounded-2xl border border-line bg-[var(--color-surface-2)] px-4 py-3.5">
           <span className="text-[14px] text-fg-muted">Invoice total</span>
           <span
             className="text-[22px] font-semibold text-fg"

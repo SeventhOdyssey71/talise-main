@@ -8,10 +8,11 @@ import { InvoicePayView } from "@/components/app/work/InvoicePayView";
 export const dynamic = "force-dynamic";
 
 /**
- * PUBLIC invoice view + pay page — NOT under /app, so it renders on the dark
- * app skin without the AppShell chrome (no sidebar / nav). Anyone with the
- * link can view the invoice and pay it; the "Pay this invoice" button routes
- * into /app/pay (which signs the payer in if needed).
+ * PUBLIC invoice view + pay page — NOT under /app, so it renders standalone
+ * without the AppShell chrome (no sidebar / nav). InvoicePayView applies the
+ * light-mint skin (`landing-mint`) itself. Anyone with the link can view the
+ * invoice and pay it; the "Pay this invoice" button routes into /app/pay
+ * (which signs the payer in if needed).
  *
  * Server component: it reads the invoice + issuer directly (no public-API
  * round-trip), passes a public-safe subset to the client view. The customer

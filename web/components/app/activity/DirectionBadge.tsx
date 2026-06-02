@@ -9,21 +9,22 @@ import {
 import type { Category } from "./types";
 
 /**
- * Directional palette — mirrors the iOS HistoryRow/TxReceipt treatment:
- *   sent     → dusty red
- *   received → forest green
- *   withdraw → forest green (pool → wallet credit)
- *   invest   → Talise mint accent (yield motion)
- *   swap     → Talise mint accent (system/DEX conversion)
- *   neutral  → plain glass
+ * Directional palette — light-mint treatment. On the white→faint-mint
+ * card the disc is a soft tinted fill and the glyph sits at full
+ * saturation so it reads as a coloured icon on a coloured disc:
+ *   sent     → warm danger red   (outflow)
+ *   received → forest green       (inflow credit)
+ *   withdraw → forest green       (pool → wallet credit)
+ *   invest   → forest accent      (yield motion)
+ *   swap     → forest accent      (system/DEX conversion)
+ *   neutral  → pale-mint disc, forest glyph
  *
- * The disc fill is a low-alpha wash of the colour; the glyph sits at a
- * brighter saturation so it reads as a coloured icon on a coloured disc.
+ * The disc fill is a low-alpha wash of the colour over white; the glyph
+ * uses the deep saturation so it stays legible on the light canvas.
  */
 const RED = "#c95a4a";
-const RED_FG = "#f0a99e";
-const GREEN = "#4fb35e";
-const GREEN_FG = "#a9dfb3";
+const RED_FG = "#b3473b";
+const GREEN_FG = "var(--color-accent)";
 
 export type BadgeStyle = {
   bg: string;
@@ -35,31 +36,31 @@ export function badgeStyle(category: Category): BadgeStyle {
   switch (category) {
     case "sent":
       return {
-        bg: `color-mix(in srgb, ${RED} 30%, transparent)`,
+        bg: `color-mix(in srgb, ${RED} 16%, #ffffff)`,
         fg: RED_FG,
         icon: ArrowUpRightIcon,
       };
     case "received":
       return {
-        bg: `color-mix(in srgb, ${GREEN} 30%, transparent)`,
+        bg: "var(--color-accent-soft)",
         fg: GREEN_FG,
         icon: ArrowDownLeftIcon,
       };
     case "withdraw":
       return {
-        bg: `color-mix(in srgb, ${GREEN} 30%, transparent)`,
+        bg: "var(--color-accent-soft)",
         fg: GREEN_FG,
         icon: PlantIcon,
       };
     case "invest":
       return {
-        bg: "color-mix(in srgb, var(--color-accent) 20%, transparent)",
+        bg: "var(--color-accent-soft)",
         fg: "var(--color-accent)",
         icon: PlantIcon,
       };
     case "swap":
       return {
-        bg: "color-mix(in srgb, var(--color-accent) 20%, transparent)",
+        bg: "var(--color-accent-soft)",
         fg: "var(--color-accent)",
         icon: ArrowDataTransferHorizontalIcon,
       };
@@ -79,10 +80,10 @@ export function tintColor(category: Category): string | null {
       return RED;
     case "received":
     case "withdraw":
-      return GREEN;
+      return "var(--color-accent-deep)";
     case "invest":
     case "swap":
-      return "var(--color-accent)";
+      return "var(--color-accent-deep)";
     default:
       return null;
   }

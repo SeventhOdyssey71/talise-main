@@ -149,10 +149,7 @@ function RampCard({
         <div className="flex items-center gap-3">
           <span
             className="flex size-12 shrink-0 items-center justify-center rounded-2xl text-accent"
-            style={{
-              background:
-                "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-            }}
+            style={{ background: "var(--color-accent-soft)" }}
           >
             {icon}
           </span>
@@ -171,7 +168,7 @@ function RampCard({
       <ul className="space-y-2.5">
         {features.map((f, i) => (
           <li key={i} className="flex items-center gap-3">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/[0.05] text-accent">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
               {f.icon}
             </span>
             <span className="text-[14px] text-fg">{f.text}</span>
@@ -186,7 +183,7 @@ function RampCard({
         className={`inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-[15px] font-semibold transition-[transform,background,opacity] active:scale-[0.98] sm:w-auto ${
           notified
             ? "talise-glass cursor-default text-fg-muted"
-            : "bg-accent-deep text-white shadow-[0_10px_30px_-12px_rgba(75,138,55,0.7)] hover:brightness-110"
+            : "bg-accent-deep text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)]"
         }`}
       >
         <HugeiconsIcon

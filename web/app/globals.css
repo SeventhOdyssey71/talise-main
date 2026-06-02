@@ -385,21 +385,51 @@ input[type="number"] {
   animation: taliseSheetPanelIn 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Subtle dark scrollbars inside the app chrome. */
+/* Soft forest-tinted light scrollbars inside the light-mint app chrome. */
 .talise-appshell ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 .talise-appshell ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(35, 78, 20, 0.16);
   border-radius: 999px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
 .talise-appshell ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(35, 78, 20, 0.28);
   background-clip: content-box;
 }
+.talise-appshell {
+  scrollbar-color: rgba(35, 78, 20, 0.22) transparent;
+}
+
+/*
+ * History-row press tint — LIGHT-MINT override. Under .landing-mint the row
+ * reads as a clean white→faint-mint card (matching .talise-glass) with a soft
+ * forest hairline; on hover it picks up the directional tint (red for sent,
+ * green for received) over a near-white base. Keeps the same data-direction
+ * contract as the dark rule above.
+ */
+.landing-mint .talise-history-row {
+  background: linear-gradient(to bottom, #fbfdf7 0%, #f3faea 100%);
+  border: 1px solid #d6e8c6;
+  border-top-color: #ffffff;
+  border-radius: 18px;
+  box-shadow:
+    0 10px 26px -16px rgba(35, 78, 20, 0.14),
+    0 1px 2px rgba(35, 78, 20, 0.04);
+  transition: background 180ms ease, transform 180ms ease, border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+.landing-mint .talise-history-row:hover {
+  background: color-mix(in srgb, var(--row-tint, transparent) 9%, #ffffff);
+  border-color: color-mix(in srgb, var(--row-tint, var(--color-accent-deep)) 30%, var(--color-line));
+}
+.landing-mint .talise-history-row[data-direction="sent"]    { --row-tint: #c95a4a; }
+.landing-mint .talise-history-row[data-direction="received"]{ --row-tint: #3d7a29; }
+.landing-mint .talise-history-row[data-direction="invest"]  { --row-tint: #3d7a29; }
+.landing-mint .talise-history-row[data-direction="withdraw"]{ --row-tint: #3d7a29; }
 
 @media (prefers-reduced-motion: reduce) {
   .talise-toast-in,

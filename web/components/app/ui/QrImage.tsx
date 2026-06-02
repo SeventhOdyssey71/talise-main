@@ -33,14 +33,17 @@ export function QrImage({ value, size = 220, className = "" }: QrImageProps) {
 
   return (
     <div
-      className={`inline-flex items-center justify-center bg-white p-3 shadow-lg ${className}`}
+      className={`inline-flex items-center justify-center border border-line bg-white p-3 shadow-[0_14px_34px_-18px_rgba(35,78,20,0.18)] ${className}`}
       style={{ borderRadius: 20, width: size + 24, height: size + 24 }}
     >
       {dataUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={dataUrl} alt="QR code" width={size} height={size} style={{ display: "block" }} />
       ) : (
-        <div style={{ width: size, height: size }} className="animate-pulse rounded-lg bg-black/5" />
+        <div
+          style={{ width: size, height: size, background: "color-mix(in srgb, var(--color-accent-deep) 8%, #ffffff)" }}
+          className="animate-pulse rounded-lg"
+        />
       )}
     </div>
   );

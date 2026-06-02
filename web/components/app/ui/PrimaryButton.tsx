@@ -34,10 +34,10 @@ export function PrimaryButton({
 
   const variantCls =
     variant === "primary"
-      ? "bg-accent-deep text-white shadow-[0_10px_30px_-12px_rgba(75,138,55,0.7)] hover:brightness-110"
+      ? "bg-accent-deep text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)]"
       : variant === "danger"
         ? "border border-[color-mix(in_srgb,var(--color-danger)_45%,transparent)] bg-[color-mix(in_srgb,var(--color-danger)_14%,transparent)] text-[var(--color-danger)] hover:bg-[color-mix(in_srgb,var(--color-danger)_22%,transparent)]"
-        : "talise-glass text-fg hover:border-white/15";
+        : "border border-line bg-surface text-fg hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]";
 
   const isDisabled = disabled || loading;
   const cls = `${base} ${variantCls} ${width}`;

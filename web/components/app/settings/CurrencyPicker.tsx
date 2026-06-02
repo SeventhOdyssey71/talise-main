@@ -80,10 +80,10 @@ export function CurrencyPicker() {
                   setOpen(false);
                 }}
                 className={`flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-left transition-colors ${
-                  selected ? "bg-white/[0.06]" : "hover:bg-white/[0.04]"
+                  selected ? "bg-accent-soft" : "hover:bg-accent-soft"
                 }`}
               >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/[0.05] text-[14px] font-medium text-fg">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-[14px] font-medium text-fg">
                   {c.symbol}
                 </span>
                 <span className="min-w-0 flex-1">

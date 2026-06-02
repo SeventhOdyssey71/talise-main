@@ -41,8 +41,8 @@ export function BalanceHero() {
       <div className="mt-3">
         {showSkeleton ? (
           <div
-            className="animate-pulse rounded-2xl bg-white/[0.07]"
-            style={{ width: 220, height: 46 }}
+            className="animate-pulse rounded-2xl"
+            style={{ width: 220, height: 46, background: "var(--color-surface-2)" }}
             aria-label="Loading balance"
           />
         ) : (
@@ -61,7 +61,7 @@ export function BalanceHero() {
 
       <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1">
         {showSkeleton ? (
-          <span className="animate-pulse rounded-full bg-white/[0.07]" style={{ width: 96, height: 12 }} />
+          <span className="animate-pulse rounded-full" style={{ width: 96, height: 12, background: "var(--color-surface-2)" }} />
         ) : (
           <span className="font-mono text-[11px] tabular-nums text-fg-muted">{usdsuiLine}</span>
         )}

@@ -73,7 +73,7 @@ export function ReferralCard({
       <button
         type="button"
         onClick={copy}
-        className="talise-glass flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3.5 text-left transition-[border-color] hover:border-white/15"
+        className="talise-glass flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3.5 text-left transition-[border-color] hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
       >
         <span className="truncate font-mono text-[16px] tracking-wide text-fg">{code}</span>
         <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] text-accent">

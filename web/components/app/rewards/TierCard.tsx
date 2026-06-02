@@ -62,7 +62,7 @@ export function TierCard({
         </div>
         <span
           className="flex size-11 shrink-0 items-center justify-center rounded-full text-accent"
-          style={{ background: "color-mix(in srgb, var(--color-accent) 14%, transparent)" }}
+          style={{ background: "var(--color-accent-soft)" }}
         >
           <HugeiconsIcon icon={icon} size={22} strokeWidth={1.8} />
         </span>
@@ -78,9 +78,9 @@ export function TierCard({
               {points.toLocaleString()} / {total.toLocaleString()}
             </span>
           </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.06]">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
             <div
-              className="h-full rounded-full bg-accent transition-[width] duration-500 ease-out"
+              className="h-full rounded-full bg-accent-deep transition-[width] duration-500 ease-out"
               style={{ width: `${pct}%` }}
             />
           </div>

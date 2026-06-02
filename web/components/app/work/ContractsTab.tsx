@@ -214,9 +214,9 @@ function ContractCard({
 
       {/* Progress */}
       <div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.06]">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-surface-2)]">
           <div
-            className="h-full rounded-full bg-accent transition-[width] duration-500"
+            className="h-full rounded-full bg-accent-deep transition-[width] duration-500"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -493,7 +493,7 @@ function CreateContractSheet({
           </div>
         )}
         {resolved && (
-          <div className="flex items-center gap-2 rounded-xl bg-white/[0.03] px-3 py-2 text-[13px] text-accent">
+          <div className="flex items-center gap-2 rounded-xl bg-[var(--color-accent-soft)] px-3 py-2 text-[13px] text-accent">
             Paying {resolved.displayName}
           </div>
         )}
@@ -555,7 +555,7 @@ function CreateContractSheet({
         </div>
 
         {/* Live preview */}
-        <div className="rounded-2xl border border-line bg-white/[0.02] px-4 py-4">
+        <div className="rounded-2xl border border-line bg-[var(--color-surface-2)] px-4 py-4">
           {total > 0 ? (
             <>
               <p className="text-[14px] leading-relaxed text-fg">

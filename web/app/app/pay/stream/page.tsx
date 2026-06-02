@@ -121,9 +121,10 @@ export default function StreamPage() {
               aria-selected={active}
               onClick={() => setTab(t.id)}
               className={`flex-1 rounded-full px-4 py-2 text-[14px] font-semibold transition-colors ${
-                active ? "text-[#0a130d]" : "text-fg-muted hover:text-fg"
+                active
+                  ? "bg-accent-soft text-accent"
+                  : "text-fg-muted hover:bg-accent-soft hover:text-fg"
               }`}
-              style={active ? { background: "var(--color-accent)" } : undefined}
             >
               {t.label}
             </button>
@@ -401,9 +402,10 @@ function ChipRow({
               type="button"
               onClick={() => onChange(o.min)}
               className={`rounded-full px-4 py-2 text-[13px] transition-colors ${
-                on ? "font-medium text-[#0a130d]" : "text-fg hover:border-white/15"
-              } ${on ? "" : "talise-glass"}`}
-              style={on ? { background: "var(--color-accent)" } : undefined}
+                on
+                  ? "bg-accent-soft font-medium text-accent"
+                  : "talise-glass text-fg hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+              }`}
             >
               {o.label}
             </button>
@@ -515,12 +517,12 @@ function ListTab({ reloadSignal }: { reloadSignal: number }) {
             </div>
 
             {/* Progress bar */}
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
               <div
                 className="h-full rounded-full"
                 style={{
                   width: `${progress * 100}%`,
-                  background: "var(--color-accent)",
+                  background: "var(--color-accent-deep)",
                   transition: "width 400ms ease-out",
                 }}
               />
