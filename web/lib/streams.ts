@@ -8,6 +8,7 @@ import { sui } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { onara } from "@/lib/onara";
 import { getCurrentEpoch, getChainIdentifier } from "@/lib/sui-epoch";
+import { getNormalizedTransaction } from "@/lib/sui-shapes";
 
 /**
  * Streaming USDsui payments — backend data layer + escrow release engine.
@@ -57,6 +58,37 @@ export function streamEscrowEnabled(): boolean {
 export function streamPackageId(): string | null {
   return process.env.STREAM_PACKAGE_ID ?? null;
 }
+
+/**
+ * The shared `StreamRegistry` object id, when configured. Required (alongside
+ * the package id) to build any on-chain stream PTB.
+ */
+export function streamRegistryId(): string | null {
+  return process.env.STREAM_REGISTRY_ID ?? null;
+}
+
+/**
+ * True when the on-chain `talise::stream` path is fully configured (package +
+ * registry ids set AND the worker key is loadable). When this is false the
+ * backend falls back to the live escrow + scheduler variant. This is the ONE
+ * gate every on-chain branch checks: a half-configured env (package id but no
+ * registry, or no worker key) degrades to the escrow path instead of erroring.
+ */
+export function streamOnchainEnabled(): boolean {
+  return (
+    !!process.env.STREAM_PACKAGE_ID &&
+    !!process.env.STREAM_REGISTRY_ID &&
+    !!process.env.STREAM_ESCROW_SK
+  );
+}
+
+/** Fully-qualified on-chain Stream object type prefix: `${PKG}::stream::Stream<`. */
+function streamObjectTypePrefix(pkg: string): string {
+  return `${pkg}::stream::Stream<`;
+}
+
+/** The shared Sui Clock object id (immutable, network-wide). */
+const SUI_CLOCK_ID = "0x6";
 
 /** Load the server escrow Ed25519 keypair. Throws when `STREAM_ESCROW_SK` unset. */
 function escrowKeypair(): Ed25519Keypair {
@@ -193,6 +225,16 @@ export interface StreamRow {
 /** Generate a server-side stream id for the escrow variant (no on-chain object). */
 export function newStreamId(): string {
   return `str_${randomHex(24)}`;
+}
+
+/**
+ * True when a stream id is a real on-chain `Stream<T>` object id (`0x…`) vs a
+ * synthetic escrow id (`str_…`). The cron uses this to pick the on-chain
+ * release path vs the escrow→recipient transfer path. On-chain object ids are
+ * 0x-prefixed 64-hex; escrow ids are `str_<hex>`.
+ */
+export function isOnchainStreamId(id: string): boolean {
+  return /^0x[a-f0-9]{1,64}$/i.test(id);
 }
 
 function randomHex(bytes: number): string {
@@ -621,6 +663,298 @@ export async function buildSponsoredStreamFunding(input: {
 
   const bytes = await tx.build({ client: client as never });
   return { bytes: toBase64(bytes), escrowAddress, sponsor };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// ON-CHAIN `talise::stream` PATH (gated behind STREAM_PACKAGE_ID).
+//
+// When the package + registry ids + worker key are all set
+// (streamOnchainEnabled()), Talise creates a REAL shared `Stream<USDSUI>`
+// object instead of routing funds through the server escrow address. The
+// builders below mirror the contract ABI:
+//
+//   create<T>(registry, funds: Balance<T>, recipient, tranche_amount,
+//             num_tranches, start_ms, interval_ms, clock, ctx): ID
+//   release<T>(registry, stream, clock, ctx)                 // worker-signed
+//   cancel_and_withdraw<T>(stream, ctx): Coin<T>             // sender-signed
+//
+// FUNDING PATTERN (the crux):
+//   • create is a SPONSORED tx — a custom Move call is NOT gasless-eligible
+//     (only 0x2::balance::send_funds is). So Onara sponsors gas, the user
+//     signs. Mirrors the SPONSORED branch of /api/send/sponsor-prepare:
+//     onara().status() for the sponsor address + reference gas price,
+//     setSender(user), setGasOwner(sponsor), setGasPrice, build → sponsor-
+//     ready bytes the iOS client signs and POSTs to /api/zk/sponsor-execute.
+//   • The Balance<USDSUI> `funds` argument comes from the user's Address
+//     Balance accumulator via tx.balance({ type, balance }) — the SAME
+//     accumulator-withdrawal primitive the gasless branch passes to
+//     0x2::balance::send_funds — handed straight as the create() arg.
+//   • release is a WORKER-signed Move call that pays its OWN SUI gas (the
+//     worker = the STREAM_ESCROW_SK key, funded for gas). Build → worker
+//     signTransaction → executeTransaction, mirroring suins-operator.ts.
+//   • cancel_and_withdraw is SPONSORED (sender-signed), same shape as create.
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Build the Onara-SPONSORED `talise::stream::create<USDSUI>` PTB. The user
+ * signs; Onara sponsors gas. The `funds` argument is pulled from the user's
+ * Address Balance accumulator via `tx.balance(...)` (the same primitive the
+ * gasless send rail uses), so no Coin<USDSUI> object is required.
+ *
+ * Returns sponsor-ready base64 bytes that iOS signs and POSTs to
+ * /api/zk/sponsor-execute. Throws on build failure (the caller categorizes).
+ *
+ * Requires streamOnchainEnabled() upstream (caller gates).
+ */
+export async function buildStreamCreateSponsored(input: {
+  senderAddress: string;
+  recipientAddress: string;
+  totalMicros: bigint;
+  trancheMicros: bigint;
+  numTranches: number;
+  startMs: number;
+  intervalMs: number;
+}): Promise<{ bytes: string; sponsor: string }> {
+  const pkg = streamPackageId();
+  const registry = streamRegistryId();
+  if (!pkg || !registry) {
+    throw new Error(
+      "STREAM_PACKAGE_ID / STREAM_REGISTRY_ID unset — on-chain stream create disabled"
+    );
+  }
+
+  const onaraClient = onara();
+  const client = sui();
+
+  // Sponsor address + reference gas price in parallel (same as sponsor-prepare).
+  const [{ address: sponsor }, gasPrice] = await Promise.all([
+    onaraClient.status(),
+    client.getReferenceGasPrice().then((r) => r.referenceGasPrice),
+  ]);
+
+  const tx = new Transaction();
+  tx.setSender(input.senderAddress);
+
+  // The Balance<USDSUI> argument — withdrawn from the user's accumulator.
+  // This is the SAME accumulator-withdrawal primitive the gasless branch of
+  // /api/send/sponsor-prepare passes to 0x2::balance::send_funds; here we pass
+  // it straight as the `funds` arg of the create moveCall.
+  const funds = tx.balance({ type: USDSUI_TYPE, balance: input.totalMicros });
+
+  tx.moveCall({
+    target: `${pkg}::stream::create`,
+    typeArguments: [USDSUI_TYPE],
+    arguments: [
+      tx.object(registry),
+      funds,
+      tx.pure.address(input.recipientAddress),
+      tx.pure.u64(input.trancheMicros),
+      tx.pure.u64(BigInt(input.numTranches)),
+      tx.pure.u64(BigInt(input.startMs)),
+      tx.pure.u64(BigInt(input.intervalMs)),
+      tx.object(SUI_CLOCK_ID),
+    ],
+  });
+
+  // SPONSORED: Onara owns the gas. The user signs the sender slot.
+  tx.setGasOwner(sponsor);
+  tx.setGasPrice(BigInt(gasPrice));
+
+  const bytes = await tx.build({ client: client as never });
+  return { bytes: toBase64(bytes), sponsor };
+}
+
+/**
+ * Parse the CREATED `Stream<...>` object id out of a confirmed funding tx.
+ * The create PTB shares exactly one `${PKG}::stream::Stream<USDSUI>` object;
+ * its objectId IS the on-chain stream id we persist as `streams.id`.
+ *
+ * Reads via `getNormalizedTransaction(digest)` (gRPC, with objectTypes) so we
+ * don't depend on the sponsor-execute response carrying objectChanges (it
+ * doesn't on the gRPC build). Returns null if no Stream object is found (the
+ * caller surfaces a clean error instead of persisting a synthetic id).
+ */
+export async function parseCreatedStreamObjectId(
+  digest: string
+): Promise<string | null> {
+  const pkg = streamPackageId();
+  if (!pkg) return null;
+  const prefix = streamObjectTypePrefix(pkg).toLowerCase();
+
+  let tx;
+  try {
+    tx = await getNormalizedTransaction(digest);
+  } catch (err) {
+    console.warn(
+      `[streams] parseCreatedStreamObjectId getTransaction failed digest=${digest}: ${(err as Error).message}`
+    );
+    return null;
+  }
+  if (tx.status !== "success") return null;
+
+  for (const oc of tx.objectChanges) {
+    if (oc.kind !== "created") continue;
+    const ty = (oc.objectType ?? "").toLowerCase();
+    if (ty.startsWith(prefix)) {
+      return oc.objectId;
+    }
+  }
+  return null;
+}
+
+/**
+ * WORKER-signed on-chain tranche release. Builds the
+ * `talise::stream::release<USDSUI>(registry, stream, clock, ctx)` PTB, signs
+ * it with the worker keypair (the STREAM_ESCROW_SK key — registered on-chain
+ * as a stream worker, funded for its OWN SUI gas), and executes it directly.
+ *
+ * The on-chain `tranches_done` cursor + Clock due-time gate make this
+ * idempotent + replay-safe at the contract level: a double-fired release in
+ * the same interval aborts (E_TRANCHE_NOT_DUE), so funds can never double-pay
+ * even if the DB lease + unique-index guards both fail.
+ *
+ * Returns `{ ok:false }` (never throws) so the scheduler can reconcile/retry.
+ * Mirrors the build → kp.signTransaction → executeTransaction pattern in
+ * web/lib/suins-operator.ts:mintSubname and the existing escrow releaseTranche.
+ */
+export async function releaseTrancheOnChain(
+  streamObjectId: string
+): Promise<ReleaseResult> {
+  const pkg = streamPackageId();
+  const registry = streamRegistryId();
+  if (!pkg || !registry) {
+    return { ok: false, error: "STREAM_PACKAGE_ID / STREAM_REGISTRY_ID unset" };
+  }
+  if (!streamEscrowEnabled()) {
+    return { ok: false, error: "STREAM_ESCROW_SK unset — worker key unavailable" };
+  }
+  try {
+    const kp = escrowKeypair(); // the registered stream worker key
+    const worker = kp.getPublicKey().toSuiAddress();
+    const client = sui();
+
+    const tx = new Transaction();
+    tx.setSender(worker);
+    tx.moveCall({
+      target: `${pkg}::stream::release`,
+      typeArguments: [USDSUI_TYPE],
+      arguments: [
+        tx.object(registry),
+        tx.object(streamObjectId),
+        tx.object(SUI_CLOCK_ID),
+      ],
+    });
+    // Worker pays its own SUI gas: let the builder pick the gas coin + budget
+    // (no setGasPrice/setGasPayment — this is a normal, gas-paying tx).
+
+    const bytes = await tx.build({ client: client as never });
+    const { signature } = await kp.signTransaction(bytes);
+
+    const result = (await client.executeTransaction({
+      transaction: bytes,
+      signatures: [signature],
+      include: { effects: true },
+    } as never)) as Record<string, unknown>;
+
+    if ((result.$kind as string | undefined) === "FailedTransaction") {
+      const failed = result.FailedTransaction as
+        | { digest?: string; effects?: { status?: { error?: unknown } } }
+        | undefined;
+      return { ok: false, error: extractStatusError(failed?.effects?.status) };
+    }
+
+    const txInner = result.Transaction as
+      | { digest?: string; effects?: { status?: { success?: boolean; error?: unknown } } }
+      | undefined;
+    if (txInner?.effects?.status && txInner.effects.status.success === false) {
+      return { ok: false, error: extractStatusError(txInner.effects.status) };
+    }
+    return { ok: true, digest: txInner?.digest ?? "" };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message ?? String(err) };
+  }
+}
+
+/**
+ * Read the on-chain `tranches_done` cursor for a `Stream<USDSUI>` object so the
+ * scheduler can reconcile the DB cache against chain truth (the contract is the
+ * source of truth for how many tranches have actually been released).
+ *
+ * Returns null on any read failure (the caller falls back to DB state). Pulls
+ * the parsed Move struct fields via gRPC `getObject`.
+ */
+export async function streamTranchesDoneOnChain(
+  streamObjectId: string
+): Promise<number | null> {
+  try {
+    const res = (await sui().getObject({
+      objectId: streamObjectId,
+    } as never)) as unknown as Record<string, unknown>;
+    // gRPC getObject returns the parsed object; walk known shapes for the
+    // Move struct fields (the SDK surfaces them under contents/json/fields).
+    const obj =
+      (res.object as Record<string, unknown> | undefined) ?? res;
+    const contents =
+      (obj.contents as Record<string, unknown> | undefined) ??
+      (obj.content as Record<string, unknown> | undefined);
+    const fields =
+      ((contents?.json ?? contents?.fields) as Record<string, unknown> | undefined) ??
+      (obj.json as Record<string, unknown> | undefined);
+    const raw = fields?.tranches_done;
+    if (raw == null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  } catch (err) {
+    console.warn(
+      `[streams] streamTranchesDoneOnChain failed stream=${streamObjectId}: ${(err as Error).message}`
+    );
+    return null;
+  }
+}
+
+/**
+ * Build the Onara-SPONSORED `talise::stream::cancel_and_withdraw<USDSUI>` PTB.
+ * Sender-signed (the contract asserts ctx.sender() == stream.sender), Onara-
+ * sponsored for gas (a custom Move call is not gasless-eligible). The returned
+ * `Coin<USDSUI>` remainder is transferred back to the sender in the same PTB.
+ *
+ * Returns sponsor-ready base64 bytes that iOS signs and POSTs to
+ * /api/zk/sponsor-execute. Throws on build failure (the caller categorizes).
+ */
+export async function buildStreamCancelSponsored(input: {
+  senderAddress: string;
+  streamObjectId: string;
+}): Promise<{ bytes: string; sponsor: string }> {
+  const pkg = streamPackageId();
+  if (!pkg) {
+    throw new Error("STREAM_PACKAGE_ID unset — on-chain stream cancel disabled");
+  }
+
+  const onaraClient = onara();
+  const client = sui();
+
+  const [{ address: sponsor }, gasPrice] = await Promise.all([
+    onaraClient.status(),
+    client.getReferenceGasPrice().then((r) => r.referenceGasPrice),
+  ]);
+
+  const tx = new Transaction();
+  tx.setSender(input.senderAddress);
+
+  // cancel_and_withdraw returns the undistributed remainder as Coin<USDSUI>;
+  // route it back to the sender in the same PTB.
+  const refund = tx.moveCall({
+    target: `${pkg}::stream::cancel_and_withdraw`,
+    typeArguments: [USDSUI_TYPE],
+    arguments: [tx.object(input.streamObjectId)],
+  });
+  tx.transferObjects([refund], input.senderAddress);
+
+  tx.setGasOwner(sponsor);
+  tx.setGasPrice(BigInt(gasPrice));
+
+  const bytes = await tx.build({ client: client as never });
+  return { bytes: toBase64(bytes), sponsor };
 }
 
 // ── Read-side projection helpers (for the list / status routes) ─────────

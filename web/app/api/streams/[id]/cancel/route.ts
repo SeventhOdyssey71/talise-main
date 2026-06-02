@@ -7,6 +7,9 @@ import {
   setStreamState,
   refundRemainder,
   streamEscrowEnabled,
+  streamOnchainEnabled,
+  isOnchainStreamId,
+  buildStreamCancelSponsored,
 } from "@/lib/streams";
 
 export const runtime = "nodejs";
@@ -14,16 +17,24 @@ export const runtime = "nodejs";
 /**
  * POST /api/streams/[id]/cancel
  *
- * Sender-only, terminal. Marks the stream `cancelled` (stops all releases)
- * and refunds the UNDISTRIBUTED remainder from the escrow back to the sender
- * via a gasless escrow→sender USDsui transfer. Already-released tranches stay
- * with the recipient (can't be clawed back). Idempotent: cancelling an
- * already-cancelled stream no-ops.
+ * Sender-only, terminal. Marks the stream `cancelled` (stops all releases) and
+ * returns the undistributed remainder to the sender. Already-released tranches
+ * stay with the recipient. Idempotent: cancelling an already-cancelled stream
+ * no-ops.
  *
- * Order: flip state FIRST (so the scheduler can't release a tranche while the
- * refund is in flight), then refund. A failed refund leaves the row cancelled
- * with the remainder still in escrow — surfaced as `{ refunded:false }` so ops
- * can reconcile; funds are never lost (the escrow keypair can re-send).
+ *   • ESCROW path: the server refunds the remainder itself via a gasless
+ *     escrow→sender USDsui transfer signed by the escrow keypair. A failed
+ *     refund leaves the row cancelled with the remainder still in escrow —
+ *     surfaced as `{ refunded:false }`; funds are never lost (the escrow key
+ *     can re-send).
+ *   • ON-CHAIN path: the refund is a SENDER-signed `stream::cancel_and_withdraw`
+ *     — only the user's zkLogin can sign it. The server flips the row to
+ *     cancelled (stops the scheduler) and returns Onara-SPONSORED cancel bytes
+ *     with `mode:'onchain'` for iOS to sign and POST to /api/zk/sponsor-execute;
+ *     that tx withdraws the remainder Coin<USDSUI> back to the sender.
+ *
+ * Order: flip state FIRST so the scheduler can't release a tranche while the
+ * refund is in flight, then refund / return cancel bytes.
  */
 export async function POST(
   req: Request,
@@ -65,6 +76,48 @@ export async function POST(
 
   const remainderMicros = BigInt(row.total_micros) - BigInt(row.released_micros);
   const refundUsd = Number(remainderMicros) / 1e6;
+
+  // ── ON-CHAIN path: only the sender's zkLogin can sign cancel_and_withdraw.
+  // Return Onara-SPONSORED cancel bytes for iOS to sign + execute. The row is
+  // already flipped to cancelled, so the scheduler won't release further.
+  if (streamOnchainEnabled() && isOnchainStreamId(id)) {
+    if (remainderMicros <= 0n) {
+      // Nothing undistributed left on chain — fully released. No withdraw tx.
+      return NextResponse.json({
+        ok: true,
+        state: "cancelled",
+        refunded: true,
+        refundUsd: 0,
+      });
+    }
+    try {
+      const { bytes } = await buildStreamCancelSponsored({
+        senderAddress: row.sender_address,
+        streamObjectId: id,
+      });
+      return NextResponse.json({
+        ok: true,
+        state: "cancelled",
+        mode: "onchain",
+        bytes,
+        refundUsd: Math.max(0, refundUsd),
+      });
+    } catch (err) {
+      const msg = (err as Error).message ?? "cancel build failed";
+      console.warn(`[streams/cancel] on-chain cancel build failed stream=${id}: ${msg}`);
+      // Row is cancelled regardless; surface a non-fatal note so iOS can retry
+      // the withdraw without re-cancelling. Funds stay safe in the Stream
+      // object (the sender can always re-issue cancel_and_withdraw).
+      return NextResponse.json({
+        ok: true,
+        state: "cancelled",
+        mode: "onchain",
+        refunded: false,
+        refundUsd: Math.max(0, refundUsd),
+        detail: msg,
+      });
+    }
+  }
 
   if (!streamEscrowEnabled() || remainderMicros <= 0n) {
     return NextResponse.json({

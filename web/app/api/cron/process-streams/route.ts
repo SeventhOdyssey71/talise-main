@@ -6,8 +6,12 @@ import {
   recordTranche,
   bumpAttemptOrStall,
   releaseTranche,
+  releaseTrancheOnChain,
+  streamTranchesDoneOnChain,
+  isOnchainStreamId,
   streamEscrowEnabled,
   type StreamRow,
+  type ReleaseResult,
 } from "@/lib/streams";
 
 export const runtime = "nodejs";
@@ -17,9 +21,16 @@ export const dynamic = "force-dynamic";
  * GET /api/cron/process-streams — THE STREAM SCHEDULER.
  *
  * Vercel cron (every minute; see web/vercel.json). For each active stream
- * whose next tranche is due, release ONE tranche by signing an escrow→
- * recipient gasless USDsui transfer with the server escrow keypair
- * (web/lib/streams.ts:releaseTranche).
+ * whose next tranche is due, release ONE tranche:
+ *
+ *   • ON-CHAIN stream (id is a real Stream<USDSUI> object id, 0x…): release
+ *     by signing a worker `stream::release<USDSUI>` Move call with the worker
+ *     keypair (web/lib/streams.ts:releaseTrancheOnChain). The DB cache is
+ *     reconciled against the on-chain `tranches_done` cursor before AND after
+ *     the release — the contract is the source of truth.
+ *   • ESCROW stream (id is `str_…`): release by signing an escrow→recipient
+ *     gasless USDsui transfer with the server escrow keypair
+ *     (web/lib/streams.ts:releaseTranche).
  *
  * Hardening / idempotency (design §4.5) — three layers:
  *   1. Bearer CRON_SECRET gate (this is a money-moving loop; a random GET
@@ -89,9 +100,56 @@ export async function GET(req: Request) {
       continue;
     }
 
-    // The next tranche is 0-indexed = tranches_done; 1-based index = +1.
-    const trancheIndex = Number(stream.tranches_done) + 1;
+    const onchain = isOnchainStreamId(stream.id);
     const numTranches = Number(stream.num_tranches);
+
+    // For an on-chain stream the CONTRACT's tranches_done cursor is the source
+    // of truth (release() advances it atomically + the Clock gate prevents
+    // early/double release). Reconcile the DB cache against chain BEFORE
+    // deciding the next index, so a tranche another instance/safety-valve
+    // already released isn't re-attempted.
+    let tranchesDone = Number(stream.tranches_done);
+    if (onchain) {
+      const chainDone = await streamTranchesDoneOnChain(stream.id);
+      if (chainDone != null && chainDone > tranchesDone) {
+        // Chain is ahead of the DB cache — record the missing tranche(s) so the
+        // cursor + ledger catch up. recordTranche is ON CONFLICT-safe.
+        try {
+          const trancheMicros = BigInt(stream.tranche_micros);
+          const totalMicros = BigInt(stream.total_micros);
+          for (let i = tranchesDone + 1; i <= chainDone && i <= numTranches; i++) {
+            const isLastReconcile = i === numTranches;
+            const reconciledReleased = isLastReconcile
+              ? totalMicros
+              : trancheMicros * BigInt(i);
+            const amt = isLastReconcile
+              ? totalMicros - trancheMicros * BigInt(i - 1)
+              : trancheMicros;
+            await recordTranche({
+              streamId: stream.id,
+              trancheIndex: i,
+              amountMicros: amt,
+              txDigest: null,
+              numTranches,
+              releasedMicros: reconciledReleased,
+              startMs: Number(stream.start_ms),
+              intervalMs: Number(stream.interval_ms),
+            });
+          }
+          tranchesDone = Math.min(chainDone, numTranches);
+        } catch (err) {
+          // Reconcile is best-effort; the release path below still uses the
+          // chain-truth cursor so we never double-release.
+          console.warn(
+            `[cron/process-streams] reconcile failed stream=${stream.id}: ${(err as Error).message}`
+          );
+          tranchesDone = Math.min(chainDone, numTranches);
+        }
+      }
+    }
+
+    // The next tranche is 0-indexed = tranches_done; 1-based index = +1.
+    const trancheIndex = tranchesDone + 1;
     if (trancheIndex > numTranches) {
       // Already complete — reconcile and release the lease.
       await clearStreamLease(stream.id);
@@ -100,9 +158,16 @@ export async function GET(req: Request) {
     }
 
     // Last tranche pays the remainder so sum == total exactly (no drift).
+    // `releasedMicros` follows the (possibly reconciled) cursor rather than the
+    // stale DB column: tranches_done * tranche_micros for fixed tranches. This
+    // keeps the post-release recordTranche bookkeeping consistent even when an
+    // on-chain reconcile advanced `tranchesDone` above the cached value.
     const totalMicros = BigInt(stream.total_micros);
-    const releasedMicros = BigInt(stream.released_micros);
     const trancheMicros = BigInt(stream.tranche_micros);
+    const releasedMicros =
+      tranchesDone === Number(stream.tranches_done)
+        ? BigInt(stream.released_micros)
+        : trancheMicros * BigInt(tranchesDone);
     const isLast = trancheIndex === numTranches;
     const amountMicros = isLast ? totalMicros - releasedMicros : trancheMicros;
 
@@ -112,11 +177,16 @@ export async function GET(req: Request) {
       continue;
     }
 
-    // b. Sign + execute the escrow→recipient release.
-    const res = await releaseTranche({
-      recipientAddress: stream.recipient_address,
-      amountMicros,
-    });
+    // b. Sign + execute the release. On-chain: worker-signed stream::release
+    // (the contract splits the tranche from the Stream escrow + transfers to
+    // the recipient, advancing tranches_done atomically). Escrow: escrow→
+    // recipient gasless USDsui transfer.
+    const res: ReleaseResult = onchain
+      ? await releaseTrancheOnChain(stream.id)
+      : await releaseTranche({
+          recipientAddress: stream.recipient_address,
+          amountMicros,
+        });
 
     if (res.ok) {
       // c. Advance cursor + append idempotent ledger row.

@@ -16,6 +16,8 @@ import {
   streamEscrowEnabled,
   streamEscrowAddress,
   buildSponsoredStreamFunding,
+  streamOnchainEnabled,
+  buildStreamCreateSponsored,
 } from "@/lib/streams";
 
 export const runtime = "nodejs";
@@ -291,6 +293,64 @@ export async function POST(req: Request) {
       startMs,
     },
   };
+
+  // ── ON-CHAIN PATH (gated behind STREAM_PACKAGE_ID via streamOnchainEnabled).
+  // When the published `talise::stream` contract is wired, the funding tx is a
+  // SPONSORED `stream::create<USDSUI>` Move call that withdraws the full amount
+  // from the user's accumulator (tx.balance) and shares a real Stream<USDSUI>
+  // object holding the escrow Balance. A custom Move call is NOT gasless-
+  // eligible, so this is Onara-sponsored (the user signs, Onara pays gas) and
+  // returned with mode 'onchain'. /api/streams/record parses the created
+  // Stream object id from the confirmed funding digest and stores it as the
+  // stream's id. The escrow + scheduler path below stays UNCHANGED as the
+  // fallback when the contract isn't configured.
+  if (streamOnchainEnabled()) {
+    try {
+      const { bytes: onchainBytes } = await buildStreamCreateSponsored({
+        senderAddress: user.sui_address,
+        recipientAddress,
+        totalMicros,
+        trancheMicros,
+        numTranches,
+        startMs,
+        intervalMs,
+      });
+
+      // Reserve the FULL amount against the rolling limit window (best-effort).
+      void recordSend({ userId, amountUsd: totalUsd, asset: "USDsui", digest: null });
+
+      return NextResponse.json({
+        bytes: onchainBytes,
+        mode: "onchain",
+        ...planPayload,
+      });
+    } catch (err) {
+      const msg = (err as Error).message ?? "build failed";
+      console.error(
+        `[streams/create-prepare] on-chain create build failed user=${userId}: ${msg}`
+      );
+      // A genuine insufficient accumulator balance can't be rescued (the
+      // create funds arg pulls from the same accumulator) → clean 400.
+      if (/insufficient/i.test(msg)) {
+        return NextResponse.json(
+          {
+            error:
+              "Insufficient USDsui balance to fund this stream. Top up and try again.",
+            detail: msg,
+            code: "INSUFFICIENT_BALANCE",
+          },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json(
+        {
+          error: "Couldn't prepare the stream. Please try again.",
+          detail: msg,
+        },
+        { status: 500 }
+      );
+    }
+  }
 
   try {
     const client = sui();

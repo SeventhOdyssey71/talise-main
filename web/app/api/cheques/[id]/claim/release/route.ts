@@ -78,10 +78,15 @@ export async function POST(
     return NextResponse.json({ error: msg, code: "GATE_FAILED", reason: elig.reason }, { status: 403 });
   }
 
+  // On-chain rail: releaseCheque has the worker sign `cheque::claim(recipient
+  // = claimer address)` AFTER these captcha + VPN + country gates pass. Escrow
+  // rail: it signs the gasless escrow→claimer transfer. Either way the
+  // claimer's geolocated country is recorded for audit.
   const result = await releaseCheque({
     chequeId: id,
     claimerUserId: userId,
     claimerAddress: user.sui_address,
+    claimerCountry: elig.country ?? null,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.reason ?? "release_failed" }, { status: 409 });

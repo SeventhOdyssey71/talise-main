@@ -41,9 +41,13 @@ export async function POST(
   const user = await userById(userId);
   if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });
 
+  // markFunded picks the rail itself: on-chain (parse the created Cheque
+  // object id from `digest`, the sponsored cheque::create tx) or escrow
+  // (verify the deposit credited the escrow address). Either way it flips
+  // draft→funded atomically.
   const r = await markFunded({ chequeId: id, digest: body.digest, creatorAddress: user.sui_address });
   if (!r.ok) {
     return NextResponse.json({ error: r.reason ?? "confirm_failed" }, { status: 409 });
   }
-  return NextResponse.json({ ok: true, status: "funded" });
+  return NextResponse.json({ ok: true, status: "funded", chequeObjectId: r.chequeObjectId });
 }

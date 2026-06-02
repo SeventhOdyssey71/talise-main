@@ -7,6 +7,8 @@ import {
   createStreamRecord,
   newStreamId,
   streamEscrowEnabled,
+  streamOnchainEnabled,
+  parseCreatedStreamObjectId,
 } from "@/lib/streams";
 
 export const runtime = "nodejs";
@@ -16,11 +18,20 @@ export const runtime = "nodejs";
  *
  * Called by iOS after the funding tx (from /api/streams/create-prepare) has
  * confirmed. Inserts the `streams` row in state `active` so the scheduler
- * picks it up. The funding tx is a plain gasless USDsui send into the escrow
- * address, so we don't parse on-chain objectChanges (the escrow variant has
- * no on-chain Stream object) — we mint a server-side stream id and trust the
- * client-forwarded funding digest + plan (which the server itself produced in
- * create-prepare and the limits ledger already reserved).
+ * picks it up.
+ *
+ *   • ESCROW path (STREAM_PACKAGE_ID unset): the funding tx is a plain USDsui
+ *     send into the escrow address — there's no on-chain Stream object, so we
+ *     mint a server-side `str_…` id and trust the client-forwarded funding
+ *     digest + plan (which the server itself produced in create-prepare and
+ *     the limits ledger already reserved).
+ *   • ON-CHAIN path (streamOnchainEnabled): the funding tx was a SPONSORED
+ *     `stream::create<USDSUI>` that shared a real Stream<USDSUI> object. We
+ *     parse the created object id from the confirmed funding digest (via the
+ *     gRPC tx read) and store THAT as the stream's id — the cron then releases
+ *     tranches against the real on-chain object. If the object can't be parsed
+ *     (tx not yet indexed / failed), we reject so we never persist a synthetic
+ *     id for an on-chain stream.
  *
  * Body: `{ fundingDigest, recipientAddress, recipientHandle?, totalMicros,
  *          trancheMicros, numTranches, startMs, intervalMs }`.
@@ -112,7 +123,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid amounts" }, { status: 400 });
   }
 
-  const id = newStreamId();
+  // On-chain: the stream id IS the created Stream<USDSUI> object id, parsed
+  // from the confirmed funding tx. Escrow: a synthetic server-side id.
+  let id: string;
+  if (streamOnchainEnabled()) {
+    const objectId = await parseCreatedStreamObjectId(fundingDigest);
+    if (!objectId) {
+      console.warn(
+        `[streams/record] on-chain create object not found for digest=${fundingDigest} user=${userId}`
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Couldn't confirm the on-chain stream yet. Wait a moment and retry.",
+          code: "STREAM_OBJECT_UNCONFIRMED",
+        },
+        { status: 409 }
+      );
+    }
+    id = objectId;
+  } else {
+    id = newStreamId();
+  }
+
   try {
     await createStreamRecord({
       id,

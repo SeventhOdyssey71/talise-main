@@ -6,8 +6,11 @@ import { screenTransfer } from "@/lib/screening";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 import {
   chequesEnabled,
+  chequeOnchainEnabled,
   escrowAddress,
   createCheque,
+  getCheque,
+  buildChequeCreateSponsored,
   usdToMicros,
   claimUrl,
   type ChequeGate,
@@ -94,6 +97,7 @@ export async function POST(req: Request) {
 
   const { id, secret, expiresAt } = await createCheque({
     creatorUserId: userId,
+    creatorAddress: user.sui_address,
     amountMicros: usdToMicros(amountUsd),
     payeeLabel: body.payeeLabel?.slice(0, 80) ?? null,
     memo: body.memo?.slice(0, 140) ?? null,
@@ -101,8 +105,49 @@ export async function POST(req: Request) {
     gates,
   });
 
+  // ── On-chain rail: return the Onara-SPONSORED `cheque::create` bytes ──
+  // iOS signs `fundingBytes` and POSTs to /api/zk/sponsor-execute; the
+  // resulting digest is then sent to /api/cheques/:id/confirm-funded, which
+  // parses the created on-chain Cheque object id and flips draft→funded. When
+  // the on-chain rail is OFF, we return the escrow address + claim URL exactly
+  // as before (the client funds the escrow via the normal send rail).
+  if (chequeOnchainEnabled()) {
+    try {
+      const { bytes: fundingBytes, sponsor } = await buildChequeCreateSponsored({
+        creatorAddress: user.sui_address,
+        amountMicros: usdToMicros(amountUsd),
+        expiryMs: expiresAt,
+      });
+      return NextResponse.json({
+        chequeId: id,
+        mode: "onchain",
+        fundingBytes, // sponsor-ready; iOS signs → /api/zk/sponsor-execute
+        sponsor,
+        amountUsd,
+        claimUrl: claimUrl(id, secret),
+        secret, // returned once so the client can build the shareable link
+        expiresAt,
+        allowedCountries,
+        requireCaptcha: true,
+      });
+    } catch (e) {
+      // Build failure on the on-chain rail: the draft row is harmless (it
+      // can be reclaimed/swept and was never funded). Surface a clean 500 so
+      // the client can retry rather than silently funding nothing.
+      const cq = await getCheque(id);
+      console.error(
+        `[cheques/create] on-chain create build failed cheque=${id} status=${cq?.status}: ${(e as Error).message}`
+      );
+      return NextResponse.json(
+        { error: "Couldn't prepare the cheque. Please try again.", code: "ONCHAIN_BUILD_FAILED" },
+        { status: 500 }
+      );
+    }
+  }
+
   return NextResponse.json({
     chequeId: id,
+    mode: "escrow",
     escrowAddress: escrowAddress(),
     amountUsd,
     claimUrl: claimUrl(id, secret),
