@@ -15,6 +15,7 @@ import {
   ensureStreamsSchema,
   streamEscrowEnabled,
   streamEscrowAddress,
+  buildSponsoredStreamFunding,
 } from "@/lib/streams";
 
 export const runtime = "nodejs";
@@ -23,10 +24,21 @@ export const runtime = "nodejs";
  * POST /api/streams/create-prepare
  *
  * Build the sender's ONE funding transaction that moves the FULL stream
- * amount out of their accumulator into the Talise-controlled ESCROW address.
- * Mirrors /api/send/sponsor-prepare's gasless branch (plain USDsui
- * `0x2::balance::send_funds` to the escrow), so funding is gasless when the
- * sender's USDsui lives in their accumulator.
+ * amount into the Talise-controlled ESCROW address. Mirrors
+ * /api/send/sponsor-prepare's gasless→sponsored fallback:
+ *
+ *   • PREFERRED: gasless `0x2::balance::send_funds<USDSUI>` of the full
+ *     amount to the escrow (free, no sponsor) — works when the sender's
+ *     USDsui lives in their Address Balance accumulator.
+ *   • FALLBACK: if the gasless build/simulate fails for a categorized
+ *     reason (accumulator underfunded / Coin-only balance / "withdraw
+ *     reservation" / InsufficientGas), fall through to an Onara-SPONSORED
+ *     transfer of the full amount to the escrow (sources from Coin<USDSUI>
+ *     objects via coinWithBalance({useGasCoin:false})). A genuine
+ *     insufficient balance is a clean 400 (never a fall-through).
+ *
+ * The returned `mode` field ("gasless" | "sponsored") lets iOS/analytics
+ * tell the two funding rails apart, exactly like sponsor-prepare.
  *
  * Body: `{ to, totalUsd, durationMs, intervalMs }` (or `{ numTranches }`).
  *
@@ -258,10 +270,28 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── Build the funding PTB: gasless USDsui send of the FULL amount from the
-  // sender's accumulator → the escrow address. Same shape as the gasless
-  // branch of /api/send/sponsor-prepare.
+  // ── Build the funding PTB. PREFERRED rail: gasless USDsui send of the FULL
+  // amount from the sender's accumulator → the escrow address (same shape as
+  // the gasless branch of /api/send/sponsor-prepare). On a categorized
+  // gasless failure (Coin-only balance / accumulator underfunded / withdraw
+  // reservation / InsufficientGas) we fall through to the SPONSORED rail
+  // below, which sources from Coin<USDSUI> objects via Onara sponsorship.
   const escrowAddress = streamEscrowAddress();
+  const startMs = Date.now();
+  const planPayload = {
+    escrowAddress,
+    recipient: { address: recipientAddress, displayName: resolved.displayName },
+    plan: {
+      totalUsd,
+      totalMicros: totalMicros.toString(),
+      trancheMicros: trancheMicros.toString(),
+      trancheUsd: Number(trancheMicros) / 1e6,
+      numTranches,
+      intervalMs,
+      startMs,
+    },
+  };
+
   try {
     const client = sui();
     const tx = new Transaction();
@@ -319,40 +349,85 @@ export async function POST(req: Request) {
       throw new Error(`stream funding simulate rejected: ${reason}`);
     }
 
-    const startMs = Date.now();
-
     // Reserve the FULL amount against the rolling limit window (best-effort).
     void recordSend({ userId, amountUsd: totalUsd, asset: "USDsui", digest: null });
 
     return NextResponse.json({
       bytes: toBase64(bytes),
       mode: "gasless",
-      escrowAddress,
-      recipient: { address: recipientAddress, displayName: resolved.displayName },
-      plan: {
-        totalUsd,
-        totalMicros: totalMicros.toString(),
-        trancheMicros: trancheMicros.toString(),
-        trancheUsd: Number(trancheMicros) / 1e6,
-        numTranches,
-        intervalMs,
-        startMs,
-      },
+      ...planPayload,
     });
   } catch (err) {
     const msg = (err as Error).message ?? "build failed";
-    console.warn(`[streams/create-prepare] user=${userId} failed: ${msg}`);
-    if (/insufficient|withdraw reservation|accumulator|InsufficientGas/i.test(msg)) {
+    console.warn(`[streams/create-prepare] gasless funding failed user=${userId}: ${msg}`);
+
+    // A GENUINE insufficient balance can't be rescued by the sponsored rail
+    // either (Onara's coinWithBalance sources the same USDsui), so surface a
+    // clean 400 instead of falling through. Mirrors sponsor-prepare, which
+    // 400s on `insufficient balance` before any fall-through.
+    if (/insufficient balance/i.test(msg)) {
       return NextResponse.json(
         {
-          error:
-            "Your USDsui isn't in your Address Balance accumulator yet — funding a stream requires accumulator funds. Top up via Deposit and try again.",
+          error: "Insufficient USDsui balance to fund this stream. Top up and try again.",
           detail: msg,
-          code: "ACCUMULATOR_UNDERFUNDED",
+          code: "INSUFFICIENT_BALANCE",
         },
         { status: 400 }
       );
     }
+
+    // Categorized gasless dead-ends (Coin-only balance / accumulator
+    // underfunded / withdraw reservation / InsufficientGas) → SPONSORED
+    // fallback. The sender's USDsui exists but lives in Coin<USDSUI> objects
+    // the gasless accumulator rail can't reach; Onara-sponsored
+    // coinWithBalance({useGasCoin:false}) CAN source it.
+    if (/withdraw reservation|accumulator|InsufficientGas|insufficient/i.test(msg)) {
+      try {
+        const { bytes: sponsoredBytes } = await buildSponsoredStreamFunding({
+          senderAddress: user.sui_address,
+          totalMicros,
+        });
+
+        console.warn(
+          `[streams/create-prepare] gasless unreachable for user=${userId} (Coin-only/underfunded accumulator); funding via sponsored fallback. detail=${msg.slice(0, 200)}`
+        );
+
+        // Reserve the FULL amount against the rolling limit window (best-effort).
+        void recordSend({ userId, amountUsd: totalUsd, asset: "USDsui", digest: null });
+
+        return NextResponse.json({
+          bytes: sponsoredBytes,
+          mode: "sponsored",
+          ...planPayload,
+        });
+      } catch (sErr) {
+        const sMsg = (sErr as Error).message ?? "sponsored build failed";
+        console.error(
+          `[streams/create-prepare] SPONSORED fallback failed user=${userId}: ${sMsg}`
+        );
+        // If even the sponsored build can't source the funds, it's a real
+        // insufficient-balance (or sponsor outage) → clean 400.
+        if (/insufficient/i.test(sMsg)) {
+          return NextResponse.json(
+            {
+              error:
+                "Insufficient USDsui balance to fund this stream. Top up and try again.",
+              detail: sMsg,
+              code: "INSUFFICIENT_BALANCE",
+            },
+            { status: 400 }
+          );
+        }
+        return NextResponse.json(
+          {
+            error: "Couldn't prepare the stream funding. Please try again.",
+            detail: sMsg,
+          },
+          { status: 500 }
+        );
+      }
+    }
+
     return NextResponse.json(
       { error: "Couldn't prepare the stream funding. Please try again.", detail: msg },
       { status: 500 }

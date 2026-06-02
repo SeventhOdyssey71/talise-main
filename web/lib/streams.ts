@@ -1,11 +1,12 @@
 import "server-only";
 
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { Transaction } from "@mysten/sui/transactions";
+import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { db, ensureSchema } from "@/lib/db";
 import { sui } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
+import { onara } from "@/lib/onara";
 import { getCurrentEpoch, getChainIdentifier } from "@/lib/sui-epoch";
 
 /**
@@ -561,6 +562,65 @@ function extractStatusError(status: unknown): string {
     }
   }
   return "unknown failure";
+}
+
+// ── Sponsored stream-funding builder (Onara fallback) ───────────────────
+
+/**
+ * Build the Onara-SPONSORED funding PTB that moves the FULL stream amount
+ * (`totalMicros` µUSDsui) from the SENDER into the escrow address. This is the
+ * FALLBACK to the gasless `0x2::balance::send_funds` builder in
+ * /api/streams/create-prepare — used when the sender's USDsui lives in
+ * `Coin<USDSUI>` objects (not their accumulator), so the gasless rail can't
+ * source it.
+ *
+ * Mirrors the sponsored branch of /api/send/sponsor-prepare EXACTLY:
+ *   • resolve the Onara sponsor address + reference gas price in parallel,
+ *   • source the funds via `coinWithBalance({ type: USDSUI_TYPE, useGasCoin:false })`
+ *     (this is what CAN pull from Coin<USDSUI> objects),
+ *   • `transferObjects([coin], escrowAddress)`,
+ *   • `setGasOwner(sponsor)` + `setGasPrice(gasPrice)`,
+ *   • `tx.build({ client })` → sponsor-ready bytes the sender signs.
+ *
+ * Returns the base64 sponsor-ready bytes. Throws on build failure (the caller
+ * surfaces the categorized error). Requires `ONARA_URL`/escrow to be set;
+ * the caller gates `streamEscrowEnabled()` upstream.
+ */
+export async function buildSponsoredStreamFunding(input: {
+  senderAddress: string;
+  totalMicros: bigint;
+}): Promise<{ bytes: string; escrowAddress: string; sponsor: string }> {
+  const escrowAddress = streamEscrowAddress();
+  const onaraClient = onara();
+  const client = sui();
+
+  // Sponsor address + reference gas price in parallel (same as sponsor-prepare).
+  const [{ address: sponsor }, gasPrice] = await Promise.all([
+    onaraClient.status(),
+    client.getReferenceGasPrice().then((r) => r.referenceGasPrice),
+  ]);
+
+  const tx = new Transaction();
+  tx.setSender(input.senderAddress);
+
+  // Payment Kit isn't wired into the stream funding flow; a plain
+  // coinWithBalance → transferObjects to the escrow is the sponsored
+  // equivalent of the SUI branch of sponsor-prepare. `useGasCoin:false`
+  // keeps the sponsor's gas coin out of the funds-sourcing.
+  const out = tx.add(
+    coinWithBalance({
+      type: USDSUI_TYPE,
+      balance: input.totalMicros,
+      useGasCoin: false,
+    })
+  );
+  tx.transferObjects([out], escrowAddress);
+
+  tx.setGasOwner(sponsor);
+  tx.setGasPrice(BigInt(gasPrice));
+
+  const bytes = await tx.build({ client: client as never });
+  return { bytes: toBase64(bytes), escrowAddress, sponsor };
 }
 
 // ── Read-side projection helpers (for the list / status routes) ─────────
