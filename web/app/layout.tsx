@@ -25,24 +25,37 @@ const serif = Instrument_Serif({
   display: "swap",
 });
 
+const OG_TITLE = "Talise — money that moves like a message";
+const OG_DESC =
+  "A gasless dollar wallet on Sui. Send digital dollars as easily as a text — no gas, no seed phrases, no bank. Sign in with Google.";
+const OG_IMAGE = {
+  url: "/og.png",
+  width: 1200,
+  height: 630,
+  alt: "Talise — money moving freely as messages. No gas, no seed phrases.",
+};
+
 export const metadata: Metadata = {
-  title: "Talise - Smart Payments",
-  description:
-    "Smart payments on Sui. Send USDsui and SUI in one tap. Pay merchants. Earn yield on DeepBook. Sign in with Google. No bank. No seed phrase.",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"),
+  title: OG_TITLE,
+  description: OG_DESC,
+  // Default to the production origin so crawler-fetched og:image / og:url are
+  // ABSOLUTE in prod even if NEXT_PUBLIC_BASE_URL isn't set (a localhost
+  // fallback would make every social preview image 404 for crawlers).
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "https://www.talise.io"),
   icons: { icon: "/icon.png" },
   openGraph: {
-    title: "Talise - Smart Payments",
-    description:
-      "Smart payments on Sui. USDsui and SUI in one account. Pay merchants. Earn on DeepBook.",
+    title: OG_TITLE,
+    description: OG_DESC,
+    url: "/",
     type: "website",
     siteName: "Talise",
+    images: [OG_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Talise - Smart Payments",
-    description:
-      "Smart payments on Sui. Sign in with Google. No bank. No seed phrase.",
+    title: OG_TITLE,
+    description: OG_DESC,
+    images: [OG_IMAGE.url],
   },
 };
 
