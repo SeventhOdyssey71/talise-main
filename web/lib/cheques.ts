@@ -456,6 +456,46 @@ export async function getChequeForClaim(
  * `WHERE status='draft'` guard make this idempotent: a reused digest or a
  * double confirm loses the race. Returns false on any failure.
  */
+export type ChequeSummary = {
+  id: string;
+  amountUsd: number;
+  status: ChequeStatus;
+  memo: string | null;
+  payeeLabel: string | null;
+  createdAt: number;
+  expiresAt: number;
+  /** True when the creator can still pull the funds back (funded + unclaimed). */
+  reclaimable: boolean;
+};
+
+/** List a creator's cheques, newest first — powers the "My cheques" reclaim list. */
+export async function listChequesForCreator(
+  creatorUserId: number,
+  limit = 50
+): Promise<ChequeSummary[]> {
+  await ensureChequesSchema();
+  const r = await db().execute({
+    sql: `SELECT id, amount_micros, status, memo, payee_label, created_at, expires_at
+          FROM cheques WHERE creator_user_id = ? ORDER BY created_at DESC LIMIT ?`,
+    args: [creatorUserId, limit],
+  });
+  const now = Date.now();
+  return r.rows.map((row) => {
+    const status = String(row.status) as ChequeStatus;
+    const expiresAt = Number(row.expires_at);
+    return {
+      id: String(row.id),
+      amountUsd: microsToUsd(BigInt(String(row.amount_micros))),
+      status,
+      memo: (row.memo as string | null) ?? null,
+      payeeLabel: (row.payee_label as string | null) ?? null,
+      createdAt: Number(row.created_at),
+      expiresAt,
+      reclaimable: status === "funded" && expiresAt > now,
+    };
+  });
+}
+
 export async function markFunded(input: {
   chequeId: string;
   digest: string;
@@ -522,14 +562,31 @@ async function verifyEscrowDeposit(input: {
       balanceChanges?: Array<{ address?: string; coinType?: string; amount?: string }>;
       effects?: { status?: { success?: boolean } };
     };
-    const changes = inner.balanceChanges ?? [];
+    const changes = (inner.balanceChanges ?? []) as Array<Record<string, unknown>>;
+    // The gRPC getTransaction balanceChange owner shows up under different
+    // shapes depending on the transport: a flat `address`, an `owner` string,
+    // or `owner.AddressOwner`. Read all of them so a USDsui credit to the
+    // escrow is never missed (the bug behind "deposit_unverified").
+    const ownerOf = (ch: Record<string, unknown>): string => {
+      const o = (ch.owner ?? ch.address) as unknown;
+      if (typeof o === "string") return o.toLowerCase();
+      if (o && typeof o === "object") {
+        const ao = (o as { AddressOwner?: unknown }).AddressOwner;
+        if (typeof ao === "string") return ao.toLowerCase();
+      }
+      return "";
+    };
     for (const ch of changes) {
-      const owner = (ch.address ?? "").toLowerCase();
-      const isUsdsui = /::usdsui::usdsui$/i.test(ch.coinType ?? "");
-      if (owner === escrow && isUsdsui) {
-        const credited = BigInt(ch.amount ?? "0");
+      const isUsdsui = /::usdsui::usdsui$/i.test(String(ch.coinType ?? ""));
+      if (ownerOf(ch) === escrow && isUsdsui) {
+        const credited = BigInt(String(ch.amount ?? "0"));
         if (credited >= input.amountMicros) return true;
       }
+    }
+    if (changes.length) {
+      console.warn(
+        `[cheques] escrow deposit not matched digest=${input.digest} escrow=${escrow} changes=${JSON.stringify(changes).slice(0, 300)}`
+      );
     }
     return false;
   } catch {
