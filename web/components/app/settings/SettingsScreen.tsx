@@ -17,7 +17,6 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Copy01Icon,
@@ -27,8 +26,6 @@ import {
   GlobalIcon,
   CheckmarkBadge02Icon,
   Logout01Icon,
-  Mail01Icon,
-  Notebook01Icon,
   Wallet01Icon,
 } from "@hugeicons/core-free-icons";
 import {
@@ -193,53 +190,11 @@ export function SettingsScreen() {
     );
   }
 
-  const initials =
-    (me.taliseHandle?.[0] ||
-      me.name?.trim()?.[0] ||
-      me.email?.[0] ||
-      "·").toUpperCase();
-
   const countryName =
     COUNTRIES.find((c) => c.code === country)?.name ?? country;
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-7 pb-8">
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-col items-center gap-3 pt-1 text-center">
-        {me.picture ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={me.picture}
-            alt=""
-            className="size-20 rounded-full border border-line object-cover shadow-[0_14px_34px_-18px_rgba(35,78,20,0.28)]"
-          />
-        ) : (
-          <div className="flex size-20 items-center justify-center rounded-full bg-accent-deep text-[28px] font-medium text-white shadow-[0_14px_34px_-18px_rgba(35,78,20,0.28)]">
-            {initials}
-          </div>
-        )}
-        <div className="space-y-1">
-          <h1 className="text-[22px] font-medium tracking-[-0.02em] text-fg">
-            {me.name || "Your account"}
-          </h1>
-          {me.taliseHandle ? (
-            <span className="inline-flex items-center gap-1.5 text-fg-muted">
-              <HugeiconsIcon
-                icon={CheckmarkBadge02Icon}
-                size={14}
-                className="text-accent"
-                strokeWidth={2}
-              />
-              <span className="font-mono text-[12px]">
-                @{me.taliseHandle}.talise.sui
-              </span>
-            </span>
-          ) : (
-            <span className="font-mono text-[12px] text-fg-dim">{me.email}</span>
-          )}
-        </div>
-      </div>
-
+    <div className="mx-auto w-full max-w-2xl space-y-6 pb-8">
       {/* ── Profile ──────────────────────────────────────────────────────── */}
       <section className="space-y-2.5">
         <Eyebrow>Profile</Eyebrow>
@@ -442,50 +397,6 @@ export function SettingsScreen() {
       {/* ── Account ──────────────────────────────────────────────────────── */}
       <section className="space-y-2.5">
         <Eyebrow>Account</Eyebrow>
-        <div className="space-y-2">
-          <a
-            href="mailto:hello@talise.io"
-            className="talise-history-row flex w-full items-center gap-3.5 px-3.5 py-3 transition-transform hover:-translate-y-px"
-          >
-            <span
-              className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-              style={{ background: "var(--color-accent-soft)" }}
-            >
-              <HugeiconsIcon icon={Mail01Icon} size={20} strokeWidth={1.8} />
-            </span>
-            <span className="flex-1 text-[15px] font-medium text-fg">
-              Contact support
-            </span>
-            <HugeiconsIcon
-              icon={ArrowUpRight01Icon}
-              size={16}
-              className="text-fg-dim"
-              strokeWidth={2}
-            />
-          </a>
-
-          <Link
-            href="/legal"
-            className="talise-history-row flex w-full items-center gap-3.5 px-3.5 py-3 transition-transform hover:-translate-y-px"
-          >
-            <span
-              className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-              style={{ background: "var(--color-accent-soft)" }}
-            >
-              <HugeiconsIcon icon={Notebook01Icon} size={20} strokeWidth={1.8} />
-            </span>
-            <span className="flex-1 text-[15px] font-medium text-fg">
-              Terms &amp; Privacy
-            </span>
-            <HugeiconsIcon
-              icon={ArrowUpRight01Icon}
-              size={16}
-              className="text-fg-dim"
-              strokeWidth={2}
-            />
-          </Link>
-        </div>
-
         <a
           href="/auth/logout"
           className="mt-1 flex w-full items-center justify-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--color-danger)_28%,transparent)] bg-[color-mix(in_srgb,var(--color-danger)_10%,transparent)] px-6 py-3.5 text-[15px] font-semibold text-[var(--color-danger)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-danger)_18%,transparent)]"

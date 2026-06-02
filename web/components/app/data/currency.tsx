@@ -57,6 +57,10 @@ export type CurrencyCtx = {
   formatLocal: (usd: number, o?: { fixed?: boolean }) => string;
   /** USD → local numeric value (no symbol). */
   toLocal: (usd: number) => number;
+  /** Local-per-USD rate for ANY supported currency code (1 if unknown). */
+  rateFor: (code: string) => number;
+  /** Convert an amount typed in `code` back to USD (e.g. invoice entry). */
+  toUsd: (amount: number, code: string) => number;
   currencies: CurrencyDef[];
 };
 
@@ -165,6 +169,8 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     const code = rate === 1 && currency !== "USD" ? "USD" : currency;
 
     const toLocal = (usd: number) => usd * rate;
+    const rateFor = (c: string) => (rates[c] && rates[c] > 0 ? rates[c] : 1);
+    const toUsd = (amount: number, c: string) => amount / rateFor(c);
     const formatUsd = (usd: number, o?: { fixed?: boolean }) =>
       formatNumber(usd * rate, code, symbol, o?.fixed ?? false);
 
@@ -176,6 +182,8 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       formatUsd,
       formatLocal: formatUsd,
       toLocal,
+      rateFor,
+      toUsd,
       currencies: CURRENCIES,
     };
   }, [currency, rates, setCurrency]);

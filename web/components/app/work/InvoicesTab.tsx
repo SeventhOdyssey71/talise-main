@@ -244,7 +244,7 @@ function CreateInvoiceSheet({
   onCreated: () => void;
 }) {
   const { toast } = useToast();
-  const { currencies, currency: displayCurrency } = useCurrency();
+  const { currencies, currency: displayCurrency, toUsd } = useCurrency();
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [memo, setMemo] = useState("");
@@ -307,7 +307,9 @@ function CreateInvoiceSheet({
       .map((it) => ({
         description: it.description.trim(),
         qty: Math.max(1, Number(it.qty) || 1),
-        unitUsd: Number(it.unitUsd),
+        // The unit price is typed in the invoice's display currency — convert
+        // back to USD before it's stored (₦50 must become $0.036, not $50).
+        unitUsd: toUsd(Number(it.unitUsd), currency),
       }));
     if (cleaned.length === 0) {
       toast("Add at least one line item", "danger");

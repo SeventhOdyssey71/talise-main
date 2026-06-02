@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -42,11 +42,30 @@ export type InvoicePayViewProps = {
 export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps) {
   const [copied, setCopied] = useState(false);
 
+  // The invoice is stored in USD (USDsui); display it in its denominated
+  // currency by applying the live FX rate. This page is public (no
+  // CurrencyProvider), so it fetches the open /api/fx feed itself.
+  const [rate, setRate] = useState(1);
+  useEffect(() => {
+    if (invoice.currency === "USD") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/fx");
+        if (!res.ok) return;
+        const data = (await res.json()) as { rates?: Record<string, number> };
+        const r = data?.rates?.[invoice.currency];
+        if (!cancelled && typeof r === "number" && r > 0) setRate(r);
+      } catch {
+        /* keep 1:1 — better than a broken figure */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [invoice.currency]);
+
   const fmt = useMemo(() => {
-    // Display the invoice in its denominated currency. USDsui is 1:1 USD, so
-    // for non-USD invoices the figure is the same number with the local symbol
-    // (the issuer chose the denomination as a label — no FX is applied to the
-    // canonical USD settle amount).
     try {
       return new Intl.NumberFormat(undefined, {
         style: "currency",
@@ -62,10 +81,13 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
     }
   }, [invoice.currency]);
 
-  const money = (n: number) => fmt.format(n);
+  // `money` takes a USD figure and renders it in the invoice's currency.
+  const money = (usd: number) => fmt.format(usd * rate);
 
+  // The pay link carries the USD amount (SendFlow re-displays it in the payer's
+  // currency); keep full precision so sub-dollar invoices don't round away.
   const payHref = `/app/pay?to=${encodeURIComponent(issuer.address)}&amount=${encodeURIComponent(
-    invoice.amountUsd.toFixed(2)
+    invoice.amountUsd.toFixed(6)
   )}&invoice=${encodeURIComponent(invoice.id)}`;
 
   const statusTone =
@@ -98,8 +120,11 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
   };
 
   return (
-    <main className="landing-mint talise-appshell talise-top-glow min-h-dvh bg-bg px-5 py-10 text-fg sm:py-16">
-      <div className="mx-auto w-full max-w-xl">
+    <main className="landing-mint talise-appshell relative min-h-dvh overflow-hidden bg-bg px-5 py-10 text-fg sm:py-16">
+      {/* Background glow lives in its own absolutely-positioned layer — putting
+          talise-top-glow on <main> applied its filter: blur() to the whole page. */}
+      <div className="talise-top-glow" aria-hidden />
+      <div className="relative z-10 mx-auto w-full max-w-xl">
         {/* Brand row */}
         <div className="mb-7 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 text-fg">

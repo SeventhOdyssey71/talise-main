@@ -17,10 +17,10 @@ import {
   SentIcon,
   QrCode01Icon,
   ScanIcon,
-  PlusSignIcon,
 } from "@hugeicons/core-free-icons";
 import { type Me } from "@/components/app";
 import { ReceiveSheet } from "./ReceiveSheet";
+import { ScanSheet } from "./ScanSheet";
 
 type TileProps = {
   icon: IconSvgElement;
@@ -29,9 +29,10 @@ type TileProps = {
   href?: string;
   onClick?: () => void;
   badge?: string;
+  className?: string;
 };
 
-function ActionTile({ icon, label, sublabel, href, onClick, badge }: TileProps) {
+function ActionTile({ icon, label, sublabel, href, onClick, badge, className = "" }: TileProps) {
   const inner = (
     <>
       <span
@@ -59,7 +60,7 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge }: TileProps) 
   );
 
   const cls =
-    "talise-glass relative flex flex-col items-start rounded-2xl px-3 py-3 text-left transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:translate-y-0 active:scale-[0.98] sm:rounded-3xl sm:px-3.5 sm:py-4";
+    `talise-glass relative flex flex-col items-start rounded-2xl px-3 py-3 text-left transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:translate-y-0 active:scale-[0.98] sm:rounded-3xl sm:px-3.5 sm:py-4 ${className}`;
 
   if (href) {
     return (
@@ -77,16 +78,14 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge }: TileProps) 
 
 export function QuickActions({ me }: { me: Me | null }) {
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
 
   return (
     <>
-      <div className="grid grid-cols-4 gap-2.5 sm:gap-3">
-        <ActionTile
-          icon={SentIcon}
-          label="Send"
-          sublabel="Pay anyone"
-          href="/app/pay"
-        />
+      {/* Mobile: Send · Receive · Scan (3-up). Desktop: Send · Receive (Scan
+          hidden — no camera, and showing your own QR isn't "scanning"). */}
+      <div className="grid grid-cols-3 gap-2.5 sm:gap-3 lg:grid-cols-2">
+        <ActionTile icon={SentIcon} label="Send" sublabel="Pay anyone" href="/app/pay" />
         <ActionTile
           icon={QrCode01Icon}
           label="Receive"
@@ -97,18 +96,13 @@ export function QuickActions({ me }: { me: Me | null }) {
           icon={ScanIcon}
           label="Scan"
           sublabel="QR to pay"
-          onClick={() => setReceiveOpen(true)}
-        />
-        <ActionTile
-          icon={PlusSignIcon}
-          label="Add"
-          sublabel="Top up"
-          href="/app/ramps"
-          badge="Soon"
+          onClick={() => setScanOpen(true)}
+          className="lg:hidden"
         />
       </div>
 
       <ReceiveSheet open={receiveOpen} onClose={() => setReceiveOpen(false)} me={me} />
+      <ScanSheet open={scanOpen} onClose={() => setScanOpen(false)} />
     </>
   );
 }

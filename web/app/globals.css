@@ -53,6 +53,41 @@
   --font-serif: var(--font-serif), "Instrument Serif", Georgia, "Times New Roman", serif;
 }
 
+/* ── shadcn/ui token bridge ──────────────────────────────────────────────
+ * Maps shadcn's semantic color names onto OUR brand tokens so every generated
+ * component (Dialog, Select, DropdownMenu, Tooltip, Tabs, Popover, …) renders
+ * in the light-mint theme — never zinc. `@theme inline` keeps the var()
+ * references intact so they resolve at runtime and flip with the .landing-mint
+ * cascade (white surfaces, ink-green text, forest primary).
+ * We intentionally do NOT remap `accent` (that Tailwind name is already our
+ * brand green) or the global radius scale (our own components use rounded-*);
+ * shadcn item-hover classes are retuned to `accent-soft` per-component instead.
+ */
+@theme inline {
+  --color-background: var(--color-surface);
+  --color-foreground: var(--color-fg);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-fg);
+  --color-popover: var(--color-surface);
+  --color-popover-foreground: var(--color-fg);
+  --color-primary: var(--color-accent-deep);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--color-accent-soft);
+  --color-secondary-foreground: var(--color-fg);
+  --color-muted: var(--color-surface-2);
+  --color-muted-foreground: var(--color-fg-dim);
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--color-line);
+  --color-input: var(--color-line);
+  --color-ring: var(--color-accent-deep);
+}
+
+/* shadcn components that reference var(--radius) directly. */
+:root {
+  --radius: 0.75rem;
+}
+
 html,
 body {
   background: var(--color-bg);
