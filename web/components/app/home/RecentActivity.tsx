@@ -97,7 +97,7 @@ function RowSkeleton() {
 }
 
 export function RecentActivity() {
-  const { entries, loading } = useActivity(5);
+  const { entries, loading } = useActivity(6);
   const loadedOnce = useRef(false);
   // Re-render once on tick so relative timestamps ("5m") stay roughly fresh
   // while the user lingers on Home.
@@ -109,7 +109,7 @@ export function RecentActivity() {
 
   if (entries.length > 0) loadedOnce.current = true;
   const showSkeleton = loading && !loadedOnce.current;
-  const top = entries.slice(0, 5);
+  const top = entries.slice(0, 6);
 
   return (
     <section>

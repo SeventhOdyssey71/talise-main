@@ -4,13 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Invoice01Icon,
   CheckmarkCircle02Icon,
   Cancel01Icon,
   ArrowRight02Icon,
   Copy01Icon,
 } from "@hugeicons/core-free-icons";
 import { GlassCard, PrimaryButton, StatusPill, Eyebrow, MicroLabel } from "@/components/app";
+import { Diamond } from "@/components/Diamond";
 import type { WorkInvoiceLineItem } from "@/lib/invoices";
 
 type PublicInvoice = {
@@ -103,10 +103,8 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
         {/* Brand row */}
         <div className="mb-7 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 text-fg">
-            <span className="flex size-8 items-center justify-center rounded-xl bg-[var(--color-accent-soft)] text-accent">
-              <HugeiconsIcon icon={Invoice01Icon} size={18} strokeWidth={1.8} />
-            </span>
-            <span className="text-[17px] font-semibold tracking-tight">Talise</span>
+            <Diamond />
+            <span className="font-display text-[18px] font-semibold lowercase tracking-[-0.02em]">talise</span>
           </Link>
           <StatusPill label={statusLabel} tone={statusTone} />
         </div>

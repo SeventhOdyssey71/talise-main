@@ -35,7 +35,7 @@ export function BalanceHero() {
     usdsui < 0.01 ? `${usdsui.toFixed(4)} USDsui` : `${usdsui.toFixed(2)} USDsui`;
 
   return (
-    <GlassCard className="px-6 py-7 sm:px-8 sm:py-8" radius={26}>
+    <GlassCard className="flex h-full flex-col justify-center px-6 py-7 sm:px-8 sm:py-8" radius={26}>
       <Eyebrow>Balance</Eyebrow>
 
       <div className="mt-3">

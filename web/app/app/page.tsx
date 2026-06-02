@@ -48,20 +48,19 @@ export default function HomePage() {
         <p className="mt-0.5 text-[13px] text-fg-muted">Here&apos;s your money.</p>
       </header>
 
-      {/* lg+: two-column dashboard. Mobile: single stacked column. */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-        {/* Left: balance, quick actions, identity */}
-        <div className="space-y-4 sm:space-y-5">
-          <BalanceHero />
-          <QuickActions me={me} />
-          <IdentityCard me={me} />
-        </div>
-
-        {/* Right: recent activity */}
-        <div>
-          <RecentActivity />
-        </div>
+      {/* Top band — balance + payable identity side by side on lg, equal
+          height, so the content spreads across the full width instead of
+          clustering in a narrow column. */}
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-[1.4fr_1fr] lg:items-stretch lg:gap-6">
+        <BalanceHero />
+        <IdentityCard me={me} />
       </div>
+
+      {/* Quick actions — full-width row. */}
+      <QuickActions me={me} />
+
+      {/* Recent activity — full-width list so it fills the lower half. */}
+      <RecentActivity />
     </div>
   );
 }

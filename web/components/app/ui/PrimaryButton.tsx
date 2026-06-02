@@ -45,7 +45,9 @@ export function PrimaryButton({
   const content = (
     <>
       {loading && <Spinner size={16} />}
-      <span className={loading ? "opacity-80" : ""}>{children}</span>
+      {/* inline-flex so a leading HugeIcons <svg> (which renders display:block)
+          sits inline with the label instead of stacking above it. */}
+      <span className={`inline-flex items-center gap-2 ${loading ? "opacity-80" : ""}`}>{children}</span>
     </>
   );
 

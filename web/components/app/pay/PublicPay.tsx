@@ -21,6 +21,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowRight01Icon, CheckmarkBadge01Icon, Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Diamond } from "@/components/Diamond";
 
 export type PublicPayProps = {
   /** The raw handle or address slug from the URL path. */
@@ -77,15 +78,10 @@ export function PublicPay({ slug, amountUsd, memo }: PublicPayProps) {
       <div className="relative z-10 w-full max-w-sm">
         {/* Brand mark */}
         <div className="mb-8 flex justify-center">
-          <Link href="/" className="inline-flex items-center gap-2.5">
-            <span
-              className="flex size-7 items-center justify-center rounded-[9px] font-display text-[15px] font-bold text-white"
-              style={{ background: "var(--color-accent-deep)" }}
-            >
-              T
-            </span>
-            <span className="font-display text-[17px] font-semibold tracking-[-0.02em] text-fg">
-              Talise
+          <Link href="/" className="inline-flex items-center gap-2">
+            <Diamond />
+            <span className="font-display text-[18px] font-semibold lowercase tracking-[-0.02em] text-fg">
+              talise
             </span>
           </Link>
         </div>

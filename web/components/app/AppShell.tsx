@@ -33,6 +33,7 @@ import { CurrencyProvider, useCurrency } from "./data/currency";
 import { ToastProvider } from "./data/toast";
 import { useBalances, type Me } from "./data";
 import { triggerOauthSignIn } from "@/lib/zkclient";
+import { Diamond } from "@/components/Diamond";
 import type { IconSvgElement } from "@hugeicons/react";
 
 type NavItem = { label: string; href: string; icon: IconSvgElement };
@@ -63,17 +64,14 @@ function isActive(pathname: string, href: string): boolean {
 // ── Brand mark ─────────────────────────────────────────────────────────────
 
 function Logo({ compact = false }: { compact?: boolean }) {
+  // The real Talise brand mark (the pinwheel from public/symbol.svg), forest-
+  // tinted via --color-accent — identical to the landing TopBar wordmark.
   return (
-    <Link href="/app" className="inline-flex items-center gap-2.5">
-      <span
-        className="flex size-7 items-center justify-center rounded-[9px] font-display text-[15px] font-bold text-white"
-        style={{ background: "var(--color-accent-deep)" }}
-      >
-        T
-      </span>
+    <Link href="/app" className="inline-flex items-center gap-2">
+      <Diamond />
       {!compact && (
-        <span className="font-display text-[17px] font-semibold tracking-[-0.02em] text-fg">
-          Talise
+        <span className="font-display text-[18px] font-semibold lowercase tracking-[-0.02em] text-fg">
+          talise
         </span>
       )}
     </Link>
@@ -107,7 +105,7 @@ function CurrencySelect() {
       value={currency}
       onChange={(e) => setCurrency(e.target.value)}
       aria-label="Display currency"
-      className="cursor-pointer rounded-full border border-line bg-surface px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-wider text-fg-muted outline-none transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] focus:ring-1 focus:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)]"
+      className="w-fit max-w-full cursor-pointer self-start rounded-full border border-line bg-surface px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-wider text-fg-muted outline-none transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] focus:ring-1 focus:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)]"
     >
       {currencies.map((c) => (
         <option key={c.code} value={c.code} className="bg-surface text-fg">
@@ -197,8 +195,8 @@ function SignInScreen() {
       <div className="talise-top-glow" />
       <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6">
         <div className="talise-glass w-full max-w-sm rounded-[28px] px-7 py-9 text-center">
-          <div className="mx-auto mb-6 flex justify-center">
-            <Logo />
+          <div className="mx-auto mb-6 flex scale-[1.4] justify-center">
+            <Logo compact />
           </div>
           <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-fg">Talise</h1>
           <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.22em] text-accent">Beta</p>
@@ -316,8 +314,8 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
       {/* ── Main area ── */}
       <div className="relative z-10 lg:pl-60">
         {/* Desktop topbar */}
-        <header className="sticky top-0 z-20 hidden items-center justify-between border-b border-line bg-[color-mix(in_srgb,var(--color-bg)_82%,transparent)] px-8 py-4 backdrop-blur-xl lg:flex">
-          <h1 className="text-[19px] font-semibold tracking-[-0.02em] text-fg">{title}</h1>
+        <header className="sticky top-0 z-20 hidden items-center justify-between border-b border-line bg-[color-mix(in_srgb,var(--color-bg)_82%,transparent)] px-8 py-3 backdrop-blur-xl lg:flex">
+          <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-fg">{title}</h1>
           <div className="flex items-center gap-3">
             <BalanceChip />
           </div>
@@ -342,7 +340,7 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
         </header>
 
         {/* Content column */}
-        <main className="mx-auto w-full max-w-[960px] px-4 pb-32 pt-5 sm:px-6 lg:px-8 lg:pb-12 lg:pt-7">
+        <main className="mx-auto w-full max-w-[1040px] px-4 pb-32 pt-4 sm:px-6 lg:px-8 lg:pb-12 lg:pt-6">
           {children}
         </main>
       </div>
