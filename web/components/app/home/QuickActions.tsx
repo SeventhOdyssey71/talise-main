@@ -18,9 +18,15 @@ import {
   QrCode01Icon,
   ScanIcon,
 } from "@hugeicons/core-free-icons";
+import dynamic from "next/dynamic";
 import { type Me } from "@/components/app";
 import { ReceiveSheet } from "./ReceiveSheet";
-import { ScanSheet } from "./ScanSheet";
+
+// The scanner pulls in jsQR + the camera plumbing — only load it when the user
+// actually taps Scan, keeping it out of the initial bundle.
+const ScanSheet = dynamic(() => import("./ScanSheet").then((m) => ({ default: m.ScanSheet })), {
+  ssr: false,
+});
 
 type TileProps = {
   icon: IconSvgElement;

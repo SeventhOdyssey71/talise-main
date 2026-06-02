@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -50,7 +51,12 @@ import {
   ApiError,
   type Contact,
 } from "@/components/app";
-import { CoinBurst } from "@/components/app/anim/CoinBurst";
+// framer-motion only loads when a send actually succeeds — keep it out of the
+// Send page's initial bundle.
+const CoinBurst = dynamic(
+  () => import("@/components/app/anim/CoinBurst").then((m) => ({ default: m.CoinBurst })),
+  { ssr: false }
+);
 
 const EXPLORER = "https://suiscan.xyz/mainnet/tx/";
 

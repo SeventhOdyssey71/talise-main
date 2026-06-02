@@ -8,6 +8,16 @@ const config: NextConfig = {
   output: "standalone",
   experimental: {
     serverActions: { allowedOrigins: ["localhost:3000", "talise.io"] },
+    // Rewrite barrel imports from these big icon/UI packages into direct deep
+    // imports so webpack only bundles the icons/components actually used —
+    // @hugeicons/core-free-icons ships thousands of icons, so this is a large
+    // first-load JS win for the app.
+    optimizePackageImports: [
+      "@hugeicons/core-free-icons",
+      "@hugeicons/react",
+      "lucide-react",
+      "radix-ui",
+    ],
   },
   images: {
     remotePatterns: [

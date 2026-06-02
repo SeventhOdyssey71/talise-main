@@ -31,7 +31,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { CurrencyProvider, useCurrency } from "./data/currency";
 import { ToastProvider } from "./data/toast";
-import { useBalances, seedResource, type Me } from "./data";
+import { useBalances, seedResource, type Me, type Balances } from "./data";
 import { triggerOauthSignIn } from "@/lib/zkclient";
 import { Diamond } from "@/components/Diamond";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -393,16 +393,22 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
 
 // ── Public AppShell ─────────────────────────────────────────────────────────
 
-export type AppShellProps = { me: Me | null; children: ReactNode };
+export type AppShellProps = {
+  me: Me | null;
+  initialBalances?: Balances | null;
+  children: ReactNode;
+};
 
-export function AppShell({ me, children }: AppShellProps) {
+export function AppShell({ me, initialBalances, children }: AppShellProps) {
   if (!me) {
     return <SignInScreen />;
   }
-  // Seed the client me-cache from the session the layout already resolved, so
-  // useMe() in any page is correct (real @handle) + instant, with no /api/me
-  // round-trip on load. Idempotent; a later client fetch can still update it.
+  // Seed the client caches from what the layout already resolved server-side, so
+  // useMe()/useBalances() render correct values INSTANTLY with no round-trip on
+  // load (the @handle + the balance hero). Idempotent; the client still
+  // revalidates fresh afterwards.
   seedResource("/api/me", me);
+  if (initialBalances) seedResource("/api/balances", initialBalances);
   return (
     <CurrencyProvider>
       <ToastProvider>

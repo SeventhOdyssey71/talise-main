@@ -13,12 +13,12 @@
  */
 
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Plant02Icon,
   ArrowRight02Icon,
 } from "@hugeicons/core-free-icons";
-import { PiggySave } from "@/components/app/anim/PiggySave";
 import {
   GlassCard,
   Eyebrow,
@@ -37,6 +37,13 @@ import {
   markEarnDisclosureAccepted,
 } from "./earn-data";
 import { useEarnAction } from "./useEarnAction";
+
+// framer-motion only loads on the save-success celebration — keep it out of the
+// Earn page's initial bundle.
+const PiggySave = dynamic(
+  () => import("@/components/app/anim/PiggySave").then((m) => ({ default: m.PiggySave })),
+  { ssr: false }
+);
 import { EarnDisclosureSheet } from "./EarnDisclosureSheet";
 import { WithdrawSheet } from "./WithdrawSheet";
 
