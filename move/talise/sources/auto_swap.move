@@ -26,42 +26,41 @@
 ///     but only the original owner can mutate its state.
 module talise::auto_swap;
 
-use sui::event;
-use sui::clock::Clock;
+use sui::{event, clock::Clock};
 use std::type_name::{Self, TypeName};
 
 // ───────────────────────────────────────────────────────────────────
 // Errors
 
-const E_CAP_PAUSED: u64 = 100;
-const E_CAP_EXPIRED: u64 = 101;
-const E_AMOUNT_EXCEEDS_CAP: u64 = 102;
-const E_WRONG_ADMIN: u64 = 103;
-const E_INVALID_MAX: u64 = 104;
-const E_NOT_OWNER: u64 = 106;
+const ECapPaused: u64 = 100;
+const ECapExpired: u64 = 101;
+const EAmountExceedsCap: u64 = 102;
+const EWrongAdmin: u64 = 103;
+const EInvalidMax: u64 = 104;
+const ENotOwner: u64 = 106;
 
 // v7 errors
-const E_NOT_ADMIN: u64 = 200;
-const E_NOT_ADMIN_OR_TREASURY: u64 = 201;
-const E_NOT_ADMIN_OR_ONCALL: u64 = 202;
-const E_NOT_WORKER: u64 = 203;
-const E_REGISTRY_PAUSED: u64 = 204;
-const E_NO_PENDING_TRANSFER: u64 = 205;
-const E_WRONG_PENDING_ACCEPTOR: u64 = 206;
-const E_DELAY_NOT_ELAPSED: u64 = 207;
-const E_DELAY_TOO_LARGE: u64 = 208;
-const E_NO_PENDING_DELAY: u64 = 209;
-const E_PENDING_TRANSFER_EXISTS: u64 = 210;
-const E_PENDING_DELAY_EXISTS: u64 = 211;
-const E_DAILY_BUDGET_EXCEEDED: u64 = 212;
-const E_OVERFLOW: u64 = 213;
-const E_INVALID_MAX_PER_DAY: u64 = 214;
-const E_DEST_NOT_ALLOWED: u64 = 215;
-const E_ROLE_ALREADY_GRANTED: u64 = 216;
-const E_ROLE_NOT_GRANTED: u64 = 217;
-const E_PROVIDER_ALREADY_ALLOWED: u64 = 218;
-const E_PROVIDER_NOT_ALLOWED: u64 = 219;
-const E_DEST_ALREADY_ALLOWED: u64 = 220;
+const ENotAdmin: u64 = 200;
+const ENotAdminOrTreasury: u64 = 201;
+const ENotAdminOrOncall: u64 = 202;
+const ENotWorker: u64 = 203;
+const ERegistryPaused: u64 = 204;
+const ENoPendingTransfer: u64 = 205;
+const EWrongPendingAcceptor: u64 = 206;
+const EDelayNotElapsed: u64 = 207;
+const EDelayTooLarge: u64 = 208;
+const ENoPendingDelay: u64 = 209;
+const EPendingTransferExists: u64 = 210;
+const EPendingDelayExists: u64 = 211;
+const EDailyBudgetExceeded: u64 = 212;
+const EOverflow: u64 = 213;
+const EInvalidMaxPerDay: u64 = 214;
+const EDestNotAllowed: u64 = 215;
+const ERoleAlreadyGranted: u64 = 216;
+const ERoleNotGranted: u64 = 217;
+const EProviderAlreadyAllowed: u64 = 218;
+const EProviderNotAllowed: u64 = 219;
+const EDestAlreadyAllowed: u64 = 220;
 
 // Defaults
 const DEFAULT_ADMIN_TRANSFER_DELAY_MS: u64 = 48 * 3600 * 1000; // 48h
@@ -191,7 +190,7 @@ public(package) fun mint_cap<T>(
     expires_at_ms: u64,
     ctx: &mut TxContext,
 ): AutoSwapCap<T> {
-    assert!(max_per_swap > 0, E_INVALID_MAX);
+    assert!(max_per_swap > 0, EInvalidMax);
 
     let cap = AutoSwapCap<T> {
         id: object::new(ctx),
@@ -220,8 +219,8 @@ public(package) fun mint_cap<T>(
 /// Permanently disable auto-swap for `T`. Burns the cap.
 /// Caller must be `cap.owner`.
 public fun disable<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
-    assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
-    let AutoSwapCap { id, vault_id: _, owner, max_per_swap: _, expires_at_ms: _, paused: _ } = cap;
+    assert!(ctx.sender() == cap.owner, ENotOwner);
+    let AutoSwapCap { id, owner, .. } = cap;
     event::emit(AutoSwapDisabled {
         owner,
         cap_id: id.to_inner(),
@@ -233,7 +232,7 @@ public fun disable<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
 /// Temporarily pause auto-swap (worker validation fails until resumed).
 /// Caller must be `cap.owner`.
 public fun pause<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
-    assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
+    assert!(ctx.sender() == cap.owner, ENotOwner);
     cap.paused = true;
     event::emit(AutoSwapPaused {
         owner: cap.owner,
@@ -244,7 +243,7 @@ public fun pause<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
 
 /// Resume after a pause. Caller must be `cap.owner`.
 public fun resume<T>(cap: &mut AutoSwapCap<T>, ctx: &TxContext) {
-    assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
+    assert!(ctx.sender() == cap.owner, ENotOwner);
     cap.paused = false;
     event::emit(AutoSwapPaused {
         owner: cap.owner,
@@ -262,8 +261,8 @@ public fun update_bounds<T>(
     expires_at_ms: u64,
     ctx: &TxContext,
 ) {
-    assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
-    assert!(max_per_swap > 0, E_INVALID_MAX);
+    assert!(ctx.sender() == cap.owner, ENotOwner);
+    assert!(max_per_swap > 0, EInvalidMax);
     cap.max_per_swap = max_per_swap;
     cap.expires_at_ms = expires_at_ms;
 }
@@ -286,12 +285,12 @@ public(package) fun validate_for_swap<T>(
     ctx: &TxContext,
 ) {
     let sender = ctx.sender();
-    assert!(sender == registry.admin, E_WRONG_ADMIN);
-    assert!(!cap.paused, E_CAP_PAUSED);
+    assert!(sender == registry.admin, EWrongAdmin);
+    assert!(!cap.paused, ECapPaused);
     if (cap.expires_at_ms != 0) {
-        assert!(now_ms <= cap.expires_at_ms, E_CAP_EXPIRED);
+        assert!(now_ms <= cap.expires_at_ms, ECapExpired);
     };
-    assert!(amount <= cap.max_per_swap, E_AMOUNT_EXCEEDS_CAP);
+    assert!(amount <= cap.max_per_swap, EAmountExceedsCap);
 
     registry.total_validations = registry.total_validations + 1;
 
@@ -443,7 +442,7 @@ public struct OncallRevoked has copy, drop { addr: address, by: address }
 public struct TreasuryGranted has copy, drop { addr: address, by: address }
 public struct TreasuryRevoked has copy, drop { addr: address, by: address }
 
-public struct AdminTransferBegun has copy, drop {
+public struct AdminTransferStarted has copy, drop {
     current: address,
     pending: address,
     executable_after_ms: u64,
@@ -454,7 +453,7 @@ public struct AdminTransferCancelled has copy, drop {
     was_pending: address,
 }
 
-public struct DelayChangeBegun has copy, drop {
+public struct DelayChangeStarted has copy, drop {
     current_delay_ms: u64,
     pending_delay_ms: u64,
     executable_after_ms: u64,
@@ -482,13 +481,13 @@ public struct AllowedProviderRemoved has copy, drop {
     by: address,
 }
 
-public struct CapUpgradedToV2 has copy, drop {
+public struct CapV2Migrated has copy, drop {
     old_cap_id: ID,
     new_cap_id: ID,
     owner: address,
 }
 
-public struct AutoSwapValidatedV2 has copy, drop {
+public struct AutoSwapV2Validated has copy, drop {
     admin: address,
     vault_id: ID,
     cap_id: ID,
@@ -554,8 +553,8 @@ public fun grant_worker(
     ctx: &TxContext,
 ) {
     assert_admin(registry, ctx);
-    assert!(!vector::contains(&registry.worker_addresses, &addr), E_ROLE_ALREADY_GRANTED);
-    vector::push_back(&mut registry.worker_addresses, addr);
+    assert!(!vector::contains(&registry.worker_addresses, &addr), ERoleAlreadyGranted);
+    registry.worker_addresses.push_back(addr);
     event::emit(WorkerGranted { addr, by: ctx.sender() });
 }
 
@@ -566,7 +565,7 @@ public fun revoke_worker(
 ) {
     assert_admin(registry, ctx);
     let (found, idx) = vector::index_of(&registry.worker_addresses, &addr);
-    assert!(found, E_ROLE_NOT_GRANTED);
+    assert!(found, ERoleNotGranted);
     vector::remove(&mut registry.worker_addresses, idx);
     event::emit(WorkerRevoked { addr, by: ctx.sender() });
 }
@@ -577,8 +576,8 @@ public fun grant_oncall(
     ctx: &TxContext,
 ) {
     assert_admin(registry, ctx);
-    assert!(!vector::contains(&registry.oncall_addresses, &addr), E_ROLE_ALREADY_GRANTED);
-    vector::push_back(&mut registry.oncall_addresses, addr);
+    assert!(!vector::contains(&registry.oncall_addresses, &addr), ERoleAlreadyGranted);
+    registry.oncall_addresses.push_back(addr);
     event::emit(OncallGranted { addr, by: ctx.sender() });
 }
 
@@ -589,7 +588,7 @@ public fun revoke_oncall(
 ) {
     assert_admin(registry, ctx);
     let (found, idx) = vector::index_of(&registry.oncall_addresses, &addr);
-    assert!(found, E_ROLE_NOT_GRANTED);
+    assert!(found, ERoleNotGranted);
     vector::remove(&mut registry.oncall_addresses, idx);
     event::emit(OncallRevoked { addr, by: ctx.sender() });
 }
@@ -600,8 +599,8 @@ public fun grant_treasury(
     ctx: &TxContext,
 ) {
     assert_admin(registry, ctx);
-    assert!(!vector::contains(&registry.treasury_addresses, &addr), E_ROLE_ALREADY_GRANTED);
-    vector::push_back(&mut registry.treasury_addresses, addr);
+    assert!(!vector::contains(&registry.treasury_addresses, &addr), ERoleAlreadyGranted);
+    registry.treasury_addresses.push_back(addr);
     event::emit(TreasuryGranted { addr, by: ctx.sender() });
 }
 
@@ -612,7 +611,7 @@ public fun revoke_treasury(
 ) {
     assert_admin(registry, ctx);
     let (found, idx) = vector::index_of(&registry.treasury_addresses, &addr);
-    assert!(found, E_ROLE_NOT_GRANTED);
+    assert!(found, ERoleNotGranted);
     vector::remove(&mut registry.treasury_addresses, idx);
     event::emit(TreasuryRevoked { addr, by: ctx.sender() });
 }
@@ -627,7 +626,7 @@ public fun begin_admin_transfer(
     ctx: &TxContext,
 ) {
     assert_admin(registry, ctx);
-    assert!(option::is_none(&registry.pending_admin_transfer), E_PENDING_TRANSFER_EXISTS);
+    assert!(option::is_none(&registry.pending_admin_transfer), EPendingTransferExists);
     let now = clock.timestamp_ms();
     let delay = registry.admin_transfer_delay_ms;
     option::fill(&mut registry.pending_admin_transfer, PendingAdminTransfer {
@@ -635,7 +634,7 @@ public fun begin_admin_transfer(
         scheduled_at_ms: now,
         delay_at_schedule_ms: delay,
     });
-    event::emit(AdminTransferBegun {
+    event::emit(AdminTransferStarted {
         current: registry.admin,
         pending: new_admin,
         executable_after_ms: now + delay,
@@ -647,13 +646,13 @@ public fun accept_admin_transfer(
     clock: &Clock,
     ctx: &TxContext,
 ) {
-    assert!(option::is_some(&registry.pending_admin_transfer), E_NO_PENDING_TRANSFER);
+    assert!(option::is_some(&registry.pending_admin_transfer), ENoPendingTransfer);
     let pending = option::extract(&mut registry.pending_admin_transfer);
     let PendingAdminTransfer { new_admin, scheduled_at_ms, delay_at_schedule_ms } = pending;
-    assert!(ctx.sender() == new_admin, E_WRONG_PENDING_ACCEPTOR);
+    assert!(ctx.sender() == new_admin, EWrongPendingAcceptor);
     assert!(
         clock.timestamp_ms() >= scheduled_at_ms + delay_at_schedule_ms,
-        E_DELAY_NOT_ELAPSED,
+        EDelayNotElapsed,
     );
     let old = registry.admin;
     registry.admin = new_admin;
@@ -665,9 +664,9 @@ public fun cancel_admin_transfer(
     ctx: &TxContext,
 ) {
     assert_admin(registry, ctx);
-    assert!(option::is_some(&registry.pending_admin_transfer), E_NO_PENDING_TRANSFER);
+    assert!(option::is_some(&registry.pending_admin_transfer), ENoPendingTransfer);
     let pending = option::extract(&mut registry.pending_admin_transfer);
-    let PendingAdminTransfer { new_admin, scheduled_at_ms: _, delay_at_schedule_ms: _ } = pending;
+    let PendingAdminTransfer { new_admin, .. } = pending;
     event::emit(AdminTransferCancelled {
         current: registry.admin,
         was_pending: new_admin,
@@ -681,8 +680,8 @@ public fun begin_delay_change(
     ctx: &TxContext,
 ) {
     assert_admin(registry, ctx);
-    assert!(option::is_none(&registry.pending_delay_change), E_PENDING_DELAY_EXISTS);
-    assert!(new_delay_ms <= MAX_ADMIN_TRANSFER_DELAY_MS, E_DELAY_TOO_LARGE);
+    assert!(option::is_none(&registry.pending_delay_change), EPendingDelayExists);
+    assert!(new_delay_ms <= MAX_ADMIN_TRANSFER_DELAY_MS, EDelayTooLarge);
     let now = clock.timestamp_ms();
     let delay = registry.admin_transfer_delay_ms;
     option::fill(&mut registry.pending_delay_change, PendingDelayChange {
@@ -690,7 +689,7 @@ public fun begin_delay_change(
         scheduled_at_ms: now,
         delay_at_schedule_ms: delay,
     });
-    event::emit(DelayChangeBegun {
+    event::emit(DelayChangeStarted {
         current_delay_ms: delay,
         pending_delay_ms: new_delay_ms,
         executable_after_ms: now + delay,
@@ -703,12 +702,12 @@ public fun accept_delay_change(
     ctx: &TxContext,
 ) {
     assert_admin(registry, ctx);
-    assert!(option::is_some(&registry.pending_delay_change), E_NO_PENDING_DELAY);
+    assert!(option::is_some(&registry.pending_delay_change), ENoPendingDelay);
     let pending = option::extract(&mut registry.pending_delay_change);
     let PendingDelayChange { new_delay_ms, scheduled_at_ms, delay_at_schedule_ms } = pending;
     assert!(
         clock.timestamp_ms() >= scheduled_at_ms + delay_at_schedule_ms,
-        E_DELAY_NOT_ELAPSED,
+        EDelayNotElapsed,
     );
     let old = registry.admin_transfer_delay_ms;
     registry.admin_transfer_delay_ms = new_delay_ms;
@@ -720,9 +719,9 @@ public fun cancel_delay_change(
     ctx: &TxContext,
 ) {
     assert_admin(registry, ctx);
-    assert!(option::is_some(&registry.pending_delay_change), E_NO_PENDING_DELAY);
+    assert!(option::is_some(&registry.pending_delay_change), ENoPendingDelay);
     let pending = option::extract(&mut registry.pending_delay_change);
-    let PendingDelayChange { new_delay_ms, scheduled_at_ms: _, delay_at_schedule_ms: _ } = pending;
+    let PendingDelayChange { new_delay_ms, .. } = pending;
     event::emit(DelayChangeCancelled {
         current_delay_ms: registry.admin_transfer_delay_ms,
         was_pending_delay_ms: new_delay_ms,
@@ -759,8 +758,8 @@ public fun add_allowed_dest<Dest>(
 ) {
     assert_admin_or_treasury(registry, ctx);
     let t = type_name::with_defining_ids<Dest>();
-    assert!(!vector::contains(&registry.allowed_dest_types, &t), E_DEST_ALREADY_ALLOWED);
-    vector::push_back(&mut registry.allowed_dest_types, t);
+    assert!(!vector::contains(&registry.allowed_dest_types, &t), EDestAlreadyAllowed);
+    registry.allowed_dest_types.push_back(t);
     event::emit(AllowedDestAdded { dest_type: t, by: ctx.sender() });
 }
 
@@ -771,7 +770,7 @@ public fun remove_allowed_dest<Dest>(
     assert_admin_or_treasury(registry, ctx);
     let t = type_name::with_defining_ids<Dest>();
     let (found, idx) = vector::index_of(&registry.allowed_dest_types, &t);
-    assert!(found, E_DEST_NOT_ALLOWED);
+    assert!(found, EDestNotAllowed);
     vector::remove(&mut registry.allowed_dest_types, idx);
     event::emit(AllowedDestRemoved { dest_type: t, by: ctx.sender() });
 }
@@ -782,8 +781,8 @@ public fun add_allowed_provider(
     ctx: &TxContext,
 ) {
     assert_admin_or_treasury(registry, ctx);
-    assert!(!vector::contains(&registry.allowed_providers, &provider), E_PROVIDER_ALREADY_ALLOWED);
-    vector::push_back(&mut registry.allowed_providers, provider);
+    assert!(!vector::contains(&registry.allowed_providers, &provider), EProviderAlreadyAllowed);
+    registry.allowed_providers.push_back(provider);
     event::emit(AllowedProviderAdded { provider, by: ctx.sender() });
 }
 
@@ -794,7 +793,7 @@ public fun remove_allowed_provider(
 ) {
     assert_admin_or_treasury(registry, ctx);
     let (found, idx) = vector::index_of(&registry.allowed_providers, &provider);
-    assert!(found, E_PROVIDER_NOT_ALLOWED);
+    assert!(found, EProviderNotAllowed);
     vector::remove(&mut registry.allowed_providers, idx);
     event::emit(AllowedProviderRemoved { provider, by: ctx.sender() });
 }
@@ -810,19 +809,19 @@ public(package) fun validate_for_swap_v2<T>(
     ctx: &TxContext,
 ) {
     // 1. Global pause kill switch.
-    assert!(!registry.paused, E_REGISTRY_PAUSED);
+    assert!(!registry.paused, ERegistryPaused);
     // 2. Sender must be a Worker.
     let sender = ctx.sender();
-    assert!(vector::contains(&registry.worker_addresses, &sender), E_NOT_WORKER);
+    assert!(vector::contains(&registry.worker_addresses, &sender), ENotWorker);
     // 3. Per-cap pause.
-    assert!(!cap.paused, E_CAP_PAUSED);
+    assert!(!cap.paused, ECapPaused);
     // 4. Expiry (0 = no expiry).
     let now = clock.timestamp_ms();
     if (cap.expires_at_ms != 0) {
-        assert!(now <= cap.expires_at_ms, E_CAP_EXPIRED);
+        assert!(now <= cap.expires_at_ms, ECapExpired);
     };
     // 5. Per-swap ceiling.
-    assert!(amount <= cap.max_per_swap, E_AMOUNT_EXCEEDS_CAP);
+    assert!(amount <= cap.max_per_swap, EAmountExceedsCap);
     // 6. Day rollover: if we've crossed the reset boundary, zero
     // used_today and push the next reset 24h out from `now`.
     if (now >= cap.day_reset_at_ms) {
@@ -832,14 +831,14 @@ public(package) fun validate_for_swap_v2<T>(
     // 7. Overflow-safe addition. With u64::MAX as the ceiling, a wrap
     // would require `used_today + amount > 2^64-1` — impossible in
     // honest accounting but cheap to guard.
-    assert!(amount <= U64_MAX - cap.used_today, E_OVERFLOW);
+    assert!(amount <= U64_MAX - cap.used_today, EOverflow);
     let new_used = cap.used_today + amount;
     // 8. Daily budget assertion.
-    assert!(new_used <= cap.max_per_day, E_DAILY_BUDGET_EXCEEDED);
+    assert!(new_used <= cap.max_per_day, EDailyBudgetExceeded);
     // 9. Commit + emit.
     cap.used_today = new_used;
     registry.total_validations = registry.total_validations + 1;
-    event::emit(AutoSwapValidatedV2 {
+    event::emit(AutoSwapV2Validated {
         admin: sender,
         vault_id: cap.vault_id,
         cap_id: object::id(cap),
@@ -853,13 +852,13 @@ public(package) fun validate_for_swap_v2<T>(
 /// Dest-allowlist assertion. Called from `vault::auto_swap_deposit_*_v2`.
 public(package) fun assert_dest_allowed<Dest>(registry: &AutoSwapRegistryV2) {
     let t = type_name::with_defining_ids<Dest>();
-    assert!(vector::contains(&registry.allowed_dest_types, &t), E_DEST_NOT_ALLOWED);
+    assert!(vector::contains(&registry.allowed_dest_types, &t), EDestNotAllowed);
 }
 
 /// Registry-paused assertion. Called from `vault::receive_*` v2 if/when
 /// those are wired. Exposed for external composability.
 public(package) fun assert_not_paused(registry: &AutoSwapRegistryV2) {
-    assert!(!registry.paused, E_REGISTRY_PAUSED);
+    assert!(!registry.paused, ERegistryPaused);
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -876,9 +875,9 @@ public(package) fun new_cap_v2<T>(
     clock: &Clock,
     ctx: &mut TxContext,
 ): AutoSwapCapV2<T> {
-    assert!(max_per_swap > 0, E_INVALID_MAX);
-    assert!(max_per_day > 0, E_INVALID_MAX_PER_DAY);
-    assert!(max_per_day >= max_per_swap, E_INVALID_MAX_PER_DAY);
+    assert!(max_per_swap > 0, EInvalidMax);
+    assert!(max_per_day > 0, EInvalidMaxPerDay);
+    assert!(max_per_day >= max_per_swap, EInvalidMaxPerDay);
 
     let now = clock.timestamp_ms();
     let cap = AutoSwapCapV2<T> {
@@ -921,9 +920,9 @@ public fun upgrade_cap_to_v2<T>(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert!(ctx.sender() == cap.owner, E_NOT_OWNER);
-    assert!(max_per_day > 0, E_INVALID_MAX_PER_DAY);
-    assert!(max_per_day >= cap.max_per_swap, E_INVALID_MAX_PER_DAY);
+    assert!(ctx.sender() == cap.owner, ENotOwner);
+    assert!(max_per_day > 0, EInvalidMaxPerDay);
+    assert!(max_per_day >= cap.max_per_swap, EInvalidMaxPerDay);
 
     let AutoSwapCap {
         id: old_id,
@@ -950,7 +949,7 @@ public fun upgrade_cap_to_v2<T>(
     };
     let new_cap_id = object::id(&new_cap);
 
-    event::emit(CapUpgradedToV2 { old_cap_id, new_cap_id, owner });
+    event::emit(CapV2Migrated { old_cap_id, new_cap_id, owner });
 
     transfer::share_object(new_cap);
 }
@@ -959,21 +958,21 @@ public fun upgrade_cap_to_v2<T>(
 // Internal role-check helpers
 
 fun assert_admin(registry: &AutoSwapRegistryV2, ctx: &TxContext) {
-    assert!(ctx.sender() == registry.admin, E_NOT_ADMIN);
+    assert!(ctx.sender() == registry.admin, ENotAdmin);
 }
 
 fun assert_admin_or_oncall(registry: &AutoSwapRegistryV2, ctx: &TxContext) {
     let s = ctx.sender();
     let ok = s == registry.admin
         || vector::contains(&registry.oncall_addresses, &s);
-    assert!(ok, E_NOT_ADMIN_OR_ONCALL);
+    assert!(ok, ENotAdminOrOncall);
 }
 
 fun assert_admin_or_treasury(registry: &AutoSwapRegistryV2, ctx: &TxContext) {
     let s = ctx.sender();
     let ok = s == registry.admin
         || vector::contains(&registry.treasury_addresses, &s);
-    assert!(ok, E_NOT_ADMIN_OR_TREASURY);
+    assert!(ok, ENotAdminOrTreasury);
 }
 
 // ───────────────────────────────────────────────────────────────────

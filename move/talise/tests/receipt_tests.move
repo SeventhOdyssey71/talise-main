@@ -7,7 +7,7 @@
 #[test_only]
 module talise::receipt_tests;
 
-use std::string;
+use std::{string, unit_test::assert_eq};
 use sui::test_scenario as ts;
 use talise::receipt::{Self, PaymentReceipt};
 
@@ -23,8 +23,8 @@ fun init_creates_display_and_publisher() {
     receipt::test_init(ts::ctx(&mut scenario));
 
     ts::next_tx(&mut scenario, PUBLISHER);
-    assert!(ts::has_most_recent_for_address<sui::package::Publisher>(PUBLISHER), 0);
-    assert!(ts::has_most_recent_for_address<sui::display::Display<PaymentReceipt>>(PUBLISHER), 1);
+    assert!(ts::has_most_recent_for_address<sui::package::Publisher>(PUBLISHER));
+    assert!(ts::has_most_recent_for_address<sui::display::Display<PaymentReceipt>>(PUBLISHER));
     ts::end(scenario);
 }
 
@@ -33,20 +33,20 @@ fun mint_populates_all_fields_and_accessors() {
     let mut scenario = ts::begin(PUBLISHER);
     {
         let r = receipt::test_mint(
+            string::utf8(b"USDC"),
+            string::utf8(b"hello"),
             FROM,
             TO,
             12_345,
-            string::utf8(b"USDC"),
-            string::utf8(b"hello"),
             1_700_000_000_000,
             ts::ctx(&mut scenario),
         );
-        assert!(receipt::from(&r) == FROM, 0);
-        assert!(receipt::to(&r) == TO, 1);
-        assert!(receipt::amount(&r) == 12_345, 2);
-        assert!(*string::as_bytes(receipt::asset(&r)) == b"USDC", 3);
-        assert!(*string::as_bytes(receipt::memo(&r)) == b"hello", 4);
-        assert!(receipt::ts_ms(&r) == 1_700_000_000_000, 5);
+        assert_eq!(receipt::from(&r), FROM);
+        assert_eq!(receipt::to(&r), TO);
+        assert_eq!(receipt::amount(&r), 12_345);
+        assert_eq!(*string::as_bytes(receipt::asset(&r)), b"USDC");
+        assert_eq!(*string::as_bytes(receipt::memo(&r)), b"hello");
+        assert_eq!(receipt::ts_ms(&r), 1_700_000_000_000);
         receipt::destroy_for_testing(r);
     };
     ts::end(scenario);

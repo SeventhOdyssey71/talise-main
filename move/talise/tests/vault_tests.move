@@ -24,14 +24,10 @@
 #[test_only]
 module talise::vault_tests;
 
-use std::string;
-use sui::clock;
-use sui::coin::{Self, Coin};
-use sui::sui::SUI;
-use sui::test_scenario as ts;
+use std::{string, unit_test::assert_eq};
+use sui::{clock, coin::{Self, Coin}, sui::SUI, test_scenario as ts};
 
-use talise::auto_swap::{Self, AutoSwapRegistry, AutoSwapCap};
-use talise::vault::{Self, TaliseVault};
+use talise::{auto_swap::{Self, AutoSwapRegistry, AutoSwapCap}, vault::{Self, TaliseVault}};
 
 const PUBLISHER: address = @0xA;
 const USER: address = @0xB;
@@ -59,10 +55,10 @@ fun read_accessors_initial_state() {
 
     ts::next_tx(&mut scenario, USER);
     let v = ts::take_shared<TaliseVault>(&scenario);
-    assert!(vault::owner(&v) == USER, 0);
-    assert!(vault::deposits_total(&v) == 0, 1);
-    assert!(vault::auto_swaps_total(&v) == 0, 2);
-    assert!(vault::balance_of<SUI>(&v) == 0, 3);  // unheld type path
+    assert_eq!(vault::owner(&v), USER);
+    assert_eq!(vault::deposits_total(&v), 0);
+    assert_eq!(vault::auto_swaps_total(&v), 0);
+    assert_eq!(vault::balance_of<SUI>(&v), 0);  // unheld type path
     ts::return_shared(v);
     ts::end(scenario);
 }
@@ -75,7 +71,7 @@ fun type_string_returns_canonical_name() {
     // testnet/mainnet builds.
     let s = vault::type_string<SUI>();
     let bytes = string::as_bytes(&s);
-    assert!(vector::length(bytes) > 0, 0);
+    assert!(bytes.length() > 0);
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -93,13 +89,13 @@ fun deposit_zero_short_circuit_keeps_counters() {
     let mut v = ts::take_shared<TaliseVault>(&scenario);
     let c1 = coin::mint_for_testing<SUI>(1_000, ts::ctx(&mut scenario));
     vault::deposit<SUI>(&mut v, c1, ts::ctx(&mut scenario));
-    assert!(vault::deposits_total(&v) == 1, 1);
-    assert!(vault::balance_of<SUI>(&v) == 1_000, 2);
+    assert_eq!(vault::deposits_total(&v), 1);
+    assert_eq!(vault::balance_of<SUI>(&v), 1_000);
 
     let c2 = coin::mint_for_testing<SUI>(2_000, ts::ctx(&mut scenario));
     vault::deposit<SUI>(&mut v, c2, ts::ctx(&mut scenario));
-    assert!(vault::deposits_total(&v) == 2, 3);
-    assert!(vault::balance_of<SUI>(&v) == 3_000, 4);
+    assert_eq!(vault::deposits_total(&v), 2);
+    assert_eq!(vault::balance_of<SUI>(&v), 3_000);
 
     ts::return_shared(v);
     ts::end(scenario);
@@ -122,13 +118,13 @@ fun withdraw_and_send_delivers_to_recipient() {
     ts::next_tx(&mut scenario, USER);
     let mut v2 = ts::take_shared<TaliseVault>(&scenario);
     vault::withdraw_and_send<SUI>(&mut v2, 4_000, RANDO, ts::ctx(&mut scenario));
-    assert!(vault::balance_of<SUI>(&v2) == 6_000, 0);
+    assert_eq!(vault::balance_of<SUI>(&v2), 6_000);
     ts::return_shared(v2);
 
     // Coin should now be in RANDO's wallet.
     ts::next_tx(&mut scenario, RANDO);
     let received = ts::take_from_sender<coin::Coin<SUI>>(&scenario);
-    assert!(coin::value(&received) == 4_000, 1);
+    assert_eq!(received.value(), 4_000);
     coin::burn_for_testing(received);
 
     ts::end(scenario);
@@ -146,8 +142,8 @@ fun withdraw_clears_balance_entry_when_drained() {
     let funded = coin::mint_for_testing<SUI>(1_000, ts::ctx(&mut scenario));
     vault::deposit<SUI>(&mut v, funded, ts::ctx(&mut scenario));
     let withdrawn = vault::withdraw<SUI>(&mut v, 1_000, ts::ctx(&mut scenario));
-    assert!(coin::value(&withdrawn) == 1_000, 0);
-    assert!(vault::balance_of<SUI>(&v) == 0, 1);
+    assert_eq!(withdrawn.value(), 1_000);
+    assert_eq!(vault::balance_of<SUI>(&v), 0);
     coin::burn_for_testing(withdrawn);
     ts::return_shared(v);
     ts::end(scenario);
@@ -186,15 +182,15 @@ fun auto_swap_extract_then_deposit_round_trip() {
         &mut v2, &mut registry, &cap, 300_000, &c, ts::ctx(&mut scenario),
     );
     // After extraction, vault holds 700_000 SUI (1_000_000 − 300_000).
-    assert!(vault::balance_of<SUI>(&v2) == 700_000, 1);
+    assert_eq!(vault::balance_of<SUI>(&v2), 700_000);
 
     // Simulate a 1:1 swap by re-depositing the extracted balance as Dest = SUI.
     vault::auto_swap_deposit<SUI>(&mut v2, extracted, ticket, &c);
 
     // Vault balance should be back to 1_000_000 and swap counter bumped.
-    assert!(vault::balance_of<SUI>(&v2) == 1_000_000, 2);
-    assert!(vault::auto_swaps_total(&v2) == 1, 3);
-    assert!(auto_swap::total_validations(&registry) == 1, 4);
+    assert_eq!(vault::balance_of<SUI>(&v2), 1_000_000);
+    assert_eq!(vault::auto_swaps_total(&v2), 1);
+    assert_eq!(auto_swap::total_validations(&registry), 1);
 
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
@@ -229,9 +225,9 @@ fun auto_swap_extract_drains_then_remove_branch() {
     let (extracted, ticket) = vault::auto_swap_extract<SUI>(
         &mut v2, &mut registry, &cap, 100_000, &c, ts::ctx(&mut scenario),
     );
-    assert!(vault::balance_of<SUI>(&v2) == 0, 0);
+    assert_eq!(vault::balance_of<SUI>(&v2), 0);
     vault::auto_swap_deposit<SUI>(&mut v2, extracted, ticket, &c);
-    assert!(vault::balance_of<SUI>(&v2) == 100_000, 1);
+    assert_eq!(vault::balance_of<SUI>(&v2), 100_000);
 
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
@@ -270,7 +266,7 @@ fun auto_swap_deposit_zero_output_destroys_balance() {
     sui::balance::destroy_for_testing(extracted);
     let zero_out = sui::balance::zero<SUI>();
     vault::auto_swap_deposit<SUI>(&mut v2, zero_out, ticket, &c);
-    assert!(vault::auto_swaps_total(&v2) == 1, 0);
+    assert_eq!(vault::auto_swaps_total(&v2), 1);
 
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
@@ -307,9 +303,9 @@ fun auto_swap_deposit_into_existing_dest_uses_join() {
     let (extracted, ticket) = vault::auto_swap_extract<SUI>(
         &mut v2, &mut registry, &cap, 5_000, &c, ts::ctx(&mut scenario),
     );
-    assert!(vault::balance_of<SUI>(&v2) == 15_000, 0);
+    assert_eq!(vault::balance_of<SUI>(&v2), 15_000);
     vault::auto_swap_deposit<SUI>(&mut v2, extracted, ticket, &c);
-    assert!(vault::balance_of<SUI>(&v2) == 20_000, 1);
+    assert_eq!(vault::balance_of<SUI>(&v2), 20_000);
 
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
@@ -321,8 +317,7 @@ fun auto_swap_deposit_into_existing_dest_uses_join() {
 // ───────────────────────────────────────────────────────────────────
 // auto_swap_extract — error branches
 
-#[test]
-#[expected_failure(abort_code = vault::E_WRONG_VAULT)]
+#[test, expected_failure(abort_code = vault::EWrongVault)]
 fun extract_rejects_cap_for_different_vault() {
     // Cap was minted against USER's vault. Try to use it on OTHER_USER's
     // vault — should hit E_WRONG_VAULT before validate_for_swap.
@@ -378,8 +373,7 @@ fun extract_rejects_cap_for_different_vault() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = vault::E_ZERO_AMOUNT)]
+#[test, expected_failure(abort_code = vault::EZeroAmount)]
 fun extract_rejects_zero_amount() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -411,8 +405,7 @@ fun extract_rejects_zero_amount() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = vault::E_TYPE_NOT_HELD)]
+#[test, expected_failure(abort_code = vault::ETypeNotHeld)]
 fun extract_rejects_when_type_not_held() {
     // Cap minted but vault never received SUI. Extract should hit
     // E_TYPE_NOT_HELD after validate_for_swap passes.
@@ -446,8 +439,7 @@ fun extract_rejects_when_type_not_held() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = vault::E_INSUFFICIENT_BALANCE)]
+#[test, expected_failure(abort_code = vault::EInsufficientBalance)]
 fun extract_rejects_insufficient_balance() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -485,8 +477,7 @@ fun extract_rejects_insufficient_balance() {
 // ───────────────────────────────────────────────────────────────────
 // withdraw — error branches not covered by auto_swap_tests.move
 
-#[test]
-#[expected_failure(abort_code = vault::E_ZERO_AMOUNT)]
+#[test, expected_failure(abort_code = vault::EZeroAmount)]
 fun withdraw_rejects_zero_amount() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_user_vault(&mut scenario, USER);
@@ -499,8 +490,7 @@ fun withdraw_rejects_zero_amount() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = vault::E_TYPE_NOT_HELD)]
+#[test, expected_failure(abort_code = vault::ETypeNotHeld)]
 fun withdraw_rejects_when_type_not_held() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_user_vault(&mut scenario, USER);
@@ -513,8 +503,7 @@ fun withdraw_rejects_when_type_not_held() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = vault::E_INSUFFICIENT_BALANCE)]
+#[test, expected_failure(abort_code = vault::EInsufficientBalance)]
 fun withdraw_rejects_insufficient_balance() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_user_vault(&mut scenario, USER);
@@ -547,14 +536,13 @@ fun deposit_balance_zero_path_destroys_and_returns() {
     let zero_bal = sui::balance::zero<SUI>();
     vault::test_deposit_balance<SUI>(&mut v, zero_bal, USER);
     // Counter must NOT bump on a zero deposit.
-    assert!(vault::deposits_total(&v) == 0, 0);
-    assert!(vault::balance_of<SUI>(&v) == 0, 1);
+    assert_eq!(vault::deposits_total(&v), 0);
+    assert_eq!(vault::balance_of<SUI>(&v), 0);
     ts::return_shared(v);
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = vault::E_WRONG_VAULT)]
+#[test, expected_failure(abort_code = vault::EWrongVault)]
 fun auto_swap_deposit_rejects_ticket_for_different_vault() {
     // SwapTicket carries the source vault id. Trying to consume the
     // ticket against a different vault must abort with E_WRONG_VAULT.
@@ -608,8 +596,7 @@ fun auto_swap_deposit_rejects_ticket_for_different_vault() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = vault::E_ZERO_AMOUNT)]
+#[test, expected_failure(abort_code = vault::EZeroAmount)]
 fun deposit_rejects_zero_coin() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_user_vault(&mut scenario, USER);
@@ -669,7 +656,7 @@ fun auto_swap_deposit_to_owner_routes_output_to_vault_owner() {
     let (extracted, ticket) = vault::auto_swap_extract<SUI>(
         &mut v2, &mut registry, &cap, 300_000, &c, ts::ctx(&mut scenario),
     );
-    assert!(vault::balance_of<SUI>(&v2) == 700_000, 0);
+    assert_eq!(vault::balance_of<SUI>(&v2), 700_000);
 
     // Route output straight to the user's wallet. With Source==Dest the
     // v4 flush also drains the 700_000 remainder.
@@ -677,9 +664,9 @@ fun auto_swap_deposit_to_owner_routes_output_to_vault_owner() {
 
     // Vault bag SUI is empty — output was NOT folded back into the bag,
     // and the bag entry was flushed by the v4 stale-balance drain.
-    assert!(vault::balance_of<SUI>(&v2) == 0, 1);
+    assert_eq!(vault::balance_of<SUI>(&v2), 0);
     // Auto-swap counter still bumps so off-chain telemetry stays consistent.
-    assert!(vault::auto_swaps_total(&v2) == 1, 2);
+    assert_eq!(vault::auto_swaps_total(&v2), 1);
 
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
@@ -690,7 +677,7 @@ fun auto_swap_deposit_to_owner_routes_output_to_vault_owner() {
     // (300_000 extracted + 700_000 flushed remainder).
     ts::next_tx(&mut scenario, USER);
     let received = ts::take_from_sender<Coin<SUI>>(&scenario);
-    assert!(coin::value(&received) == 1_000_000, 3);
+    assert_eq!(received.value(), 1_000_000);
     coin::burn_for_testing(received);
 
     ts::end(scenario);
@@ -715,14 +702,14 @@ fun auto_swap_deposit_to_owner_flushes_stale_bag_balance() {
     let stale = sui::coin::mint_for_testing<SUI>(200_000, ts::ctx(&mut scenario));
     let stale_bal = sui::coin::into_balance(stale);
     vault::test_deposit_balance<SUI>(&mut v, stale_bal, USER);
-    assert!(vault::balance_of<SUI>(&v) == 200_000, 0);
+    assert_eq!(vault::balance_of<SUI>(&v), 200_000);
 
     // Now fund SUI for extraction (separate logical source pool) and
     // enable the cap. Because the bag holds a single Balance<SUI>, the
     // funding `join`s into it — total becomes 200_000 + 1_000_000.
     let funded = coin::mint_for_testing<SUI>(1_000_000, ts::ctx(&mut scenario));
     vault::deposit<SUI>(&mut v, funded, ts::ctx(&mut scenario));
-    assert!(vault::balance_of<SUI>(&v) == 1_200_000, 1);
+    assert_eq!(vault::balance_of<SUI>(&v), 1_200_000);
     vault::enable_auto_swap<SUI>(&v, 500_000, 0, ts::ctx(&mut scenario));
     ts::return_shared(v);
 
@@ -738,7 +725,7 @@ fun auto_swap_deposit_to_owner_flushes_stale_bag_balance() {
     let (extracted, ticket) = vault::auto_swap_extract<SUI>(
         &mut v2, &mut registry, &cap, 400_000, &c, ts::ctx(&mut scenario),
     );
-    assert!(vault::balance_of<SUI>(&v2) == 800_000, 2);
+    assert_eq!(vault::balance_of<SUI>(&v2), 800_000);
 
     // `auto_swap_deposit_to_owner` should:
     //   - take the extracted 400_000 (swap output, simulated 1:1),
@@ -748,7 +735,7 @@ fun auto_swap_deposit_to_owner_flushes_stale_bag_balance() {
     vault::auto_swap_deposit_to_owner<SUI>(&mut v2, extracted, ticket, &c, ts::ctx(&mut scenario));
 
     // Bag should now hold zero SUI — the stale entry was removed.
-    assert!(vault::balance_of<SUI>(&v2) == 0, 3);
+    assert_eq!(vault::balance_of<SUI>(&v2), 0);
 
     clock::destroy_for_testing(c);
     ts::return_shared(registry);
@@ -758,14 +745,13 @@ fun auto_swap_deposit_to_owner_flushes_stale_bag_balance() {
     // USER should hold the combined Coin<SUI> = 1_200_000.
     ts::next_tx(&mut scenario, USER);
     let received = ts::take_from_sender<Coin<SUI>>(&scenario);
-    assert!(coin::value(&received) == 1_200_000, 4);
+    assert_eq!(received.value(), 1_200_000);
     coin::burn_for_testing(received);
 
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = vault::E_WRONG_VAULT)]
+#[test, expected_failure(abort_code = vault::EWrongVault)]
 fun auto_swap_deposit_to_owner_rejects_ticket_for_different_vault() {
     // (c) The ticket carries the source vault id; the to-owner deposit
     // must still assert it. Extracting from vault A and trying to close

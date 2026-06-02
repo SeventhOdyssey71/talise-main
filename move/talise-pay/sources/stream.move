@@ -35,17 +35,17 @@ use sui::{
 // ───────────────────────────────────────────────────────────────────
 // Errors
 
-const E_ZERO_AMOUNT: u64 = 200;
-const E_BAD_SCHEDULE: u64 = 201;
-const E_NOT_WORKER: u64 = 202;
-const E_REGISTRY_PAUSED: u64 = 203;
-const E_PAUSED: u64 = 204;
-const E_CANCELLED: u64 = 205;
-const E_STREAM_COMPLETE: u64 = 206;
-const E_TRANCHE_NOT_DUE: u64 = 207;
-const E_NOT_SENDER: u64 = 208;
-const E_WORKER_ALREADY_ADDED: u64 = 209;
-const E_WORKER_NOT_FOUND: u64 = 210;
+const EZeroAmount: u64 = 200;
+const EBadSchedule: u64 = 201;
+const ENotWorker: u64 = 202;
+const ERegistryPaused: u64 = 203;
+const EPaused: u64 = 204;
+const ECancelled: u64 = 205;
+const EStreamComplete: u64 = 206;
+const ETrancheNotDue: u64 = 207;
+const ENotSender: u64 = 208;
+const EWorkerAlreadyAdded: u64 = 209;
+const EWorkerNotFound: u64 = 210;
 
 // ───────────────────────────────────────────────────────────────────
 // Objects
@@ -95,7 +95,7 @@ public struct StreamCreated has copy, drop {
     interval_ms: u64,
 }
 
-public struct TranchePaid has copy, drop {
+public struct TrancheReleased has copy, drop {
     stream_id: ID,
     recipient: address,
     amount: u64,
@@ -131,11 +131,11 @@ fun init(ctx: &mut TxContext) {
 
 /// Admin: grant a worker address permission to call `release`.
 public fun add_worker(
-    _cap: &StreamAdminCap,
     registry: &mut StreamRegistry,
+    _cap: &StreamAdminCap,
     worker: address,
 ) {
-    assert!(!registry.worker_addresses.contains(&worker), E_WORKER_ALREADY_ADDED);
+    assert!(!registry.worker_addresses.contains(&worker), EWorkerAlreadyAdded);
     registry.worker_addresses.push_back(worker);
     event::emit(WorkerAdded { worker });
 }
@@ -143,18 +143,18 @@ public fun add_worker(
 /// Admin: revoke a worker address. A compromised or rotated worker key can
 /// be cut off without touching individual streams.
 public fun remove_worker(
-    _cap: &StreamAdminCap,
     registry: &mut StreamRegistry,
+    _cap: &StreamAdminCap,
     worker: address,
 ) {
     let (found, idx) = registry.worker_addresses.index_of(&worker);
-    assert!(found, E_WORKER_NOT_FOUND);
+    assert!(found, EWorkerNotFound);
     registry.worker_addresses.remove(idx);
     event::emit(WorkerRemoved { worker });
 }
 
 /// Admin: global kill switch (halts ALL worker releases).
-public fun set_paused(_cap: &StreamAdminCap, registry: &mut StreamRegistry, paused: bool) {
+public fun set_paused(registry: &mut StreamRegistry, _cap: &StreamAdminCap, paused: bool) {
     registry.paused = paused;
 }
 
@@ -177,10 +177,10 @@ public fun create<T>(
     ctx: &mut TxContext,
 ): ID {
     let total = balance::value(&funds);
-    assert!(total > 0, E_ZERO_AMOUNT);
-    assert!(num_tranches > 0, E_BAD_SCHEDULE);
-    assert!(tranche_amount > 0, E_BAD_SCHEDULE);
-    assert!(interval_ms > 0, E_BAD_SCHEDULE);
+    assert!(total > 0, EZeroAmount);
+    assert!(num_tranches > 0, EBadSchedule);
+    assert!(tranche_amount > 0, EBadSchedule);
+    assert!(interval_ms > 0, EBadSchedule);
     // The first (num_tranches - 1) tranches each pay `tranche_amount`; the
     // final tranche pays the remainder, so $X/N rounding can never over- or
     // under-release. We must therefore guarantee
@@ -191,7 +191,7 @@ public fun create<T>(
     // which never overflows. (Integer division floors, but that is exactly
     // what we want: if (n-1) fixed tranches fit within `total / tranche_amount`
     // whole tranches, their sum fits in `total`.)
-    assert!((num_tranches - 1) <= total / tranche_amount, E_BAD_SCHEDULE);
+    assert!((num_tranches - 1) <= total / tranche_amount, EBadSchedule);
 
     let stream = Stream<T> {
         id: object::new(ctx),
@@ -245,14 +245,14 @@ public fun release<T>(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert!(!registry.paused, E_REGISTRY_PAUSED);
-    assert!(registry.worker_addresses.contains(&ctx.sender()), E_NOT_WORKER);
-    assert!(!stream.cancelled, E_CANCELLED);
-    assert!(!stream.paused, E_PAUSED);
-    assert!(stream.tranches_done < stream.num_tranches, E_STREAM_COMPLETE);
+    assert!(!registry.paused, ERegistryPaused);
+    assert!(registry.worker_addresses.contains(&ctx.sender()), ENotWorker);
+    assert!(!stream.cancelled, ECancelled);
+    assert!(!stream.paused, EPaused);
+    assert!(stream.tranches_done < stream.num_tranches, EStreamComplete);
 
     let due_at = stream.start_ms + stream.tranches_done * stream.interval_ms;
-    assert!(clock.timestamp_ms() >= due_at, E_TRANCHE_NOT_DUE);
+    assert!(clock.timestamp_ms() >= due_at, ETrancheNotDue);
 
     // Last tranche pays the remainder so total released == total_amount.
     let is_last = stream.tranches_done + 1 == stream.num_tranches;
@@ -265,7 +265,7 @@ public fun release<T>(
     let coin_out = coin::from_balance(out, ctx);
     transfer::public_transfer(coin_out, stream.recipient);
 
-    event::emit(TranchePaid {
+    event::emit(TrancheReleased {
         stream_id: object::id(stream),
         recipient: stream.recipient,
         amount,
@@ -281,8 +281,8 @@ public fun release<T>(
 /// surface: a caller can only push DUE funds to the recipient, never to
 /// themselves, and never more than the schedule allows.
 public fun claim_accrued<T>(stream: &mut Stream<T>, clock: &Clock, ctx: &mut TxContext) {
-    assert!(!stream.cancelled, E_CANCELLED);
-    assert!(!stream.paused, E_PAUSED);
+    assert!(!stream.cancelled, ECancelled);
+    assert!(!stream.paused, EPaused);
     while (stream.tranches_done < stream.num_tranches) {
         let due_at = stream.start_ms + stream.tranches_done * stream.interval_ms;
         if (clock.timestamp_ms() < due_at) break;
@@ -293,7 +293,7 @@ public fun claim_accrued<T>(stream: &mut Stream<T>, clock: &Clock, ctx: &mut TxC
         stream.tranches_done = stream.tranches_done + 1;
         let coin_out = coin::from_balance(out, ctx);
         transfer::public_transfer(coin_out, stream.recipient);
-        event::emit(TranchePaid {
+        event::emit(TrancheReleased {
             stream_id: object::id(stream),
             recipient: stream.recipient,
             amount,
@@ -307,13 +307,13 @@ public fun claim_accrued<T>(stream: &mut Stream<T>, clock: &Clock, ctx: &mut TxC
 // Sender controls (sender-signed)
 
 public fun pause<T>(stream: &mut Stream<T>, ctx: &TxContext) {
-    assert!(ctx.sender() == stream.sender, E_NOT_SENDER);
+    assert!(ctx.sender() == stream.sender, ENotSender);
     stream.paused = true;
     event::emit(StreamPaused { stream_id: object::id(stream) });
 }
 
 public fun resume<T>(stream: &mut Stream<T>, ctx: &TxContext) {
-    assert!(ctx.sender() == stream.sender, E_NOT_SENDER);
+    assert!(ctx.sender() == stream.sender, ENotSender);
     stream.paused = false;
     event::emit(StreamResumed { stream_id: object::id(stream) });
 }
@@ -321,7 +321,7 @@ public fun resume<T>(stream: &mut Stream<T>, ctx: &TxContext) {
 /// Cancel + withdraw the undistributed remainder back to the sender.
 /// Terminal. Already-released tranches stay with the recipient.
 public fun cancel_and_withdraw<T>(stream: &mut Stream<T>, ctx: &mut TxContext): Coin<T> {
-    assert!(ctx.sender() == stream.sender, E_NOT_SENDER);
+    assert!(ctx.sender() == stream.sender, ENotSender);
     stream.cancelled = true;
     let remaining = balance::withdraw_all(&mut stream.escrow);
     event::emit(StreamCancelled {

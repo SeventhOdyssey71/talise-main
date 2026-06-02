@@ -19,6 +19,7 @@
 module talise::stream_tests;
 
 use sui::{balance, clock, coin, sui::SUI, test_scenario as ts};
+use std::unit_test::assert_eq;
 use talise::stream::{Self, StreamRegistry, StreamAdminCap, Stream};
 
 const PUBLISHER: address = @0xA;
@@ -43,7 +44,7 @@ fun grant_worker(scenario: &mut ts::Scenario) {
     ts::next_tx(scenario, PUBLISHER);
     let cap = ts::take_from_sender<StreamAdminCap>(scenario);
     let mut reg = ts::take_shared<StreamRegistry>(scenario);
-    stream::add_worker(&cap, &mut reg, WORKER);
+    stream::add_worker(&mut reg, &cap, WORKER);
     ts::return_shared(reg);
     ts::return_to_sender(scenario, cap);
 }
@@ -59,7 +60,7 @@ fun fund_stream(
     ts::next_tx(scenario, SENDER);
     let mut reg = ts::take_shared<StreamRegistry>(scenario);
     let c = clock::create_for_testing(ts::ctx(scenario));
-    let funds = coin::into_balance(coin::mint_for_testing<SUI>(total, ts::ctx(scenario)));
+    let funds = coin::mint_for_testing<SUI>(total, ts::ctx(scenario)).into_balance();
     let sid = stream::create<SUI>(
         &mut reg,
         funds,
@@ -96,9 +97,9 @@ fun create_then_release_all_tranches() {
         let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
         clock::set_for_testing(&mut c, START); // exactly due
         stream::release<SUI>(&mut reg, &mut s, &c, ts::ctx(&mut scenario));
-        assert!(stream::tranches_done(&s) == 1);
-        assert!(stream::released_amount(&s) == 100);
-        assert!(stream::escrow_value(&s) == 200);
+        assert_eq!(stream::tranches_done(&s), 1);
+        assert_eq!(stream::released_amount(&s), 100);
+        assert_eq!(stream::escrow_value(&s), 200);
         clock::destroy_for_testing(c);
         ts::return_shared(s);
         ts::return_shared(reg);
@@ -112,8 +113,8 @@ fun create_then_release_all_tranches() {
         let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
         clock::set_for_testing(&mut c, START + INTERVAL);
         stream::release<SUI>(&mut reg, &mut s, &c, ts::ctx(&mut scenario));
-        assert!(stream::tranches_done(&s) == 2);
-        assert!(stream::released_amount(&s) == 200);
+        assert_eq!(stream::tranches_done(&s), 2);
+        assert_eq!(stream::released_amount(&s), 200);
         clock::destroy_for_testing(c);
         ts::return_shared(s);
         ts::return_shared(reg);
@@ -127,9 +128,9 @@ fun create_then_release_all_tranches() {
         let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
         clock::set_for_testing(&mut c, START + 2 * INTERVAL);
         stream::release<SUI>(&mut reg, &mut s, &c, ts::ctx(&mut scenario));
-        assert!(stream::tranches_done(&s) == 3);
-        assert!(stream::released_amount(&s) == 300);
-        assert!(stream::escrow_value(&s) == 0);
+        assert_eq!(stream::tranches_done(&s), 3);
+        assert_eq!(stream::released_amount(&s), 300);
+        assert_eq!(stream::escrow_value(&s), 0);
         clock::destroy_for_testing(c);
         ts::return_shared(s);
         ts::return_shared(reg);
@@ -143,7 +144,7 @@ fun create_then_release_all_tranches() {
         let coin2 = ts::take_from_sender<coin::Coin<SUI>>(&scenario);
         coin::burn_for_testing(coin2);
         let coin3 = ts::take_from_sender<coin::Coin<SUI>>(&scenario);
-        assert!(coin::value(&coin3) == 100);
+        assert_eq!(coin3.value(), 100);
         coin::burn_for_testing(coin3);
     };
 
@@ -153,7 +154,7 @@ fun create_then_release_all_tranches() {
 // ───────────────────────────────────────────────────────────────────
 // Clock gate
 
-#[test, expected_failure(abort_code = stream::E_TRANCHE_NOT_DUE)]
+#[test, expected_failure(abort_code = stream::ETrancheNotDue)]
 fun release_before_due_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -175,7 +176,7 @@ fun release_before_due_aborts() {
 // ───────────────────────────────────────────────────────────────────
 // Idempotency / double-pay prevention
 
-#[test, expected_failure(abort_code = stream::E_TRANCHE_NOT_DUE)]
+#[test, expected_failure(abort_code = stream::ETrancheNotDue)]
 fun second_release_same_interval_aborts() {
     // Two releases at the SAME timestamp: the second's due_at has advanced
     // by one INTERVAL (because tranches_done bumped), so it is not yet due.
@@ -198,7 +199,7 @@ fun second_release_same_interval_aborts() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = stream::E_STREAM_COMPLETE)]
+#[test, expected_failure(abort_code = stream::EStreamComplete)]
 fun release_after_completion_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -212,7 +213,7 @@ fun release_after_completion_aborts() {
     let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
     clock::set_for_testing(&mut c, START + 100 * INTERVAL);
     stream::release<SUI>(&mut reg, &mut s, &c, ts::ctx(&mut scenario)); // completes
-    assert!(stream::tranches_done(&s) == 1);
+    assert_eq!(stream::tranches_done(&s), 1);
     stream::release<SUI>(&mut reg, &mut s, &c, ts::ctx(&mut scenario)); // aborts
     clock::destroy_for_testing(c);
     ts::return_shared(s);
@@ -223,7 +224,7 @@ fun release_after_completion_aborts() {
 // ───────────────────────────────────────────────────────────────────
 // Access control
 
-#[test, expected_failure(abort_code = stream::E_NOT_WORKER)]
+#[test, expected_failure(abort_code = stream::ENotWorker)]
 fun non_worker_release_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -243,7 +244,7 @@ fun non_worker_release_aborts() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = stream::E_REGISTRY_PAUSED)]
+#[test, expected_failure(abort_code = stream::ERegistryPaused)]
 fun paused_registry_blocks_release() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -255,7 +256,7 @@ fun paused_registry_blocks_release() {
     {
         let cap = ts::take_from_sender<StreamAdminCap>(&scenario);
         let mut reg = ts::take_shared<StreamRegistry>(&scenario);
-        stream::set_paused(&cap, &mut reg, true);
+        stream::set_paused(&mut reg, &cap, true);
         ts::return_shared(reg);
         ts::return_to_sender(&scenario, cap);
     };
@@ -272,7 +273,7 @@ fun paused_registry_blocks_release() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = stream::E_NOT_SENDER)]
+#[test, expected_failure(abort_code = stream::ENotSender)]
 fun non_sender_pause_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -286,7 +287,7 @@ fun non_sender_pause_aborts() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = stream::E_NOT_SENDER)]
+#[test, expected_failure(abort_code = stream::ENotSender)]
 fun non_sender_cancel_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -304,7 +305,7 @@ fun non_sender_cancel_aborts() {
 // ───────────────────────────────────────────────────────────────────
 // Pause blocks release
 
-#[test, expected_failure(abort_code = stream::E_PAUSED)]
+#[test, expected_failure(abort_code = stream::EPaused)]
 fun paused_stream_blocks_release() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -349,8 +350,8 @@ fun claim_accrued_releases_due_tranches_to_recipient() {
     let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
     clock::set_for_testing(&mut c, START + INTERVAL);
     stream::claim_accrued<SUI>(&mut s, &c, ts::ctx(&mut scenario));
-    assert!(stream::tranches_done(&s) == 2);
-    assert!(stream::released_amount(&s) == 200);
+    assert_eq!(stream::tranches_done(&s), 2);
+    assert_eq!(stream::released_amount(&s), 200);
     clock::destroy_for_testing(c);
     ts::return_shared(s);
 
@@ -393,7 +394,7 @@ fun cancel_refunds_remainder_to_sender() {
     {
         let mut s = ts::take_shared_by_id<Stream<SUI>>(&scenario, sid);
         let refund = stream::cancel_and_withdraw<SUI>(&mut s, ts::ctx(&mut scenario));
-        assert!(coin::value(&refund) == 200);
+        assert_eq!(refund.value(), 200);
         assert!(stream::is_cancelled(&s));
         coin::burn_for_testing(refund);
         ts::return_shared(s);
@@ -402,7 +403,7 @@ fun cancel_refunds_remainder_to_sender() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = stream::E_CANCELLED)]
+#[test, expected_failure(abort_code = stream::ECancelled)]
 fun release_after_cancel_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -432,7 +433,7 @@ fun release_after_cancel_aborts() {
 // ───────────────────────────────────────────────────────────────────
 // create input validation + overflow-safe schedule guard
 
-#[test, expected_failure(abort_code = stream::E_ZERO_AMOUNT)]
+#[test, expected_failure(abort_code = stream::EZeroAmount)]
 fun create_rejects_zero_funds() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -449,7 +450,7 @@ fun create_rejects_zero_funds() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = stream::E_BAD_SCHEDULE)]
+#[test, expected_failure(abort_code = stream::EBadSchedule)]
 fun create_rejects_underfunded_schedule() {
     // tranche_amount * (num_tranches - 1) > total: 100 * 4 = 400 > 300.
     let mut scenario = ts::begin(PUBLISHER);
@@ -458,7 +459,7 @@ fun create_rejects_underfunded_schedule() {
     ts::next_tx(&mut scenario, SENDER);
     let mut reg = ts::take_shared<StreamRegistry>(&scenario);
     let c = clock::create_for_testing(ts::ctx(&mut scenario));
-    let funds = coin::into_balance(coin::mint_for_testing<SUI>(300, ts::ctx(&mut scenario)));
+    let funds = coin::mint_for_testing<SUI>(300, ts::ctx(&mut scenario)).into_balance();
     let _sid = stream::create<SUI>(
         &mut reg, funds, RECIPIENT, 100, 5, START, INTERVAL, &c, ts::ctx(&mut scenario),
     );
@@ -479,7 +480,7 @@ fun create_accepts_large_tranche_without_overflow() {
     let mut reg = ts::take_shared<StreamRegistry>(&scenario);
     let c = clock::create_for_testing(ts::ctx(&mut scenario));
     let huge = 18_000_000_000_000_000_000; // near u64::MAX
-    let funds = coin::into_balance(coin::mint_for_testing<SUI>(huge, ts::ctx(&mut scenario)));
+    let funds = coin::mint_for_testing<SUI>(huge, ts::ctx(&mut scenario)).into_balance();
     let sid = stream::create<SUI>(
         &mut reg, funds, RECIPIENT, huge, 1, START, INTERVAL, &c, ts::ctx(&mut scenario),
     );
@@ -488,7 +489,7 @@ fun create_accepts_large_tranche_without_overflow() {
 
     ts::next_tx(&mut scenario, SENDER);
     let s = ts::take_shared_by_id<Stream<SUI>>(&scenario, sid);
-    assert!(stream::escrow_value(&s) == huge);
+    assert_eq!(stream::escrow_value(&s), huge);
     ts::return_shared(s);
     ts::end(scenario);
 }
@@ -496,7 +497,7 @@ fun create_accepts_large_tranche_without_overflow() {
 // ───────────────────────────────────────────────────────────────────
 // Worker management
 
-#[test, expected_failure(abort_code = stream::E_WORKER_ALREADY_ADDED)]
+#[test, expected_failure(abort_code = stream::EWorkerAlreadyAdded)]
 fun add_worker_twice_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -504,8 +505,8 @@ fun add_worker_twice_aborts() {
     ts::next_tx(&mut scenario, PUBLISHER);
     let cap = ts::take_from_sender<StreamAdminCap>(&scenario);
     let mut reg = ts::take_shared<StreamRegistry>(&scenario);
-    stream::add_worker(&cap, &mut reg, WORKER);
-    stream::add_worker(&cap, &mut reg, WORKER); // dup → abort
+    stream::add_worker(&mut reg, &cap, WORKER);
+    stream::add_worker(&mut reg, &cap, WORKER); // dup → abort
     ts::return_shared(reg);
     ts::return_to_sender(&scenario, cap);
     ts::end(scenario);
@@ -522,14 +523,14 @@ fun remove_worker_revokes_release_ability() {
     let cap = ts::take_from_sender<StreamAdminCap>(&scenario);
     let mut reg = ts::take_shared<StreamRegistry>(&scenario);
     assert!(stream::is_worker(&reg, WORKER));
-    stream::remove_worker(&cap, &mut reg, WORKER);
+    stream::remove_worker(&mut reg, &cap, WORKER);
     assert!(!stream::is_worker(&reg, WORKER));
     ts::return_shared(reg);
     ts::return_to_sender(&scenario, cap);
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = stream::E_WORKER_NOT_FOUND)]
+#[test, expected_failure(abort_code = stream::EWorkerNotFound)]
 fun remove_absent_worker_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -537,7 +538,7 @@ fun remove_absent_worker_aborts() {
     ts::next_tx(&mut scenario, PUBLISHER);
     let cap = ts::take_from_sender<StreamAdminCap>(&scenario);
     let mut reg = ts::take_shared<StreamRegistry>(&scenario);
-    stream::remove_worker(&cap, &mut reg, RANDO); // never added → abort
+    stream::remove_worker(&mut reg, &cap, RANDO); // never added → abort
     ts::return_shared(reg);
     ts::return_to_sender(&scenario, cap);
     ts::end(scenario);

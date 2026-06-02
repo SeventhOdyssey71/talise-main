@@ -21,25 +21,19 @@
 ///     siphoned to another vault inside the same PTB.
 module talise::vault;
 
-use sui::bag::{Self, Bag};
-use sui::balance::{Self, Balance};
-use sui::clock::Clock;
-use sui::coin::{Self, Coin};
-use sui::event;
-use sui::transfer::{Self, Receiving};
-use std::type_name;
-use std::string::String;
+use sui::{bag::{Self, Bag}, balance::{Self, Balance}, clock::Clock, coin::{Self, Coin}, event, transfer::{Self, Receiving}};
+use std::{type_name, string::String};
 
 use talise::auto_swap::{Self, AutoSwapRegistry, AutoSwapCap, AutoSwapRegistryV2, AutoSwapCapV2};
 
 // ───────────────────────────────────────────────────────────────────
 // Errors
 
-const E_NOT_OWNER: u64 = 200;
-const E_INSUFFICIENT_BALANCE: u64 = 201;
-const E_ZERO_AMOUNT: u64 = 202;
-const E_TYPE_NOT_HELD: u64 = 203;
-const E_WRONG_VAULT: u64 = 204;
+const ENotOwner: u64 = 200;
+const EInsufficientBalance: u64 = 201;
+const EZeroAmount: u64 = 202;
+const ETypeNotHeld: u64 = 203;
+const EWrongVault: u64 = 204;
 
 // ───────────────────────────────────────────────────────────────────
 // Objects
@@ -84,21 +78,21 @@ public struct VaultCreated has copy, drop {
     owner: address,
 }
 
-public struct VaultDeposit has copy, drop {
+public struct VaultDeposited has copy, drop {
     vault_id: ID,
     coin_type: vector<u8>,
     amount: u64,
     from: address,
 }
 
-public struct VaultWithdraw has copy, drop {
+public struct VaultDebited has copy, drop {
     vault_id: ID,
     coin_type: vector<u8>,
     amount: u64,
     to: address,
 }
 
-public struct VaultAutoSwap has copy, drop {
+public struct VaultAutoSwapped has copy, drop {
     vault_id: ID,
     from_type: vector<u8>,
     to_type: vector<u8>,
@@ -113,7 +107,7 @@ public struct VaultAutoSwap has copy, drop {
 /// Create a new vault for the calling user. One call per user, post-
 /// onboarding. Shared so anyone can `deposit_*`, but only the owner
 /// can withdraw or mint auto-swap caps.
-public entry fun create(ctx: &mut TxContext) {
+public fun create(ctx: &mut TxContext) {
     let vault = TaliseVault {
         id: object::new(ctx),
         owner: ctx.sender(),
@@ -144,13 +138,13 @@ public entry fun create(ctx: &mut TxContext) {
 /// assert (`sender == registry.admin`) keeps abuse impossible, and the
 /// per-op `ctx.sender() == cap.owner` checks in pause/resume/disable
 /// keep the user as the only party who can revoke or pause.
-public entry fun enable_auto_swap<T>(
+public fun enable_auto_swap<T>(
     vault: &TaliseVault,
     max_per_swap: u64,
     expires_at_ms: u64,
     ctx: &mut TxContext,
 ) {
-    assert!(ctx.sender() == vault.owner, E_NOT_OWNER);
+    assert!(ctx.sender() == vault.owner, ENotOwner);
 
     let cap = auto_swap::mint_cap<T>(
         object::id(vault),
@@ -172,8 +166,8 @@ public entry fun enable_auto_swap<T>(
 /// After this call the cap behaves identically to a freshly-enabled
 /// v3 cap: shared object, worker can reference it, user retains the
 /// owner-gated pause/resume/disable controls.
-public entry fun share_existing_cap<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
-    assert!(ctx.sender() == auto_swap::cap_owner(&cap), E_NOT_OWNER);
+public fun share_existing_cap<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
+    assert!(ctx.sender() == auto_swap::cap_owner(&cap), ENotOwner);
     transfer::public_share_object(cap);
 }
 
@@ -183,14 +177,14 @@ public entry fun share_existing_cap<T>(cap: AutoSwapCap<T>, ctx: &TxContext) {
 /// Deposit a `Coin<T>` into the vault. Anyone can call this — the
 /// vault is "your destination address." We accept Coin (not Balance)
 /// so the SDK can call `coin::split` upstream.
-public entry fun deposit<T>(
+public fun deposit<T>(
     vault: &mut TaliseVault,
     coin: Coin<T>,
     ctx: &TxContext,
 ) {
-    let amount = coin::value(&coin);
-    assert!(amount > 0, E_ZERO_AMOUNT);
-    let balance = coin::into_balance(coin);
+    let amount = coin.value();
+    assert!(amount > 0, EZeroAmount);
+    let balance = coin.into_balance();
     deposit_balance(vault, balance, ctx.sender());
 }
 
@@ -241,7 +235,7 @@ public entry fun deposit<T>(
 ///
 /// Permissionless — same trust model as `receive_and_deposit`: the
 /// only destination is `vault.balances`, no fund-extraction surface.
-public entry fun receive_from_accumulator<T>(
+public fun receive_from_accumulator<T>(
     vault: &mut TaliseVault,
     amount: u64,
     ctx: &TxContext,
@@ -249,7 +243,7 @@ public entry fun receive_from_accumulator<T>(
     let withdrawal = balance::withdraw_funds_from_object<T>(&mut vault.id, amount);
     let bal = balance::redeem_funds(withdrawal);
     let value = balance::value(&bal);
-    assert!(value > 0, E_ZERO_AMOUNT);
+    assert!(value > 0, EZeroAmount);
     deposit_balance(vault, bal, ctx.sender());
 }
 
@@ -261,27 +255,27 @@ public entry fun receive_from_accumulator<T>(
 ///
 /// Permissionless — same trust model as the other claim functions
 /// (only destination is vault.owner, hardwired at vault creation).
-public entry fun receive_from_accumulator_to_owner<T>(
+public fun receive_from_accumulator_to_owner<T>(
     vault: &mut TaliseVault,
     amount: u64,
     ctx: &mut TxContext,
 ) {
     let withdrawal = balance::withdraw_funds_from_object<T>(&mut vault.id, amount);
     let bal = balance::redeem_funds(withdrawal);
-    assert!(balance::value(&bal) > 0, E_ZERO_AMOUNT);
+    assert!(balance::value(&bal) > 0, EZeroAmount);
     let coin_out = coin::from_balance(bal, ctx);
     transfer::public_transfer(coin_out, vault.owner);
 }
 
-public entry fun receive_and_deposit<T>(
+public fun receive_and_deposit<T>(
     vault: &mut TaliseVault,
     receiving: Receiving<Coin<T>>,
     ctx: &TxContext,
 ) {
     let coin = transfer::public_receive(&mut vault.id, receiving);
-    let amount = coin::value(&coin);
-    assert!(amount > 0, E_ZERO_AMOUNT);
-    let balance = coin::into_balance(coin);
+    let amount = coin.value();
+    assert!(amount > 0, EZeroAmount);
+    let balance = coin.into_balance();
     deposit_balance(vault, balance, ctx.sender());
 }
 
@@ -305,7 +299,7 @@ public(package) fun deposit_balance<T>(
         vault.balances.add(key, balance);
     };
     vault.deposits_total = vault.deposits_total + 1;
-    event::emit(VaultDeposit {
+    event::emit(VaultDeposited {
         vault_id: object::id(vault),
         coin_type: key,
         amount,
@@ -323,13 +317,13 @@ public fun withdraw<T>(
     amount: u64,
     ctx: &mut TxContext,
 ): Coin<T> {
-    assert!(ctx.sender() == vault.owner, E_NOT_OWNER);
-    assert!(amount > 0, E_ZERO_AMOUNT);
+    assert!(ctx.sender() == vault.owner, ENotOwner);
+    assert!(amount > 0, EZeroAmount);
     let key = type_name::with_defining_ids<T>().into_string().into_bytes();
-    assert!(vault.balances.contains(key), E_TYPE_NOT_HELD);
+    assert!(vault.balances.contains(key), ETypeNotHeld);
 
     let held: &mut Balance<T> = vault.balances.borrow_mut(key);
-    assert!(balance::value(held) >= amount, E_INSUFFICIENT_BALANCE);
+    assert!(balance::value(held) >= amount, EInsufficientBalance);
     let out = balance::split(held, amount);
 
     if (balance::value(held) == 0) {
@@ -337,7 +331,7 @@ public fun withdraw<T>(
         balance::destroy_zero(empty);
     };
 
-    event::emit(VaultWithdraw {
+    event::emit(VaultDebited {
         vault_id: object::id(vault),
         coin_type: key,
         amount,
@@ -348,7 +342,7 @@ public fun withdraw<T>(
 }
 
 /// Convenience: withdraw + transfer in one entry call.
-public entry fun withdraw_and_send<T>(
+public fun withdraw_and_send<T>(
     vault: &mut TaliseVault,
     amount: u64,
     recipient: address,
@@ -379,8 +373,8 @@ public fun auto_swap_extract<Source>(
     clock: &Clock,
     ctx: &TxContext,
 ): (Balance<Source>, SwapTicket) {
-    assert!(auto_swap::cap_vault(cap) == object::id(vault), E_WRONG_VAULT);
-    assert!(amount > 0, E_ZERO_AMOUNT);
+    assert!(auto_swap::cap_vault(cap) == object::id(vault), EWrongVault);
+    assert!(amount > 0, EZeroAmount);
 
     auto_swap::validate_for_swap<Source>(
         registry,
@@ -391,9 +385,9 @@ public fun auto_swap_extract<Source>(
     );
 
     let key = type_name::with_defining_ids<Source>().into_string().into_bytes();
-    assert!(vault.balances.contains(key), E_TYPE_NOT_HELD);
+    assert!(vault.balances.contains(key), ETypeNotHeld);
     let held: &mut Balance<Source> = vault.balances.borrow_mut(key);
-    assert!(balance::value(held) >= amount, E_INSUFFICIENT_BALANCE);
+    assert!(balance::value(held) >= amount, EInsufficientBalance);
     let extracted = balance::split(held, amount);
 
     if (balance::value(held) == 0) {
@@ -426,7 +420,7 @@ public fun auto_swap_deposit<Dest>(
     // Destructure the ticket — this is the consumer that satisfies the
     // hot-potato discipline. After this line, the ticket is gone.
     let SwapTicket { vault_id, from_type, from_amount } = ticket;
-    assert!(vault_id == object::id(vault), E_WRONG_VAULT);
+    assert!(vault_id == object::id(vault), EWrongVault);
 
     let to_amount = balance::value(&output);
     if (to_amount > 0) {
@@ -443,7 +437,7 @@ public fun auto_swap_deposit<Dest>(
 
     vault.auto_swaps_total = vault.auto_swaps_total + 1;
 
-    event::emit(VaultAutoSwap {
+    event::emit(VaultAutoSwapped {
         vault_id: object::id(vault),
         from_type,
         to_type: type_name::with_defining_ids<Dest>().into_string().into_bytes(),
@@ -478,7 +472,7 @@ public fun auto_swap_deposit_to_owner<Dest>(
     ctx: &mut TxContext,
 ) {
     let SwapTicket { vault_id, from_type, from_amount } = ticket;
-    assert!(vault_id == object::id(vault), E_WRONG_VAULT);
+    assert!(vault_id == object::id(vault), EWrongVault);
 
     let to_amount = balance::value(&output);
 
@@ -503,7 +497,7 @@ public fun auto_swap_deposit_to_owner<Dest>(
 
     vault.auto_swaps_total = vault.auto_swaps_total + 1;
 
-    event::emit(VaultAutoSwap {
+    event::emit(VaultAutoSwapped {
         vault_id: object::id(vault),
         from_type,
         to_type: type_name::with_defining_ids<Dest>().into_string().into_bytes(),
@@ -531,15 +525,15 @@ public fun auto_swap_extract_v2<Source>(
     clock: &Clock,
     ctx: &TxContext,
 ): (Balance<Source>, SwapTicket) {
-    assert!(auto_swap::cap_v2_vault(cap) == object::id(vault), E_WRONG_VAULT);
-    assert!(amount > 0, E_ZERO_AMOUNT);
+    assert!(auto_swap::cap_v2_vault(cap) == object::id(vault), EWrongVault);
+    assert!(amount > 0, EZeroAmount);
 
     auto_swap::validate_for_swap_v2<Source>(registry, cap, amount, clock, ctx);
 
     let key = type_name::with_defining_ids<Source>().into_string().into_bytes();
-    assert!(vault.balances.contains(key), E_TYPE_NOT_HELD);
+    assert!(vault.balances.contains(key), ETypeNotHeld);
     let held: &mut Balance<Source> = vault.balances.borrow_mut(key);
-    assert!(balance::value(held) >= amount, E_INSUFFICIENT_BALANCE);
+    assert!(balance::value(held) >= amount, EInsufficientBalance);
     let extracted = balance::split(held, amount);
 
     if (balance::value(held) == 0) {
@@ -569,7 +563,7 @@ public fun auto_swap_deposit_v2<Dest>(
     auto_swap::assert_dest_allowed<Dest>(registry);
 
     let SwapTicket { vault_id, from_type, from_amount } = ticket;
-    assert!(vault_id == object::id(vault), E_WRONG_VAULT);
+    assert!(vault_id == object::id(vault), EWrongVault);
 
     let to_amount = balance::value(&output);
     if (to_amount > 0) {
@@ -586,7 +580,7 @@ public fun auto_swap_deposit_v2<Dest>(
 
     vault.auto_swaps_total = vault.auto_swaps_total + 1;
 
-    event::emit(VaultAutoSwap {
+    event::emit(VaultAutoSwapped {
         vault_id: object::id(vault),
         from_type,
         to_type: type_name::with_defining_ids<Dest>().into_string().into_bytes(),
@@ -610,7 +604,7 @@ public fun auto_swap_deposit_to_owner_v2<Dest>(
     auto_swap::assert_dest_allowed<Dest>(registry);
 
     let SwapTicket { vault_id, from_type, from_amount } = ticket;
-    assert!(vault_id == object::id(vault), E_WRONG_VAULT);
+    assert!(vault_id == object::id(vault), EWrongVault);
 
     let to_amount = balance::value(&output);
 
@@ -630,7 +624,7 @@ public fun auto_swap_deposit_to_owner_v2<Dest>(
 
     vault.auto_swaps_total = vault.auto_swaps_total + 1;
 
-    event::emit(VaultAutoSwap {
+    event::emit(VaultAutoSwapped {
         vault_id: object::id(vault),
         from_type,
         to_type: type_name::with_defining_ids<Dest>().into_string().into_bytes(),
@@ -643,7 +637,7 @@ public fun auto_swap_deposit_to_owner_v2<Dest>(
 /// v7 cap-enable. Mints an `AutoSwapCapV2<T>` directly (vs the v1 path
 /// which mints `AutoSwapCap<T>` then requires `upgrade_cap_to_v2`).
 /// Caller must own the vault.
-public entry fun enable_auto_swap_v2<T>(
+public fun enable_auto_swap_v2<T>(
     vault: &TaliseVault,
     max_per_swap: u64,
     max_per_day: u64,
@@ -651,7 +645,7 @@ public entry fun enable_auto_swap_v2<T>(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert!(ctx.sender() == vault.owner, E_NOT_OWNER);
+    assert!(ctx.sender() == vault.owner, ENotOwner);
     let cap = auto_swap::new_cap_v2<T>(
         object::id(vault),
         vault.owner,

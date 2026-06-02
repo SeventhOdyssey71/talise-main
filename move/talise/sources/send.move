@@ -4,12 +4,11 @@
 module talise::send;
 
 use std::string::String;
-use sui::clock::Clock;
-use sui::coin::{Self, Coin};
+use sui::{clock::Clock, coin::{Self, Coin}};
 use talise::receipt;
 
-const E_ZERO_AMOUNT: u64 = 1;
-const E_MEMO_TOO_LONG: u64 = 2;
+const EZeroAmount: u64 = 1;
+const EMemoTooLong: u64 = 2;
 
 const MAX_MEMO_BYTES: u64 = 80;
 
@@ -18,15 +17,15 @@ const MAX_MEMO_BYTES: u64 = 80;
 /// `asset` is the human-readable symbol stamped into the receipt ("SUI", "USDC").
 public fun send<T>(
     coin: Coin<T>,
-    recipient: address,
     asset: String,
     memo: String,
+    recipient: address,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let amount = coin::value(&coin);
-    assert!(amount > 0, E_ZERO_AMOUNT);
-    assert!(memo.length() <= MAX_MEMO_BYTES, E_MEMO_TOO_LONG);
+    let amount = coin.value();
+    assert!(amount > 0, EZeroAmount);
+    assert!(memo.length() <= MAX_MEMO_BYTES, EMemoTooLong);
 
     let from = ctx.sender();
     let ts_ms = clock.timestamp_ms();

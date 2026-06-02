@@ -4,9 +4,7 @@
 module talise::receipt;
 
 use std::string::{Self, String};
-use sui::display;
-use sui::event;
-use sui::package;
+use sui::{display, event, package};
 
 /// One-time witness for module init.
 public struct RECEIPT has drop {}
@@ -115,11 +113,11 @@ public fun test_init(ctx: &mut TxContext) {
 
 #[test_only]
 public fun test_mint(
+    asset: String,
+    memo: String,
     from: address,
     to: address,
     amount: u64,
-    asset: String,
-    memo: String,
     ts_ms: u64,
     ctx: &mut TxContext,
 ): PaymentReceipt {
@@ -128,6 +126,6 @@ public fun test_mint(
 
 #[test_only]
 public fun destroy_for_testing(r: PaymentReceipt) {
-    let PaymentReceipt { id, from: _, to: _, amount: _, asset: _, memo: _, ts_ms: _ } = r;
+    let PaymentReceipt { id, .. } = r;
     id.delete();
 }

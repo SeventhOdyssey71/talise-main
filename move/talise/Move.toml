@@ -4,7 +4,6 @@ edition = "2024.beta"
 version = "0.1.0"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
 # openzeppelin_math was evaluated for v7 throttle accounting but dropped:
 # the OZ package pins a different Sui-framework rev than `framework/testnet`,
 # producing a "multiple versions of package 0x2" conflict that requires an

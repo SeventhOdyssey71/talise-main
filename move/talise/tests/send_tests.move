@@ -2,10 +2,7 @@
 module talise::send_tests;
 
 use std::string;
-use sui::clock;
-use sui::coin;
-use sui::sui::SUI;
-use sui::test_scenario as ts;
+use sui::{clock, coin, sui::SUI, test_scenario as ts};
 use talise::send;
 
 const SENDER: address = @0xA11CE;
@@ -20,9 +17,9 @@ fun send_transfers_and_mints_receipt() {
         let coin = coin::mint_for_testing<SUI>(1_000_000_000, ctx);
         send::send<SUI>(
             coin,
-            RECIPIENT,
             string::utf8(b"SUI"),
             string::utf8(b"for groceries"),
+            RECIPIENT,
             &c,
             ctx,
         );
@@ -31,7 +28,7 @@ fun send_transfers_and_mints_receipt() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = ::talise::send::E_ZERO_AMOUNT)]
+#[test, expected_failure(abort_code = ::talise::send::EZeroAmount)]
 fun send_rejects_zero_amount() {
     let mut scenario = ts::begin(SENDER);
     {
@@ -40,9 +37,9 @@ fun send_rejects_zero_amount() {
         let coin = coin::mint_for_testing<SUI>(0, ctx);
         send::send<SUI>(
             coin,
-            RECIPIENT,
             string::utf8(b"SUI"),
             string::utf8(b""),
+            RECIPIENT,
             &c,
             ctx,
         );
@@ -51,7 +48,7 @@ fun send_rejects_zero_amount() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = ::talise::send::E_MEMO_TOO_LONG)]
+#[test, expected_failure(abort_code = ::talise::send::EMemoTooLong)]
 fun send_rejects_long_memo() {
     let mut scenario = ts::begin(SENDER);
     {
@@ -61,9 +58,9 @@ fun send_rejects_long_memo() {
         let m = b"012345678901234567890123456789012345678901234567890123456789012345678901234567890";
         send::send<SUI>(
             coin,
-            RECIPIENT,
             string::utf8(b"SUI"),
             string::utf8(m),
+            RECIPIENT,
             &c,
             ctx,
         );

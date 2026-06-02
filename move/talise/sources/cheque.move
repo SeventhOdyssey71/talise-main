@@ -30,15 +30,15 @@ use sui::{
 // ───────────────────────────────────────────────────────────────────
 // Errors
 
-const E_ZERO_AMOUNT: u64 = 300;
-const E_BAD_EXPIRY: u64 = 301;
-const E_NOT_WORKER: u64 = 302;
-const E_REGISTRY_PAUSED: u64 = 303;
-const E_ALREADY_CLAIMED: u64 = 304;
-const E_EXPIRED: u64 = 305;
-const E_NOT_CREATOR: u64 = 306;
-const E_WORKER_ALREADY_ADDED: u64 = 307;
-const E_WORKER_NOT_FOUND: u64 = 308;
+const EZeroAmount: u64 = 300;
+const EBadExpiry: u64 = 301;
+const ENotWorker: u64 = 302;
+const ERegistryPaused: u64 = 303;
+const EAlreadyClaimed: u64 = 304;
+const EExpired: u64 = 305;
+const ENotCreator: u64 = 306;
+const EWorkerAlreadyAdded: u64 = 307;
+const EWorkerNotFound: u64 = 308;
 
 // ───────────────────────────────────────────────────────────────────
 // Objects
@@ -113,29 +113,29 @@ fun init(ctx: &mut TxContext) {
 
 /// Admin: grant a worker address permission to call `claim`.
 public fun add_worker(
-    _cap: &ChequeAdminCap,
     registry: &mut ChequeRegistry,
+    _cap: &ChequeAdminCap,
     worker: address,
 ) {
-    assert!(!registry.worker_addresses.contains(&worker), E_WORKER_ALREADY_ADDED);
+    assert!(!registry.worker_addresses.contains(&worker), EWorkerAlreadyAdded);
     registry.worker_addresses.push_back(worker);
     event::emit(WorkerAdded { worker });
 }
 
 /// Admin: revoke a worker address (cut off a rotated/compromised key).
 public fun remove_worker(
-    _cap: &ChequeAdminCap,
     registry: &mut ChequeRegistry,
+    _cap: &ChequeAdminCap,
     worker: address,
 ) {
     let (found, idx) = registry.worker_addresses.index_of(&worker);
-    assert!(found, E_WORKER_NOT_FOUND);
+    assert!(found, EWorkerNotFound);
     registry.worker_addresses.remove(idx);
     event::emit(WorkerRemoved { worker });
 }
 
 /// Admin: global kill switch (halts ALL worker claims).
-public fun set_paused(_cap: &ChequeAdminCap, registry: &mut ChequeRegistry, paused: bool) {
+public fun set_paused(registry: &mut ChequeRegistry, _cap: &ChequeAdminCap, paused: bool) {
     registry.paused = paused;
 }
 
@@ -155,10 +155,10 @@ public fun create<T>(
     ctx: &mut TxContext,
 ): ID {
     let amount = balance::value(&funds);
-    assert!(amount > 0, E_ZERO_AMOUNT);
+    assert!(amount > 0, EZeroAmount);
     // Expiry must be in the future relative to creation, otherwise the
     // cheque is born already-unclaimable.
-    assert!(expiry_ms > clock.timestamp_ms(), E_BAD_EXPIRY);
+    assert!(expiry_ms > clock.timestamp_ms(), EBadExpiry);
 
     let cheque = Cheque<T> {
         id: object::new(ctx),
@@ -197,10 +197,10 @@ public fun claim<T>(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert!(!registry.paused, E_REGISTRY_PAUSED);
-    assert!(registry.worker_addresses.contains(&ctx.sender()), E_NOT_WORKER);
-    assert!(!cheque.claimed, E_ALREADY_CLAIMED);
-    assert!(clock.timestamp_ms() < cheque.expiry_ms, E_EXPIRED);
+    assert!(!registry.paused, ERegistryPaused);
+    assert!(registry.worker_addresses.contains(&ctx.sender()), ENotWorker);
+    assert!(!cheque.claimed, EAlreadyClaimed);
+    assert!(clock.timestamp_ms() < cheque.expiry_ms, EExpired);
 
     cheque.claimed = true;
     let out = balance::withdraw_all(&mut cheque.escrow);
@@ -226,8 +226,8 @@ public fun claim<T>(
 /// mutually exclusive. Returns `Coin<T>` so the funding PTB's reverse can
 /// route it wherever the creator wants.
 public fun reclaim<T>(cheque: &mut Cheque<T>, _clock: &Clock, ctx: &mut TxContext): Coin<T> {
-    assert!(ctx.sender() == cheque.creator, E_NOT_CREATOR);
-    assert!(!cheque.claimed, E_ALREADY_CLAIMED);
+    assert!(ctx.sender() == cheque.creator, ENotCreator);
+    assert!(!cheque.claimed, EAlreadyClaimed);
 
     // Mark claimed so the cheque is terminal: prevents any second reclaim
     // and keeps the claim/reclaim exits mutually exclusive.

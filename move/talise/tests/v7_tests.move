@@ -17,17 +17,18 @@
 #[test_only]
 module talise::v7_tests;
 
-use sui::test_scenario as ts;
-use sui::clock::{Self, Clock};
-use sui::sui::SUI;
+use std::unit_test::assert_eq;
+use sui::{test_scenario as ts, clock::{Self, Clock}, sui::SUI};
 
-use talise::auto_swap::{
-    Self,
-    AutoSwapRegistryV2,
-    AutoSwapCapV2,
-    AutoSwapCap,
+use talise::{
+    auto_swap::{
+        Self,
+        AutoSwapRegistryV2,
+        AutoSwapCapV2,
+        AutoSwapCap,
+    },
+    vault::{Self, TaliseVault},
 };
-use talise::vault::{Self, TaliseVault};
 
 // Placeholder destination coin type for allowlist tests. Phantom-only,
 // no Coin instances are minted of this type.
@@ -70,11 +71,11 @@ fun bootstrap_sets_admin_and_initial_worker() {
 
     ts::next_tx(&mut scenario, PUBLISHER);
     let r = ts::take_shared<AutoSwapRegistryV2>(&scenario);
-    assert!(auto_swap::v2_admin(&r) == PUBLISHER, 1);
-    assert!(!auto_swap::v2_paused(&r), 2);
-    assert!(auto_swap::v2_admin_transfer_delay_ms(&r) == DEFAULT_DELAY, 3);
+    assert_eq!(auto_swap::v2_admin(&r), PUBLISHER);
+    assert!(!auto_swap::v2_paused(&r));
+    assert_eq!(auto_swap::v2_admin_transfer_delay_ms(&r), DEFAULT_DELAY);
     let workers = auto_swap::v2_workers(&r);
-    assert!(std::vector::contains(workers, &PUBLISHER), 4);
+    assert!(std::vector::contains(workers, &PUBLISHER));
     ts::return_shared(r);
     ts::end(scenario);
 }
@@ -92,22 +93,22 @@ fun grant_and_revoke_worker_oncall_treasury() {
     auto_swap::grant_worker(&mut r, WORKER2, ts::ctx(&mut scenario));
     auto_swap::grant_oncall(&mut r, ONCALL, ts::ctx(&mut scenario));
     auto_swap::grant_treasury(&mut r, TREASURY, ts::ctx(&mut scenario));
-    assert!(std::vector::contains(auto_swap::v2_workers(&r), &WORKER2), 1);
-    assert!(std::vector::contains(auto_swap::v2_oncalls(&r), &ONCALL), 2);
-    assert!(std::vector::contains(auto_swap::v2_treasuries(&r), &TREASURY), 3);
+    assert!(std::vector::contains(auto_swap::v2_workers(&r), &WORKER2));
+    assert!(std::vector::contains(auto_swap::v2_oncalls(&r), &ONCALL));
+    assert!(std::vector::contains(auto_swap::v2_treasuries(&r), &TREASURY));
 
     auto_swap::revoke_worker(&mut r, WORKER2, ts::ctx(&mut scenario));
     auto_swap::revoke_oncall(&mut r, ONCALL, ts::ctx(&mut scenario));
     auto_swap::revoke_treasury(&mut r, TREASURY, ts::ctx(&mut scenario));
-    assert!(!std::vector::contains(auto_swap::v2_workers(&r), &WORKER2), 4);
-    assert!(!std::vector::contains(auto_swap::v2_oncalls(&r), &ONCALL), 5);
-    assert!(!std::vector::contains(auto_swap::v2_treasuries(&r), &TREASURY), 6);
+    assert!(!std::vector::contains(auto_swap::v2_workers(&r), &WORKER2));
+    assert!(!std::vector::contains(auto_swap::v2_oncalls(&r), &ONCALL));
+    assert!(!std::vector::contains(auto_swap::v2_treasuries(&r), &TREASURY));
 
     ts::return_shared(r);
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = auto_swap::E_NOT_ADMIN)]
+#[test, expected_failure(abort_code = auto_swap::ENotAdmin)]
 fun rando_cannot_grant_worker() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_v7(&mut scenario);
@@ -132,7 +133,7 @@ fun admin_transfer_two_step_happy_path() {
     let mut r = ts::take_shared<AutoSwapRegistryV2>(&scenario);
     let c0 = new_clock_at(&mut scenario, 0);
     auto_swap::begin_admin_transfer(&mut r, USER, &c0, ts::ctx(&mut scenario));
-    assert!(auto_swap::v2_has_pending_admin_transfer(&r), 1);
+    assert!(auto_swap::v2_has_pending_admin_transfer(&r));
     clock::destroy_for_testing(c0);
 
     // USER tries to accept before delay elapses — should fail in
@@ -140,15 +141,15 @@ fun admin_transfer_two_step_happy_path() {
     ts::next_tx(&mut scenario, USER);
     let c1 = new_clock_at(&mut scenario, DEFAULT_DELAY);
     auto_swap::accept_admin_transfer(&mut r, &c1, ts::ctx(&mut scenario));
-    assert!(auto_swap::v2_admin(&r) == USER, 2);
-    assert!(!auto_swap::v2_has_pending_admin_transfer(&r), 3);
+    assert_eq!(auto_swap::v2_admin(&r), USER);
+    assert!(!auto_swap::v2_has_pending_admin_transfer(&r));
     clock::destroy_for_testing(c1);
 
     ts::return_shared(r);
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = auto_swap::E_DELAY_NOT_ELAPSED)]
+#[test, expected_failure(abort_code = auto_swap::EDelayNotElapsed)]
 fun admin_transfer_accept_before_delay_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_v7(&mut scenario);
@@ -168,7 +169,7 @@ fun admin_transfer_accept_before_delay_aborts() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = auto_swap::E_WRONG_PENDING_ACCEPTOR)]
+#[test, expected_failure(abort_code = auto_swap::EWrongPendingAcceptor)]
 fun admin_transfer_wrong_acceptor_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_v7(&mut scenario);
@@ -198,8 +199,8 @@ fun admin_transfer_cancel() {
     let c0 = new_clock_at(&mut scenario, 0);
     auto_swap::begin_admin_transfer(&mut r, USER, &c0, ts::ctx(&mut scenario));
     auto_swap::cancel_admin_transfer(&mut r, ts::ctx(&mut scenario));
-    assert!(!auto_swap::v2_has_pending_admin_transfer(&r), 1);
-    assert!(auto_swap::v2_admin(&r) == PUBLISHER, 2);
+    assert!(!auto_swap::v2_has_pending_admin_transfer(&r));
+    assert_eq!(auto_swap::v2_admin(&r), PUBLISHER);
     clock::destroy_for_testing(c0);
     ts::return_shared(r);
     ts::end(scenario);
@@ -216,9 +217,9 @@ fun admin_can_pause_and_unpause() {
     ts::next_tx(&mut scenario, PUBLISHER);
     let mut r = ts::take_shared<AutoSwapRegistryV2>(&scenario);
     auto_swap::pause_registry(&mut r, ts::ctx(&mut scenario));
-    assert!(auto_swap::v2_paused(&r), 1);
+    assert!(auto_swap::v2_paused(&r));
     auto_swap::unpause_registry(&mut r, ts::ctx(&mut scenario));
-    assert!(!auto_swap::v2_paused(&r), 2);
+    assert!(!auto_swap::v2_paused(&r));
     ts::return_shared(r);
     ts::end(scenario);
 }
@@ -236,12 +237,12 @@ fun oncall_can_pause() {
     ts::next_tx(&mut scenario, ONCALL);
     let mut r2 = ts::take_shared<AutoSwapRegistryV2>(&scenario);
     auto_swap::pause_registry(&mut r2, ts::ctx(&mut scenario));
-    assert!(auto_swap::v2_paused(&r2), 1);
+    assert!(auto_swap::v2_paused(&r2));
     ts::return_shared(r2);
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = auto_swap::E_NOT_ADMIN_OR_ONCALL)]
+#[test, expected_failure(abort_code = auto_swap::ENotAdminOrOncall)]
 fun treasury_cannot_pause() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_v7(&mut scenario);
@@ -276,7 +277,7 @@ fun add_and_remove_allowed_dest() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = auto_swap::E_DEST_NOT_ALLOWED)]
+#[test, expected_failure(abort_code = auto_swap::EDestNotAllowed)]
 fun assert_dest_allowed_rejects_unlisted() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_v7(&mut scenario);
@@ -347,15 +348,15 @@ fun validate_v2_happy_path() {
     auto_swap::test_validate_for_swap_v2<SUI>(
         &mut r, &mut cap, 300, &c, ts::ctx(&mut scenario),
     );
-    assert!(auto_swap::cap_v2_used_today(&cap) == 300, 1);
-    assert!(auto_swap::v2_total_validations(&r) == 1, 2);
+    assert_eq!(auto_swap::cap_v2_used_today(&cap), 300);
+    assert_eq!(auto_swap::v2_total_validations(&r), 1);
     clock::destroy_for_testing(c);
     ts::return_shared(cap);
     ts::return_shared(r);
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = auto_swap::E_REGISTRY_PAUSED)]
+#[test, expected_failure(abort_code = auto_swap::ERegistryPaused)]
 fun validate_v2_aborts_when_registry_paused() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_user_with_v2_cap(&mut scenario, 1_000, 5_000, 0);
@@ -374,7 +375,7 @@ fun validate_v2_aborts_when_registry_paused() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = auto_swap::E_NOT_WORKER)]
+#[test, expected_failure(abort_code = auto_swap::ENotWorker)]
 fun validate_v2_aborts_when_sender_not_worker() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_user_with_v2_cap(&mut scenario, 1_000, 5_000, 0);
@@ -392,7 +393,7 @@ fun validate_v2_aborts_when_sender_not_worker() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = auto_swap::E_AMOUNT_EXCEEDS_CAP)]
+#[test, expected_failure(abort_code = auto_swap::EAmountExceedsCap)]
 fun validate_v2_aborts_when_amount_over_per_swap() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_user_with_v2_cap(&mut scenario, 100, 5_000, 0);
@@ -410,7 +411,7 @@ fun validate_v2_aborts_when_amount_over_per_swap() {
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = auto_swap::E_DAILY_BUDGET_EXCEEDED)]
+#[test, expected_failure(abort_code = auto_swap::EDailyBudgetExceeded)]
 fun validate_v2_aborts_when_daily_budget_exceeded() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_user_with_v2_cap(&mut scenario, 600, 1_000, 0);
@@ -448,7 +449,7 @@ fun validate_v2_day_rollover_resets_used_today() {
     auto_swap::test_validate_for_swap_v2<SUI>(
         &mut r, &mut cap, 1_000, &c1, ts::ctx(&mut scenario),
     );
-    assert!(auto_swap::cap_v2_used_today(&cap) == 1_000, 1);
+    assert_eq!(auto_swap::cap_v2_used_today(&cap), 1_000);
     clock::destroy_for_testing(c1);
     // Skip 25h — day_reset_at_ms is set to (cap-mint clock=0) + DAY_MS
     // = DAY_MS. Now > DAY_MS, so rollover triggers.
@@ -457,7 +458,7 @@ fun validate_v2_day_rollover_resets_used_today() {
         &mut r, &mut cap, 500, &c2, ts::ctx(&mut scenario),
     );
     // Post-rollover, used_today reflects only the new swap.
-    assert!(auto_swap::cap_v2_used_today(&cap) == 500, 2);
+    assert_eq!(auto_swap::cap_v2_used_today(&cap), 500);
     clock::destroy_for_testing(c2);
     ts::return_shared(cap);
     ts::return_shared(r);
@@ -495,17 +496,17 @@ fun upgrade_cap_to_v2_happy_path() {
 
     // The v1 cap is gone, a v2 cap is now shared.
     ts::next_tx(&mut scenario, USER);
-    assert!(!ts::has_most_recent_shared<AutoSwapCap<SUI>>(), 1);
+    assert!(!ts::has_most_recent_shared<AutoSwapCap<SUI>>());
     let cap_v2 = ts::take_shared<AutoSwapCapV2<SUI>>(&scenario);
-    assert!(auto_swap::cap_v2_owner(&cap_v2) == USER, 2);
-    assert!(auto_swap::cap_v2_max_per_swap(&cap_v2) == 500, 3);
-    assert!(auto_swap::cap_v2_max_per_day(&cap_v2) == 5_000, 4);
-    assert!(auto_swap::cap_v2_used_today(&cap_v2) == 0, 5);
+    assert_eq!(auto_swap::cap_v2_owner(&cap_v2), USER);
+    assert_eq!(auto_swap::cap_v2_max_per_swap(&cap_v2), 500);
+    assert_eq!(auto_swap::cap_v2_max_per_day(&cap_v2), 5_000);
+    assert_eq!(auto_swap::cap_v2_used_today(&cap_v2), 0);
     ts::return_shared(cap_v2);
     ts::end(scenario);
 }
 
-#[test, expected_failure(abort_code = auto_swap::E_NOT_OWNER)]
+#[test, expected_failure(abort_code = auto_swap::ENotOwner)]
 fun upgrade_cap_to_v2_non_owner_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_v7(&mut scenario);

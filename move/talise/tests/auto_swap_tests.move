@@ -14,12 +14,10 @@
 #[test_only]
 module talise::auto_swap_tests;
 
-use sui::test_scenario as ts;
-use sui::coin;
-use sui::sui::SUI;
+use std::unit_test::assert_eq;
+use sui::{test_scenario as ts, coin, sui::SUI};
 
-use talise::auto_swap::{Self, AutoSwapRegistry, AutoSwapCap};
-use talise::vault::{Self, TaliseVault};
+use talise::{auto_swap::{Self, AutoSwapRegistry, AutoSwapCap}, vault::{Self, TaliseVault}};
 
 const PUBLISHER: address = @0xA;
 const USER: address = @0xB;
@@ -59,22 +57,21 @@ fun enable_then_disable_round_trip() {
     // Cap is a SHARED object now (v3+). Take it via take_shared.
     ts::next_tx(&mut scenario, USER);
     let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
-    assert!(auto_swap::cap_owner(&cap) == USER, 1);
-    assert!(auto_swap::cap_max(&cap) == 10_000_000_000, 2);
-    assert!(!auto_swap::cap_paused(&cap), 3);
+    assert_eq!(auto_swap::cap_owner(&cap), USER);
+    assert_eq!(auto_swap::cap_max(&cap), 10_000_000_000);
+    assert!(!auto_swap::cap_paused(&cap));
 
     auto_swap::disable<SUI>(cap, ts::ctx(&mut scenario));
 
     // After disable the shared object is deleted — it should no longer
     // be discoverable as a shared object.
     ts::next_tx(&mut scenario, USER);
-    assert!(!ts::has_most_recent_shared<AutoSwapCap<SUI>>(), 4);
+    assert!(!ts::has_most_recent_shared<AutoSwapCap<SUI>>());
 
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = vault::E_NOT_OWNER)]
+#[test, expected_failure(abort_code = vault::ENotOwner)]
 fun rando_cannot_enable_against_user_vault() {
     // The audit's critical issue: previously a user could mint a cap
     // pointing at someone else's vault id. Now enable lives in vault
@@ -90,8 +87,7 @@ fun rando_cannot_enable_against_user_vault() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = auto_swap::E_AMOUNT_EXCEEDS_CAP)]
+#[test, expected_failure(abort_code = auto_swap::EAmountExceedsCap)]
 fun validate_rejects_amount_over_cap() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -116,8 +112,7 @@ fun validate_rejects_amount_over_cap() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = auto_swap::E_WRONG_ADMIN)]
+#[test, expected_failure(abort_code = auto_swap::EWrongAdmin)]
 fun validate_rejects_non_admin_sender() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -142,8 +137,7 @@ fun validate_rejects_non_admin_sender() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = auto_swap::E_CAP_PAUSED)]
+#[test, expected_failure(abort_code = auto_swap::ECapPaused)]
 fun validate_rejects_paused_cap() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -168,8 +162,7 @@ fun validate_rejects_paused_cap() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = auto_swap::E_CAP_EXPIRED)]
+#[test, expected_failure(abort_code = auto_swap::ECapExpired)]
 fun validate_rejects_expired_cap() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -195,8 +188,7 @@ fun validate_rejects_expired_cap() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = auto_swap::E_NOT_OWNER)]
+#[test, expected_failure(abort_code = auto_swap::ENotOwner)]
 fun rando_cannot_pause_someone_elses_cap() {
     // Cap is shared (v3+), so RANDO can reference it via take_shared —
     // but the inner `assert!(ctx.sender() == cap.owner)` aborts.
@@ -228,15 +220,15 @@ fun deposit_and_withdraw_round_trip() {
     let mut v = ts::take_shared<TaliseVault>(&scenario);
     let c = coin::mint_for_testing<SUI>(5_000_000, ts::ctx(&mut scenario));
     vault::deposit<SUI>(&mut v, c, ts::ctx(&mut scenario));
-    assert!(vault::balance_of<SUI>(&v) == 5_000_000, 0);
+    assert_eq!(vault::balance_of<SUI>(&v), 5_000_000);
     ts::return_shared(v);
 
     // USER withdraws 2_000_000.
     ts::next_tx(&mut scenario, USER);
     let mut v2 = ts::take_shared<TaliseVault>(&scenario);
     let withdrawn = vault::withdraw<SUI>(&mut v2, 2_000_000, ts::ctx(&mut scenario));
-    assert!(coin::value(&withdrawn) == 2_000_000, 1);
-    assert!(vault::balance_of<SUI>(&v2) == 3_000_000, 2);
+    assert_eq!(withdrawn.value(), 2_000_000);
+    assert_eq!(vault::balance_of<SUI>(&v2), 3_000_000);
     coin::burn_for_testing(withdrawn);
     ts::return_shared(v2);
 
@@ -260,10 +252,10 @@ fun pause_then_resume_round_trip() {
     ts::next_tx(&mut scenario, USER);
     let mut cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
     auto_swap::pause<SUI>(&mut cap, ts::ctx(&mut scenario));
-    assert!(auto_swap::cap_paused(&cap), 0);
+    assert!(auto_swap::cap_paused(&cap));
 
     auto_swap::resume<SUI>(&mut cap, ts::ctx(&mut scenario));
-    assert!(!auto_swap::cap_paused(&cap), 1);
+    assert!(!auto_swap::cap_paused(&cap));
 
     // After resume, validate should succeed (sender = WORKER = admin).
     ts::next_tx(&mut scenario, WORKER);
@@ -271,15 +263,14 @@ fun pause_then_resume_round_trip() {
     auto_swap::test_validate_for_swap<SUI>(
         &mut registry, &cap, 100, 0, ts::ctx(&mut scenario),
     );
-    assert!(auto_swap::total_validations(&registry) == 1, 2);
-    assert!(auto_swap::admin(&registry) == PUBLISHER, 3);
+    assert_eq!(auto_swap::total_validations(&registry), 1);
+    assert_eq!(auto_swap::admin(&registry), PUBLISHER);
     ts::return_shared(registry);
     ts::return_shared(cap);
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = auto_swap::E_NOT_OWNER)]
+#[test, expected_failure(abort_code = auto_swap::ENotOwner)]
 fun rando_cannot_resume() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -311,19 +302,18 @@ fun update_bounds_happy_path() {
 
     ts::next_tx(&mut scenario, USER);
     let mut cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
-    assert!(auto_swap::cap_max(&cap) == 1_000, 0);
-    assert!(auto_swap::cap_expiry(&cap) == 0, 1);
+    assert_eq!(auto_swap::cap_max(&cap), 1_000);
+    assert_eq!(auto_swap::cap_expiry(&cap), 0);
 
     auto_swap::update_bounds<SUI>(&mut cap, 5_555, 9_999_999, ts::ctx(&mut scenario));
-    assert!(auto_swap::cap_max(&cap) == 5_555, 2);
-    assert!(auto_swap::cap_expiry(&cap) == 9_999_999, 3);
+    assert_eq!(auto_swap::cap_max(&cap), 5_555);
+    assert_eq!(auto_swap::cap_expiry(&cap), 9_999_999);
 
     ts::return_shared(cap);
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = auto_swap::E_NOT_OWNER)]
+#[test, expected_failure(abort_code = auto_swap::ENotOwner)]
 fun rando_cannot_update_bounds() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -342,8 +332,7 @@ fun rando_cannot_update_bounds() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = auto_swap::E_INVALID_MAX)]
+#[test, expected_failure(abort_code = auto_swap::EInvalidMax)]
 fun update_bounds_rejects_zero_max() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
@@ -361,8 +350,7 @@ fun update_bounds_rejects_zero_max() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = auto_swap::E_INVALID_MAX)]
+#[test, expected_failure(abort_code = auto_swap::EInvalidMax)]
 fun enable_rejects_zero_max() {
     // mint_cap asserts max_per_swap > 0. Trip it via enable_auto_swap.
     let mut scenario = ts::begin(PUBLISHER);
@@ -376,8 +364,7 @@ fun enable_rejects_zero_max() {
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = auto_swap::E_NOT_OWNER)]
+#[test, expected_failure(abort_code = auto_swap::ENotOwner)]
 fun rando_cannot_disable_someone_elses_cap() {
     // disable() also has the owner check; cover that branch.
     let mut scenario = ts::begin(PUBLISHER);
@@ -421,7 +408,7 @@ fun validate_accepts_unexpired_cap_with_future_expiry() {
     auto_swap::test_validate_for_swap<SUI>(
         &mut registry, &cap, 100, 1_000, ts::ctx(&mut scenario),
     );
-    assert!(auto_swap::total_validations(&registry) == 1, 0);
+    assert_eq!(auto_swap::total_validations(&registry), 1);
     ts::return_shared(registry);
     ts::return_shared(cap);
     ts::end(scenario);
@@ -441,13 +428,12 @@ fun cap_vault_accessor_returns_correct_id() {
 
     ts::next_tx(&mut scenario, USER);
     let cap = ts::take_shared<AutoSwapCap<SUI>>(&scenario);
-    assert!(auto_swap::cap_vault(&cap) == vid, 0);
+    assert_eq!(auto_swap::cap_vault(&cap), vid);
     ts::return_shared(cap);
     ts::end(scenario);
 }
 
-#[test]
-#[expected_failure(abort_code = vault::E_NOT_OWNER)]
+#[test, expected_failure(abort_code = vault::ENotOwner)]
 fun rando_cannot_withdraw() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
