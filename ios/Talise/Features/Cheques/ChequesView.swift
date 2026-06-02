@@ -4,12 +4,33 @@ import SwiftUI
 
 private struct ChequeCreateResp: Decodable {
     let chequeId: String
-    let escrowAddress: String
     let amountUsd: Double
     let claimUrl: String
     let secret: String
+    /// Funding rail picked by the backend. "onchain" → sign `fundingBytes`
+    /// via executeSponsorReady; "escrow" (or absent for older backends) →
+    /// fund `escrowAddress` over the normal send rail. Optional so both
+    /// response shapes parse.
+    let mode: String?
+    /// Sponsor-ready `cheque::create` bytes — present only on the on-chain rail.
+    let fundingBytes: String?
+    /// Talise escrow address — present only on the escrow rail.
+    let escrowAddress: String?
 }
 private struct ChequeConfirmResp: Decodable { let ok: Bool }
+/// Reclaim ("Claim back") response. On the on-chain rail the BUILD step
+/// returns `mode:"onchain"` + sponsor-ready `reclaimBytes` for the creator
+/// to sign; the escrow rail does the refund server-side and returns the
+/// final `status` ("voided") with the refund `digest`. All fields optional
+/// so both shapes parse from one type.
+private struct ChequeReclaimResp: Decodable {
+    let ok: Bool?
+    let mode: String?
+    let reclaimBytes: String?
+    let status: String?
+    let digest: String?
+    let amountUsd: Double?
+}
 private struct ChequePreviewResp: Decodable {
     let id: String
     let amountUsd: Double
@@ -300,17 +321,37 @@ struct ChequeWriteView: View {
                                  memo: memo.isEmpty ? nil : memo,
                                  allowedCountries: gateCountry ? [country.uppercased()] : [])
             )
-            // Fund the escrow over the normal send rail (gasless / sponsored).
-            let sent = try await ZkLoginCoordinator.shared.signAndSubmitSend(
-                to: created.escrowAddress, amountUsd: amountUsd, intent: "Fund cheque"
-            )
+
+            // Fund the cheque. Two rails, picked by the server's `mode`:
+            //   • "onchain" → sign the sponsor-ready `cheque::create` bytes via
+            //     executeSponsorReady (Onara pays gas); the resulting digest is
+            //     the create tx the server parses for the on-chain Cheque object.
+            //   • "escrow" / absent → fund the escrow address over the normal
+            //     send rail (gasless / sponsored), exactly as before.
+            // Either way, the digest goes to confirm-funded to flip draft→funded.
+            let sent: ZkLoginCoordinator.SignedSubmission
+            let counterparty: String
+            if created.mode == "onchain", let fundingBytes = created.fundingBytes {
+                sent = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                    bytesB64: fundingBytes, intent: "Fund cheque"
+                )
+                counterparty = "onchain"
+            } else if let escrow = created.escrowAddress {
+                sent = try await ZkLoginCoordinator.shared.signAndSubmitSend(
+                    to: escrow, amountUsd: amountUsd, intent: "Fund cheque"
+                )
+                counterparty = escrow
+            } else {
+                self.error = "Couldn't issue the cheque right now."
+                return
+            }
             struct ConfirmBody: Encodable { let digest: String }
             let _: ChequeConfirmResp = try await APIClient.shared.post(
                 "/api/cheques/\(created.chequeId)/confirm-funded", body: ConfirmBody(digest: sent.digest)
             )
             NotificationCenter.default.post(name: .taliseTxCompleted, object: TaliseTxEvent(
                 digest: sent.digest, direction: "sent", amountUsdsui: amountUsd,
-                counterparty: created.escrowAddress, counterpartyName: "Cheque", venue: nil
+                counterparty: counterparty, counterpartyName: "Cheque", venue: nil
             ))
             withAnimation { issued = created }
         } catch APIError.status(let code, let msg) {
@@ -345,34 +386,108 @@ private struct ChequeIssuedView: View {
     let signature: String
     var onDone: () -> Void
     @State private var sharing = false
+    @State private var reclaiming = false
+    @State private var reclaimed = false
+    @State private var reclaimError: String?
 
     var body: some View {
         VStack(spacing: 24) {
             Spacer(minLength: 8)
-            Text("Cheque issued").font(TaliseFont.heading(22, weight: .medium)).foregroundStyle(TaliseColor.fg)
+            Text(reclaimed ? "Cheque reclaimed" : "Cheque issued")
+                .font(TaliseFont.heading(22, weight: .medium)).foregroundStyle(TaliseColor.fg)
             ChequeCard(amountUsd: resp.amountUsd, payee: payee, memo: memo,
-                       signature: signature, chequeNo: String(resp.chequeId.suffix(5)), stamp: "ISSUED")
+                       signature: signature, chequeNo: String(resp.chequeId.suffix(5)),
+                       stamp: reclaimed ? "RECLAIMED" : "ISSUED")
                 .padding(.horizontal, 22)
-            Text("Send this link in any DM. They claim it as money.")
+            Text(reclaimed
+                 ? "The money is back in your Talise balance."
+                 : "Send this link in any DM. They claim it as money.")
                 .font(TaliseFont.body(13, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
                 .multilineTextAlignment(.center).padding(.horizontal, 30)
+            if let reclaimError {
+                Text(reclaimError).font(TaliseFont.body(12)).foregroundStyle(TaliseColor.danger)
+                    .multilineTextAlignment(.center).padding(.horizontal, 30)
+            }
             Spacer()
             VStack(spacing: 10) {
-                Button { sharing = true } label: {
-                    HStack { Image(systemName: "square.and.arrow.up"); Text("Share cheque link") }
-                        .font(TaliseFont.heading(16, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x0A130D))
-                        .frame(maxWidth: .infinity).frame(height: 54)
-                        .background(Capsule().fill(TaliseColor.greenMint))
-                }.buttonStyle(.plain)
-                Button(action: onDone) {
-                    Text("Done").font(TaliseFont.body(15)).foregroundStyle(TaliseColor.fgMuted)
-                        .frame(maxWidth: .infinity).frame(height: 44)
-                }.buttonStyle(.plain)
+                if reclaimed {
+                    Button(action: onDone) {
+                        Text("Done").font(TaliseFont.heading(16, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x0A130D))
+                            .frame(maxWidth: .infinity).frame(height: 54)
+                            .background(Capsule().fill(TaliseColor.greenMint))
+                    }.buttonStyle(.plain)
+                } else {
+                    Button { sharing = true } label: {
+                        HStack { Image(systemName: "square.and.arrow.up"); Text("Share cheque link") }
+                            .font(TaliseFont.heading(16, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x0A130D))
+                            .frame(maxWidth: .infinity).frame(height: 54)
+                            .background(Capsule().fill(TaliseColor.greenMint))
+                    }.buttonStyle(.plain)
+                    // Claim back: pull an unclaimed cheque the user created
+                    // back to their own balance before anyone cashes it.
+                    Button { Task { await reclaim() } } label: {
+                        HStack(spacing: 6) {
+                            if reclaiming { ProgressView().controlSize(.small).tint(TaliseColor.fg) }
+                            else { Image(systemName: "arrow.uturn.backward") }
+                            Text(reclaiming ? "Claiming back…" : "Claim it back")
+                        }
+                        .font(TaliseFont.heading(15, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                        .frame(maxWidth: .infinity).frame(height: 50)
+                        .background(Capsule().stroke(TaliseColor.line, lineWidth: 1))
+                    }.buttonStyle(.plain).disabled(reclaiming)
+                    Button(action: onDone) {
+                        Text("Done").font(TaliseFont.body(15)).foregroundStyle(TaliseColor.fgMuted)
+                            .frame(maxWidth: .infinity).frame(height: 44)
+                    }.buttonStyle(.plain).disabled(reclaiming)
+                }
             }.padding(.horizontal, 22).padding(.bottom, 24)
         }
         .background(TaliseColor.bg.ignoresSafeArea())
         .sheet(isPresented: $sharing) { ShareSheet(items: [URL(string: resp.claimUrl) ?? resp.claimUrl]) }
+    }
+
+    /// Reclaim ("Claim back") the unclaimed cheque the creator just issued.
+    ///   • On-chain rail: the BUILD POST returns sponsor-ready `reclaimBytes`;
+    ///     we sign+execute via executeSponsorReady, then a CONFIRM POST with
+    ///     the reclaim `{digest}` flips funded→reclaimed server-side.
+    ///   • Escrow rail: the single POST refunds server-side and returns the
+    ///     final status — no client signature needed.
+    private func reclaim() async {
+        reclaiming = true; reclaimError = nil
+        defer { reclaiming = false }
+        struct ReclaimBuild: Encodable {}
+        struct ReclaimConfirm: Encodable { let digest: String }
+        do {
+            let built: ChequeReclaimResp = try await APIClient.shared.post(
+                "/api/cheques/\(resp.chequeId)/reclaim", body: ReclaimBuild()
+            )
+            var refundDigest = built.digest
+            if built.mode == "onchain", let reclaimBytes = built.reclaimBytes {
+                // Creator signs the sponsored cheque::reclaim PTB.
+                let sent = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                    bytesB64: reclaimBytes, intent: "Reclaim cheque"
+                )
+                refundDigest = sent.digest
+                // Confirm: record the reclaim digest CREATOR-only (funded→reclaimed).
+                let _: ChequeReclaimResp = try await APIClient.shared.post(
+                    "/api/cheques/\(resp.chequeId)/reclaim", body: ReclaimConfirm(digest: sent.digest)
+                )
+            }
+            if let d = refundDigest {
+                NotificationCenter.default.post(name: .taliseTxCompleted, object: TaliseTxEvent(
+                    digest: d, direction: "received", amountUsdsui: resp.amountUsd,
+                    counterparty: nil, counterpartyName: "Cheque", venue: nil))
+            }
+            withAnimation { reclaimed = true }
+        } catch APIError.status(let code, let msg) {
+            reclaimError = chequeError(code: code, message: msg, verb: "reclaim")
+        } catch {
+            if APIError.isCancellation(error) { return }
+            reclaimError = "Couldn't claim this cheque back right now."
+        }
     }
 }
 

@@ -4,6 +4,30 @@ import SwiftUI
 
 private struct StreamEscrowResp: Decodable { let escrowAddress: String }
 private struct StreamRecordResp: Decodable { let id: String? }
+/// /api/streams/create-prepare response. `mode` selects the funding rail:
+///   • "onchain" → sign the sponsor-ready `stream::create` `bytes` via
+///     executeSponsorReady; the digest is the create tx the server parses
+///     for the on-chain Stream object id.
+///   • "gasless" / "sponsored" → fund the `escrowAddress` over the normal
+///     send rail (existing flow). All fields optional so every shape parses.
+private struct StreamPrepareResp: Decodable {
+    let mode: String?
+    let bytes: String?
+    let escrowAddress: String?
+    let error: String?
+}
+/// /api/streams/[id]/cancel response. On the on-chain rail it returns
+/// `mode:"onchain"` + sponsor-ready `bytes` (the sender-signed
+/// `cancel_and_withdraw`) for iOS to sign+execute. The escrow rail refunds
+/// server-side and just reports `refunded`. All optional so both parse.
+private struct StreamCancelResp: Decodable {
+    let ok: Bool?
+    let state: String?
+    let mode: String?
+    let bytes: String?
+    let refunded: Bool?
+    let refundUsd: Double?
+}
 struct StreamDTO: Decodable, Identifiable {
     let id: String
     let state: String
@@ -275,17 +299,53 @@ struct StreamSetupView: View {
         let totalMicros = Int((totalUsd * 1_000_000).rounded())
         let trancheMicros = totalMicros / numTranches
         let intervalMs = intervalMin * 60_000
+        let now = Int(Date().timeIntervalSince1970 * 1000)
         do {
-            let escrow: StreamEscrowResp = try await APIClient.shared.get("/api/streams/escrow")
-            let sent = try await ZkLoginCoordinator.shared.signAndSubmitSend(
-                to: escrow.escrowAddress, amountUsd: totalUsd, intent: "Start stream"
+            // Build the funding tx. The server picks the rail and returns `mode`:
+            //   • "onchain" → sign the sponsor-ready `stream::create` bytes via
+            //     executeSponsorReady (Onara pays gas); the digest is the create
+            //     tx the server parses for the on-chain Stream object id.
+            //   • "gasless" / "sponsored" → fund the escrow address over the
+            //     normal send rail, exactly as before.
+            struct PrepareBody: Encodable {
+                let to: String; let totalUsd: Double; let intervalMs: Int; let numTranches: Int
+            }
+            let prep: StreamPrepareResp = try await APIClient.shared.post(
+                "/api/streams/create-prepare",
+                body: PrepareBody(to: to, totalUsd: totalUsd, intervalMs: intervalMs, numTranches: numTranches)
             )
+            if let serverErr = prep.error, !serverErr.isEmpty {
+                self.error = serverErr; return
+            }
+
+            let sent: ZkLoginCoordinator.SignedSubmission
+            let counterparty: String
+            if prep.mode == "onchain", let bytes = prep.bytes {
+                sent = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                    bytesB64: bytes, intent: "Start stream"
+                )
+                counterparty = to
+            } else {
+                // Escrow rail: fund the escrow address over the normal send rail.
+                // create-prepare already returns the escrow address in its plan;
+                // fall back to /api/streams/escrow only if it's somehow absent.
+                let escrowAddr: String
+                if let addr = prep.escrowAddress {
+                    escrowAddr = addr
+                } else {
+                    let escrow: StreamEscrowResp = try await APIClient.shared.get("/api/streams/escrow")
+                    escrowAddr = escrow.escrowAddress
+                }
+                sent = try await ZkLoginCoordinator.shared.signAndSubmitSend(
+                    to: escrowAddr, amountUsd: totalUsd, intent: "Start stream"
+                )
+                counterparty = escrowAddr
+            }
             struct RecordBody: Encodable {
                 let fundingDigest: String; let recipientAddress: String; let recipientHandle: String?
                 let totalMicros: String; let trancheMicros: String; let numTranches: Int
                 let startMs: Int; let intervalMs: Int
             }
-            let now = Int(Date().timeIntervalSince1970 * 1000)
             let _: StreamRecordResp = try await APIClient.shared.post(
                 "/api/streams/record",
                 body: RecordBody(fundingDigest: sent.digest, recipientAddress: to,
@@ -293,6 +353,7 @@ struct StreamSetupView: View {
                                  totalMicros: String(totalMicros), trancheMicros: String(trancheMicros),
                                  numTranches: numTranches, startMs: now, intervalMs: intervalMs)
             )
+            _ = counterparty // funding-leg destination (escrow addr or recipient)
             NotificationCenter.default.post(name: .taliseTxCompleted, object: TaliseTxEvent(
                 digest: sent.digest, direction: "sent", amountUsdsui: totalUsd,
                 counterparty: to, counterpartyName: "Stream", venue: nil))
@@ -326,6 +387,8 @@ struct StreamsListView: View {
     var onDone: () -> Void
     @State private var streams: [StreamDTO] = []
     @State private var loading = true
+    @State private var cancellingId: String?
+    @State private var cancelError: String?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -340,6 +403,9 @@ struct StreamsListView: View {
                     }.frame(maxWidth: .infinity).padding(.top, 40)
                 } else {
                     ForEach(streams) { s in streamRow(s) }
+                }
+                if let cancelError {
+                    Text(cancelError).font(TaliseFont.body(12)).foregroundStyle(TaliseColor.danger)
                 }
             }
             .padding(.horizontal, 22).padding(.top, 18).padding(.bottom, 30)
@@ -380,8 +446,58 @@ struct StreamsListView: View {
                 Text("\(s.tranchesDone ?? 0)/\(s.numTranches ?? 0) payments")
                     .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgDim)
             }
+            // Sender-only cancel on a live stream. Stops further releases and
+            // returns the undistributed remainder to the sender.
+            if s.role != "recipient", s.state == "active" || s.state == "paused" {
+                Button { Task { await cancel(s) } } label: {
+                    HStack(spacing: 6) {
+                        if cancellingId == s.id { ProgressView().controlSize(.small).tint(TaliseColor.fg) }
+                        else { Image(systemName: "stop.circle") }
+                        Text(cancellingId == s.id ? "Cancelling…" : "Cancel & refund remainder")
+                    }
+                    .font(TaliseFont.mono(11))
+                    .foregroundStyle(TaliseColor.fg)
+                    .frame(maxWidth: .infinity).frame(height: 40)
+                    .background(Capsule().stroke(TaliseColor.line, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .disabled(cancellingId != nil)
+                .padding(.top, 4)
+            }
         }
         .padding(16).taliseGlass(cornerRadius: 18)
+    }
+
+    /// Cancel a stream (sender-only). The server flips the row to cancelled,
+    /// then EITHER refunds the remainder server-side (escrow rail) OR returns
+    /// sponsor-ready `cancel_and_withdraw` bytes for the sender to sign
+    /// (on-chain rail) — only the sender's zkLogin can withdraw the on-chain
+    /// remainder. We sign+execute those bytes via executeSponsorReady.
+    private func cancel(_ s: StreamDTO) async {
+        cancellingId = s.id; cancelError = nil
+        defer { cancellingId = nil }
+        struct CancelBody: Encodable {}
+        do {
+            let r: StreamCancelResp = try await APIClient.shared.post(
+                "/api/streams/\(s.id)/cancel", body: CancelBody()
+            )
+            if r.mode == "onchain", let bytes = r.bytes {
+                let sent = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                    bytesB64: bytes, intent: "Cancel stream"
+                )
+                if let refund = r.refundUsd, refund > 0 {
+                    NotificationCenter.default.post(name: .taliseTxCompleted, object: TaliseTxEvent(
+                        digest: sent.digest, direction: "received", amountUsdsui: refund,
+                        counterparty: nil, counterpartyName: "Stream refund", venue: nil))
+                }
+            }
+            await load()
+        } catch APIError.status(let code, let msg) {
+            cancelError = StreamSetupView.friendlyStreamError(code: code, message: msg)
+        } catch {
+            if APIError.isCancellation(error) { return }
+            cancelError = "Couldn't cancel the stream right now."
+        }
     }
 
     private func shortAddr(_ a: String?) -> String {

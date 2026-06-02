@@ -753,6 +753,41 @@ final class ZkLoginCoordinator {
         return digestStr
     }
 
+    /// Single primitive for executing EXTERNALLY-prepared sponsor-ready
+    /// bytes through the Onara pipeline. The caller has already POSTed to
+    /// some on-chain `*-create` / `reclaim` / `cancel` route and received
+    /// sponsor-ready `bytesB64` (the SAME shape `/api/zk/sponsor` returns).
+    /// This assembles the user's zkLogin signature EXACTLY like
+    /// `signAndSubmitSend` does — reusing the ProofCache `maxEpoch` +
+    /// `jwtRandomness`, the intent-prefixed BLAKE2b → Ed25519 sign, and the
+    /// POST `/api/zk/sponsor-execute {bytesB64, ephemeralPubKeyB64, maxEpoch,
+    /// randomness, userSignature, cachedProof?}` → `{digest}` — and returns
+    /// the digest wrapped in `SignedSubmission`.
+    ///
+    /// Used by the on-chain cheque create + reclaim and the on-chain stream
+    /// create + cancel flows: they hand us bytes the backend already built,
+    /// we sign and submit, they record the resulting digest.
+    ///
+    /// `intent` is a human-readable label ("Fund cheque", "Reclaim cheque",
+    /// "Start stream", "Cancel stream") forwarded to the per-action log line
+    /// for parity with `signAndSubmitSend`; it's not sent over the wire.
+    func executeSponsorReady(
+        bytesB64: String,
+        intent: String,
+        rewards: RewardsMeta? = nil
+    ) async throws -> SignedSubmission {
+        var meta: [String: Any] = [:]
+        if let r = rewards {
+            meta["kind"] = r.kind
+            meta["amountUsd"] = r.amountUsd
+            if let v = r.venue { meta["venue"] = v }
+            if let ru = r.roundupUsd, ru > 0 { meta["roundupUsd"] = ru }
+        }
+        let digest = try await signAndExecuteRaw(bytesB64: bytesB64, meta: meta)
+        _ = intent // kept for log/analytics parity with signAndSubmitSend
+        return SignedSubmission(digest: digest)
+    }
+
     // MARK: - Helpers
 
     /// Fetches the current Sui epoch and returns `epoch + 2` — the standard
