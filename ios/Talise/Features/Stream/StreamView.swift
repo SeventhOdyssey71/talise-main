@@ -32,6 +32,8 @@ struct StreamSetupView: View {
     @State private var starting = false
     @State private var error: String?
     @State private var started = false
+    @State private var resolveFailed = false
+    @State private var resolveTask: Task<Void, Never>?
 
     private let durations: [(String, Int)] = [("1 hour", 60), ("1 day", 1440), ("1 week", 10080), ("30 days", 43200)]
     private let intervals: [(String, Int)] = [("1 min", 1), ("10 min", 10), ("1 hour", 60), ("1 day", 1440)]
@@ -53,7 +55,7 @@ struct StreamSetupView: View {
                     recipientField
                     amountField
                     scheduleCard
-                    if validSchedule { previewCard }
+                    statusSection
                     if let error { Text(error).font(TaliseFont.body(12)).foregroundStyle(TaliseColor.danger) }
                     Color.clear.frame(height: 90)
                 }
@@ -82,16 +84,25 @@ struct StreamSetupView: View {
                 TextField("@handle or 0x address", text: $recipientQuery)
                     .font(TaliseFont.body(15)).foregroundStyle(TaliseColor.fg)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .onSubmit { Task { await resolve() } }
+                    .onSubmit { scheduleResolve(debounce: false) }
                 if resolving { ProgressView().controlSize(.small) }
                 else if resolved != nil { Image(systemName: "checkmark.circle.fill").foregroundStyle(TaliseColor.accent) }
+                else if resolveFailed { Image(systemName: "xmark.circle.fill").foregroundStyle(TaliseColor.danger) }
             }
             Rectangle().fill(TaliseColor.line).frame(height: 1)
-            if let r = resolved {
-                Text(r.displayString).font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.accent)
+            if resolving {
+                Text("Looking up recipient…").font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgDim)
+            } else if let r = resolved {
+                Text("Resolved: \(r.displayString)").font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.accent)
+            } else if resolveFailed {
+                Text("Couldn't find that recipient. Check the @handle or address.")
+                    .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.danger)
             }
         }
-        .onChange(of: recipientQuery) { _, _ in resolved = nil }
+        .onChange(of: recipientQuery) { _, _ in
+            resolved = nil; resolveFailed = false
+            scheduleResolve(debounce: true)
+        }
     }
 
     private var amountField: some View {
@@ -131,6 +142,48 @@ struct StreamSetupView: View {
                 }
             }
         }
+    }
+
+    /// Always-visible block under the schedule. When the stream isn't
+    /// startable it explains exactly why (no recipient / no amount /
+    /// tranche below the gasless minimum); when valid it shows the
+    /// existing preview card. The screen never looks empty or dead.
+    @ViewBuilder private var statusSection: some View {
+        if validSchedule {
+            previewCard
+        } else {
+            statusLine(statusMessage)
+        }
+    }
+
+    private var statusMessage: String {
+        if recipientQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "Enter a recipient — an @handle or a 0x address."
+        }
+        if resolving { return "Looking up that recipient…" }
+        if resolved == nil {
+            return "Enter a recipient we can find before streaming."
+        }
+        if totalUsd <= 0 { return "Enter an amount to stream." }
+        if trancheUsd < 0.01 {
+            return "Each payment works out to \(TaliseFormat.usd(trancheUsd)) — below the $0.01 minimum. Raise the total or stream less often."
+        }
+        if numTranches > 5000 {
+            return "That's \(numTranches) payments — too many. Stream less often or over a shorter window."
+        }
+        return "Set a recipient, amount and schedule to start."
+    }
+
+    private func statusLine(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "info.circle").font(.system(size: 12)).foregroundStyle(TaliseColor.fgMuted)
+            Text(text)
+                .font(TaliseFont.body(12, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .taliseGlass(cornerRadius: 16)
     }
 
     private var previewCard: some View {
@@ -180,16 +233,40 @@ struct StreamSetupView: View {
     private var intervalLabel: String { intervals.first { $0.1 == intervalMin }?.0 ?? "\(intervalMin) min" }
     private var durationLabel: String { durations.first { $0.1 == durationMin }?.0 ?? "\(durationMin) min" }
 
-    private func resolve() async {
+    /// Resolve the recipient automatically as the user types (debounced)
+    /// and immediately on submit. Cancels any in-flight lookup so the
+    /// latest query always wins and the inline state never lies.
+    private func scheduleResolve(debounce: Bool) {
+        resolveTask?.cancel()
         let q = recipientQuery.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { resolving = false; return }
+        resolveTask = Task {
+            if debounce {
+                try? await Task.sleep(nanoseconds: 400_000_000) // ~0.4s
+                if Task.isCancelled { return }
+            }
+            await resolve(q)
+        }
+    }
+
+    private func resolve(_ query: String) async {
+        let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return }
-        resolving = true; defer { resolving = false }
+        resolving = true; resolveFailed = false
+        defer { resolving = false }
         do {
             let r: RecipientResolution = try await APIClient.shared.get(
                 "/api/recipient/resolve?q=\(q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q)"
             )
-            resolved = r
-        } catch { resolved = nil; self.error = "Couldn't find that recipient." }
+            if Task.isCancelled { return }
+            // Guard against a stale response landing after the field changed.
+            guard q == recipientQuery.trimmingCharacters(in: .whitespaces) else { return }
+            resolved = r; resolveFailed = false
+        } catch {
+            if Task.isCancelled || APIError.isCancellation(error) { return }
+            guard q == recipientQuery.trimmingCharacters(in: .whitespaces) else { return }
+            resolved = nil; resolveFailed = true
+        }
     }
 
     private func start() async {
@@ -220,11 +297,26 @@ struct StreamSetupView: View {
                 digest: sent.digest, direction: "sent", amountUsdsui: totalUsd,
                 counterparty: to, counterpartyName: "Stream", venue: nil))
             withAnimation { started = true }
-        } catch APIError.status(_, let msg) {
-            self.error = msg ?? "Couldn't start the stream."
+        } catch APIError.status(let code, let msg) {
+            self.error = Self.friendlyStreamError(code: code, message: msg)
         } catch {
+            if APIError.isCancellation(error) { return }
             self.error = "Couldn't start the stream right now."
         }
+    }
+
+    /// Map "backend isn't live yet" responses (404 / 503 / "not
+    /// configured" / "disabled") to reassuring copy. Real, actionable
+    /// server messages still pass through verbatim.
+    static func friendlyStreamError(code: Int, message: String?) -> String {
+        let lower = (message ?? "").lowercased()
+        let rolloutPhrase = lower.contains("not configured") || lower.contains("disabled")
+            || lower.contains("not found") || lower.contains("unavailable")
+        if code == 404 || code == 503 || rolloutPhrase {
+            return "Streaming is rolling out — check back soon."
+        }
+        if let msg = message, !msg.isEmpty { return msg }
+        return "Couldn't start the stream right now."
     }
 }
 

@@ -313,10 +313,27 @@ struct ChequeWriteView: View {
                 counterparty: created.escrowAddress, counterpartyName: "Cheque", venue: nil
             ))
             withAnimation { issued = created }
+        } catch APIError.status(let code, let msg) {
+            self.error = chequeError(code: code, message: msg, verb: "issue")
         } catch {
-            self.error = "Couldn't issue the cheque. \((error as NSError).localizedDescription)"
+            if APIError.isCancellation(error) { return }
+            self.error = "Couldn't issue the cheque right now."
         }
     }
+}
+
+/// Map "backend isn't live yet" cheque responses (404 / 503 /
+/// "disabled" / "not configured") to reassuring rollout copy, instead
+/// of leaking "HTTP 404". Real, actionable server messages pass through.
+func chequeError(code: Int, message: String?, verb: String) -> String {
+    let lower = (message ?? "").lowercased()
+    let rolloutPhrase = lower.contains("not configured") || lower.contains("disabled")
+        || lower.contains("not found") || lower.contains("unavailable")
+    if code == 404 || code == 503 || rolloutPhrase {
+        return "Cheques are rolling out — check back soon."
+    }
+    if let msg = message, !msg.isEmpty { return msg }
+    return "Couldn't \(verb) the cheque right now."
 }
 
 // MARK: - Issued (share)
@@ -462,9 +479,20 @@ struct ChequeClaimView: View {
                 "/api/cheques/\(id)/preview?s=\(secret)"
             )
             parsed = (id, secret); preview = p
+        } catch APIError.status(let code, let msg) where isRollout(code, msg) {
+            // Service genuinely not live yet (503 / "disabled"). A bare
+            // 404 here is ambiguous — it usually means an invalid or
+            // already-claimed cheque — so that keeps its own copy below.
+            self.error = "Cheques are rolling out — check back soon."
         } catch {
+            if APIError.isCancellation(error) { return }
             self.error = "Couldn't open this cheque — it may be invalid or already claimed."
         }
+    }
+
+    private func isRollout(_ code: Int, _ msg: String?) -> Bool {
+        let lower = (msg ?? "").lowercased()
+        return code == 503 || lower.contains("disabled") || lower.contains("not configured")
     }
 
     private func claim() async {
@@ -483,9 +511,10 @@ struct ChequeClaimView: View {
                 }
                 withAnimation { claimedAmount = r.amountUsd ?? preview?.amountUsd }
             }
-        } catch APIError.status(_, let msg) {
-            self.error = msg ?? "Couldn't cash this cheque."
+        } catch APIError.status(let code, let msg) {
+            self.error = chequeError(code: code, message: msg, verb: "cash")
         } catch {
+            if APIError.isCancellation(error) { return }
             self.error = "Couldn't cash this cheque right now."
         }
     }
