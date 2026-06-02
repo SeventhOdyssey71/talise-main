@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { userById } from "@/lib/db";
-import { getChequeForClaim, getGates, microsToUsd } from "@/lib/cheques";
+import { getChequeForClaim, countryAllowlist, microsToUsd } from "@/lib/cheques";
 
 export const runtime = "nodejs";
 
@@ -26,7 +26,7 @@ export async function GET(
       ? `${creator.talise_username}@talise.sui`
       : creator?.business_name ?? creator?.name ?? "A Talise user";
 
-  const gates = await getGates(id);
+  const allowedCountries = await countryAllowlist(id);
   const now = Date.now();
   const expired = cq.expiresAt < now;
 
@@ -38,7 +38,8 @@ export async function GET(
     memo: cq.memo,
     signatureName: cq.signatureName,
     creatorDisplay,
-    gates: gates.map((g) => (g.kind === "nationality" ? { kind: g.kind, allowed: g.allowed } : { kind: g.kind })),
+    allowedCountries, // [] = any country; non-empty = IP must geolocate into it
+    requireCaptcha: true,
     expiresAt: cq.expiresAt,
     claimable: cq.status === "funded" && !expired,
   });

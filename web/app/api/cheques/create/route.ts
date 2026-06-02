@@ -53,7 +53,9 @@ export async function POST(req: Request) {
     payeeLabel?: string;
     memo?: string;
     signatureName?: string;
-    gates?: Array<{ kind?: string; allowed?: string[] }>;
+    /** Optional ISO-3166 alpha-2 country allowlist. Empty/absent = any country.
+     *  Captcha + VPN-block are always enforced at claim regardless. */
+    allowedCountries?: string[];
   };
   try {
     body = await req.json();
@@ -69,23 +71,11 @@ export async function POST(req: Request) {
     );
   }
 
-  // Parse + validate gates.
-  const gates: ChequeGate[] = [];
-  for (const g of body.gates ?? []) {
-    if (g.kind === "name_phone") gates.push({ kind: "name_phone" });
-    else if (g.kind === "nationality") {
-      const allowed = (g.allowed ?? [])
-        .map((c) => String(c).toUpperCase().trim())
-        .filter((c) => /^[A-Z]{2}$/.test(c));
-      if (allowed.length === 0) {
-        return NextResponse.json(
-          { error: "nationality gate needs at least one ISO-3166 alpha-2 country" },
-          { status: 400 }
-        );
-      }
-      gates.push({ kind: "nationality", allowed });
-    }
-  }
+  const allowedCountries = (body.allowedCountries ?? [])
+    .map((c) => String(c).toUpperCase().trim())
+    .filter((c) => /^[A-Z]{2}$/.test(c));
+  const gates: ChequeGate[] =
+    allowedCountries.length > 0 ? [{ kind: "country", allowed: allowedCountries }] : [];
 
   // Sanctions screen the creator (fail-closed on a name hit). Recipient is the
   // Talise escrow, so only the creator side is screened here.
@@ -118,6 +108,7 @@ export async function POST(req: Request) {
     claimUrl: claimUrl(id, secret),
     secret, // returned once so the client can build the shareable link
     expiresAt,
-    gates: gates.map((g) => g.kind),
+    allowedCountries,
+    requireCaptcha: true,
   });
 }

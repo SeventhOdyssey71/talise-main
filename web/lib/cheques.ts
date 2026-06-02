@@ -8,6 +8,7 @@ import { db, ensureSchema } from "@/lib/db";
 import { sui, USDSUI_DECIMALS } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { getChainIdentifier, getCurrentEpoch } from "@/lib/sui-epoch";
+import { verifyTurnstile, turnstileConfigured } from "@/lib/turnstile";
 
 /**
  * Talise Cheques — claimable USDsui links presented as real-life cheques.
@@ -25,8 +26,6 @@ import { getChainIdentifier, getCurrentEpoch } from "@/lib/sui-epoch";
  */
 
 const CHEQUE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days default expiry
-const OTP_TTL_MS = 10 * 60 * 1000;
-const OTP_MAX_ATTEMPTS = 5;
 
 export type ChequeStatus =
   | "draft"
@@ -37,9 +36,14 @@ export type ChequeStatus =
   | "voided"
   | "expired";
 
-export type ChequeGate =
-  | { kind: "name_phone" }
-  | { kind: "nationality"; allowed: string[] };
+/**
+ * Claim gating (simplified per product). A captcha (Cloudflare Turnstile) and a
+ * VPN/proxy/datacenter block are ALWAYS enforced at claim. The only
+ * configurable gate is an optional IP-geolocated country allowlist
+ * (empty = claimable from any country). All checks are off-chain, evaluated at
+ * release — the claim API is the sole authority that can release the funds.
+ */
+export type ChequeGate = { kind: "country"; allowed: string[] };
 
 export type ChequeRow = {
   id: string;
@@ -107,36 +111,19 @@ export function ensureChequesSchema(): Promise<void> {
     );
     await db().execute(`
       CREATE TABLE IF NOT EXISTS cheque_claim_attempts (
-        id           SERIAL PRIMARY KEY,
-        cheque_id    TEXT NOT NULL REFERENCES cheques(id),
-        user_id      INTEGER REFERENCES users(id),
-        passed       BOOLEAN NOT NULL,
-        failed_gate  TEXT,
-        claimer_name TEXT,
-        phone_hash   TEXT,
-        phone_last4  TEXT,
-        nationality  TEXT,
-        created_at   BIGINT NOT NULL
+        id          SERIAL PRIMARY KEY,
+        cheque_id   TEXT NOT NULL REFERENCES cheques(id),
+        user_id     INTEGER REFERENCES users(id),
+        passed      BOOLEAN NOT NULL,
+        failed_gate TEXT,
+        ip          TEXT,
+        geo_country TEXT,
+        is_vpn      BOOLEAN,
+        created_at  BIGINT NOT NULL
       )
     `);
     await db().execute(
       `CREATE INDEX IF NOT EXISTS idx_cheque_attempts_cheque ON cheque_claim_attempts(cheque_id, created_at DESC)`
-    );
-    await db().execute(`
-      CREATE TABLE IF NOT EXISTS cheque_phone_otps (
-        id         SERIAL PRIMARY KEY,
-        cheque_id  TEXT NOT NULL REFERENCES cheques(id),
-        phone_hash TEXT NOT NULL,
-        code_hash  TEXT NOT NULL,
-        name       TEXT,
-        attempts   INTEGER NOT NULL DEFAULT 0,
-        verified   BOOLEAN NOT NULL DEFAULT FALSE,
-        expires_at BIGINT NOT NULL,
-        created_at BIGINT NOT NULL
-      )
-    `);
-    await db().execute(
-      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_cheque_otp ON cheque_phone_otps(cheque_id, phone_hash)`
     );
   })();
   return _schemaReady;
@@ -230,11 +217,14 @@ export async function createCheque(input: {
     ],
   });
   for (const g of input.gates) {
-    const params = g.kind === "nationality" ? JSON.stringify({ allowed: g.allowed }) : "{}";
-    await db().execute({
-      sql: `INSERT INTO cheque_gates (cheque_id, kind, params, created_at) VALUES (?, ?, ?, ?)`,
-      args: [id, g.kind, params, now],
-    });
+    // Only a non-empty country allowlist is persisted; captcha + VPN-block are
+    // always-on and implicit (enforced at claim, not stored per-cheque).
+    if (g.kind === "country" && g.allowed.length > 0) {
+      await db().execute({
+        sql: `INSERT INTO cheque_gates (cheque_id, kind, params, created_at) VALUES (?, 'country', ?, ?)`,
+        args: [id, JSON.stringify({ allowed: g.allowed }), now],
+      });
+    }
   }
   return { id, secret, expiresAt };
 }
@@ -264,27 +254,22 @@ export async function getCheque(id: string): Promise<ChequeRow | null> {
   };
 }
 
-export async function getGates(id: string): Promise<ChequeGate[]> {
+/** The cheque's optional country allowlist (ISO-3166 alpha-2, uppercase). [] = no country gate. */
+export async function countryAllowlist(id: string): Promise<string[]> {
   await ensureChequesSchema();
   const r = await db().execute({
-    sql: `SELECT kind, params FROM cheque_gates WHERE cheque_id = ?`,
+    sql: `SELECT params FROM cheque_gates WHERE cheque_id = ? AND kind = 'country' LIMIT 1`,
     args: [id],
   });
-  return r.rows.map((row) => {
-    const kind = String(row.kind);
-    if (kind === "nationality") {
-      let allowed: string[] = [];
-      try {
-        allowed = (JSON.parse(String(row.params ?? "{}")).allowed ?? []).map((c: string) =>
-          String(c).toUpperCase()
-        );
-      } catch {
-        /* default [] */
-      }
-      return { kind: "nationality", allowed } as ChequeGate;
-    }
-    return { kind: "name_phone" } as ChequeGate;
-  });
+  const row = r.rows[0];
+  if (!row) return [];
+  try {
+    return ((JSON.parse(String(row.params ?? "{}")).allowed ?? []) as string[]).map((c) =>
+      String(c).toUpperCase()
+    );
+  } catch {
+    return [];
+  }
 }
 
 /** Validate a cheque against its claim secret. Returns the row only on match. */
@@ -373,132 +358,86 @@ async function verifyEscrowDeposit(input: {
   }
 }
 
-// ─── Gates ─────────────────────────────────────────────────────────────────────
+// ─── Claim eligibility: captcha + VPN block + optional country gate ──────────
 
-export type GateNeed =
-  | { kind: "name_phone"; satisfied: boolean }
-  | { kind: "nationality"; satisfied: boolean; allowed: string[] };
+export type ClaimGateReason = "captcha" | "vpn" | "country" | "geo_unavailable";
+export type ClaimEligibility = {
+  ok: boolean;
+  reason?: ClaimGateReason;
+  country?: string | null;
+  isVpn?: boolean;
+};
 
-/**
- * Evaluate every gate from DB state against the claimer. NEVER trusts a client
- * "I passed" flag. `claimerCountry` is the claimer's VERIFIED nationality
- * (users.country, set by KYC) — null if unverified.
- */
-export async function evaluateGates(input: {
-  chequeId: string;
-  claimerPhone?: string | null;
-  claimerCountry?: string | null;
-}): Promise<{ needs: GateNeed[]; allPassed: boolean; firstUnmet?: string }> {
-  const gates = await getGates(input.chequeId);
-  const needs: GateNeed[] = [];
-  for (const g of gates) {
-    if (g.kind === "name_phone") {
-      const verified = input.claimerPhone
-        ? await isPhoneVerified(input.chequeId, input.claimerPhone)
-        : false;
-      needs.push({ kind: "name_phone", satisfied: verified });
-    } else {
-      const country = (input.claimerCountry ?? "").toUpperCase();
-      const satisfied = country.length > 0 && g.allowed.includes(country);
-      needs.push({ kind: "nationality", satisfied, allowed: g.allowed });
-    }
+/** Pull the client IP from the forwarded headers (Vercel / proxies). */
+export function ipFromRequest(req: Request): string | null {
+  const xff =
+    req.headers.get("x-vercel-forwarded-for") ??
+    req.headers.get("x-forwarded-for") ??
+    "";
+  const first = xff.split(",")[0]?.trim();
+  return first || req.headers.get("x-real-ip") || null;
+}
+
+type IpInfo = { country: string; proxy: boolean; hosting: boolean };
+async function lookupIp(ip: string | null): Promise<IpInfo | null> {
+  if (!ip || ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.")) {
+    return null;
   }
-  const firstUnmet = needs.find((n) => !n.satisfied)?.kind;
-  return { needs, allPassed: !firstUnmet, firstUnmet };
-}
-
-// ─── Phone OTP gate ──────────────────────────────────────────────────────────
-
-function phoneHash(e164: string): string {
-  return sha256hex(e164.replace(/[^\d+]/g, ""));
-}
-function genOtp(): string {
-  return String(100000 + (randomBytes(4).readUInt32BE(0) % 900000));
-}
-
-/**
- * Start the name/phone gate: store name + a hashed OTP and dispatch it. SMS
- * delivery goes through a pluggable seam (`sendSmsOtp`); until a provider is
- * configured it logs the code (dev) and returns `devCode` so the flow is
- * exercisable end-to-end.
- */
-export async function startPhoneOtp(input: {
-  chequeId: string;
-  phone: string;
-  name: string;
-}): Promise<{ ok: boolean; devCode?: string }> {
-  await ensureChequesSchema();
-  const code = genOtp();
-  const now = Date.now();
-  const ph = phoneHash(input.phone);
-  await db().execute({
-    sql: `INSERT INTO cheque_phone_otps (cheque_id, phone_hash, code_hash, name, attempts, verified, expires_at, created_at)
-          VALUES (?, ?, ?, ?, 0, FALSE, ?, ?)
-          ON CONFLICT (cheque_id, phone_hash) DO UPDATE SET
-            code_hash = EXCLUDED.code_hash, name = EXCLUDED.name, attempts = 0,
-            verified = FALSE, expires_at = EXCLUDED.expires_at, created_at = EXCLUDED.created_at`,
-    args: [input.chequeId, ph, sha256hex(code), input.name, now + OTP_TTL_MS, now],
-  });
-  const delivered = await sendSmsOtp(input.phone, code);
-  return { ok: true, devCode: delivered ? undefined : code };
-}
-
-export async function verifyPhoneOtp(input: {
-  chequeId: string;
-  phone: string;
-  code: string;
-}): Promise<{ ok: boolean; reason?: string }> {
-  await ensureChequesSchema();
-  const ph = phoneHash(input.phone);
-  const r = await db().execute({
-    sql: `SELECT code_hash, attempts, verified, expires_at FROM cheque_phone_otps
-          WHERE cheque_id = ? AND phone_hash = ? LIMIT 1`,
-    args: [input.chequeId, ph],
-  });
-  const row = r.rows[0];
-  if (!row) return { ok: false, reason: "no_otp" };
-  if (row.verified) return { ok: true };
-  if (Number(row.attempts) >= OTP_MAX_ATTEMPTS) return { ok: false, reason: "too_many_attempts" };
-  if (Number(row.expires_at) < Date.now()) return { ok: false, reason: "expired" };
-  const expected = String(row.code_hash);
-  const got = sha256hex(input.code);
-  const match =
-    expected.length === got.length &&
-    timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(got, "hex"));
-  if (!match) {
-    await db().execute({
-      sql: `UPDATE cheque_phone_otps SET attempts = attempts + 1 WHERE cheque_id = ? AND phone_hash = ?`,
-      args: [input.chequeId, ph],
-    });
-    return { ok: false, reason: "bad_code" };
+  try {
+    // ip-api.com: free + keyless. `proxy` = VPN/proxy/Tor, `hosting` = datacenter.
+    const res = await fetch(
+      `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,countryCode,proxy,hosting`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    if (!res.ok) return null;
+    const b = (await res.json()) as {
+      status?: string;
+      countryCode?: string;
+      proxy?: boolean;
+      hosting?: boolean;
+    };
+    if (b.status !== "success" || !b.countryCode) return null;
+    return { country: String(b.countryCode).toUpperCase(), proxy: !!b.proxy, hosting: !!b.hosting };
+  } catch {
+    return null;
   }
-  await db().execute({
-    sql: `UPDATE cheque_phone_otps SET verified = TRUE WHERE cheque_id = ? AND phone_hash = ?`,
-    args: [input.chequeId, ph],
-  });
-  return { ok: true };
-}
-
-async function isPhoneVerified(chequeId: string, phone: string): Promise<boolean> {
-  const r = await db().execute({
-    sql: `SELECT verified FROM cheque_phone_otps WHERE cheque_id = ? AND phone_hash = ? LIMIT 1`,
-    args: [chequeId, phoneHash(phone)],
-  });
-  return r.rows[0]?.verified === true || r.rows[0]?.verified === 1;
 }
 
 /**
- * SMS delivery seam. Returns true if a provider actually sent the code, false
- * if no provider is configured (caller then surfaces a dev code). Wire Twilio /
- * Termii / Africa's Talking here behind their env keys.
+ * Gate a claim, evaluated server-side at release (the API is the sole authority
+ * that releases funds):
+ *   1) CAPTCHA — a valid Turnstile token (when Turnstile is configured).
+ *   2) VPN BLOCK — reject proxy / VPN / Tor / datacenter IPs (ip-api flags).
+ *   3) COUNTRY — if the cheque has a country allowlist, the IP must geolocate
+ *      into it. No allowlist → any country.
  */
-async function sendSmsOtp(phone: string, code: string): Promise<boolean> {
-  // TODO(sms-provider): plug a real SMS API (TWILIO_* / TERMII_*) here.
-  if (!process.env.SMS_PROVIDER) {
-    console.log(`[cheques] DEV OTP for ${phone}: ${code} (no SMS_PROVIDER configured)`);
-    return false;
+export async function checkClaimEligibility(input: {
+  chequeId: string;
+  ip: string | null;
+  turnstileToken: string | null;
+}): Promise<ClaimEligibility> {
+  // 1) Anti-bot captcha.
+  if (turnstileConfigured()) {
+    const ok = await verifyTurnstile(input.turnstileToken ?? "", input.ip ?? undefined);
+    if (!ok) return { ok: false, reason: "captcha" };
   }
-  return false;
+  const allowed = await countryAllowlist(input.chequeId);
+  // 2 + 3) IP intelligence.
+  const geo = await lookupIp(input.ip);
+  if (!geo) {
+    // No geo signal (localhost/dev or lookup down): can't verify VPN/country.
+    // Allow only when there's no country gate; fail closed otherwise.
+    return allowed.length === 0
+      ? { ok: true, country: null }
+      : { ok: false, reason: "geo_unavailable", country: null };
+  }
+  if (geo.proxy || geo.hosting) {
+    return { ok: false, reason: "vpn", isVpn: true, country: geo.country };
+  }
+  if (allowed.length > 0 && !allowed.includes(geo.country)) {
+    return { ok: false, reason: "country", country: geo.country, isVpn: false };
+  }
+  return { ok: true, country: geo.country, isVpn: false };
 }
 
 export async function recordClaimAttempt(input: {
@@ -506,23 +445,23 @@ export async function recordClaimAttempt(input: {
   userId?: number | null;
   passed: boolean;
   failedGate?: string | null;
-  name?: string | null;
-  phone?: string | null;
-  nationality?: string | null;
+  ip?: string | null;
+  country?: string | null;
+  isVpn?: boolean | null;
 }): Promise<void> {
+  await ensureChequesSchema();
   await db().execute({
     sql: `INSERT INTO cheque_claim_attempts
-            (cheque_id, user_id, passed, failed_gate, claimer_name, phone_hash, phone_last4, nationality, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (cheque_id, user_id, passed, failed_gate, ip, geo_country, is_vpn, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       input.chequeId,
       input.userId ?? null,
       input.passed,
       input.failedGate ?? null,
-      input.name ?? null,
-      input.phone ? phoneHash(input.phone) : null,
-      input.phone ? input.phone.replace(/[^\d]/g, "").slice(-4) : null,
-      input.nationality ?? null,
+      input.ip ?? null,
+      input.country ?? null,
+      input.isVpn ?? null,
       Date.now(),
     ],
   });

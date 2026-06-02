@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
-import { screenTransfer } from "@/lib/screening";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 import {
   getChequeForClaim,
-  evaluateGates,
+  checkClaimEligibility,
+  ipFromRequest,
   releaseCheque,
   recordClaimAttempt,
   microsToUsd,
@@ -14,11 +14,12 @@ import {
 export const runtime = "nodejs";
 
 /**
- * POST /api/cheques/:id/claim/release  { secret, phone? }
+ * POST /api/cheques/:id/claim/release  { secret, turnstileToken }
  *
- * The choke point. Re-validates the secret, RE-EVALUATES every gate from DB
- * state (never trusts the client), sanctions-screens the payout leg, atomically
- * claims the row (double-claim lock), then releases escrow→claimer.
+ * The choke point. Re-validates the secret, runs the claim gates SERVER-SIDE
+ * (captcha + VPN/proxy block + optional IP-country allowlist — never trusts the
+ * client), atomically claims the row (double-claim lock), then releases
+ * escrow→claimer.
  */
 export async function POST(
   req: Request,
@@ -31,7 +32,7 @@ export async function POST(
   if (!userId) return NextResponse.json({ error: "not authenticated" }, { status: 401 });
 
   const { id } = await params;
-  let body: { secret?: string; phone?: string };
+  let body: { secret?: string; turnstileToken?: string };
   try {
     body = await req.json();
   } catch {
@@ -46,41 +47,33 @@ export async function POST(
 
   const user = await userById(userId);
   if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });
-  const country = (user as { country?: string | null }).country ?? null;
 
-  // Re-evaluate every gate from DB — the release is the only authority.
-  const gateState = await evaluateGates({
+  // Gates, server-side: captcha + VPN block + optional IP-country allowlist.
+  const ip = ipFromRequest(req);
+  const elig = await checkClaimEligibility({
     chequeId: id,
-    claimerPhone: body.phone ?? null,
-    claimerCountry: country,
+    ip,
+    turnstileToken: body.turnstileToken ?? null,
   });
-  if (!gateState.allPassed) {
+  if (!elig.ok) {
     await recordClaimAttempt({
       chequeId: id,
       userId,
       passed: false,
-      failedGate: gateState.firstUnmet,
-      phone: body.phone ?? null,
-      nationality: country,
+      failedGate: elig.reason,
+      ip,
+      country: elig.country ?? null,
+      isVpn: elig.isVpn ?? null,
     });
-    return NextResponse.json(
-      { error: "gates_unmet", needs: gateState.needs }, { status: 403 }
-    );
-  }
-
-  // Sanctions screen the payout leg (claimer name + address), fail-closed.
-  const screen = await screenTransfer({
-    senderAddr: cq.fundDigest ? "escrow" : "escrow",
-    recipientAddr: user.sui_address,
-    senderName: null,
-    recipientName: user.business_name ?? user.name,
-  });
-  if (!screen.allow) {
-    await recordClaimAttempt({ chequeId: id, userId, passed: false, failedGate: "screening" });
-    return NextResponse.json(
-      { error: "This claim was blocked by a compliance screen.", code: "SCREENING_BLOCK" },
-      { status: 403 }
-    );
+    const msg =
+      elig.reason === "captcha"
+        ? "Captcha check failed — please try again."
+        : elig.reason === "vpn"
+          ? "Claims aren't allowed over a VPN or proxy. Turn it off and try again."
+          : elig.reason === "country"
+            ? "This cheque can't be claimed from your country."
+            : "We couldn't verify your location — try again without a VPN.";
+    return NextResponse.json({ error: msg, code: "GATE_FAILED", reason: elig.reason }, { status: 403 });
   }
 
   const result = await releaseCheque({
@@ -96,9 +89,9 @@ export async function POST(
     chequeId: id,
     userId,
     passed: true,
-    name: user.name,
-    phone: body.phone ?? null,
-    nationality: country,
+    ip,
+    country: elig.country ?? null,
+    isVpn: false,
   });
 
   return NextResponse.json({

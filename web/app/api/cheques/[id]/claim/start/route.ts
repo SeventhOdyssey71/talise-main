@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
-import { userById } from "@/lib/db";
-import { getChequeForClaim, evaluateGates, microsToUsd } from "@/lib/cheques";
+import { getChequeForClaim, countryAllowlist, microsToUsd } from "@/lib/cheques";
 
 export const runtime = "nodejs";
 
 /**
  * POST /api/cheques/:id/claim/start  { secret }
  *
- * Authed claimer entry point. Validates the secret + cheque state and returns
- * the outstanding gates the claimer must satisfy before /claim/release.
+ * Authed claimer entry point. Validates the secret + cheque state and tells the
+ * client which checks the claim will run (captcha always; an IP-country gate if
+ * the cheque has an allowlist). The checks themselves run server-side at
+ * /claim/release — this is just so the UI can present the captcha.
  */
 export async function POST(
   req: Request,
@@ -37,14 +38,10 @@ export async function POST(
     });
   }
 
-  const user = await userById(userId);
-  const country = (user as { country?: string | null } | null)?.country ?? null;
-  const gateState = await evaluateGates({ chequeId: id, claimerCountry: country });
-
   return NextResponse.json({
     claimable: true,
     amountUsd: microsToUsd(cq.amountMicros),
-    needs: gateState.needs,
-    allPassed: gateState.allPassed,
+    requireCaptcha: true,
+    allowedCountries: await countryAllowlist(id),
   });
 }
