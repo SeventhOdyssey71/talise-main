@@ -35,13 +35,6 @@ struct HomeView: View {
     /// blanking the card.
     @State private var activityRefreshFailed = false
     @State private var scanToPaySheetVisible = false
-    /// Drives the Request/Receive sheet opened from the quick-actions grid.
-    @State private var receiveSheetVisible = false
-    /// Live gold market (spot + 7d sparkline) for the "Grow your wealth"
-    /// Gold card. Loaded in the background; nil until the first fetch.
-    @State private var goldMarket: GoldMarketDTO?
-    @State private var goldSheetVisible = false
-    @State private var stocksSheetVisible = false
     @State private var sweepPreview: SweepPreviewDTO?
     @State private var sweepAlertVisible = false
     @State private var sweepAlertMessage = ""
@@ -89,16 +82,11 @@ struct HomeView: View {
                 usernameCard
                     .padding(.horizontal, 32)
                     .padding(.top, 24)
-                // Recent/activity feed lives behind the navbar "History" icon
-                // (2026-06-01). The space below the identity card is now the
-                // "Grow your wealth" surface — Talise's wealth products (Gold
-                // live, Stocks next) + the live Earn yield — so the home reads
-                // like an investing app instead of a black void. `activity` is
-                // still warmed in the background so History opens instantly.
-                growSection
-                    .padding(.horizontal, 32)
-                    .padding(.top, 26)
-                // Bottom inset so the last card row clears the floating nav pill.
+                // Recent/activity feed moved OFF the home surface (2026-06-01)
+                // into the navbar "History" icon → opens HistoryView. Home now
+                // stays focused on balance + identity + send/receive. `activity`
+                // is still warmed in the background so the History sheet opens
+                // instantly seeded.
                 Color.clear.frame(height: 120)
             }
         }
@@ -108,6 +96,14 @@ struct HomeView: View {
         .onReceive(NotificationCenter.default.publisher(for: .taliseTxCompleted)) { note in
             guard let ev = note.object as? TaliseTxEvent else { return }
             applyOptimisticTx(ev)
+        }
+        // Re-pull balance + activity whenever the user lands back on Home
+        // after a money flow (send / deposit / withdraw / cross-border). The
+        // post-tx optimistic reconcile already runs, but this guarantees a
+        // fresh live read the moment Home is visible again — the "balance
+        // should auto-refresh when I'm back on the home page" ask.
+        .onReceive(NotificationCenter.default.publisher(for: .taliseHomeShouldRefresh)) { _ in
+            Task { await loadAll(force: true) }
         }
         .alert("Convert to USDsui", isPresented: $sweepAlertVisible) {
             Button("Cancel", role: .cancel) {}
@@ -129,21 +125,6 @@ struct HomeView: View {
         .sheet(isPresented: $historySheetVisible) {
             HistoryView(initialEntries: activity)
                 .presentationDetents([.large])
-                .presentationBackground(TaliseColor.bg)
-        }
-        .sheet(isPresented: $receiveSheetVisible) {
-            ReceiveView()
-                .presentationDetents([.large])
-                .presentationBackground(TaliseColor.bg)
-        }
-        .sheet(isPresented: $goldSheetVisible) {
-            GoldView(market: goldMarket)
-                .presentationDetents([.large])
-                .presentationBackground(TaliseColor.bg)
-        }
-        .sheet(isPresented: $stocksSheetVisible) {
-            StocksView()
-                .presentationDetents([.large, .medium])
                 .presentationBackground(TaliseColor.bg)
         }
         // Autoswap archived 2026-05-29 — VaultWithdrawSheet moved to
@@ -425,280 +406,6 @@ struct HomeView: View {
         return user.displayHandle()
     }
 
-    // MARK: - Grow your wealth
-
-    /// The home's wealth surface — replaces the empty space under the
-    /// identity card. A live Gold hero (real spot price + 7d sparkline) over
-    /// a two-up row of Stocks (next) + Earn (live yield). Themed cards: warm
-    /// gold for the metal, cool slate for equities, brand green for yield.
-    private var growSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Eyebrow(text: "Grow your wealth")
-                .padding(.leading, 4)
-            goldHeroCard
-            HStack(spacing: 12) {
-                stocksCard
-                earnCard
-            }
-        }
-    }
-
-    // — Gold ———————————————————————————————————————————————
-
-    private var goldText: Color { Color(hex: 0xCBA875) }
-    private var goldLine: Color { Color(hex: 0xE7C27A) }
-
-    private var goldHeroCard: some View {
-        Button { goldSheetVisible = true } label: {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top) {
-                    HStack(spacing: 11) {
-                        goldCoin(size: 40)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Gold")
-                                .font(TaliseFont.heading(17, weight: .medium))
-                                .foregroundStyle(TaliseColor.fg)
-                            Text("XAU · per gram")
-                                .font(TaliseFont.mono(9, weight: .regular))
-                                .kerning(0.4)
-                                .foregroundStyle(goldText)
-                        }
-                    }
-                    Spacer()
-                    changePill(goldMarket?.change24hPct)
-                }
-                HStack(alignment: .bottom, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(goldPerGramText)
-                            .font(TaliseFont.display(27, weight: .medium))
-                            .kerning(-0.8)
-                            .foregroundStyle(TaliseColor.fg)
-                            .contentTransition(.numericText())
-                            .redacted(reason: goldMarket == nil ? .placeholder : [])
-                        Text(hedgeTagline)
-                            .font(TaliseFont.body(12, weight: .light))
-                            .foregroundStyle(goldText)
-                    }
-                    Spacer()
-                    Sparkline(
-                        values: goldMarket?.spark ?? [],
-                        lineColor: goldLine,
-                        fill: true,
-                        lineWidth: 2
-                    )
-                    .frame(width: 96, height: 46)
-                    .opacity(goldMarket == nil ? 0 : 1)
-                }
-                HStack(spacing: 5) {
-                    Spacer()
-                    Text("Buy gold")
-                        .font(TaliseFont.body(13, weight: .medium))
-                        .foregroundStyle(goldLine)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(goldLine)
-                }
-            }
-            .padding(20)
-            .background(goldCardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(TaliseColor.warmGold.opacity(0.32), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.45), radius: 16, x: 0, y: 8)
-        }
-        .buttonStyle(LiquidGlassPressStyle(cornerRadius: 24))
-    }
-
-    private var goldCardBackground: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(hex: 0x37290F), Color(hex: 0x140E06)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                )
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(
-                    RadialGradient(
-                        colors: [TaliseColor.warmGold.opacity(0.34), .clear],
-                        center: .topTrailing, startRadius: 6, endRadius: 230
-                    )
-                )
-        }
-    }
-
-    /// Engraved "Au" gold coin — gradient disc + the periodic symbol. Reads
-    /// as gold instantly without a (nonexistent) gold SF Symbol.
-    private func goldCoin(size: CGFloat) -> some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color(hex: 0xF4D58D), Color(hex: 0xC08A3E)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                )
-            Text("Au")
-                .font(.system(size: size * 0.40, weight: .bold, design: .serif))
-                .foregroundStyle(Color(hex: 0x3A2A12))
-        }
-        .frame(width: size, height: size)
-        .overlay(Circle().stroke(Color.white.opacity(0.28), lineWidth: 0.5))
-    }
-
-    private var goldPerGramText: String {
-        guard let g = goldMarket else { return "0,000" }
-        return TaliseFormat.local2(g.usdPerGram)
-    }
-
-    private var hedgeTagline: String {
-        switch CurrencySettings.shared.current.code {
-        case "NGN": return "A hedge against the naira"
-        case "GHS": return "A hedge against the cedi"
-        case "KES": return "A hedge against the shilling"
-        case "ZAR": return "A hedge against the rand"
-        case "GBP": return "A hedge against the pound"
-        default:    return "A hedge against inflation"
-        }
-    }
-
-    private func changePill(_ pct: Double?) -> some View {
-        let value = pct ?? 0
-        let up = value >= 0
-        let color = up ? TaliseColor.accent : TaliseColor.danger
-        return HStack(spacing: 3) {
-            Image(systemName: up ? "arrow.up.right" : "arrow.down.right")
-                .font(.system(size: 9, weight: .bold))
-            Text(String(format: "%.2f%%", abs(value)))
-                .font(TaliseFont.mono(10, weight: .regular))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Capsule().fill(color.opacity(0.16)))
-        .opacity(pct == nil ? 0 : 1)
-    }
-
-    // — Stocks + Earn (two-up) —————————————————————————————
-
-    private var stocksCard: some View {
-        Button { stocksSheetVisible = true } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color(hex: 0x3C4A63), Color(hex: 0x222C3D)],
-                                    startPoint: .topLeading, endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 42, height: 42)
-                        Image(systemName: "chart.line.uptrend.xyaxis")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xAFC4E8))
-                    }
-                    Spacer()
-                    soonBadge
-                }
-                Spacer(minLength: 16)
-                Text("Stocks")
-                    .font(TaliseFont.heading(16, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                Text("AAPL · TSLA · NVDA")
-                    .font(TaliseFont.mono(10, weight: .regular))
-                    .kerning(0.2)
-                    .foregroundStyle(TaliseColor.fgMuted)
-                    .lineLimit(1)
-                    .padding(.top, 3)
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: 0x1A2230), Color(hex: 0x0C1018)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color(hex: 0x3C4A63).opacity(0.5), lineWidth: 1)
-            )
-        }
-        .buttonStyle(LiquidGlassPressStyle(cornerRadius: 22))
-    }
-
-    private var soonBadge: some View {
-        Text("SOON")
-            .font(TaliseFont.mono(8, weight: .regular))
-            .kerning(1.0)
-            .foregroundStyle(Color(hex: 0xAFC4E8))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(Color(hex: 0xAFC4E8).opacity(0.16)))
-    }
-
-    private var earnCard: some View {
-        Button {
-            NotificationCenter.default.post(
-                name: .taliseSelectTab, object: MainTabView.Tab.invest
-            )
-        } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(TaliseColor.greenDeep)
-                        .frame(width: 42, height: 42)
-                    Image(systemName: "leaf.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(TaliseColor.greenMint)
-                }
-                Spacer(minLength: 16)
-                Text("Earn")
-                    .font(TaliseFont.heading(16, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                Text(String(format: "%.0f%% APY · USDsui", apyHeadline * 100))
-                    .font(TaliseFont.mono(10, weight: .regular))
-                    .kerning(0.2)
-                    .foregroundStyle(TaliseColor.accent)
-                    .lineLimit(1)
-                    .padding(.top, 3)
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: 0x132619), Color(hex: 0x0A130D)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(TaliseColor.greenDeep.opacity(0.55), lineWidth: 1)
-            )
-        }
-        .buttonStyle(LiquidGlassPressStyle(cornerRadius: 22))
-    }
-
-    private func loadGold() async {
-        do {
-            let g: GoldMarketDTO = try await APIClient.shared.get("/api/markets/gold")
-            withAnimation(.easeOut(duration: 0.3)) { goldMarket = g }
-        } catch {
-            // Silent — the Gold card just stays in its idle/skeleton look if
-            // the market read fails; never disrupts the home screen.
-        }
-    }
-
     // MARK: - Activity card
 
     /// History section — TODAY's activity only, no surrounding container.
@@ -823,10 +530,14 @@ struct HomeView: View {
         // load (not on force-refreshes) so a pull-to-refresh doesn't
         // temporarily flash old data over a live result.
         if !force, let uid = session.currentUser?.id {
-            // Balance: a single number the live read corrects within ~1s, so a
-            // recent cache is safe to flash. 1h window covers normal re-opens.
+            // Balance: a single number the live read corrects within ~1s, so
+            // ANY last-known value is safe to flash. Prefer a fresh snapshot,
+            // but fall back to the newest one on disk regardless of age — a
+            // slightly stale figure always beats the grey skeleton the user
+            // was seeing on every cold open ("balance takes long to load").
             if balance == nil,
-               let cached = LocalSnapshotStore.loadBalancesIfFresh(userId: uid, maxAgeSec: 60 * 60) {
+               let cached = LocalSnapshotStore.loadBalancesIfFresh(userId: uid, maxAgeSec: 60 * 60)
+                            ?? LocalSnapshotStore.loadBalances(userId: uid) {
                 balance = cached
                 loadingBalance = false   // real number visible; no placeholder
             }
@@ -847,7 +558,6 @@ struct HomeView: View {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await loadBalance() }
             group.addTask { await loadActivity() }
-            group.addTask { await loadGold() }
             // loadSweepPreview() removed: /api/sweep/prepare no longer
             // exists on the backend (404s on every open). The banner +
             // execute path are left intact for the SUI→USDsui sweep flow
@@ -1516,6 +1226,11 @@ extension Notification.Name {
     /// kicks off a delayed real refresh so the UI stays accurate even
     /// while the Sui fullnode propagation lags by a second or two.
     static let taliseTxCompleted = Notification.Name("io.talise.txCompleted")
+
+    /// Posted by MainTabView when a money cover (send / deposit / withdraw /
+    /// cross-border) dismisses, so Home re-pulls balance + activity the moment
+    /// it's visible again — not just on the post-tx optimistic reconcile.
+    static let taliseHomeShouldRefresh = Notification.Name("io.talise.homeShouldRefresh")
 }
 
 /// Payload for `.taliseTxCompleted`. Built from the data the sender
@@ -1553,428 +1268,6 @@ private struct TaliseLogoMark: View {
                 ).applying(transform)
                 let path = Path(ellipseIn: rect)
                 ctx.fill(path, with: .color(.white))
-            }
-        }
-    }
-}
-
-// MARK: - Sparkline
-
-/// Lightweight line-chart for price history. Normalises the series to its own
-/// min/max so even a tight range reads as a clear trend, draws a rounded
-/// stroke + an optional soft gradient fill. Decorative — no axes/interaction.
-struct Sparkline: View {
-    let values: [Double]
-    var lineColor: Color = TaliseColor.accent
-    var fill: Bool = true
-    var lineWidth: CGFloat = 2
-
-    var body: some View {
-        GeometryReader { geo in
-            let pts = points(in: geo.size)
-            ZStack {
-                if fill, pts.count > 1 {
-                    areaPath(pts, height: geo.size.height)
-                        .fill(
-                            LinearGradient(
-                                colors: [lineColor.opacity(0.28), lineColor.opacity(0.0)],
-                                startPoint: .top, endPoint: .bottom
-                            )
-                        )
-                }
-                linePath(pts)
-                    .stroke(
-                        lineColor,
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
-                    )
-            }
-        }
-    }
-
-    private func points(in size: CGSize) -> [CGPoint] {
-        guard values.count > 1, let lo = values.min(), let hi = values.max() else { return [] }
-        let range = max(hi - lo, 0.000001)
-        let pad: CGFloat = lineWidth
-        let h = max(size.height - pad * 2, 1)
-        let stepX = size.width / CGFloat(values.count - 1)
-        return values.enumerated().map { i, v in
-            CGPoint(
-                x: CGFloat(i) * stepX,
-                y: pad + (h - CGFloat((v - lo) / range) * h)
-            )
-        }
-    }
-
-    private func linePath(_ pts: [CGPoint]) -> Path {
-        var p = Path()
-        guard let first = pts.first else { return p }
-        p.move(to: first)
-        for pt in pts.dropFirst() { p.addLine(to: pt) }
-        return p
-    }
-
-    private func areaPath(_ pts: [CGPoint], height: CGFloat) -> Path {
-        var p = linePath(pts)
-        if let last = pts.last, let first = pts.first {
-            p.addLine(to: CGPoint(x: last.x, y: height))
-            p.addLine(to: CGPoint(x: first.x, y: height))
-            p.closeSubpath()
-        }
-        return p
-    }
-}
-
-// MARK: - Gold product
-
-/// Gold detail — live spot (CoinGecko PAX-Gold), a 7-day trend, a "how much
-/// gold" calculator (fully live math), the inflation-hedge pitch, and an
-/// early-access CTA. Prices + calc are live today; on-chain settlement is
-/// rolling out, so the CTA reserves a spot rather than over-promising a buy.
-struct GoldView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var market: GoldMarketDTO?
-    @State private var amount = ""
-    @State private var reserved = false
-    @FocusState private var amountFocused: Bool
-
-    init(market: GoldMarketDTO?) {
-        _market = State(initialValue: market)
-    }
-
-    private let goldText = Color(hex: 0xCBA875)
-    private let goldLine = Color(hex: 0xE7C27A)
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 26) {
-                header
-                hero
-                if let m = market, m.spark.count > 1 { chart(m) }
-                calculator
-                whyGold
-            }
-            .padding(.horizontal, 28)
-            .padding(.top, 20)
-            .padding(.bottom, 140)
-        }
-        .background(TaliseColor.bg.ignoresSafeArea())
-        .overlay(alignment: .bottom) { buyBar }
-        .presentationDragIndicator(.visible)
-        .task { await load() }
-        .onTapGesture { amountFocused = false }
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            goldCoin(46)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Gold")
-                    .font(TaliseFont.heading(22, weight: .medium))
-                    .kerning(-0.6)
-                    .foregroundStyle(TaliseColor.fg)
-                Text("XAU · live spot")
-                    .font(TaliseFont.mono(10, weight: .regular))
-                    .foregroundStyle(goldText)
-            }
-            Spacer()
-        }
-    }
-
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Eyebrow(text: "Per gram")
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(perGram)
-                    .font(TaliseFont.display(40, weight: .medium))
-                    .kerning(-1.6)
-                    .foregroundStyle(TaliseColor.fg)
-                    .redacted(reason: market == nil ? .placeholder : [])
-                changePill
-            }
-            Text(perOzLine)
-                .font(TaliseFont.mono(11, weight: .regular))
-                .foregroundStyle(TaliseColor.fgDim)
-        }
-    }
-
-    private func chart(_ m: GoldMarketDTO) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Sparkline(values: m.spark, lineColor: goldLine, fill: true, lineWidth: 2.5)
-                .frame(height: 116)
-            Text("LAST 7 DAYS")
-                .font(TaliseFont.mono(9, weight: .regular))
-                .tracking(2.0)
-                .foregroundStyle(TaliseColor.fgDim)
-        }
-        .padding(18)
-        .taliseGlass(cornerRadius: 22)
-    }
-
-    private var calculator: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Eyebrow(text: "How much gold?")
-            HStack(spacing: 8) {
-                Text(CurrencySettings.shared.current.symbol)
-                    .font(TaliseFont.heading(20, weight: .medium))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                TextField("0", text: $amount)
-                    .keyboardType(.decimalPad)
-                    .focused($amountFocused)
-                    .font(TaliseFont.display(24, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .taliseGlass(cornerRadius: 16)
-            Text(gramsLine)
-                .font(TaliseFont.body(13, weight: .light))
-                .foregroundStyle(goldText)
-                .padding(.leading, 4)
-        }
-    }
-
-    private var whyGold: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Eyebrow(text: "Why gold")
-            whyRow("shield.lefthalf.filled", "Holds its value",
-                   "Gold has outrun the naira's slide for decades — a store of value while cash quietly erodes.")
-            whyRow("scalemass", "Own it by the gram",
-                   "Start from pocket change. No vault, no broker — your gold lives in your Talise wallet.")
-            whyRow("lock.fill", "Backed 1:1",
-                   "Every gram is allocated, redeemable gold — not an IOU.")
-        }
-    }
-
-    private func whyRow(_ icon: String, _ title: String, _ body: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(goldLine)
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(TaliseFont.heading(14, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                Text(body)
-                    .font(TaliseFont.body(12, weight: .light))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private var buyBar: some View {
-        VStack(spacing: 8) {
-            Button {
-                amountFocused = false
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { reserved = true }
-            } label: {
-                Text(reserved ? "You're on the early-access list ✓" : "Get early access")
-                    .font(TaliseFont.heading(16, weight: .medium))
-                    .foregroundStyle(reserved ? TaliseColor.greenMint : Color(hex: 0x2A1E0C))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(Capsule().fill(reserved ? TaliseColor.surfaceGlass : goldLine))
-            }
-            .buttonStyle(.plain)
-            .disabled(reserved)
-            Text(reserved
-                 ? "We'll notify you the moment buying opens."
-                 : "Live prices now · buying rolls out soon")
-                .font(TaliseFont.mono(9, weight: .regular))
-                .foregroundStyle(TaliseColor.fgDim)
-        }
-        .padding(.horizontal, 28)
-        .padding(.top, 14)
-        .padding(.bottom, 26)
-        .background(
-            LinearGradient(
-                colors: [TaliseColor.bg.opacity(0), TaliseColor.bg, TaliseColor.bg],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        )
-    }
-
-    private func goldCoin(_ size: CGFloat) -> some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color(hex: 0xF4D58D), Color(hex: 0xC08A3E)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                )
-            Text("Au")
-                .font(.system(size: size * 0.40, weight: .bold, design: .serif))
-                .foregroundStyle(Color(hex: 0x3A2A12))
-        }
-        .frame(width: size, height: size)
-        .overlay(Circle().stroke(Color.white.opacity(0.28), lineWidth: 0.5))
-    }
-
-    private var perGram: String {
-        guard let m = market else { return "0,000" }
-        return TaliseFormat.local2(m.usdPerGram)
-    }
-
-    private var perOzLine: String {
-        guard let m = market else { return " " }
-        let usd = "$" + Int(m.usdPerOz.rounded()).formatted()
-        return "\(TaliseFormat.local2(m.usdPerOz)) / oz · \(usd) spot"
-    }
-
-    private var changePill: some View {
-        let value = market?.change24hPct ?? 0
-        let up = value >= 0
-        let color = up ? TaliseColor.accent : TaliseColor.danger
-        return HStack(spacing: 3) {
-            Image(systemName: up ? "arrow.up.right" : "arrow.down.right")
-                .font(.system(size: 10, weight: .bold))
-            Text(String(format: "%.2f%% today", abs(value)))
-                .font(TaliseFont.mono(11, weight: .regular))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(Capsule().fill(color.opacity(0.16)))
-        .opacity(market == nil ? 0 : 1)
-    }
-
-    private var gramsLine: String {
-        guard let m = market else {
-            return "Enter an amount to see how much gold you'd get."
-        }
-        let local = Double(amount.replacingOccurrences(of: ",", with: "")) ?? 0
-        guard local > 0 else {
-            return "Enter an amount to see how much gold you'd get."
-        }
-        let usd = CurrencySettings.shared.convertToUsd(local: local)
-        guard m.usdPerGram > 0 else { return " " }
-        let grams = usd / m.usdPerGram
-        return String(format: "≈ %.3f g of gold", grams)
-    }
-
-    private func load() async {
-        do {
-            market = try await APIClient.shared.get("/api/markets/gold")
-        } catch {
-            // Keep whatever the home handed us (or the skeleton) on failure.
-        }
-    }
-}
-
-// MARK: - Stocks teaser
-
-/// Stocks is the next wealth product (Talise's vision). This is an honest
-/// coming-soon teaser — the pitch, a ticker strip, and a waitlist CTA — so
-/// the home card has a real destination instead of a dead tap.
-struct StocksView: View {
-    @State private var joined = false
-    private let tickers = ["AAPL", "TSLA", "NVDA", "AMZN", "GOOGL", "MSFT", "META"]
-    private let slate = Color(hex: 0xAFC4E8)
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 22) {
-                HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color(hex: 0x3C4A63), Color(hex: 0x222C3D)],
-                                    startPoint: .topLeading, endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 46, height: 46)
-                        Image(systemName: "chart.line.uptrend.xyaxis")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(slate)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Stocks")
-                            .font(TaliseFont.heading(22, weight: .medium))
-                            .kerning(-0.6)
-                            .foregroundStyle(TaliseColor.fg)
-                        Text("Coming soon")
-                            .font(TaliseFont.mono(10, weight: .regular))
-                            .foregroundStyle(slate)
-                    }
-                    Spacer()
-                }
-
-                Text("Own a slice of the world's biggest companies — in naira, from your phone.")
-                    .font(TaliseFont.heading(20, weight: .medium))
-                    .kerning(-0.5)
-                    .foregroundStyle(TaliseColor.fg)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(tickers, id: \.self) { t in
-                            HStack(spacing: 5) {
-                                Text(t)
-                                    .font(TaliseFont.mono(11, weight: .regular))
-                                    .foregroundStyle(TaliseColor.fg)
-                                Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(TaliseColor.accent)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Capsule().fill(TaliseColor.surfaceGlass))
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                }
-
-                VStack(alignment: .leading, spacing: 14) {
-                    stockRow("dollarsign.circle", "Fractional shares",
-                             "Buy $5 of Apple. No need for the whole share price.")
-                    stockRow("globe", "Settled in stablecoin",
-                             "Hold US equities exposure without a US bank account.")
-                    stockRow("bolt.fill", "Same wallet",
-                             "Stocks, gold, and cash all live in one Talise balance.")
-                }
-                .padding(.top, 4)
-
-                Spacer(minLength: 8)
-
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { joined = true }
-                } label: {
-                    Text(joined ? "You're on the waitlist ✓" : "Join the waitlist")
-                        .font(TaliseFont.heading(16, weight: .medium))
-                        .foregroundStyle(joined ? TaliseColor.greenMint : Color(hex: 0x0C1018))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                        .background(Capsule().fill(joined ? TaliseColor.surfaceGlass : slate))
-                }
-                .buttonStyle(.plain)
-                .disabled(joined)
-            }
-            .padding(.horizontal, 28)
-            .padding(.top, 22)
-            .padding(.bottom, 32)
-        }
-        .background(TaliseColor.bg.ignoresSafeArea())
-        .presentationDragIndicator(.visible)
-    }
-
-    private func stockRow(_ icon: String, _ title: String, _ body: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(slate)
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(TaliseFont.heading(14, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                Text(body)
-                    .font(TaliseFont.body(12, weight: .light))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

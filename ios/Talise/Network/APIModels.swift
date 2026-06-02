@@ -107,17 +107,6 @@ struct BalancesDTO: Codable {
     let totalUsd: Double
 }
 
-/// Live gold spot from `/api/markets/gold` (CoinGecko PAX-Gold). Prices are
-/// in USD; the UI maps them to the user's display currency via TaliseFormat.
-struct GoldMarketDTO: Codable {
-    let usdPerOz: Double
-    let usdPerGram: Double
-    let change24hPct: Double
-    /// ~daily closes over the last 7d, oldest→newest, for the sparkline.
-    let spark: [Double]
-    let asOf: Double
-}
-
 struct ActivityEntryDTO: Codable, Identifiable {
     let digest: String
     let timestampMs: Double

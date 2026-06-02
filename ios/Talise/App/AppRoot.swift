@@ -167,12 +167,12 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestClaimSheet)) { _ in
             claimSheetVisible = true
         }
-        // Programmatic tab switch from the Home quick-action cards
-        // (Earn → .invest, Rewards → .rewards). `object` is a `Tab`.
-        .onReceive(NotificationCenter.default.publisher(for: .taliseSelectTab)) { note in
-            guard let next = note.object as? Tab else { return }
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
-                tab = next
+        // When every cover/sheet has closed (the user is back on a bare tab,
+        // typically Home after a send/deposit/withdraw), nudge Home to re-pull
+        // balance + activity so the figure is fresh the moment it's visible.
+        .onChange(of: anySheetUp) { _, up in
+            if !up {
+                NotificationCenter.default.post(name: .taliseHomeShouldRefresh, object: nil)
             }
         }
     }
@@ -191,9 +191,6 @@ extension Notification.Name {
     /// runs as its own root cover, not nested inside another stack.
     static let taliseRequestCrossBorderCover = Notification.Name("io.talise.requestCrossBorderCover")
     static let taliseRequestClaimSheet = Notification.Name("io.talise.requestClaimSheet")
-    /// Programmatic main-tab switch. `object` is a `MainTabView.Tab`. Posted
-    /// by the Home quick-action cards (Earn → .invest, Rewards → .rewards).
-    static let taliseSelectTab = Notification.Name("io.talise.selectTab")
 }
 
 /// Floating pill nav with the Figma's "Glass" treatment.
