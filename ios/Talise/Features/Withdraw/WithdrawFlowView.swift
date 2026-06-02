@@ -80,6 +80,54 @@ struct WithdrawFlowView: View {
                             )
                         }
                         .buttonStyle(.plain)
+
+                        // Cheque — write a claimable money link.
+                        Button {
+                            onClose()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                NotificationCenter.default.post(name: .taliseRequestChequeWriteCover, object: nil)
+                            }
+                        } label: {
+                            OptionCardRow(
+                                icon: "doc.text.fill",
+                                title: "Write a cheque",
+                                subtitle: "Put money in a link and DM it to anyone. They claim it as real money.",
+                                badge: "New"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        // Cheque — cash a cheque someone sent you.
+                        Button {
+                            onClose()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                NotificationCenter.default.post(name: .taliseRequestChequeClaimCover, object: nil)
+                            }
+                        } label: {
+                            OptionCardRow(
+                                icon: "tray.and.arrow.down.fill",
+                                title: "Cash a cheque",
+                                subtitle: "Got a cheque link? Paste it here to claim the money into your wallet.",
+                                badge: nil
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        // Stream — drip a payment over time.
+                        Button {
+                            onClose()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                NotificationCenter.default.post(name: .taliseRequestStreamCover, object: nil)
+                            }
+                        } label: {
+                            OptionCardRow(
+                                icon: "dot.radiowaves.left.and.right",
+                                title: "Stream a payment",
+                                subtitle: "Send money that arrives over time — a salary, allowance, or payout. Free, every payment.",
+                                badge: "New"
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 4)

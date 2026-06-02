@@ -90,12 +90,16 @@ struct MainTabView: View {
     @State private var sendCoverVisible = false
     @State private var crossBorderCoverVisible = false
     @State private var claimSheetVisible = false
+    @State private var chequeWriteCoverVisible = false
+    @State private var chequeClaimCoverVisible = false
+    @State private var streamCoverVisible = false
 
     /// True whenever ANY sheet/cover is being presented over the tab
     /// content. Drives the blur applied to the underlying tab.
     private var anySheetUp: Bool {
         depositCoverVisible || withdrawCoverVisible || sendCoverVisible
             || crossBorderCoverVisible || claimSheetVisible
+            || chequeWriteCoverVisible || chequeClaimCoverVisible || streamCoverVisible
     }
 
     var body: some View {
@@ -152,6 +156,15 @@ struct MainTabView: View {
                 .presentationDetents([.medium, .large])
                 .presentationBackground(TaliseColor.bg)
         }
+        .fullScreenCover(isPresented: $chequeWriteCoverVisible) {
+            ChequeWriteView(onDone: { chequeWriteCoverVisible = false })
+        }
+        .fullScreenCover(isPresented: $chequeClaimCoverVisible) {
+            ChequeClaimView(onDone: { chequeClaimCoverVisible = false })
+        }
+        .fullScreenCover(isPresented: $streamCoverVisible) {
+            StreamSetupView(onDone: { streamCoverVisible = false })
+        }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestDepositCover)) { _ in
             depositCoverVisible = true
         }
@@ -166,6 +179,15 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestClaimSheet)) { _ in
             claimSheetVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestChequeWriteCover)) { _ in
+            chequeWriteCoverVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestChequeClaimCover)) { _ in
+            chequeClaimCoverVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestStreamCover)) { _ in
+            streamCoverVisible = true
         }
         // When every cover/sheet has closed (the user is back on a bare tab,
         // typically Home after a send/deposit/withdraw), nudge Home to re-pull
@@ -191,6 +213,10 @@ extension Notification.Name {
     /// runs as its own root cover, not nested inside another stack.
     static let taliseRequestCrossBorderCover = Notification.Name("io.talise.requestCrossBorderCover")
     static let taliseRequestClaimSheet = Notification.Name("io.talise.requestClaimSheet")
+    /// Cheques + streaming entry points (posted from the Withdraw hub).
+    static let taliseRequestChequeWriteCover = Notification.Name("io.talise.requestChequeWriteCover")
+    static let taliseRequestChequeClaimCover = Notification.Name("io.talise.requestChequeClaimCover")
+    static let taliseRequestStreamCover = Notification.Name("io.talise.requestStreamCover")
 }
 
 /// Floating pill nav with the Figma's "Glass" treatment.
