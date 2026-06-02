@@ -13,7 +13,7 @@
  * Mounts <CurrencyProvider> + <ToastProvider> for everything beneath it.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -34,6 +34,15 @@ import { ToastProvider } from "./data/toast";
 import { useBalances, seedResource, type Me } from "./data";
 import { triggerOauthSignIn } from "@/lib/zkclient";
 import { Diamond } from "@/components/Diamond";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { IconSvgElement } from "@hugeicons/react";
 
 type NavItem = { label: string; href: string; icon: IconSvgElement };
@@ -101,18 +110,25 @@ function BalanceChip() {
 function CurrencySelect() {
   const { currency, setCurrency, currencies } = useCurrency();
   return (
-    <select
-      value={currency}
-      onChange={(e) => setCurrency(e.target.value)}
-      aria-label="Display currency"
-      className="w-fit max-w-full cursor-pointer self-start rounded-full border border-line bg-surface px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-wider text-fg-muted outline-none transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] focus:ring-1 focus:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)]"
-    >
-      {currencies.map((c) => (
-        <option key={c.code} value={c.code} className="bg-surface text-fg">
-          {c.code} · {c.symbol}
-        </option>
-      ))}
-    </select>
+    <Select value={currency} onValueChange={setCurrency}>
+      <SelectTrigger
+        aria-label="Display currency"
+        className="h-auto w-fit max-w-full self-start rounded-full border-line bg-surface px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-wider text-fg-muted shadow-none"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="talise-glass max-h-72 rounded-2xl">
+        {currencies.map((c) => (
+          <SelectItem
+            key={c.code}
+            value={c.code}
+            className="font-mono text-[12px] uppercase tracking-wide"
+          >
+            {c.code} · {c.symbol}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -218,42 +234,47 @@ function SignInScreen() {
   );
 }
 
-// ── Mobile avatar menu ─────────────────────────────────────────────────────────
+// ── Account dropdown (Radix DropdownMenu) ──────────────────────────────────────
 
-function MobileMenu({ me, open, onClose }: { me: Me; open: boolean; onClose: () => void }) {
-  if (!open) return null;
+function AccountMenu({ me, size = 32 }: { me: Me; size?: number }) {
   return (
-    <>
-      <button
-        type="button"
-        aria-label="Close menu"
-        onClick={onClose}
-        className="fixed inset-0 z-40 lg:hidden"
-      />
-      <div className="talise-glass absolute right-4 top-14 z-50 w-56 overflow-hidden rounded-2xl py-1.5 lg:hidden">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <Avatar me={me} size={36} />
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label="Account menu"
+        className="rounded-full outline-none ring-1 ring-line transition-transform active:scale-95 focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)]"
+      >
+        <Avatar me={me} size={size} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={8} className="talise-glass w-56 rounded-2xl">
+        <DropdownMenuLabel className="flex items-center gap-3 px-2 py-1.5">
+          <Avatar me={me} size={34} />
           <div className="min-w-0">
             <div className="truncate text-[14px] font-medium text-fg">{accountLabel(me)}</div>
-            <div className="truncate text-[12px] text-fg-dim">{me.email}</div>
+            <div className="truncate text-[12px] font-normal text-fg-dim">{me.email}</div>
           </div>
-        </div>
-        <div className="my-1 h-px bg-line" />
-        <Link href="/app/settings" onClick={onClose} className="flex items-center gap-3 px-4 py-2.5 text-[14px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg">
-          <HugeiconsIcon icon={Settings01Icon} size={18} strokeWidth={1.8} /> Settings
-        </Link>
-        <Link href="/app/ramps" onClick={onClose} className="flex items-center justify-between px-4 py-2.5 text-[14px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg">
-          <span className="flex items-center gap-3">
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/app/settings">
+            <HugeiconsIcon icon={Settings01Icon} size={18} strokeWidth={1.8} /> Settings
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/app/ramps">
             <HugeiconsIcon icon={CreditCardIcon} size={18} strokeWidth={1.8} /> Ramps
-          </span>
-          <span className="rounded-full border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">Soon</span>
-        </Link>
-        <div className="my-1 h-px bg-line" />
-        <a href="/auth/logout" className="flex items-center gap-3 px-4 py-2.5 text-[14px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg">
-          <HugeiconsIcon icon={Logout01Icon} size={18} strokeWidth={1.8} /> Sign out
-        </a>
-      </div>
-    </>
+            <span className="ml-auto rounded-full border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">
+              Soon
+            </span>
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <a href="/auth/logout">
+            <HugeiconsIcon icon={Logout01Icon} size={18} strokeWidth={1.8} /> Sign out
+          </a>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -261,7 +282,6 @@ function MobileMenu({ me, open, onClose }: { me: Me; open: boolean; onClose: () 
 
 function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
   const pathname = usePathname() ?? "/app";
-  const [menuOpen, setMenuOpen] = useState(false);
   const title = useMemo(() => {
     const matched = Object.keys(PAGE_TITLES)
       .filter((k) => isActive(pathname, k))
@@ -327,17 +347,8 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
           <Logo />
           <div className="flex items-center gap-2.5">
             <BalanceChip />
-            <button
-              type="button"
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-label="Account menu"
-              aria-expanded={menuOpen}
-              className="rounded-full ring-1 ring-line transition-transform active:scale-95"
-            >
-              <Avatar me={me} size={32} />
-            </button>
+            <AccountMenu me={me} />
           </div>
-          <MobileMenu me={me} open={menuOpen} onClose={() => setMenuOpen(false)} />
         </header>
 
         {/* Content column */}

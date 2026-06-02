@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { Dialog } from "radix-ui";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { Eyebrow } from "./Typography";
 
 export type SheetProps = {
   open: boolean;
@@ -13,74 +13,63 @@ export type SheetProps = {
   size?: "sm" | "md" | "lg";
 };
 
-const MAX_W = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg" } as const;
+const MAX_W = { sm: "sm:max-w-sm", md: "sm:max-w-md", lg: "sm:max-w-lg" } as const;
 
 /**
- * A modal surface: a centered glass dialog on lg+, a bottom sheet on mobile.
- * Backdrop blur, ESC-to-close, and backdrop-click-to-close. Locks body scroll
- * while open.
+ * Modal surface built on Radix Dialog — a bottom sheet on mobile, a centered
+ * glass dialog on sm+. Radix gives us focus-trap, scroll-lock, ESC + backdrop
+ * close, focus restoration, and the right ARIA roles for free; the look (glass
+ * panel, grab handle, eyebrow title, soft green scrim) is unchanged. Controlled
+ * via `open` / `onClose`, so no consumer changes.
  */
 export function Sheet({ open, onClose, title, children, size = "md" }: SheetProps) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      {/* Backdrop — soft dark-green scrim (not pure black) + light blur. */}
-      <button
-        type="button"
-        aria-label="Close"
-        onClick={onClose}
-        className="talise-sheet-backdrop absolute inset-0 backdrop-blur-sm"
-        style={{ background: "rgba(21,48,12,0.35)" }}
-      />
-      {/* Panel */}
-      <div
-        className={`talise-glass talise-sheet-panel relative z-10 m-0 w-full ${MAX_W[size]} sm:m-4`}
-        style={{ borderRadius: 24, maxHeight: "92vh" }}
-      >
-        {/* Mobile grab handle */}
-        <div className="flex justify-center pt-2.5 sm:hidden">
-          <span className="h-1 w-10 rounded-full bg-line" />
-        </div>
-        {(title || true) && (
+      <Dialog.Portal>
+        {/* Backdrop — soft dark-green scrim (not pure black) + light blur. */}
+        <Dialog.Overlay
+          className="talise-sheet-backdrop fixed inset-0 z-[100] backdrop-blur-sm data-[state=closed]:opacity-0"
+          style={{ background: "rgba(21,48,12,0.35)" }}
+        />
+        <Dialog.Content
+          aria-describedby={undefined}
+          // Don't yank focus into the first input (pops the mobile keyboard);
+          // Radix still traps focus within the panel.
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          className={`talise-glass talise-sheet-panel fixed inset-x-0 bottom-0 z-[101] mx-auto w-full outline-none ${MAX_W[size]} sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2`}
+          style={{ borderRadius: 24, maxHeight: "92vh" }}
+        >
+          {/* Mobile grab handle */}
+          <div className="flex justify-center pt-2.5 sm:hidden">
+            <span className="h-1 w-10 rounded-full bg-line" />
+          </div>
+
           <div className="flex items-center justify-between gap-3 px-5 pb-2 pt-3 sm:pt-5">
-            {title ? <Eyebrow>{title}</Eyebrow> : <span />}
-            <button
-              type="button"
-              onClick={onClose}
+            {title ? (
+              <Dialog.Title className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-dim">
+                {title}
+              </Dialog.Title>
+            ) : (
+              <Dialog.Title className="sr-only">Dialog</Dialog.Title>
+            )}
+            <Dialog.Close
               aria-label="Close"
-              className="flex size-8 items-center justify-center rounded-full text-fg-dim transition-colors hover:bg-accent-soft hover:text-fg"
+              className="flex size-8 items-center justify-center rounded-full text-fg-dim outline-none transition-colors hover:bg-accent-soft hover:text-fg focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)]"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={18} strokeWidth={2} />
-            </button>
+            </Dialog.Close>
           </div>
-        )}
-        <div
-          className="overflow-y-auto px-5 pb-6"
-          style={{ maxHeight: "calc(92vh - 56px)" }}
-        >
-          {children}
-        </div>
-      </div>
-    </div>
+
+          <div className="overflow-y-auto px-5 pb-6" style={{ maxHeight: "calc(92vh - 56px)" }}>
+            {children}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

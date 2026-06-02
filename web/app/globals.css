@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* Enter/exit animation utilities (animate-in / fade / zoom / slide) used by the
+   shadcn/ui Radix components (Select, DropdownMenu, …). */
+@import "tw-animate-css";
 
 /*
  * Dark mode by default — matches the iOS app's palette so the web feels
