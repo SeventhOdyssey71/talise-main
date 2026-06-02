@@ -44,6 +44,19 @@ private struct ChequePreviewResp: Decodable {
     let claimable: Bool
 }
 private struct ChequeClaimResp: Decodable { let ok: Bool; let digest: String?; let amountUsd: Double? }
+/// One row of GET /api/cheques/mine. `createdAt`/`expiresAt` are epoch ms;
+/// `reclaimable` is the server's "funded + unclaimed + not expired" flag.
+private struct MyChequeRow: Decodable, Identifiable {
+    let id: String
+    let amountUsd: Double
+    let status: String
+    let memo: String?
+    let payeeLabel: String?
+    let createdAt: Double
+    let expiresAt: Double
+    let reclaimable: Bool
+}
+private struct MyChequesResp: Decodable { let cheques: [MyChequeRow] }
 
 // MARK: - Skeuomorphic cheque card
 
@@ -487,6 +500,257 @@ private struct ChequeIssuedView: View {
         } catch {
             if APIError.isCancellation(error) { return }
             reclaimError = "Couldn't claim this cheque back right now."
+        }
+    }
+}
+
+// MARK: - My cheques
+
+/// The signed-in user's written cheques (GET /api/cheques/mine), newest
+/// first. Each row shows the amount, a color-coded status pill, the
+/// memo/payee, and the date. Rows the server marks `reclaimable` (funded
+/// + unclaimed + not expired) get a "Claim it back" button that runs the
+/// same reclaim flow as `ChequeIssuedView`: escrow rail refunds
+/// server-side; on-chain rail returns `reclaimBytes` to sign via
+/// executeSponsorReady, then a confirm POST with the digest.
+struct MyChequesView: View {
+    var onDone: () -> Void
+    @State private var rows: [MyChequeRow] = []
+    @State private var loading = true
+    @State private var error: String?
+    /// Cheque ids with an in-flight reclaim, so we can spin only that row.
+    @State private var reclaiming: Set<String> = []
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                if loading {
+                    loadingState
+                } else if let error {
+                    errorState(error)
+                } else if rows.isEmpty {
+                    emptyState
+                } else {
+                    VStack(spacing: 12) {
+                        ForEach(rows) { row in
+                            chequeRow(row)
+                        }
+                    }
+                }
+                Color.clear.frame(height: 40)
+            }
+            .padding(.horizontal, 22).padding(.top, 18)
+        }
+        .background(TaliseColor.bg.ignoresSafeArea())
+        .presentationDragIndicator(.visible)
+        .task { await load() }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Eyebrow(text: "My cheques")
+                Text("Cheques you've written")
+                    .font(TaliseFont.heading(24, weight: .medium)).kerning(-0.8)
+                    .foregroundStyle(TaliseColor.fg)
+                Text("Claim back anything that hasn't been cashed yet.")
+                    .font(TaliseFont.body(13, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
+            }
+            Spacer()
+            Button(action: onDone) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(TaliseColor.surfaceGlass))
+            }.buttonStyle(.plain)
+        }
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 12) {
+            ForEach(0..<3, id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(TaliseColor.surfaceGlass)
+                    .frame(height: 84)
+                    .redacted(reason: .placeholder)
+            }
+        }
+        .overlay(ProgressView().tint(TaliseColor.fgMuted))
+    }
+
+    private func errorState(_ msg: String) -> some View {
+        VStack(spacing: 14) {
+            Text(msg)
+                .font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted)
+                .multilineTextAlignment(.center)
+            Button { Task { await load() } } label: {
+                Text("Try again").font(TaliseFont.heading(14, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                    .padding(.horizontal, 20).frame(height: 44)
+                    .background(Capsule().stroke(TaliseColor.line, lineWidth: 1))
+            }.buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity).padding(.top, 60)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 40, weight: .light)).foregroundStyle(TaliseColor.fgDim)
+            Text("No cheques yet")
+                .font(TaliseFont.heading(18, weight: .medium)).foregroundStyle(TaliseColor.fg)
+            Text("Cheques you write will show up here so you can track and reclaim them.")
+                .font(TaliseFont.body(13, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
+                .multilineTextAlignment(.center).padding(.horizontal, 24)
+        }
+        .frame(maxWidth: .infinity).padding(.top, 60)
+    }
+
+    private func chequeRow(_ row: MyChequeRow) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(TaliseFormat.local2(row.amountUsd))
+                        .font(TaliseFont.display(20, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                    Text(TaliseFormat.usd2(row.amountUsd))
+                        .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgDim)
+                }
+                Spacer()
+                statusPill(row.status)
+            }
+            let label = subtitle(row)
+            if !label.isEmpty {
+                Text(label)
+                    .font(TaliseFont.body(13, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
+                    .lineLimit(2)
+            }
+            HStack {
+                Text(dateText(row.createdAt))
+                    .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgDim)
+                Spacer()
+            }
+            if row.reclaimable {
+                Button { Task { await reclaim(row) } } label: {
+                    HStack(spacing: 6) {
+                        if reclaiming.contains(row.id) {
+                            ProgressView().controlSize(.small).tint(TaliseColor.fg)
+                        } else {
+                            Image(systemName: "arrow.uturn.backward")
+                        }
+                        Text(reclaiming.contains(row.id) ? "Claiming back…" : "Claim it back")
+                    }
+                    .font(TaliseFont.heading(14, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                    .frame(maxWidth: .infinity).frame(height: 46)
+                    .background(Capsule().stroke(TaliseColor.line, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .disabled(reclaiming.contains(row.id))
+            }
+        }
+        .padding(16)
+        .taliseGlass(cornerRadius: 18)
+    }
+
+    /// Color-code: funded = mint (live/reclaimable), claimed = muted,
+    /// reclaimed/voided/expired/draft = dim.
+    private func statusPill(_ status: String) -> some View {
+        let tint: Color
+        switch status {
+        case "funded": tint = TaliseColor.greenMint
+        case "claimed": tint = TaliseColor.fgMuted
+        default: tint = TaliseColor.fgDim   // reclaimed / voided / expired / draft
+        }
+        return Text(status.capitalized)
+            .font(TaliseFont.mono(9, weight: .light)).kerning(0.6)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(Capsule().fill(tint.opacity(0.15)))
+    }
+
+    private func subtitle(_ row: MyChequeRow) -> String {
+        if let memo = row.memo, !memo.isEmpty { return memo }
+        if let payee = row.payeeLabel, !payee.isEmpty { return "To \(payee)" }
+        return ""
+    }
+
+    private func dateText(_ ms: Double) -> String {
+        let date = Date(timeIntervalSince1970: ms / 1000)
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MMM d, yyyy"
+        return fmt.string(from: date)
+    }
+
+    private func load() async {
+        loading = true; error = nil
+        defer { loading = false }
+        do {
+            let resp: MyChequesResp = try await APIClient.shared.get("/api/cheques/mine")
+            rows = resp.cheques
+        } catch APIError.status(let code, let msg) {
+            error = chequeError(code: code, message: msg, verb: "load")
+        } catch {
+            if APIError.isCancellation(error) { return }
+            self.error = "Couldn't load your cheques right now."
+        }
+    }
+
+    /// Reclaim ("Claim it back") one row. Mirrors `ChequeIssuedView.reclaim()`:
+    ///   • On-chain rail: the BUILD POST returns sponsor-ready `reclaimBytes`;
+    ///     sign+execute via executeSponsorReady, then a CONFIRM POST with the
+    ///     reclaim `{digest}` flips funded→reclaimed server-side.
+    ///   • Escrow rail: the single POST refunds server-side and returns the
+    ///     final status — no client signature needed.
+    /// On success, mark the row reclaimed/voided locally and reload the list.
+    private func reclaim(_ row: MyChequeRow) async {
+        guard !reclaiming.contains(row.id) else { return }
+        reclaiming.insert(row.id)
+        defer { reclaiming.remove(row.id) }
+        struct ReclaimBuild: Encodable {}
+        struct ReclaimConfirm: Encodable { let digest: String }
+        do {
+            let built: ChequeReclaimResp = try await APIClient.shared.post(
+                "/api/cheques/\(row.id)/reclaim", body: ReclaimBuild()
+            )
+            var refundDigest = built.digest
+            var finalStatus = built.status
+            if built.mode == "onchain", let reclaimBytes = built.reclaimBytes {
+                let sent = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                    bytesB64: reclaimBytes, intent: "Reclaim cheque"
+                )
+                refundDigest = sent.digest
+                let confirmed: ChequeReclaimResp = try await APIClient.shared.post(
+                    "/api/cheques/\(row.id)/reclaim", body: ReclaimConfirm(digest: sent.digest)
+                )
+                finalStatus = confirmed.status ?? finalStatus
+            }
+            if let d = refundDigest {
+                NotificationCenter.default.post(name: .taliseTxCompleted, object: TaliseTxEvent(
+                    digest: d, direction: "received", amountUsdsui: row.amountUsd,
+                    counterparty: nil, counterpartyName: "Cheque", venue: nil))
+            }
+            // Reflect the reclaim immediately, then reconcile from the server.
+            if let idx = rows.firstIndex(where: { $0.id == row.id }) {
+                let r = rows[idx]
+                withAnimation {
+                    rows[idx] = MyChequeRow(
+                        id: r.id, amountUsd: r.amountUsd,
+                        status: finalStatus ?? "reclaimed",
+                        memo: r.memo, payeeLabel: r.payeeLabel,
+                        createdAt: r.createdAt, expiresAt: r.expiresAt,
+                        reclaimable: false
+                    )
+                }
+            }
+            await load()
+        } catch APIError.status(let code, let msg) {
+            error = chequeError(code: code, message: msg, verb: "reclaim")
+        } catch {
+            if APIError.isCancellation(error) { return }
+            self.error = "Couldn't claim this cheque back right now."
         }
     }
 }

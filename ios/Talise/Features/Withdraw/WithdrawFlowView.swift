@@ -113,6 +113,23 @@ struct WithdrawFlowView: View {
                         }
                         .buttonStyle(.plain)
 
+                        // Cheque — see the cheques you've written and reclaim
+                        // the unclaimed ones.
+                        Button {
+                            onClose()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                NotificationCenter.default.post(name: .taliseRequestMyChequesCover, object: nil)
+                            }
+                        } label: {
+                            OptionCardRow(
+                                icon: "list.bullet.rectangle.portrait.fill",
+                                title: "My cheques",
+                                subtitle: "See the cheques you've written and claim back any that haven't been cashed.",
+                                badge: nil
+                            )
+                        }
+                        .buttonStyle(.plain)
+
                         // Stream — drip a payment over time.
                         Button {
                             onClose()

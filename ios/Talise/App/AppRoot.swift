@@ -92,6 +92,7 @@ struct MainTabView: View {
     @State private var claimSheetVisible = false
     @State private var chequeWriteCoverVisible = false
     @State private var chequeClaimCoverVisible = false
+    @State private var myChequesCoverVisible = false
     @State private var streamCoverVisible = false
 
     /// True whenever ANY sheet/cover is being presented over the tab
@@ -99,7 +100,8 @@ struct MainTabView: View {
     private var anySheetUp: Bool {
         depositCoverVisible || withdrawCoverVisible || sendCoverVisible
             || crossBorderCoverVisible || claimSheetVisible
-            || chequeWriteCoverVisible || chequeClaimCoverVisible || streamCoverVisible
+            || chequeWriteCoverVisible || chequeClaimCoverVisible
+            || myChequesCoverVisible || streamCoverVisible
     }
 
     var body: some View {
@@ -162,6 +164,9 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: $chequeClaimCoverVisible) {
             ChequeClaimView(onDone: { chequeClaimCoverVisible = false })
         }
+        .fullScreenCover(isPresented: $myChequesCoverVisible) {
+            MyChequesView(onDone: { myChequesCoverVisible = false })
+        }
         .fullScreenCover(isPresented: $streamCoverVisible) {
             StreamSetupView(onDone: { streamCoverVisible = false })
         }
@@ -185,6 +190,9 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestChequeClaimCover)) { _ in
             chequeClaimCoverVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestMyChequesCover)) { _ in
+            myChequesCoverVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestStreamCover)) { _ in
             streamCoverVisible = true
@@ -216,6 +224,8 @@ extension Notification.Name {
     /// Cheques + streaming entry points (posted from the Withdraw hub).
     static let taliseRequestChequeWriteCover = Notification.Name("io.talise.requestChequeWriteCover")
     static let taliseRequestChequeClaimCover = Notification.Name("io.talise.requestChequeClaimCover")
+    /// "My cheques" list cover — the user's written cheques + reclaim.
+    static let taliseRequestMyChequesCover = Notification.Name("io.talise.requestMyChequesCover")
     static let taliseRequestStreamCover = Notification.Name("io.talise.requestStreamCover")
 }
 
