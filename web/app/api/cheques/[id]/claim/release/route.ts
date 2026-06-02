@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
+import { readEntryIdFromRequest, isMobileRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 import {
@@ -54,6 +54,8 @@ export async function POST(
     chequeId: id,
     ip,
     turnstileToken: body.turnstileToken ?? null,
+    // Native app = App Attest + bearer gated; captcha is a web-claim defense.
+    skipCaptcha: isMobileRequest(req),
   });
   if (!elig.ok) {
     await recordClaimAttempt({

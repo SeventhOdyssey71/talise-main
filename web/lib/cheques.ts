@@ -415,9 +415,12 @@ export async function checkClaimEligibility(input: {
   chequeId: string;
   ip: string | null;
   turnstileToken: string | null;
+  /** Native app claims are already gated by App Attest + bearer auth, so the
+   *  captcha (a web widget) is skipped for them and enforced for web claims. */
+  skipCaptcha?: boolean;
 }): Promise<ClaimEligibility> {
-  // 1) Anti-bot captcha.
-  if (turnstileConfigured()) {
+  // 1) Anti-bot captcha (web claims only; native is App-Attested).
+  if (!input.skipCaptcha && turnstileConfigured()) {
     const ok = await verifyTurnstile(input.turnstileToken ?? "", input.ip ?? undefined);
     if (!ok) return { ok: false, reason: "captcha" };
   }
