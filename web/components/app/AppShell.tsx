@@ -28,6 +28,8 @@ import {
   GoogleIcon,
   Logout01Icon,
   UserIcon,
+  Invoice01Icon,
+  UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { CurrencyProvider, useCurrency } from "./data/currency";
 import { ToastProvider } from "./data/toast";
@@ -65,18 +67,65 @@ const PAGE_TITLES: Record<string, string> = {
   "/app/settings": "Settings",
 };
 
-function isActive(pathname: string, href: string): boolean {
-  if (href === "/app") return pathname === "/app";
+/**
+ * Nav configuration — lets one shell drive two surfaces: the consumer wallet
+ * (/app) and the business workspace (/business). Everything route-specific
+ * (brand target, primary nav, ramps/settings links, page titles, sign-in
+ * return) lives here so the chrome stays identical and in sync.
+ */
+export type NavConfig = {
+  brandHref: string;
+  primary: NavItem[];
+  rampsHref: string;
+  settingsHref: string;
+  titles: Record<string, string>;
+  signInReturnTo: string;
+};
+
+export const CONSUMER_NAV: NavConfig = {
+  brandHref: "/app",
+  primary: PRIMARY,
+  rampsHref: "/app/ramps",
+  settingsHref: "/app/settings",
+  titles: PAGE_TITLES,
+  signInReturnTo: "/app",
+};
+
+export const BUSINESS_NAV: NavConfig = {
+  brandHref: "/business",
+  primary: [
+    { label: "Dashboard", href: "/business", icon: Home09Icon as IconSvgElement },
+    { label: "Invoices", href: "/business/invoices", icon: Invoice01Icon as IconSvgElement },
+    { label: "Team", href: "/business/team", icon: UserGroupIcon as IconSvgElement },
+    { label: "Pay", href: "/business/pay", icon: ArrowDataTransferHorizontalIcon as IconSvgElement },
+    { label: "Activity", href: "/business/activity", icon: Analytics01Icon as IconSvgElement },
+  ],
+  rampsHref: "/business/ramps",
+  settingsHref: "/business/settings",
+  titles: {
+    "/business": "Dashboard",
+    "/business/invoices": "Invoices",
+    "/business/team": "Team",
+    "/business/pay": "Pay",
+    "/business/activity": "Activity",
+    "/business/ramps": "Ramps",
+    "/business/settings": "Settings",
+  },
+  signInReturnTo: "/business",
+};
+
+function isActive(pathname: string, href: string, brandHref: string): boolean {
+  if (href === brandHref) return pathname === brandHref;
   return pathname === href || pathname.startsWith(href + "/");
 }
 
 // ── Brand mark ─────────────────────────────────────────────────────────────
 
-function Logo({ compact = false }: { compact?: boolean }) {
+function Logo({ compact = false, homeHref = "/app" }: { compact?: boolean; homeHref?: string }) {
   // The real Talise brand mark (the pinwheel from public/symbol.svg), forest-
   // tinted via --color-accent — identical to the landing TopBar wordmark.
   return (
-    <Link href="/app" className="inline-flex items-center gap-2">
+    <Link href={homeHref} className="inline-flex items-center gap-2">
       <Diamond />
       {!compact && (
         <span className="font-display text-[18px] font-semibold lowercase tracking-[-0.02em] text-fg">
@@ -89,12 +138,12 @@ function Logo({ compact = false }: { compact?: boolean }) {
 
 // ── Balance chip ─────────────────────────────────────────────────────────────
 
-function BalanceChip() {
+function BalanceChip({ homeHref = "/app" }: { homeHref?: string }) {
   const { data, loading } = useBalances();
   const { formatUsd } = useCurrency();
   return (
     <Link
-      href="/app"
+      href={homeHref}
       className="talise-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
     >
       <span className="size-1.5 rounded-full" style={{ background: "var(--color-accent-deep)" }} />
@@ -205,7 +254,7 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
 
 // ── Sign-in screen ─────────────────────────────────────────────────────────────
 
-function SignInScreen() {
+function SignInScreen({ returnTo = "/app" }: { returnTo?: string }) {
   return (
     <div className="landing-mint talise-appshell relative min-h-screen overflow-hidden text-fg">
       <div className="talise-top-glow" />
@@ -221,7 +270,7 @@ function SignInScreen() {
           </p>
           <button
             type="button"
-            onClick={() => triggerOauthSignIn({ returnTo: "/app" })}
+            onClick={() => triggerOauthSignIn({ returnTo })}
             className="mt-7 inline-flex w-full items-center justify-center gap-3 rounded-full bg-accent-deep px-5 py-3 text-[15px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-[transform,background] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
           >
             <HugeiconsIcon icon={GoogleIcon} size={20} color="#ffffff" />
@@ -236,7 +285,17 @@ function SignInScreen() {
 
 // ── Account dropdown (Radix DropdownMenu) ──────────────────────────────────────
 
-function AccountMenu({ me, size = 32 }: { me: Me; size?: number }) {
+function AccountMenu({
+  me,
+  size = 32,
+  settingsHref = "/app/settings",
+  rampsHref = "/app/ramps",
+}: {
+  me: Me;
+  size?: number;
+  settingsHref?: string;
+  rampsHref?: string;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -255,16 +314,13 @@ function AccountMenu({ me, size = 32 }: { me: Me; size?: number }) {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/app/settings">
+          <Link href={settingsHref}>
             <HugeiconsIcon icon={Settings01Icon} size={18} strokeWidth={1.8} /> Settings
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/app/ramps">
+          <Link href={rampsHref}>
             <HugeiconsIcon icon={CreditCardIcon} size={18} strokeWidth={1.8} /> Ramps
-            <span className="ml-auto rounded-full border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">
-              Soon
-            </span>
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -280,14 +336,14 @@ function AccountMenu({ me, size = 32 }: { me: Me; size?: number }) {
 
 // ── Shell body (inside providers) ─────────────────────────────────────────────
 
-function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
-  const pathname = usePathname() ?? "/app";
+function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: ReactNode }) {
+  const pathname = usePathname() ?? nav.brandHref;
   const title = useMemo(() => {
-    const matched = Object.keys(PAGE_TITLES)
-      .filter((k) => isActive(pathname, k))
+    const matched = Object.keys(nav.titles)
+      .filter((k) => isActive(pathname, k, nav.brandHref))
       .sort((a, b) => b.length - a.length)[0];
-    return matched ? PAGE_TITLES[matched] : "Talise";
-  }, [pathname]);
+    return matched ? nav.titles[matched] : "Talise";
+  }, [pathname, nav]);
 
   return (
     <div className="landing-mint talise-appshell relative min-h-screen text-fg">
@@ -296,28 +352,26 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
       {/* ── Desktop sidebar (lg+) ── */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-line px-4 py-5 lg:flex">
         <div className="px-2">
-          <Logo />
+          <Logo homeHref={nav.brandHref} />
         </div>
         <nav className="mt-7 flex flex-1 flex-col gap-1">
-          {PRIMARY.map((item) => (
-            <SidebarItem key={item.href} item={item} active={isActive(pathname, item.href)} />
+          {nav.primary.map((item) => (
+            <SidebarItem key={item.href} item={item} active={isActive(pathname, item.href, nav.brandHref)} />
           ))}
           <div className="my-3 h-px bg-line" />
           <SidebarItem
-            item={{ label: "Ramps", href: "/app/ramps", icon: CreditCardIcon as IconSvgElement }}
-            active={false}
-            dimmed
-            badge="Soon"
+            item={{ label: "Ramps", href: nav.rampsHref, icon: CreditCardIcon as IconSvgElement }}
+            active={isActive(pathname, nav.rampsHref, nav.brandHref)}
           />
           <SidebarItem
-            item={{ label: "Settings", href: "/app/settings", icon: Settings01Icon as IconSvgElement }}
-            active={isActive(pathname, "/app/settings")}
+            item={{ label: "Settings", href: nav.settingsHref, icon: Settings01Icon as IconSvgElement }}
+            active={isActive(pathname, nav.settingsHref, nav.brandHref)}
           />
         </nav>
         <div className="mt-4 flex flex-col gap-3">
           <CurrencySelect />
           <Link
-            href="/app/settings"
+            href={nav.settingsHref}
             className="talise-glass flex items-center gap-2.5 rounded-2xl px-3 py-2.5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
           >
             <Avatar me={me} size={30} />
@@ -337,17 +391,17 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
         <header className="sticky top-0 z-20 hidden items-center justify-between border-b border-line bg-[color-mix(in_srgb,var(--color-bg)_82%,transparent)] px-8 py-3 backdrop-blur-xl lg:flex">
           <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-fg">{title}</h1>
           <div className="flex items-center gap-3">
-            <BalanceChip />
+            <BalanceChip homeHref={nav.brandHref} />
           </div>
         </header>
 
         {/* Mobile mini-bar — transparent, sits on the mint gradient and scrolls
             away with the content (no bar background / border). */}
         <header className="relative z-30 flex items-center justify-between px-4 pb-1 pt-3 lg:hidden">
-          <Logo />
+          <Logo homeHref={nav.brandHref} />
           <div className="flex items-center gap-2.5">
-            <BalanceChip />
-            <AccountMenu me={me} />
+            <BalanceChip homeHref={nav.brandHref} />
+            <AccountMenu me={me} settingsHref={nav.settingsHref} rampsHref={nav.rampsHref} />
           </div>
         </header>
 
@@ -360,8 +414,8 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
       {/* ── Mobile bottom nav ── */}
       <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4 lg:hidden">
         <div className="talise-glass flex items-center gap-1 rounded-full px-2 py-2" style={{ borderRadius: 999 }}>
-          {PRIMARY.map((item) => {
-            const active = isActive(pathname, item.href);
+          {nav.primary.map((item) => {
+            const active = isActive(pathname, item.href, nav.brandHref);
             return (
               <Link
                 key={item.href}
@@ -396,12 +450,14 @@ function ShellBody({ me, children }: { me: Me; children: ReactNode }) {
 export type AppShellProps = {
   me: Me | null;
   initialBalances?: Balances | null;
+  /** Drives consumer (/app) vs business (/business) chrome. Default: consumer. */
+  nav?: NavConfig;
   children: ReactNode;
 };
 
-export function AppShell({ me, initialBalances, children }: AppShellProps) {
+export function AppShell({ me, initialBalances, nav = CONSUMER_NAV, children }: AppShellProps) {
   if (!me) {
-    return <SignInScreen />;
+    return <SignInScreen returnTo={nav.signInReturnTo} />;
   }
   // Seed the client caches from what the layout already resolved server-side, so
   // useMe()/useBalances() render correct values INSTANTLY with no round-trip on
@@ -412,7 +468,7 @@ export function AppShell({ me, initialBalances, children }: AppShellProps) {
   return (
     <CurrencyProvider>
       <ToastProvider>
-        <ShellBody me={me}>{children}</ShellBody>
+        <ShellBody me={me} nav={nav}>{children}</ShellBody>
       </ToastProvider>
     </CurrencyProvider>
   );
