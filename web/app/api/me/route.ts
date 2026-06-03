@@ -3,6 +3,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { db, userById } from "@/lib/db";
 import { findTaliseSubnameForOwner } from "@/lib/suins-lookup";
 import { refreshInBackground } from "@/lib/snapshots";
+import { refreshSessionCookie } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +36,11 @@ export async function GET(req: Request) {
   if (!user) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
+
+  // Slide the web session forward on activity (no-op for mobile Bearer auth).
+  // The client polls /api/me, so an active user's session never idle-expires;
+  // an idle one lapses and the next /api/me 401s → client auto-logs-out.
+  await refreshSessionCookie();
 
   const base = {
     id: String(user.id),

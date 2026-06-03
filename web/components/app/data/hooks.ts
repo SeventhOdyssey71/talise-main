@@ -72,7 +72,18 @@ function revalidate(key: string, fresh: boolean): Promise<void> {
       e.error = undefined;
       e.fetchedAt = Date.now();
     } catch (err) {
-      e.error = err instanceof ApiError ? err : new ApiError(0, String(err));
+      const apiErr = err instanceof ApiError ? err : new ApiError(0, String(err));
+      e.error = apiErr;
+      // Session expired / unauthenticated → drop any stale value so the gate
+      // (useMe → AppShell) flips to the sign-in screen immediately, WITHOUT a
+      // reload. This is the client-side auto-logout: the /api/me poll catches
+      // the lapsed session and the shell signs the user out on the spot.
+      if (apiErr.status === 401) {
+        e.data = undefined;
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("talise:session-expired"));
+        }
+      }
     } finally {
       e.promise = undefined;
       e.subs.forEach((fn) => fn());
