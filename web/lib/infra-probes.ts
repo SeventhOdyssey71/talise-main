@@ -58,9 +58,26 @@ const RUNNERS: Record<ProbeId, () => Promise<string>> = {
   stripe: async () => reach("https://api.stripe.com/healthcheck"),
 };
 
+// Connection-backed integrations: measure WARM steady-state (what a user feels
+// after the channel is established), not the one-time cold connect — boot
+// warmup means cold-connect rarely hits a real request anyway. Reachability
+// pings (paga/stripe/prover) are measured single-shot (cold RTT is their only
+// meaningful signal).
+const WARM_FIRST: ReadonlySet<ProbeId> = new Set<ProbeId>(["db", "sui", "onara", "fx"]);
+
 export async function runProbe(id: ProbeId): Promise<ProbeResult> {
   const runner = RUNNERS[id];
   if (!runner) return { id, ok: false, ms: 0, detail: "unknown probe" };
+  if (WARM_FIRST.has(id)) {
+    // Throwaway warm pass so the timed read reflects steady-state, not a cold
+    // channel open. If the warm pass itself fails we fall through and the timed
+    // read surfaces the real error.
+    try {
+      await runner();
+    } catch {
+      /* surfaced by the timed read below */
+    }
+  }
   return timed(id, runner);
 }
 

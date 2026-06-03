@@ -187,10 +187,13 @@ export default function InfraDashboard() {
         })}
       </section>
 
-      <p className="mt-8 text-center text-[11px] text-zinc-600">
+      <p className="mt-8 text-center text-[11px] leading-relaxed text-zinc-600">
         Latency bands: <span className="text-emerald-400">&lt;{FAST_MS}ms</span> ·{" "}
         <span className="text-amber-400">&lt;{OK_MS}ms</span> · <span className="text-rose-400">slow / fail</span>.
         Action latency = sum of its integration legs (sequential critical path).
+        <br />
+        db / Sui / Onara / FX report <strong>warm steady-state</strong> (the cold channel-open is paid once at
+        server boot, off the hot path); Paga / Stripe / prover are cold reachability RTT to remote endpoints.
       </p>
     </div>
   );
