@@ -7,11 +7,13 @@ import { decode as cborDecode } from "cbor-x";
  * Apple App Attest verification (F4). Implements the two verifications from
  * Apple's spec ("Validating Apps That Connect to Your Server"):
  *   - verifyAttestation: on register — decode the CBOR attestation, extract +
- *     return the credential P-256 public key, and run the deterministic checks
- *     (rpIdHash, AAGUID, signCount==0, nonce). The x5c chain → Apple App Attest
- *     Root CA is run when the root CA is pinned (see APPLE_APP_ATTEST_ROOT_CA);
- *     until a real device fixture validates it end-to-end this ships in
- *     log-mode (see lib/app-attest.ts appAttestMode()).
+ *     return the credential P-256 public key, run the deterministic checks
+ *     (rpIdHash, AAGUID, signCount==0), AND verify the full x5c chain → the
+ *     pinned Apple App Attestation Root CA, the nonce (SHA256(authData ‖
+ *     SHA256(challenge-bytes)) == the cert's 1.2.840.113635.100.8.2 extension),
+ *     and key identity (credential key == leaf cert key, credentialId ==
+ *     SHA256(key)). Returns `chainVerified`; register requires it in enforce
+ *     mode (see lib/app-attest.ts appAttestMode()).
  *   - verifyAssertion: per money request — verify the ECDSA-P256 signature over
  *     SHA256(authenticatorData ‖ clientDataHash) against the stored key, the
  *     rpIdHash, and strict counter monotonicity (clone/replay defense). FULLY
@@ -27,12 +29,29 @@ export function appAttestAppId(): string {
   return process.env.APP_ATTEST_APP_ID ?? "5N8DU2A9WH.io.talise.app";
 }
 
-// Pinned "Apple App Attestation Root CA". MUST be filled with the real PEM
-// (apple.com/certificateauthority/Apple_App_Attestation_Root_CA.pem) before
-// the attestation x5c chain can be enforced. When empty, the chain check is
-// SKIPPED (and reported), so enforce-mode must not be enabled until this is set
-// AND validated against a real device-captured attestation.
-const APPLE_APP_ATTEST_ROOT_CA = process.env.APPLE_APP_ATTEST_ROOT_CA_PEM ?? "";
+// Pinned "Apple App Attestation Root CA" (apple.com/certificateauthority/
+// Apple_App_Attestation_Root_CA.pem). Self-signed, valid 2020-03-18..2045-03-15,
+// SHA256 fingerprint 1C:B9:82:3B:A2:8B:A6:AD:2D:33:A0:06:94:1D:E2:AE:4F:51:3E:
+// F1:D4:E8:31:B9:F7:E0:FA:7B:62:42:C9:32. The x5c chain is now verified against
+// this by default; the env var overrides it so a future Apple rotation needs no
+// code deploy.
+const PINNED_APPLE_APP_ATTEST_ROOT_CA = `-----BEGIN CERTIFICATE-----
+MIICITCCAaegAwIBAgIQC/O+DvHN0uD7jG5yH2IXmDAKBggqhkjOPQQDAzBSMSYw
+JAYDVQQDDB1BcHBsZSBBcHAgQXR0ZXN0YXRpb24gUm9vdCBDQTETMBEGA1UECgwK
+QXBwbGUgSW5jLjETMBEGA1UECAwKQ2FsaWZvcm5pYTAeFw0yMDAzMTgxODMyNTNa
+Fw00NTAzMTUwMDAwMDBaMFIxJjAkBgNVBAMMHUFwcGxlIEFwcCBBdHRlc3RhdGlv
+biBSb290IENBMRMwEQYDVQQKDApBcHBsZSBJbmMuMRMwEQYDVQQIDApDYWxpZm9y
+bmlhMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAERTHhmLW07ATaFQIEVwTtT4dyctdh
+NbJhFs/Ii2FdCgAHGbpphY3+d8qjuDngIN3WVhQUBHAoMeQ/cLiP1sOUtgjqK9au
+Yen1mMEvRq9Sk3Jm5X8U62H+xTD3FE9TgS41o0IwQDAPBgNVHRMBAf8EBTADAQH/
+MB0GA1UdDgQWBBSskRBTM72+aEH/pwyp5frq5eWKoTAOBgNVHQ8BAf8EBAMCAQYw
+CgYIKoZIzj0EAwMDaAAwZQIwQgFGnByvsiVbpTKwSga0kP0e8EeDS4+sQmTvb7vn
+53O5+FRXgeLhpJ06ysC5PrOyAjEAp5U4xDgEgllF7En3VcE3iexZZtKeYnpqtijV
+oyFraWVIyd/dganmrduC1bmTBGwD
+-----END CERTIFICATE-----`;
+function rootCaPem(): string {
+  return process.env.APPLE_APP_ATTEST_ROOT_CA_PEM || PINNED_APPLE_APP_ATTEST_ROOT_CA;
+}
 
 const NONCE_OID = "1.2.840.113635.100.8.2";
 
@@ -41,6 +60,7 @@ type AuthData = {
   flags: number;
   signCount: number;
   aaguid: Buffer; // 16 bytes (present only in attestation authData)
+  credentialId: Buffer | null; // = Apple keyId = SHA256(credential public key)
   credentialPublicKeyDer: Buffer | null;
 };
 
@@ -55,11 +75,19 @@ function parseAuthData(authData: Buffer, withCredential: boolean): AuthData {
   const flags = authData[32];
   const signCount = authData.readUInt32BE(33);
   if (!withCredential) {
-    return { rpIdHash, flags, signCount, aaguid: Buffer.alloc(0), credentialPublicKeyDer: null };
+    return {
+      rpIdHash,
+      flags,
+      signCount,
+      aaguid: Buffer.alloc(0),
+      credentialId: null,
+      credentialPublicKeyDer: null,
+    };
   }
   const aaguid = authData.subarray(37, 53);
   const credIdLen = authData.readUInt16BE(53);
   const credIdEnd = 55 + credIdLen;
+  const credentialId = authData.subarray(55, credIdEnd);
   const coseRaw = authData.subarray(credIdEnd);
   const cose = cborDecode(coseRaw) as Map<number, unknown> | Record<number, unknown>;
   const get = (k: number): unknown =>
@@ -76,6 +104,7 @@ function parseAuthData(authData: Buffer, withCredential: boolean): AuthData {
     flags,
     signCount,
     aaguid,
+    credentialId,
     credentialPublicKeyDer: p256RawToDerSpki(x, y),
   };
 }
@@ -141,15 +170,11 @@ export function verifyAttestation(input: {
   const x5c = obj.attStmt?.x5c;
   if (!x5c || x5c.length === 0) {
     warnings.push("no x5c in attestation");
-  } else if (!APPLE_APP_ATTEST_ROOT_CA) {
-    warnings.push(
-      "APPLE_APP_ATTEST_ROOT_CA_PEM unset — x5c chain + nonce NOT verified (do not enforce until pinned + device-validated)"
-    );
   } else {
-    // Full chain + nonce verification (runs once the root CA is pinned).
+    // Full chain + nonce + key-identity verification against the pinned root.
     try {
       const credCert = new crypto.X509Certificate(Buffer.from(x5c[0]));
-      const root = new crypto.X509Certificate(APPLE_APP_ATTEST_ROOT_CA);
+      const root = new crypto.X509Certificate(rootCaPem());
       // Walk x5c → root: each cert issued by the next, last issued by root.
       let ok = true;
       for (let i = 0; i < x5c.length; i++) {
@@ -163,14 +188,26 @@ export function verifyAttestation(input: {
           break;
         }
       }
-      // nonce = SHA256(authData ‖ SHA256(challenge)); must equal the
-      // 1.2.840.113635.100.8.2 extension's embedded octet string.
-      const expectedNonce = sha256(authData, sha256(Buffer.from(input.challenge, "utf8")));
+      // nonce = SHA256(authData ‖ clientDataHash). The client hashes the RAW
+      // challenge bytes — iOS does SHA256(Data(base64Encoded: challenge)) — so
+      // decode the base64 challenge STRING here, not its utf8 bytes.
+      const clientDataHash = sha256(Buffer.from(input.challenge, "base64"));
+      const expectedNonce = sha256(authData, clientDataHash);
       const certNonce = readNonceExtension(Buffer.from(credCert.raw));
       const nonceOk = certNonce != null && certNonce.equals(expectedNonce);
-      chainVerified = ok && nonceOk;
+      // Key identity (Apple step 6): the credential key in authData MUST be the
+      // leaf cert's public key, and the credentialId MUST equal SHA256(that key)
+      // — i.e. Apple's keyId. Binds the attested key to the attestation cert.
+      const leafSpki = credCert.publicKey.export({ format: "der", type: "spki" }) as Buffer;
+      const keyMatches =
+        ad.credentialPublicKeyDer != null && leafSpki.equals(ad.credentialPublicKeyDer);
+      const rawPoint = leafSpki.subarray(leafSpki.length - 65); // 0x04 ‖ x ‖ y
+      const keyIdOk = ad.credentialId != null && sha256(rawPoint).equals(ad.credentialId);
+      chainVerified = ok && nonceOk && keyMatches && keyIdOk;
       if (!chainVerified) {
-        warnings.push(`chain ok=${ok} nonceOk=${nonceOk} (OID ${NONCE_OID})`);
+        warnings.push(
+          `chain ok=${ok} nonceOk=${nonceOk} keyMatch=${keyMatches} keyId=${keyIdOk} (OID ${NONCE_OID})`
+        );
       }
     } catch (e) {
       warnings.push(`chain verify error: ${(e as Error).message}`);

@@ -64,6 +64,15 @@ export async function POST(req: Request) {
         `[attest/register] user=${userId} key=${body.keyId} warnings: ${att.warnings.join("; ")}`
       );
     }
+    // In enforce mode the full x5c→Apple-root chain + nonce + key-identity must
+    // verify, or we refuse to register the key (so the assertion gate only ever
+    // trusts device-attested keys).
+    if (appAttestMode() === "enforce" && !att.chainVerified) {
+      return NextResponse.json(
+        { error: "attestation chain not verified" },
+        { status: 401 }
+      );
+    }
   } catch (e) {
     console.warn(
       `[attest/register] verification failed user=${userId} key=${body.keyId}: ${(e as Error).message}`
