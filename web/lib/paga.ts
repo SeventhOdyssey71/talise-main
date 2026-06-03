@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 
 /**
  * Paga Business REST API client — typed wrapper around the few endpoints
@@ -306,4 +306,40 @@ export function parsePagaWebhook(json: Record<string, unknown>): PagaWebhookEven
     status = "pending";
   }
   return { reference, status };
+}
+
+// ─── Bank registry (getBanks) ─────────────────────────────────────────────
+
+export interface PagaBankRecord {
+  /** Paga's per-bank `destinationBankUUID` (what depositToBank needs). */
+  uuid: string;
+  name: string;
+  /** 3-digit NIBSS sort code (e.g. "044"), when Paga returns it. */
+  bankCode: string | null;
+}
+
+/**
+ * Fetch the full Paga bank registry. This is the authoritative source of the
+ * per-bank `destinationBankUUID`s (the NIBSS 3-digit code is NOT accepted by
+ * depositToBank). Hash order is `referenceNumber`. Synced into `paga_banks`
+ * by the sync cron; see lib/paga-banks.ts.
+ */
+export async function getBanks(): Promise<PagaBankRecord[]> {
+  const reference = `getbanks-${randomUUID()}`;
+  const json = await pagaPost("/getBanks", { referenceNumber: reference }, reference);
+  const banks = Array.isArray((json as { banks?: unknown }).banks)
+    ? ((json as { banks: unknown[] }).banks as Record<string, unknown>[])
+    : [];
+  return banks
+    .map((b) => ({
+      uuid: typeof b.uuid === "string" ? b.uuid : "",
+      name: typeof b.name === "string" ? b.name : "",
+      bankCode:
+        typeof b.sortCode === "string"
+          ? b.sortCode
+          : typeof b.bankCode === "string"
+          ? b.bankCode
+          : null,
+    }))
+    .filter((b) => b.uuid.length > 0 && b.name.length > 0);
 }

@@ -6,7 +6,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 import { FX } from "@/lib/fx";
 import { nameEnquiry } from "@/lib/paga";
-import { resolveBank } from "@/lib/paga-banks";
+import { resolveBankAsync } from "@/lib/paga-banks";
 
 export const runtime = "nodejs";
 
@@ -57,8 +57,9 @@ export async function POST(req: Request) {
     );
   }
   // Accept either a 3-digit NIBSS code or a full Paga UUID. The Paga API
-  // wants the UUID — fail closed if we can't resolve it locally.
-  const bank = resolveBank(bankCode);
+  // wants the UUID — resolve from the synced registry (static fallback), fail
+  // closed if we can't.
+  const bank = await resolveBankAsync(bankCode);
   if (!bank) {
     return NextResponse.json(
       { error: `unsupported bankCode "${bankCode}"` },

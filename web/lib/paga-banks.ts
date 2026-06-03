@@ -15,6 +15,11 @@
  * `paga_banks` cache table.
  */
 
+import "server-only";
+
+import { db, ensureSchema } from "@/lib/db";
+import { getBanks } from "@/lib/paga";
+
 export interface PagaBank {
   /** Paga's `destinationBankUUID` — the value sent in `depositToBank`. */
   uuid: string;
@@ -52,4 +57,56 @@ export function resolveBank(idOrCode: string): PagaBank | null {
     if (b.bankCode === norm) return b;
   }
   return null;
+}
+
+/**
+ * Resolve a bank by Paga UUID or NIBSS code, preferring the DB-synced
+ * `paga_banks` registry (real Paga UUIDs from `getBanks`) and falling back to
+ * the static top-12 list when the table is empty or unavailable. The quote
+ * route uses THIS so a synced env sends real UUIDs while a fresh/no-creds env
+ * still works off the static list.
+ */
+export async function resolveBankAsync(idOrCode: string): Promise<PagaBank | null> {
+  const norm = idOrCode.trim();
+  if (!norm) return null;
+  try {
+    await ensureSchema();
+    const r = await db().execute({
+      sql: `SELECT uuid, name, bank_code FROM paga_banks WHERE uuid = ? OR bank_code = ? LIMIT 1`,
+      args: [norm, norm],
+    });
+    const row = r.rows[0] as
+      | { uuid: string; name: string; bank_code: string | null }
+      | undefined;
+    if (row?.uuid) {
+      return { uuid: String(row.uuid), name: String(row.name), bankCode: String(row.bank_code ?? "") };
+    }
+  } catch {
+    // paga_banks missing / db error → fall through to the static list.
+  }
+  return resolveBank(norm);
+}
+
+/**
+ * Sync the full Paga bank registry into `paga_banks` from the Business API
+ * `getBanks`. Idempotent upsert keyed by UUID. Returns how many banks synced.
+ * Run nightly via the sync cron; requires live Paga credentials.
+ */
+export async function syncPagaBanks(): Promise<{ synced: number }> {
+  const banks = await getBanks();
+  await ensureSchema();
+  const c = db();
+  const now = Date.now();
+  for (const b of banks) {
+    await c.execute({
+      sql: `INSERT INTO paga_banks (uuid, name, bank_code, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (uuid) DO UPDATE SET
+              name = EXCLUDED.name,
+              bank_code = EXCLUDED.bank_code,
+              updated_at = EXCLUDED.updated_at`,
+      args: [b.uuid, b.name, b.bankCode, now],
+    });
+  }
+  return { synced: banks.length };
 }

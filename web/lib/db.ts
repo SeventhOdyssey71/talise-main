@@ -565,6 +565,18 @@ async function doEnsureSchema(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_offramp_webhook_offramp ON offramp_webhook_events(offramp_id, received_at DESC)`,
 
+    // Paga bank registry, synced from the Business API `getBanks` (the real
+    // per-bank `destinationBankUUID` — NOT the NIBSS code). Populated by the
+    // sync cron; resolveBankAsync() reads this first and falls back to the
+    // static top-12 list when the table is empty (fresh env / no creds).
+    `CREATE TABLE IF NOT EXISTS paga_banks (
+      uuid TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      bank_code TEXT,
+      updated_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_paga_banks_code ON paga_banks(bank_code)`,
+
     // ─── transfers (corridor-agnostic state machine) ─────────────────
     // One row per cross-border / on-ramp / off-ramp / internal transfer.
     // Generalizes paga_offramps: a TTL-locked quote that walks
