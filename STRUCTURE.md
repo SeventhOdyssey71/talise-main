@@ -16,4 +16,12 @@ import. So the split is documented, not physical.
 Other top-level: `move/talise/` (Sui Move on-chain package), `scripts/` (repo ops + `md-to-pdf.sh`),
 `archive/` (relocated dead code), `.github/workflows/` (CI).
 
+**On-chain (`move/talise/sources/`)** — the contract suite (each generic over the coin type `T`,
+USDsui in production; in-house-hardened AdminCap + worker + paused idiom, not OZ — see Move.toml):
+`send` (atomic transfer + receipt) · `receipt` (payment-proof NFT) · `cheque` (claimable money-links,
+escrow + reclaim) · `stream` (streamed payroll) · `vault` + `auto_swap` (per-user balances + any-coin→
+USDsui) · **`compliance`** (denylist/allowlist/kill-switch gate) · **`remit_escrow`** (trustless
+off-ramp: commit/release + permissionless reclaim-on-timeout) · **`batch_pay`** (atomic N-recipient
+payroll). Roadmap + audit: `docs/strategy/smart-contracts-roadmap.md`.
+
 **Full detail + the build-safe reorg plan:** [`docs/architecture/codebase-structure.md`](docs/architecture/codebase-structure.md).
