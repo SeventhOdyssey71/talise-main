@@ -7,6 +7,7 @@ import { getNormalizedTransaction } from "@/lib/sui-shapes";
 import { USDSUI_DECIMALS } from "@/lib/sui";
 import { isUsdsui } from "@/lib/usdsui";
 import { moneyTransfer } from "@/lib/paga";
+import { refundOfframp } from "@/lib/offramp-refund";
 
 export const runtime = "nodejs";
 
@@ -235,11 +236,15 @@ export async function POST(req: Request) {
             WHERE id = ?`,
       args: [`paga: ${reason}`.slice(0, 500), Date.now(), quoteId],
     });
-    // TODO(P1-OFFRAMP-REFUND): refund the user's USDsui from the treasury
-    // back to `user.sui_address`. Out of scope for this slice — needs a
-    // sponsored PTB on the treasury keypair + idempotent claim record.
+    // Paga rejected AFTER the on-chain debit → return the USDsui from the
+    // treasury to the user. Idempotent + self-healing (retry cron); never lets
+    // a refund error mask the user-facing failure.
+    const refund = await refundOfframp(quoteId).catch((e) => ({
+      refunded: false,
+      reason: (e as Error).message,
+    }));
     return NextResponse.json(
-      { error: "Paga rejected the payout", reason, status: "failed" },
+      { error: "Paga rejected the payout", reason, status: "failed", refunded: refund.refunded },
       { status: 502 }
     );
   }

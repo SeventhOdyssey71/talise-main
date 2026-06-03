@@ -6,6 +6,7 @@ import {
   verifyPagaWebhookSignature,
   parsePagaWebhook,
 } from "@/lib/paga";
+import { refundOfframp } from "@/lib/offramp-refund";
 
 export const runtime = "nodejs";
 
@@ -110,13 +111,17 @@ export async function POST(req: Request) {
       args: [now, row.id],
     });
   } else if (status === "failed") {
-    await c.execute({
+    const upd = await c.execute({
       sql: `UPDATE paga_offramps SET status='failed', status_reason=?, failed_at=?
             WHERE id = ? AND status='remitting'`,
       args: ["paga webhook: payout failed", now, row.id],
     });
-    // A post-debit failure leaves the user's USDsui in the treasury → the
-    // refund path (task #76) reclaims it back to user.sui_address.
+    // A post-debit failure leaves the user's USDsui in the treasury → return it.
+    // Only kick the refund if WE just made the failed transition (avoids racing
+    // another path); idempotent regardless.
+    if (upd.rowsAffected > 0) {
+      await refundOfframp(row.id).catch(() => {});
+    }
   }
 
   return NextResponse.json({ ok: true, status });

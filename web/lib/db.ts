@@ -547,6 +547,12 @@ async function doEnsureSchema(): Promise<void> {
     // to set a digest wins, any other quote reusing it fails the constraint.
     `ALTER TABLE paga_offramps ADD COLUMN IF NOT EXISTS onchain_digest TEXT`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_paga_offramps_digest ON paga_offramps(onchain_digest) WHERE onchain_digest IS NOT NULL`,
+    // Refund path (P0): when Paga fails after the on-chain debit, the USDsui is
+    // returned to the user from the treasury. refund_state ∈ {refunding,
+    // refunded, refund_failed}; refund_digest is the on-chain return tx.
+    `ALTER TABLE paga_offramps ADD COLUMN IF NOT EXISTS refund_state TEXT`,
+    `ALTER TABLE paga_offramps ADD COLUMN IF NOT EXISTS refund_digest TEXT`,
+    `ALTER TABLE paga_offramps ADD COLUMN IF NOT EXISTS refunded_at BIGINT`,
 
     // Idempotent audit log of inbound Paga settlement webhooks. One row per
     // delivered callback; the dedup id = sha256(provider:rawBody), so a

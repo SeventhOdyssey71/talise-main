@@ -4,6 +4,7 @@ import { db, ensureSchema, userById } from "@/lib/db";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 import { transactionStatus } from "@/lib/paga";
+import { refundOfframp } from "@/lib/offramp-refund";
 
 export const runtime = "nodejs";
 
@@ -33,6 +34,9 @@ interface OfframpRow {
   debited_at: number | null;
   settled_at: number | null;
   failed_at: number | null;
+  refund_state: string | null;
+  refund_digest: string | null;
+  refunded_at: number | null;
 }
 
 function mask(acct: string): string {
@@ -89,12 +93,16 @@ export async function GET(
         row = { ...row, status: "settled", settled_at: now };
       } else if (s.status === "failed") {
         const now = Date.now();
-        await c.execute({
+        const upd = await c.execute({
           sql: `UPDATE paga_offramps SET status='failed', status_reason=?, failed_at=?
                 WHERE id = ? AND status='remitting'`,
           args: [`paga: ${s.message}`.slice(0, 500), now, row.id],
         });
         row = { ...row, status: "failed", failed_at: now, status_reason: `paga: ${s.message}` };
+        // Poll observed a post-debit failure → return the USDsui to the user.
+        if (upd.rowsAffected > 0) {
+          await refundOfframp(row.id).catch(() => {});
+        }
       }
     } catch (e) {
       // Status poll failures are non-fatal — we'll just return the
@@ -120,5 +128,8 @@ export async function GET(
     debitedAt: row.debited_at,
     settledAt: row.settled_at,
     failedAt: row.failed_at,
+    refundState: row.refund_state,
+    refundDigest: row.refund_digest,
+    refundedAt: row.refunded_at,
   });
 }
