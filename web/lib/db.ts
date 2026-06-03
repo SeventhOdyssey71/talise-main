@@ -548,6 +548,23 @@ async function doEnsureSchema(): Promise<void> {
     `ALTER TABLE paga_offramps ADD COLUMN IF NOT EXISTS onchain_digest TEXT`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_paga_offramps_digest ON paga_offramps(onchain_digest) WHERE onchain_digest IS NOT NULL`,
 
+    // Idempotent audit log of inbound Paga settlement webhooks. One row per
+    // delivered callback; the dedup id = sha256(provider:rawBody), so a
+    // redelivery is a clean no-op (ON CONFLICT DO NOTHING). Records whether the
+    // HMAC signature verified and which payout it advanced. See the webhook
+    // receiver at app/api/offramp/paga/webhook.
+    `CREATE TABLE IF NOT EXISTS offramp_webhook_events (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL DEFAULT 'paga',
+      reference TEXT,
+      offramp_id TEXT,
+      status_in TEXT,
+      signature_ok INTEGER NOT NULL DEFAULT 0,
+      payload TEXT NOT NULL,
+      received_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_offramp_webhook_offramp ON offramp_webhook_events(offramp_id, received_at DESC)`,
+
     // ─── transfers (corridor-agnostic state machine) ─────────────────
     // One row per cross-border / on-ramp / off-ramp / internal transfer.
     // Generalizes paga_offramps: a TTL-locked quote that walks

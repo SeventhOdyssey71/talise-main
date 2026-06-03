@@ -68,6 +68,7 @@ interface MemoryRow {
   debited_at: number | null;
   settled_at: number | null;
   failed_at: number | null;
+  onchain_digest: string | null;
 }
 const store = new Map<string, MemoryRow>();
 
@@ -117,8 +118,15 @@ vi.mock("@/lib/db", () => {
             debited_at: null,
             settled_at: null,
             failed_at: null,
+            onchain_digest: null,
           });
           return { rows: [], rowsAffected: 1 };
+        }
+        // Dup-digest early-out (F2): SELECT id ... WHERE onchain_digest = ?
+        if (/SELECT id FROM paga_offramps WHERE onchain_digest = \?/i.test(sql)) {
+          const [digest] = args as [string];
+          const found = [...store.values()].find((r) => r.onchain_digest === digest);
+          return { rows: found ? [{ id: found.id }] : [], rowsAffected: 0 };
         }
         // SELECT by id (used by confirm + status)
         if (/SELECT \* FROM paga_offramps WHERE id = \?/i.test(sql)) {
@@ -126,12 +134,20 @@ vi.mock("@/lib/db", () => {
           return { rows: selectById(id) as unknown as Record<string, unknown>[], rowsAffected: 0 };
         }
         // Status transition updates — match each by signature.
+        // confirm binds the digest in the SAME atomic debit:
+        //   SET status='debited', debited_at=?, onchain_digest=?
+        //   WHERE id=? AND status='quoted' AND NOT EXISTS(digest already used)
+        // args = [debited_at, onchain_digest, id, digest]
         if (/SET status='debited'/i.test(sql)) {
-          const [debited_at, id] = args as [number, string];
+          const [debited_at, onchain_digest, id, digest] = args as [
+            number, string, string, string
+          ];
           const r = store.get(id);
-          if (r && r.status === "quoted") {
+          const dupExists = [...store.values()].some((x) => x.onchain_digest === digest);
+          if (r && r.status === "quoted" && !dupExists) {
             r.status = "debited";
             r.debited_at = debited_at;
+            r.onchain_digest = onchain_digest;
             return { rows: [], rowsAffected: 1 };
           }
           return { rows: [], rowsAffected: 0 };

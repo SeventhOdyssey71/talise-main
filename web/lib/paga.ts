@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 /**
  * Paga Business REST API client — typed wrapper around the few endpoints
@@ -251,4 +251,59 @@ export async function transactionStatus(
     status = "pending";
   }
   return { status, message: json.message ?? "" };
+}
+
+// ─── Settlement webhook (statusCallbackUrl receiver) ──────────────────────
+
+/**
+ * Verify an inbound Paga settlement webhook. Paga does not publish a callback
+ * signature scheme, so we follow their best-practices guidance: recompute
+ * HMAC-SHA512 over the RAW request body keyed by `PAGA_HMAC_KEY` and compare
+ * constant-time against the inbound hash header. Returns false on any
+ * mismatch / missing header (the receiver then logs + refuses to act).
+ */
+export function verifyPagaWebhookSignature(
+  rawBody: string,
+  providedHash: string | null | undefined
+): boolean {
+  if (!providedHash) return false;
+  const { hmacKey } = pagaConfig();
+  const expected = createHmac("sha512", hmacKey).update(rawBody).digest("hex");
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(providedHash.trim().toLowerCase(), "utf8");
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+export type PagaWebhookStatus = "settled" | "failed" | "pending" | "unknown";
+
+export interface PagaWebhookEvent {
+  reference: string | null;
+  status: PagaWebhookStatus;
+}
+
+/**
+ * Normalize a parsed Paga callback body to (our reference, settlement status).
+ * The exact field names aren't published, so we accept the documented and the
+ * common variants and map the terminal NIBSS states.
+ */
+export function parsePagaWebhook(json: Record<string, unknown>): PagaWebhookEvent {
+  const refRaw = json.referenceNumber ?? json.reference ?? json.merchantReference;
+  const reference = typeof refRaw === "string" && refRaw.length > 0 ? refRaw : null;
+  const rawStatus = String(
+    json.transactionStatus ?? json.status ?? json.statusCode ?? ""
+  ).toUpperCase();
+  let status: PagaWebhookStatus = "unknown";
+  if (["SUCCESSFUL", "SUCCESS", "COMPLETED", "CREDITED"].includes(rawStatus)) {
+    status = "settled";
+  } else if (["FAILED", "REJECTED", "REVERSED", "DECLINED"].includes(rawStatus)) {
+    status = "failed";
+  } else if (["PENDING", "PROCESSING", "IN_PROGRESS"].includes(rawStatus)) {
+    status = "pending";
+  }
+  return { reference, status };
 }
