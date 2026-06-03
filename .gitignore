@@ -98,3 +98,11 @@ Simulator Screen Recording*.mov
 # But keep the brand logos which README references
 !/TaliseLogoFavicon.png
 !/TaliseLogoNavbar.png
+
+# ── /infra — LOCAL-ONLY ops/speed dashboard (never ship to main) ──────
+# Runs in local dev; untracked so it stays off prod + main. The boot
+# warmup (web/instrumentation.ts) is a real app perf win and STAYS tracked.
+web/app/infra/
+web/app/api/infra/
+web/lib/infra-config.ts
+web/lib/infra-probes.ts
