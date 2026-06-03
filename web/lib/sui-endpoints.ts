@@ -231,6 +231,32 @@ export function buildClientForEndpoint(
  *     c.getBalance({ owner: address, coinType: COIN_TYPES.SUI }),
  *   );
  */
+/**
+ * Per-endpoint deadline. Without it, a *hung* upstream (slow, not erroring)
+ * never triggers the fallback — the await just blocks, and a single bad
+ * provider hangs the whole request for tens of seconds. With it, a slow
+ * endpoint is treated as transient and we fail over to the next. Env-tunable
+ * via SUI_GRPC_ENDPOINT_TIMEOUT_MS (default 4s — healthy gRPC reads are <1s).
+ */
+const PER_ENDPOINT_TIMEOUT_MS = Number(process.env.SUI_GRPC_ENDPOINT_TIMEOUT_MS) || 4000;
+
+class GrpcEndpointTimeout extends Error {
+  constructor() {
+    super(`gRPC endpoint exceeded ${PER_ENDPOINT_TIMEOUT_MS}ms`);
+    this.name = "GrpcEndpointTimeout";
+  }
+}
+
+function withEndpointTimeout<T>(p: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new GrpcEndpointTimeout()), PER_ENDPOINT_TIMEOUT_MS);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
+
 export async function suiGrpcWithFallback<T>(
   fn: (client: SuiGrpcClient) => Promise<T>,
 ): Promise<T> {
@@ -249,16 +275,16 @@ export async function suiGrpcWithFallback<T>(
     if (!client) continue; // skipped (no key / empty URL)
     attempted += 1;
     try {
-      return await fn(client);
+      return await withEndpointTimeout(fn(client));
     } catch (err) {
       lastErr = err;
-      if (!isFallbackEligible(err)) {
-        // Non-transient error — fail fast rather than blowing through every
-        // provider with a bad request (e.g. caller's address is malformed).
-        throw err;
+      // A hung/slow endpoint (timeout) OR a transient 5xx/UNAVAILABLE → fail
+      // over to the next provider. A real application error (bad request) is
+      // not transient → fail fast rather than blowing through every provider.
+      if (err instanceof GrpcEndpointTimeout || isFallbackEligible(err)) {
+        continue;
       }
-      // Transient — try the next endpoint.
-      continue;
+      throw err;
     }
   }
 

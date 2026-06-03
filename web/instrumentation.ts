@@ -14,6 +14,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   try {
     const { getCurrentEpoch, getChainIdentifier } = await import("./lib/sui-epoch");
+    // NOTE: do NOT import ./lib/db here — instrumentation is also bundled for
+    // the Edge runtime (the app has middleware), and the `postgres` driver needs
+    // node `net`/`tls`. The DB schema builds (memoized) on the first request.
     const tasks: Promise<unknown>[] = [
       getCurrentEpoch().catch(() => {}), // opens the gRPC channel + caches epoch
       getChainIdentifier().catch(() => {}), // caches the immutable chain id
