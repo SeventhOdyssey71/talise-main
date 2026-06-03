@@ -26,11 +26,13 @@ import {
   Exchange01Icon,
   Shield01Icon,
 } from "@hugeicons/core-free-icons";
-import { GlassCard, Eyebrow, StatusPill, useToast } from "@/components/app";
+import { GlassCard, Eyebrow, StatusPill, PrimaryButton, useToast } from "@/components/app";
+import { WithdrawToBankSheet } from "@/components/app/ramps/WithdrawToBankSheet";
 
 const NOTIFY_PREFIX = "talise:ramp-notify:";
 
 export default function RampsPage() {
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
   return (
     <div className="mx-auto w-full max-w-3xl space-y-7 pb-8">
       {/* Hero */}
@@ -69,13 +71,15 @@ export default function RampsPage() {
         ]}
       />
 
-      {/* Off-ramp */}
+      {/* Off-ramp — LIVE (NGN via Paga) */}
       <RampCard
         eyebrow="Off-ramp"
         icon={<HugeiconsIcon icon={BankIcon} size={22} strokeWidth={1.8} />}
         title="Cash out to your bank"
-        blurb="Withdraw USDsui to your local bank account — NGN via Paga at launch, with more currencies and rails rolling out right after."
+        blurb="Withdraw USDsui to your Nigerian bank account, paid out instantly via Paga. More currencies and rails roll out right after."
         notifyKey="offramp"
+        live
+        onCashOut={() => setWithdrawOpen(true)}
         features={[
           {
             icon: (
@@ -100,6 +104,8 @@ export default function RampsPage() {
         Talise handle, and send anywhere in seconds. Balances are always 1:1
         with the US dollar.
       </p>
+
+      <WithdrawToBankSheet open={withdrawOpen} onClose={() => setWithdrawOpen(false)} />
     </div>
   );
 }
@@ -113,6 +119,8 @@ function RampCard({
   blurb,
   notifyKey,
   features,
+  live = false,
+  onCashOut,
 }: {
   eyebrow: string;
   icon: ReactNode;
@@ -120,6 +128,9 @@ function RampCard({
   blurb: string;
   notifyKey: string;
   features: Feature[];
+  /** When true, the card is switched on: shows a Live pill + an action button. */
+  live?: boolean;
+  onCashOut?: () => void;
 }) {
   const { toast } = useToast();
   const [notified, setNotified] = useState(false);
@@ -160,7 +171,7 @@ function RampCard({
             </h2>
           </div>
         </div>
-        <StatusPill label="Soon" tone="pending" />
+        <StatusPill label={live ? "Live" : "Soon"} tone={live ? "success" : "pending"} />
       </div>
 
       <p className="text-[14px] leading-relaxed text-fg-muted">{blurb}</p>
@@ -176,23 +187,29 @@ function RampCard({
         ))}
       </ul>
 
-      <button
-        type="button"
-        onClick={notifyMe}
-        disabled={notified}
-        className={`inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-[15px] font-semibold transition-[transform,background,opacity] active:scale-[0.98] sm:w-auto ${
-          notified
-            ? "talise-glass cursor-default text-fg-muted"
-            : "bg-accent-deep text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)]"
-        }`}
-      >
-        <HugeiconsIcon
-          icon={notified ? Tick02Icon : Notification01Icon}
-          size={17}
-          strokeWidth={2}
-        />
-        {notified ? "We'll notify you" : "Notify me when it's live"}
-      </button>
+      {live ? (
+        <PrimaryButton full onClick={onCashOut}>
+          Cash out to your bank
+        </PrimaryButton>
+      ) : (
+        <button
+          type="button"
+          onClick={notifyMe}
+          disabled={notified}
+          className={`inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-[15px] font-semibold transition-[transform,background,opacity] active:scale-[0.98] sm:w-auto ${
+            notified
+              ? "talise-glass cursor-default text-fg-muted"
+              : "bg-accent-deep text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)]"
+          }`}
+        >
+          <HugeiconsIcon
+            icon={notified ? Tick02Icon : Notification01Icon}
+            size={17}
+            strokeWidth={2}
+          />
+          {notified ? "We'll notify you" : "Notify me when it's live"}
+        </button>
+      )}
     </GlassCard>
   );
 }

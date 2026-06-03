@@ -131,5 +131,8 @@ export async function POST(req: Request) {
     fxRate: fxEffective,
     accountName,
     expiresAt,
+    // The address the client must send `usdsuiAmount` USDsui to before
+    // calling /confirm. Public Sui address; confirm verifies the receipt.
+    treasury: process.env.TALISE_OFFRAMP_TREASURY ?? null,
   });
 }
