@@ -112,7 +112,7 @@ struct BrandIntroCarousel: View {
                 .scaledToFit()
         } else {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(.regularMaterial)
+                .fill(TaliseColor.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .strokeBorder(TaliseColor.line, lineWidth: 1)

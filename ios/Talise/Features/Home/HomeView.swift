@@ -206,12 +206,33 @@ struct HomeView: View {
                 Text("No activity yet")
                     .font(TaliseFont.body(13, weight: .light))
                     .foregroundStyle(TaliseColor.fgDim)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(TaliseColor.surface)
+                    )
             } else {
-                ForEach(Array(activity.prefix(4))) { entry in
-                    HistoryRow(entry: entry) { receiptEntry = entry }
+                // One flat surface card holding the rows, separated by hairline
+                // dividers indented past the badge — the clean Apple-system list
+                // look. No per-row glass; the card is the only chrome.
+                let rows = Array(activity.prefix(4))
+                VStack(spacing: 0) {
+                    ForEach(rows.indices, id: \.self) { i in
+                        HistoryRow(entry: rows[i]) { receiptEntry = rows[i] }
+                        if i < rows.count - 1 {
+                            Rectangle()
+                                .fill(TaliseColor.line)
+                                .frame(height: 0.75)
+                                .padding(.leading, 64)
+                        }
+                    }
                 }
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(TaliseColor.surface)
+                )
             }
         }
     }
@@ -521,11 +542,11 @@ struct HomeView: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(TaliseColor.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(TaliseColor.line, lineWidth: 1)
         )
         .redacted(reason: .placeholder)
         .opacity(0.6)

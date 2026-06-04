@@ -256,33 +256,16 @@ private struct BottomNavPill: View {
         .padding(.horizontal, 6)
         .frame(height: 64)
         .background(
-            ZStack {
-                // System glass blur — captures whatever sits behind the
-                // pill (the activity card, the page bg).
-                Capsule().fill(.ultraThinMaterial)
-                // Dark tint pulls it into dark-mode territory. Without
-                // this, .ultraThinMaterial reads too light.
-                Capsule().fill(Color.black.opacity(0.45))
-            }
+            // Flat solid pill — no blur. A clean raised bar on the page.
+            Capsule().fill(TaliseColor.surfaceGlass)
         )
         .overlay(
-            // Top specular highlight — thin white hairline.
-            Capsule()
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.22),
-                            Color.white.opacity(0.04),
-                            Color.white.opacity(0.10),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
+            // One faint hairline to define the pill edge.
+            Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.6), radius: 24, x: 0, y: 10)
-        .shadow(color: Color.black.opacity(0.4), radius: 4, x: 0, y: 2)
+        // A single soft shadow keeps the floating bar legible over content
+        // without the old layered glass depth.
+        .shadow(color: Color.black.opacity(0.5), radius: 18, x: 0, y: 8)
     }
 
     private func tabButton(_ which: MainTabView.Tab, icon: String, label: String) -> some View {
@@ -313,20 +296,10 @@ private struct BottomNavPill: View {
     private func activeBackdrop(_ isActive: Bool) -> some View {
         if isActive {
             ZStack {
-                Capsule().fill(.ultraThinMaterial)
-                Capsule().fill(Color.white.opacity(0.10))
-                Capsule()
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.35),
-                                Color.white.opacity(0.05),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
+                // Flat raised capsule for the active tab — a solid lighter
+                // surface so it reads as "selected" without glass.
+                Capsule().fill(TaliseColor.surfaceGlassStrong)
+                Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
             }
             // Tiny inset so the active capsule clearly nests inside the
             // outer pill (the Figma effect). Horizontal inset matters

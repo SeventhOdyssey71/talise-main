@@ -23,40 +23,28 @@ struct LiquidGlassSheet: ViewModifier {
         content
             .background(
                 ZStack(alignment: .top) {
-                    Rectangle().fill(.ultraThinMaterial)
-                    Rectangle().fill(Color.black.opacity(0.45))
+                    // Solid opaque sheet surface — NO blur material. The sheet
+                    // reads as a flat panel, not frosted glass.
+                    Rectangle().fill(TaliseColor.bg)
                     if let accent {
-                        // Soft top wash — gives the sheet its own horizon
-                        // glow without TopGlow's full strength.
-                        RadialGradient(
-                            colors: [
-                                accent.opacity(0.22),
-                                accent.opacity(0.08),
-                                .clear,
-                            ],
-                            center: .init(x: 0.5, y: -0.1),
-                            startRadius: 0,
-                            endRadius: 360
+                        // Quiet flat top wash (no blur) — a faint "lit from
+                        // above" green tint matching the screens' TopGlow.
+                        LinearGradient(
+                            colors: [accent.opacity(0.10), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
                         )
-                        .blur(radius: 18)
+                        .frame(height: 240)
+                        .frame(maxWidth: .infinity, alignment: .top)
                         .allowsHitTesting(false)
                     }
                 }
                 .ignoresSafeArea()
             )
             .overlay(alignment: .top) {
-                // Specular top hairline at the sheet's top edge.
+                // Faint flat hairline at the sheet's top edge (grabber line).
                 Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.18),
-                                Color.white.opacity(0.0),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
+                    .fill(TaliseColor.line)
                     .frame(height: 1)
                     .allowsHitTesting(false)
             }

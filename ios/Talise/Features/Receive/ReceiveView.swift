@@ -212,10 +212,7 @@ struct ReceiveView: View {
         if primary {
             Capsule().fill(TaliseColor.fg)
         } else {
-            ZStack {
-                Capsule().fill(.ultraThinMaterial)
-                Capsule().fill(Color.black.opacity(0.45))
-            }
+            Capsule().fill(TaliseColor.surface2)
         }
     }
 
@@ -224,18 +221,7 @@ struct ReceiveView: View {
     @ViewBuilder
     private func secondaryGlassStroke(primary: Bool) -> some View {
         if !primary {
-            Capsule().strokeBorder(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.22),
-                        Color.white.opacity(0.04),
-                        Color.white.opacity(0.10),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 1
-            )
+            Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
         }
     }
 

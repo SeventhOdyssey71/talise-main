@@ -136,45 +136,41 @@ struct HistoryRow: View {
         }
     }
 
+    // Direction now reads through SHADES OF GREEN (no red), matching the
+    // Talise palette: light mint (#CAFFB8) for money-in, a low/forest wash
+    // (#4B8A37) for money-out, the bright accent (#79D96C) for the glyph.
     private var tintColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0xC95A4A)
-        case .received: return Color(hex: 0x4FB35E)
-        // Invest + withdraw share the Talise green accent — they're
-        // yield motion, not money lost / gained from another wallet.
+        case .sent:     return Color(hex: 0x4B8A37)
+        case .received: return Color(hex: 0x79D96C)
         case .invest:   return TaliseColor.accent
-        case .withdraw: return Color(hex: 0x4FB35E)
-        // Auto-swap also reads as green — it's the system working on
-        // the user's behalf to keep the @handle in USDsui.
+        case .withdraw: return Color(hex: 0x79D96C)
         case .autoswap: return TaliseColor.accent
-        case .neutral:  return .clear
+        case .neutral:  return TaliseColor.fgMuted
         }
     }
 
-    /// Circular badge fill (the disc behind the arrow). A 32% wash of
-    /// the directional color over the page background reads as
-    /// "muted dusty red / forest green" without competing with the
-    /// row's content text.
+    /// Circular badge fill — a flat green disc (no glass). Money-in gets the
+    /// LIGHT mint shade; money-out gets the LOW forest shade.
     private var badgeBgColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0xC95A4A).opacity(0.32)
-        case .received: return Color(hex: 0x4FB35E).opacity(0.32)
-        case .invest:   return TaliseColor.accent.opacity(0.22)
-        case .withdraw: return Color(hex: 0x4FB35E).opacity(0.32)
-        case .autoswap: return TaliseColor.accent.opacity(0.22)
+        case .sent:     return Color(hex: 0x4B8A37).opacity(0.18)
+        case .received: return Color(hex: 0xCAFFB8).opacity(0.42)
+        case .invest:   return TaliseColor.accent.opacity(0.20)
+        case .withdraw: return Color(hex: 0xCAFFB8).opacity(0.42)
+        case .autoswap: return TaliseColor.accent.opacity(0.20)
         case .neutral:  return TaliseColor.surface2
         }
     }
 
-    /// Arrow color inside the badge. Sits at full saturation against
-    /// the muted disc, matching the design ref where the glyph is
-    /// noticeably brighter than its background.
+    /// Arrow color inside the badge — a deeper green on the light mint disc,
+    /// a brighter accent green on the low forest wash. Always green-on-green.
     private var badgeFgColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0xF0A99E)
-        case .received: return Color(hex: 0xA9DFB3)
+        case .sent:     return Color(hex: 0x79D96C)
+        case .received: return Color(hex: 0x2E5E1F)
         case .invest:   return TaliseColor.accent
-        case .withdraw: return Color(hex: 0xA9DFB3)
+        case .withdraw: return Color(hex: 0x2E5E1F)
         case .autoswap: return TaliseColor.accent
         case .neutral:  return TaliseColor.fg
         }
@@ -316,41 +312,27 @@ struct HistoryRow: View {
     }
 }
 
-/// Glassy row background that animates a directional tint in/out
-/// based on the button's pressed state. At rest the row reads as
-/// neutral glass; on press it picks up red (Sent) or green (Received).
+/// Flat, Apple-system row press style — NO glassmorphism. At rest the row is
+/// fully transparent (the enclosing card supplies the surface); on press it
+/// picks up a faint wash of the row's directional green + a hairline settle.
+/// We deliberately drop the old `.ultraThinMaterial` / black overlay / white
+/// gradient border / drop shadow for a clean, flat finish.
 private struct HistoryRowButtonStyle: ButtonStyle {
     let tintColor: Color
     let tintAlpha: Double
 
     func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-        let alpha = configuration.isPressed ? tintAlpha : 0
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         return configuration.label
             .background(
-                ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color.black.opacity(0.35))
-                    shape.fill(tintColor.opacity(alpha))
-                }
-            )
-            .overlay(
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.16),
-                            Color.white.opacity(0.04),
-                            Color.white.opacity(0.08),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
+                shape.fill(
+                    configuration.isPressed
+                        ? tintColor.opacity(tintAlpha)
+                        : Color.clear
                 )
             )
-            .clipShape(shape)
-            .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
-            .shadow(color: Color.black.opacity(0.25), radius: 10, x: 0, y: 4)
-            .animation(.easeOut(duration: 0.18), value: configuration.isPressed)
+            .contentShape(shape)
+            .scaleEffect(configuration.isPressed ? 0.99 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }

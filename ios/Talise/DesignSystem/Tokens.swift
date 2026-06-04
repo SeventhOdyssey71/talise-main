@@ -6,11 +6,14 @@ import SwiftUI
 /// `@Environment(\.colorScheme)`; for now iOS is dark by spec.
 enum TaliseColor {
     static let bg = Color(hex: 0x000000)                          // page background
-    static let surface = Color(hex: 0x252525)                     // activity card
-    static let surface2 = Color(hex: 0x3E3E3E)                    // small action buttons (+/send)
-    static let surfaceGlass = Color.white.opacity(0.08)           // username card + nav pill
-    static let surfaceGlassStrong = Color.white.opacity(0.14)     // active nav pill
-    static let usernameCard = Color(hex: 0x504F4F).opacity(0.2)   // username card fill (matches Figma rgba(80,79,79,0.2))
+    static let surface = Color(hex: 0x161616)                     // flat card surface (activity, sheets, panels)
+    static let surface2 = Color(hex: 0x242424)                    // raised flat surface (chips, small action buttons)
+    // Glassmorphism is retired. These two were translucent-white blurs
+    // (`.white.opacity(0.08/0.14)`); they're now SOLID flat surfaces so every
+    // card / nav pill that referenced them reads as a clean opaque panel.
+    static let surfaceGlass = Color(hex: 0x1C1C1C)                // flat card / nav pill
+    static let surfaceGlassStrong = Color(hex: 0x2C2C2C)          // active nav pill (raised)
+    static let usernameCard = Color(hex: 0x161616)                // flat username card
     static let fg = Color(hex: 0xFFFFFF)                          // primary text
     static let fgSubtle = Color(hex: 0xFAFAFA)                    // jude@talise text
     static let fgMuted = Color(hex: 0xB5B5B5)

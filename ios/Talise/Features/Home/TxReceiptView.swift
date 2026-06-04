@@ -252,31 +252,15 @@ struct TxReceiptView: View {
                 .foregroundStyle(TaliseColor.fg)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
-                // Inline liquid-glass capsule — same recipe as the bottom
-                // nav pill: ultraThinMaterial + dark tint + top specular
-                // hairline + soft drop shadow.
+                // Flat solid capsule — no blur, no specular gradient, no
+                // shadow. A clean raised chip on the page.
                 .background(
-                    ZStack {
-                        Capsule().fill(.ultraThinMaterial)
-                        Capsule().fill(Color.black.opacity(0.45))
-                    }
+                    Capsule().fill(TaliseColor.surface2)
                 )
                 .overlay(
-                    Capsule().strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.22),
-                                Color.white.opacity(0.04),
-                                Color.white.opacity(0.10),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
+                    Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
                 )
                 .clipShape(Capsule())
-                .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 6)
             }
             .buttonStyle(.plain)
         }

@@ -225,14 +225,10 @@ struct ChatTabView: View {
         .padding(.trailing, 8)
         .padding(.vertical, 8)
         .background(
-            ZStack {
-                Capsule().fill(.ultraThinMaterial)
-                Capsule().fill(Color.black.opacity(0.45))
-            }
+            Capsule().fill(TaliseColor.surface2)
         )
         .overlay(
-            Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.5), radius: 16, x: 0, y: 8)
     }
 }

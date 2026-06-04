@@ -236,7 +236,7 @@ struct ScanToPayView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Capsule().fill(.ultraThinMaterial))
+        .background(Capsule().fill(Color.black.opacity(0.55)))
         .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1))
     }
 
@@ -266,7 +266,7 @@ struct ScanToPayView: View {
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
                 .background(
-                    Circle().fill(.ultraThinMaterial)
+                    Circle().fill(Color.black.opacity(0.55))
                 )
                 .overlay(
                     Circle().stroke(Color.white.opacity(0.12), lineWidth: 1)
@@ -300,7 +300,7 @@ struct ScanToPayView: View {
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
                 .background(
-                    Circle().fill(.ultraThinMaterial)
+                    Circle().fill(Color.black.opacity(0.55))
                 )
                 .overlay(
                     Circle().stroke(Color.white.opacity(0.12), lineWidth: 1)

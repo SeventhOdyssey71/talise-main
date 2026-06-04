@@ -49,22 +49,18 @@ extension View {
     }
 }
 
-/// Reusable "Liquid Glass" treatment matching the Figma's depth spec.
+/// Reusable FLAT card treatment — glassmorphism retired. (Name kept so the
+/// 75 `.taliseGlass()` call sites don't churn; it no longer uses any blur.)
 ///
 /// Layering, outer → inner:
-///   material > dark tint > directional tint (optional) > specular stroke > shadow
+///   solid surface > optional flat directional tint > hairline edge
 ///
-/// - `.ultraThinMaterial` captures whatever sits behind the card (page bg,
-///   TopGlow wash) so cards read as ambient glass, not flat plates.
-/// - Dark tint (~0.42) anchors the material into dark mode — without it
-///   `.ultraThinMaterial` reads too light against pure black.
-/// - Optional `tint` lets directional surfaces (Sent red, Received green,
-///   Earn green) compose naturally by adding a faint colored wash on top
-///   of the dark tint.
-/// - Top-down gradient stroke is the specular highlight — brighter at the
-///   top edge to suggest light hitting curved glass.
-/// - Two stacked shadows (big soft / tight hard) give weight without
-///   bleeding past the edges.
+/// - Solid `TaliseColor.surface` fill — a clean opaque panel on the black
+///   page, not an ambient frosted plate.
+/// - Optional `tint` adds a quiet flat green wash (Sent / Received / Earn)
+///   over the surface — no gradient, no material.
+/// - One faint `TaliseColor.line` hairline defines the edge. No specular
+///   gradient, no drop shadow — the Apple-system flat look.
 ///
 /// `interactive: true` opts the card into a press-down brighten — used
 /// when the card itself is a button.
@@ -91,38 +87,22 @@ struct TaliseGlassCard: ViewModifier {
         return content
             .background(
                 ZStack {
-                    // 1. System material — the actual blur backdrop.
-                    shape.fill(.ultraThinMaterial)
-                    // 2. Dark tint — pulls the material into dark mode.
-                    shape.fill(Color.black.opacity(0.42))
-                    // 3. Optional directional tint — gives Sent / Received /
-                    //    Earn cards their accent without losing glass-ness.
+                    // 1. Flat solid surface — NO blur material. Clean opaque
+                    //    panel on the black page, in the Apple-system idiom.
+                    shape.fill(TaliseColor.surface)
+                    // 2. Optional directional tint — Sent / Received / Earn
+                    //    cards get a quiet flat wash of their green over the
+                    //    surface (no gradient, no glass).
                     if let tint {
-                        shape.fill(
-                            LinearGradient(
-                                colors: [
-                                    tint.opacity(0.22),
-                                    tint.opacity(0.06),
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+                        shape.fill(tint.opacity(0.13))
                     }
                 }
             )
             .overlay(
-                // 4. Flat hairline stroke — was a 3-stop top-down gradient.
-                //    The gradient stroke read as decorative chrome at small
-                //    sizes and made every glass card on screen feel busy.
-                //    One white hairline is enough to define the edge.
-                shape.strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                // 3. One faint hairline to define the card edge on black.
+                shape.strokeBorder(TaliseColor.line, lineWidth: 1)
             )
             .clipShape(shape)
-            // 5. Single soft shadow — dropped the tight inner stroke shadow
-            //    so cards don't double-print under each other on stacked
-            //    surfaces (Earn, Profile). One shadow is enough for depth.
-            .shadow(color: Color.black.opacity(0.45), radius: 18, x: 0, y: 8)
             .opacity(isEnabled ? 1.0 : 0.6)
     }
 }

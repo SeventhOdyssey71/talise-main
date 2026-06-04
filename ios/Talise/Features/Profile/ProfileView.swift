@@ -136,16 +136,14 @@ struct ProfileView: View {
     /// the rest of the screen earned.
     private var initialsDisc: some View {
         ZStack {
-            Circle().fill(.ultraThinMaterial)
-            Circle().fill(Color.black.opacity(0.42))
+            Circle().fill(TaliseColor.surface2)
             Text(initials)
                 .font(TaliseFont.heading(32, weight: .medium))
                 .foregroundStyle(TaliseColor.fg)
         }
         .frame(width: 88, height: 88)
-        .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        .overlay(Circle().strokeBorder(TaliseColor.line, lineWidth: 1))
         .clipShape(Circle())
-        .shadow(color: Color.black.opacity(0.4), radius: 14, x: 0, y: 6)
     }
 
     /// `@alice.talise.sui` chip with the green check, or a "Claim

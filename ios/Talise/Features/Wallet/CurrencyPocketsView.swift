@@ -146,8 +146,7 @@ struct CurrencyPocketsView: View {
     /// language as the Profile avatar fallback, sized for a list row.
     private func currencyDisc(_ c: TaliseCurrency) -> some View {
         ZStack {
-            Circle().fill(.ultraThinMaterial)
-            Circle().fill(Color.black.opacity(0.42))
+            Circle().fill(TaliseColor.surface2)
             Text(c.symbol)
                 .font(TaliseFont.heading(14, weight: .medium))
                 .foregroundStyle(TaliseColor.fg)
@@ -156,7 +155,7 @@ struct CurrencyPocketsView: View {
                 .padding(.horizontal, 4)
         }
         .frame(width: 38, height: 38)
-        .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        .overlay(Circle().strokeBorder(TaliseColor.line, lineWidth: 1))
         .clipShape(Circle())
     }
 

@@ -32,22 +32,15 @@ struct LiquidGlassPill: View {
             .frame(height: compact ? 24 : 30)
             .background(
                 ZStack {
-                    Capsule().fill(.ultraThinMaterial)
-                    Capsule().fill(Color.black.opacity(0.40))
+                    // Flat solid capsule — no blur, no shadow.
+                    Capsule().fill(TaliseColor.surface2)
                     if let tint {
-                        Capsule().fill(
-                            LinearGradient(
-                                colors: [tint.opacity(0.22), tint.opacity(0.06)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+                        Capsule().fill(tint.opacity(0.18))
                     }
                 }
             )
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+            .overlay(Capsule().strokeBorder(TaliseColor.line, lineWidth: 1))
             .clipShape(Capsule())
-            .shadow(color: Color.black.opacity(0.3), radius: 6, x: 0, y: 2)
         }
         .buttonStyle(LiquidGlassPillPressStyle())
     }
