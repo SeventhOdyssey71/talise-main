@@ -32,6 +32,7 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { CurrencyProvider, useCurrency } from "./data/currency";
+import { FLAG, type Currency } from "@/lib/fx";
 import { ToastProvider } from "./data/toast";
 import { useBalances, seedResource, type Me, type Balances } from "./data";
 import { triggerOauthSignIn } from "@/lib/zkclient";
@@ -173,7 +174,7 @@ function CurrencySelect() {
             value={c.code}
             className="font-mono text-[12px] uppercase tracking-wide"
           >
-            {c.code} · {c.symbol}
+            {FLAG[c.code as Currency] ?? ""} {c.code} · {c.symbol}
           </SelectItem>
         ))}
       </SelectContent>

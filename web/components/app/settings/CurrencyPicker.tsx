@@ -11,12 +11,9 @@
 
 import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  UnfoldMoreIcon,
-  Tick02Icon,
-  DollarCircleIcon,
-} from "@hugeicons/core-free-icons";
+import { UnfoldMoreIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { Sheet, useCurrency } from "@/components/app";
+import { FLAG, type Currency } from "@/lib/fx";
 
 export function CurrencyPicker() {
   const { currency, setCurrency, currencies } = useCurrency();
@@ -30,13 +27,8 @@ export function CurrencyPicker() {
         onClick={() => setOpen(true)}
         className="talise-history-row flex w-full items-center gap-3.5 px-3.5 py-3 text-left transition-transform hover:-translate-y-px"
       >
-        <span
-          className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-          style={{
-            background: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-          }}
-        >
-          <HugeiconsIcon icon={DollarCircleIcon} size={20} strokeWidth={1.8} />
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface text-[22px] leading-none ring-1 ring-line">
+          {FLAG[currency as Currency] ?? active.symbol}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[15px] font-medium text-fg">
@@ -83,15 +75,15 @@ export function CurrencyPicker() {
                   selected ? "bg-accent-soft" : "hover:bg-accent-soft"
                 }`}
               >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-[14px] font-medium text-fg">
-                  {c.symbol}
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-[20px] leading-none">
+                  {FLAG[c.code as Currency] ?? c.symbol}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[15px] font-medium text-fg">
                     {c.label}
                   </span>
                   <span className="block font-mono text-[11px] uppercase tracking-wider text-fg-dim">
-                    {c.code}
+                    {c.symbol} · {c.code}
                   </span>
                 </span>
                 {selected && (

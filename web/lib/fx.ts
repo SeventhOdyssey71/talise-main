@@ -68,6 +68,39 @@ export const SYMBOL: Record<Currency, string> = {
 };
 
 /**
+ * Country/region flag (emoji) per currency — renders the corridor visually in
+ * pickers + amount chips. Emoji flags render natively on macOS/iOS/Android
+ * (Talise's audience). On Windows Chrome they fall back to the 2-letter code;
+ * drop in the MIT `flag-icons` package there if pixel-perfect flags are needed.
+ */
+export const FLAG: Record<Currency, string> = {
+  NGN: "🇳🇬",
+  KES: "🇰🇪",
+  GHS: "🇬🇭",
+  ZAR: "🇿🇦",
+  USD: "🇺🇸",
+  JPY: "🇯🇵",
+  SGD: "🇸🇬",
+  PHP: "🇵🇭",
+  IDR: "🇮🇩",
+  VND: "🇻🇳",
+};
+
+/** Full display name per currency (for pickers). */
+export const CURRENCY_NAME: Record<Currency, string> = {
+  NGN: "Nigerian Naira",
+  KES: "Kenyan Shilling",
+  GHS: "Ghanaian Cedi",
+  ZAR: "South African Rand",
+  USD: "US Dollar",
+  JPY: "Japanese Yen",
+  SGD: "Singapore Dollar",
+  PHP: "Philippine Peso",
+  IDR: "Indonesian Rupiah",
+  VND: "Vietnamese Dong",
+};
+
+/**
  * Currencies conventionally displayed without a fractional part (the minor
  * unit is negligible or unused in everyday pricing). Everything else shows
  * 2 decimals.
