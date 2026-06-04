@@ -112,25 +112,17 @@ ${inviteLink}`;
         <div className="mt-3 text-[56px] font-semibold leading-none tracking-tight text-[var(--color-accent-deep)] sm:text-[64px]">
           {position ? `#${position.toLocaleString()}` : "#…"}
         </div>
-        <div className="mt-2 text-[12px] text-[var(--color-fg-muted)]">
-          Refer friends to climb the line
-        </div>
       </div>
 
-      {/* Two balanced columns: the shareable card | the invite actions */}
-      <div className="mt-7 grid items-start gap-4 sm:gap-5 lg:grid-cols-2">
-        {/* LEFT — the shareable profile card + a quick share hint */}
-        <div className="flex flex-col gap-3">
-          <TaliseProfileCard
-            handle={handle}
-            position={position}
-            referralCount={referralCount}
-          />
-          <p className="px-1 text-center text-[11px] leading-[1.5] text-[var(--color-fg-dim)] lg:text-left">
-            Screenshot your card to post it — or send your invite link. Every
-            signup moves you up.
-          </p>
-        </div>
+      {/* Two balanced columns: the card stretches to match the actions stack. */}
+      <div className="mt-7 grid items-stretch gap-4 sm:gap-5 lg:grid-cols-2">
+        {/* LEFT — the shareable profile card (fills the column height) */}
+        <TaliseProfileCard
+          handle={handle}
+          position={position}
+          referralCount={referralCount}
+          fill
+        />
 
         {/* RIGHT — actions: invite link + referral tally */}
         <div className="flex flex-col gap-4">
@@ -201,16 +193,11 @@ ${inviteLink}`;
               strokeWidth={2.2}
             />
           </span>
-          <div>
-            <div className="text-[20px] font-semibold leading-none tracking-tight text-[var(--color-fg)]">
-              {referralCount.toLocaleString()}{" "}
-              <span className="text-[13px] font-normal text-[var(--color-fg-muted)]">
-                {referralCount === 1 ? "referral" : "referrals"}
-              </span>
-            </div>
-            <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
-              Top waitlist members get early access first.
-            </div>
+          <div className="text-[20px] font-semibold leading-none tracking-tight text-[var(--color-fg)]">
+            {referralCount.toLocaleString()}{" "}
+            <span className="text-[13px] font-normal text-[var(--color-fg-muted)]">
+              {referralCount === 1 ? "referral" : "referrals"}
+            </span>
           </div>
         </div>
       </div>

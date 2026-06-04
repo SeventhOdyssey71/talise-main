@@ -12,14 +12,23 @@ export function TaliseProfileCard({
   handle,
   position,
   referralCount,
+  fill = false,
 }: {
   handle: string;
   position?: number | null;
   referralCount?: number | null;
+  /** When true, fill the parent's height (h-full) instead of holding a fixed
+   *  card aspect — lets the dashboard stretch it to match the actions column.
+   *  The card's internal justify-between spreads the content over the taller
+   *  height cleanly (no image to distort). Defaults to the fixed-aspect card
+   *  used standalone on /u/[handle]. */
+  fill?: boolean;
 }) {
   return (
     <div
-      className="relative aspect-[1.586/1] w-full overflow-hidden rounded-[22px] text-white shadow-[0_24px_60px_-20px_rgba(20,48,12,0.55)]"
+      className={`relative w-full overflow-hidden rounded-[22px] text-white shadow-[0_24px_60px_-20px_rgba(20,48,12,0.55)] ${
+        fill ? "h-full min-h-[230px]" : "aspect-[1.586/1]"
+      }`}
       style={{
         background:
           "radial-gradient(120% 90% at 85% -10%, #4b8a37 0%, #1c3d24 38%, #0a140c 72%, #060a07 100%)",
