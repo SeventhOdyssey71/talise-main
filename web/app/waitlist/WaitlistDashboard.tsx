@@ -66,11 +66,16 @@ export function WaitlistDashboard({
     };
   }, []);
 
-  // The shareable invite link is the pretty profile URL — it carries a
-  // gorgeous OG card and routes the visitor into sign-up crediting this user.
   const origin =
     typeof window !== "undefined" ? window.location.origin : "https://talise.io";
-  const inviteLink = `${origin}/u/${handle}`;
+  // Invite link → the public /waitlist?ref=CODE surface. ReferralCapture in the
+  // root layout reads ?ref and credits this user when their friend signs up.
+  // (The richer /u/<handle> profile page + OG card is local-only for now, so
+  // we don't route public invites through it — that link would 404.)
+  const referralCode = status?.referralCode ?? "";
+  const inviteLink = referralCode
+    ? `${origin}/waitlist?ref=${referralCode}`
+    : `${origin}/waitlist`;
   const position = status?.position ?? null;
   const referralCount = status?.referralCount ?? 0;
 
