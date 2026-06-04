@@ -28,7 +28,7 @@ export function TaliseProfileCard({
     <div
       className={`relative w-full max-w-full overflow-hidden rounded-[22px] text-white shadow-[0_24px_60px_-20px_rgba(20,48,12,0.55)] ${
         fill
-          ? "aspect-[1.586/1] lg:aspect-auto lg:h-full lg:min-h-[230px]"
+          ? "min-h-[176px] lg:h-full lg:min-h-[230px]"
           : "aspect-[1.586/1]"
       }`}
       style={{
@@ -44,7 +44,7 @@ export function TaliseProfileCard({
         style={{ background: "#caffb8" }}
       />
 
-      <div className="relative flex h-full flex-col justify-between p-6 sm:p-7">
+      <div className="relative flex h-full flex-col justify-between gap-4 p-5 sm:p-7">
         {/* top row — brand mark + waitlist tag */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -65,29 +65,30 @@ export function TaliseProfileCard({
 
         {/* the name — the hero of the card */}
         <div className="min-w-0">
-          <div className="truncate text-[30px] font-semibold leading-none tracking-tight text-white sm:text-[34px]">
+          <div className="truncate text-[26px] font-semibold leading-none tracking-tight text-white sm:text-[34px]">
             @{handle}
           </div>
-          <div className="mt-1.5 font-mono text-[12px] tracking-tight text-[#caffb8]/80">
+          <div className="mt-1.5 truncate font-mono text-[11px] tracking-tight text-[#caffb8]/80 sm:text-[12px]">
             {handle}@talise.sui
           </div>
         </div>
 
-        {/* bottom row — position + referrals */}
-        <div className="flex items-end justify-between gap-3">
+        {/* bottom row — position + referrals. Labels shrink + tighten on
+            small screens so the two columns always fit a narrow card. */}
+        <div className="flex items-end justify-between gap-2">
           <div className="min-w-0">
-            <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-white/45">
+            <div className="font-mono text-[8px] uppercase tracking-[0.12em] text-white/45 sm:text-[9px] sm:tracking-[0.18em]">
               Position
             </div>
-            <div className="mt-0.5 text-[20px] font-semibold leading-none tracking-tight text-white">
+            <div className="mt-0.5 text-[17px] font-semibold leading-none tracking-tight text-white sm:text-[20px]">
               {typeof position === "number" && position > 0 ? `#${position.toLocaleString()}` : "—"}
             </div>
           </div>
-          <div className="shrink-0 text-right">
-            <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-white/45">
+          <div className="text-right">
+            <div className="font-mono text-[8px] uppercase tracking-[0.12em] text-white/45 sm:text-[9px] sm:tracking-[0.18em]">
               Referrals
             </div>
-            <div className="mt-0.5 text-[20px] font-semibold leading-none tracking-tight text-[#caffb8]">
+            <div className="mt-0.5 text-[17px] font-semibold leading-none tracking-tight text-[#caffb8] sm:text-[20px]">
               {Number(referralCount ?? 0).toLocaleString()}
             </div>
           </div>
