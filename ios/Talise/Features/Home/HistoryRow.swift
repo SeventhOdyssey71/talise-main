@@ -83,7 +83,8 @@ struct HistoryRow: View {
                 Text(amountFormatted)
                     .font(TaliseFont.body(14, weight: .light))
                     .kerning(-0.56)
-                    .foregroundStyle(TaliseColor.fg)
+                    .foregroundStyle(amountColor)
+                    .contentTransition(.numericText())
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -252,6 +253,15 @@ struct HistoryRow: View {
         let fmt = RelativeDateTimeFormatter()
         fmt.unitsStyle = .abbreviated
         return fmt.localizedString(for: date, relativeTo: Date())
+    }
+
+    /// Amount color — money IN reads green (matches the design ref where a
+    /// received credit is green and a debit is neutral); auto-swap is a
+    /// net-neutral conversion so it stays neutral, not green.
+    private var amountColor: Color {
+        if category == .autoswap { return TaliseColor.fg }
+        let isInflow = entry.isReceived || entry.isWithdraw
+        return isInflow ? Color(hex: 0x4FB35E) : TaliseColor.fg
     }
 
     private var amountFormatted: String {
