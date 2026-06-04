@@ -1535,6 +1535,64 @@ export async function userByReferralCode(code: string): Promise<User | null> {
   return (r.rows[0] as unknown as User) ?? null;
 }
 
+/**
+ * Resolve a user by their claimed Talise handle (`users.talise_username`,
+ * UNIQUE). Case-insensitive — handles are stored lowercased but we normalize
+ * the lookup so a shared `/u/Alice` link still resolves. Powers the public
+ * profile page + its OG card.
+ */
+export async function userByHandle(handle: string): Promise<User | null> {
+  await ensureSchema();
+  const normalized = handle.trim().toLowerCase().replace(/^@+/, "");
+  if (!normalized) return null;
+  const r = await db().execute({
+    sql: "SELECT * FROM users WHERE LOWER(talise_username) = ? LIMIT 1",
+    args: [normalized],
+  });
+  return (r.rows[0] as unknown as User) ?? null;
+}
+
+/**
+ * Waitlist position for a user, ranked among the WAITLIST COHORT — members
+ * who have claimed a Talise handle (`talise_username IS NOT NULL`), which is
+ * exactly who sees this dashboard. (Ranking over all `users` would fold in
+ * fully-onboarded / business accounts and make the line meaningless.) Order is
+ * (referral_count DESC, created_at ASC, id ASC): more verified referrals pull
+ * you toward the front; ties break by who joined first. Returns a 1-based
+ * `position` (1 = front of the line) and the cohort `total`.
+ *
+ * Single correlated query — `ahead` counts cohort members strictly in front of
+ * `me`, so position = ahead + 1. COALESCE guards the nullable referral_count.
+ * Cheap at waitlist scale; move to a materialized rank past ~1M rows.
+ */
+export async function getWaitlistRank(
+  userId: number
+): Promise<{ position: number; total: number }> {
+  await ensureSchema();
+  const c = db();
+  const r = await c.execute({
+    sql: `
+      SELECT
+        (SELECT COUNT(*) FROM users WHERE talise_username IS NOT NULL) AS total,
+        (SELECT COUNT(*) FROM users u
+           WHERE u.talise_username IS NOT NULL
+             AND (COALESCE(u.referral_count, 0) > COALESCE(m.referral_count, 0)
+                  OR (COALESCE(u.referral_count, 0) = COALESCE(m.referral_count, 0)
+                      AND (u.created_at < m.created_at
+                           OR (u.created_at = m.created_at AND u.id < m.id))))
+        ) AS ahead
+      FROM users m
+      WHERE m.id = ?
+      LIMIT 1`,
+    args: [userId],
+  });
+  const row = r.rows[0];
+  if (!row) return { position: 0, total: 0 };
+  const total = Number(row.total ?? 0) || 0;
+  const ahead = Number(row.ahead ?? 0) || 0;
+  return { position: ahead + 1, total };
+}
+
 export async function recordRewardsEvent(
   userId: number,
   kind: RewardsEventKind,
@@ -1583,11 +1641,21 @@ export async function attributeReferral(
   if (!inviter) return { ok: false, reason: "invalid code" };
   if (inviter.id === newUserId) return { ok: false, reason: "self referral" };
 
-  await c.execute({
+  // Atomic claim: only the request that actually flips referred_by_user_id
+  // from NULL gets to credit the inviter. The earlier `me.referred_by_user_id`
+  // read is a fast-path; THIS rowcount is the real guard. Without gating the
+  // increment + events on it, two concurrent attributions (e.g. the auth
+  // callback racing onboarding, or a double-submit) both pass the read and
+  // double-count the inviter's referral_count + points.
+  const claim = await c.execute({
     sql: `UPDATE users SET referred_by_user_id = ?
           WHERE id = ? AND referred_by_user_id IS NULL`,
     args: [inviter.id, newUserId],
   });
+  if (!claim.rowsAffected || claim.rowsAffected < 1) {
+    return { ok: false, reason: "already referred" };
+  }
+
   await c.execute({
     sql: "UPDATE users SET referral_count = COALESCE(referral_count, 0) + 1 WHERE id = ?",
     args: [inviter.id],

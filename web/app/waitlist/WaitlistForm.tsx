@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { triggerOauthSignIn } from "@/lib/zkclient";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Tick01Icon } from "@hugeicons/core-free-icons";
+import { WaitlistDashboard } from "./WaitlistDashboard";
 
 /**
  * Waitlist form. Google-first flow:
@@ -39,63 +38,6 @@ type ClaimSuccess = {
   mintDigest?: string;
   suiAddress?: string;
 };
-
-/**
- * Shared "you're in" confirmation card. Rendered both when a returning
- * user lands on /waitlist already owning a handle (mount probe) AND when
- * a fresh claim succeeds. Single component so the success treatment is
- * identical across both paths.
- */
-function ClaimedCard({
-  handle,
-  email,
-  explorerUrl,
-}: {
-  handle: string;
-  email?: string;
-  explorerUrl?: string | null;
-}) {
-  return (
-    <div
-      className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-6 text-center shadow-[0_20px_44px_-18px_rgba(35,78,20,0.20)] sm:px-7 sm:py-7"
-      role="status"
-      aria-live="polite"
-    >
-      <span
-        aria-hidden
-        className="grid h-11 w-11 place-items-center rounded-full bg-[color-mix(in_srgb,var(--color-accent-deep)_14%,#ffffff)] text-[var(--color-accent-deep)]"
-      >
-        <HugeiconsIcon icon={Tick01Icon} size={22} color="currentColor" strokeWidth={2.2} />
-      </span>
-
-      <div className="text-[15px] font-medium text-[var(--color-fg)] sm:text-[16px]">
-        <span className="break-all">{handle}@talise.sui</span> is yours.
-      </div>
-
-      <p className="max-w-[300px] text-[12px] leading-[1.55] text-[var(--color-fg-muted)] sm:text-[13px]">
-        You&apos;re on the list. We&apos;ll email you when it&apos;s your turn.
-        {email ? (
-          <>
-            {" "}
-            Open Talise with{" "}
-            <span className="break-all text-[var(--color-fg)]">{email}</span> to use it.
-          </>
-        ) : null}
-      </p>
-
-      {explorerUrl ? (
-        <a
-          href={explorerUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[11px] text-[var(--color-fg-dim)] underline-offset-2 hover:text-[var(--color-fg)] hover:underline"
-        >
-          View on chain
-        </a>
-      ) : null}
-    </div>
-  );
-}
 
 // Outer state machine. `checking` is the initial probe while we race
 // /api/auth/me and /api/waitlist/handle/existing. After that we land
@@ -200,7 +142,7 @@ export function WaitlistForm() {
   if (phase === "checking") {
     return (
       <div
-        className="flex items-center justify-center gap-2.5 rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-6 text-center sm:px-6"
+        className="mx-auto flex w-full max-w-[440px] items-center justify-center gap-2.5 rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] px-5 py-6 text-center sm:px-6"
         role="status"
         aria-live="polite"
       >
@@ -214,7 +156,7 @@ export function WaitlistForm() {
   }
 
   if (phase === "existing" && existingHandle && session) {
-    return <ClaimedCard handle={existingHandle} email={session.email} />;
+    return <WaitlistDashboard handle={existingHandle} email={session.email} />;
   }
 
   if (phase === "needsClaim" && session) {
@@ -224,7 +166,7 @@ export function WaitlistForm() {
   // needsSignIn (or signedOutCancel, which renders the same CTA with a
   // muted "cancelled" pill above it).
   return (
-    <div className="flex flex-col gap-3">
+    <div className="mx-auto flex w-full max-w-[440px] flex-col gap-3">
       <div className="px-1 text-center">
         <div className="text-[15px] font-medium text-[var(--color-fg)]">
           Sign in to claim your handle.
@@ -397,43 +339,28 @@ function HandleClaim({ session }: { session: Session }) {
         suiAddress: body.suiAddress,
       });
       setClaim("claimed");
-      // After successful mint, give the user 1.2s to register the
-      // success card visually, then bounce them to the marketing
-      // root (talise.io), NOT /home — per the user directive
-      // "redirect to talise.io, not talise.io/home". The root is the
-      // canonical landing surface; /home is the authed web dashboard
-      // which a fresh waitlist claimer doesn't need yet.
-      window.setTimeout(() => {
-        window.location.href = "/";
-      }, 1200);
+      // Stay put — the dashboard (position + invite link + shareable profile
+      // card) IS the destination now. No more bounce to the marketing root;
+      // a fresh claimer's first job is to grab their link and start referring.
     } catch (err) {
       setClaim("error");
       setClaimError((err as Error).message);
     }
   }
 
-  // 409 mid-flow: they already own a handle. Same "you're in" card.
+  // 409 mid-flow: they already own a handle. Drop them on the dashboard.
   if (alreadyClaimed) {
-    return <ClaimedCard handle={alreadyClaimed} email={email} />;
+    return <WaitlistDashboard handle={alreadyClaimed} email={email} />;
   }
 
   if (claim === "claimed" && claimSuccess) {
-    const explorerUrl = claimSuccess.mintDigest
-      ? `https://suivision.xyz/txblock/${claimSuccess.mintDigest}`
-      : null;
-    return (
-      <ClaimedCard
-        handle={claimSuccess.handle}
-        email={email}
-        explorerUrl={explorerUrl}
-      />
-    );
+    return <WaitlistDashboard handle={claimSuccess.handle} email={email} />;
   }
 
   const ctaEnabled = avail.kind === "available" && claim !== "claiming";
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="mx-auto flex w-full max-w-[440px] flex-col gap-3">
       <style>{`
         .waitlist-form input:-webkit-autofill,
         .waitlist-form input:-webkit-autofill:hover,

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/next";
 import { JetBrains_Mono, Instrument_Serif } from "next/font/google";
+import { ReferralCapture } from "@/components/ReferralCapture";
 // Google Sans Variable, self-hosted via @fontsource. Google's marketing
 // font isn't on the public Google Fonts API, but Fontsource ships an
 // OFL-1.1 build — same weights, same shapes, distributable.
@@ -67,6 +68,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${mono.variable} ${serif.variable}`}
     >
       <body>
+        {/* Captures ?ref=CODE from invite links into the talise_ref cookie,
+            attributed to the inviter on the new user's first sign-in. */}
+        <ReferralCapture />
         {children}
         {/* Vercel Web Analytics — privacy-friendly route/pageview metrics
             (no cookies, no PII). Surfaces at the project's /analytics tab. */}

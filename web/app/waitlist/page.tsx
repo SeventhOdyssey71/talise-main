@@ -46,23 +46,25 @@ export default function WaitlistPage() {
           biases the content above true-center so the headline sits in
           the visually-heavier upper third (true-center reads slightly
           low against a tall viewport — see screenshot 2026-05-29). */}
-      <section className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-10 text-center sm:px-6 sm:py-12 sm:-translate-y-8 lg:-translate-y-12">
-        <h1 className="text-balance break-words text-[30px] font-medium leading-[1.08] tracking-[-0.025em] sm:text-[40px] lg:text-[44px]">
-          Get an{" "}
-          <span
-            className="text-[var(--color-accent)]"
-          >
-            @handle
-          </span>{" "}
-          <br className="hidden sm:block" />
-          that holds dollars.
-        </h1>
+      {/* Width adapts to the state: the sign-in / claim form caps itself
+          narrow (max-w-[440px], inside WaitlistForm), while the post-claim
+          dashboard fans out to the full width for its side-by-side cards. So
+          the section is generous and the children own their own max-width. */}
+      <section className="mx-auto flex w-full max-w-[920px] flex-1 flex-col items-center justify-center px-5 py-10 sm:px-6 sm:py-12">
+        <div className="text-center">
+          <h1 className="text-balance break-words text-[30px] font-medium leading-[1.08] tracking-[-0.025em] sm:text-[40px] lg:text-[44px]">
+            Get an{" "}
+            <span className="text-[var(--color-accent)]">@handle</span>{" "}
+            <br className="hidden sm:block" />
+            that holds dollars.
+          </h1>
 
-        <p className="mt-4 max-w-[420px] text-[14px] leading-[1.55] text-[var(--color-fg-muted)] sm:text-[15px]">
-          Hold dollars. Send home in seconds. Earn on idle balance.
-        </p>
+          <p className="mx-auto mt-4 max-w-[420px] text-[14px] leading-[1.55] text-[var(--color-fg-muted)] sm:text-[15px]">
+            Hold dollars. Send home in seconds. Earn on idle balance.
+          </p>
+        </div>
 
-        <div className="mt-7 w-full max-w-[440px] sm:mt-8">
+        <div className="mt-7 w-full sm:mt-8">
           <WaitlistForm />
         </div>
       </section>

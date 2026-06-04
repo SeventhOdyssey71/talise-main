@@ -10,13 +10,18 @@ import {
   userByGoogleSub,
   markNotified,
   realignAddress,
+  attributeReferral,
+  REFERRAL_CODE_RE,
 } from "@/lib/db";
+import { POINTS } from "@/lib/rewards";
 import { shinamiEnabled, shinamiGetWallet } from "@/lib/shinami";
 import {
   clearStateCookie,
   consumeReturnTo,
   readStateCookie,
   setSessionCookie,
+  readReferralCookie,
+  clearReferralCookie,
 } from "@/lib/session";
 import { sendWelcomeWithAddress } from "@/lib/email";
 import { setSigningCookie } from "@/lib/zksigner";
@@ -135,6 +140,33 @@ export async function GET(req: Request) {
       await realignAddress(user.id, suiAddress, salt);
       user.sui_address = suiAddress;
       user.salt = salt;
+    }
+
+    // Attribute a waitlist referral on the user's FIRST sign-in. The
+    // `talise_ref` cookie is set by <ReferralCapture> when a visitor lands via
+    // an invite link (?ref=CODE, e.g. from /u/<handle>). This is what lets the
+    // waitlist referral ranking actually move — credit the inviter the moment
+    // their friend creates an account. `attributeReferral` is idempotent (it
+    // guards on `referred_by_user_id IS NULL`), so it's safe even if onboarding
+    // later re-checks the same cookie. Best-effort — never wedge sign-in.
+    if (isNew) {
+      try {
+        const refCode = ((await readReferralCookie()) ?? "")
+          .trim()
+          .toUpperCase();
+        if (REFERRAL_CODE_RE.test(refCode)) {
+          await attributeReferral(user.id, refCode, {
+            referrer: POINTS.REFERRAL_SIGNUP_REFERRER,
+            referee: POINTS.REFERRAL_SIGNUP_REFEREE,
+          });
+        }
+      } catch (e) {
+        console.warn(
+          `[callback/referral] ${user.email}: ${(e as Error).message}`
+        );
+      } finally {
+        await clearReferralCookie();
+      }
     }
 
     // Waitlist handle bind. The zkLogin wallet is the same address on
