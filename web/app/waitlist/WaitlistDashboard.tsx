@@ -74,10 +74,16 @@ export function WaitlistDashboard({
   const position = status?.position ?? null;
   const referralCount = status?.referralCount ?? 0;
 
-  const shareText = `I just claimed @${handle} on Talise — the gasless dollar wallet on Sui. Claim your name and skip the waitlist line 👇`;
-  const xIntent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-    shareText
-  )}&url=${encodeURIComponent(inviteLink)}`;
+  // Handle reads as plain text (`eromonsele@talise`), NOT a blue @mention of a
+  // nonexistent account; only @taliseio (the real X handle) is mentioned. The
+  // invite link lives INSIDE the text on its own line, so we omit the `url`
+  // param — otherwise X would append a duplicate link below the tweet.
+  const shareText = `I just claimed ${handle}@talise on @taliseio, the gasless dollar wallet on Sui.
+
+Join the waitlist and claim your name:
+
+${inviteLink}`;
+  const xIntent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
 
   async function copyLink() {
     try {
@@ -107,9 +113,7 @@ export function WaitlistDashboard({
           {position ? `#${position.toLocaleString()}` : "#…"}
         </div>
         <div className="mt-2 text-[12px] text-[var(--color-fg-muted)]">
-          {status?.total
-            ? `of ${status.total.toLocaleString()} in line — refer friends to climb`
-            : "Refer friends to climb the line"}
+          Refer friends to climb the line
         </div>
       </div>
 
