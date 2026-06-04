@@ -17,12 +17,10 @@ struct InsightsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                MicroLabel(text: "This month", color: TaliseColor.fgDim).kerning(1.5)
-                Spacer()
+            SectionHeader("This month") {
                 if let count = insights?.sampleSize, count > 0 {
-                    Text("\(count) movements")
-                        .font(TaliseFont.mono(10, weight: .light))
+                    Text("\(count)")
+                        .font(TaliseFont.mono(10, weight: .regular))
                         .foregroundStyle(TaliseColor.fgDim)
                 }
             }
@@ -30,8 +28,9 @@ struct InsightsSection: View {
             counterpartiesStrip
             if let error, !error.isEmpty {
                 Text(error)
-                    .font(TaliseFont.mono(10, weight: .light))
+                    .font(TaliseFont.body(12, weight: .light))
                     .foregroundStyle(TaliseColor.danger)
+                    .padding(.horizontal, 4)
             }
         }
         .task { await load() }
@@ -40,38 +39,24 @@ struct InsightsSection: View {
     // MARK: - Tiles
 
     private var metricsRow: some View {
-        HStack(spacing: 10) {
-            metricTile(
-                label: "Spent",
-                value: insights?.spentUsd ?? 0,
-                color: TaliseColor.danger
+        HStack(spacing: 12) {
+            StatTile(
+                eyebrow: "Spent",
+                value: TaliseFormat.local2(insights?.spentUsd ?? 0),
+                valueColor: TaliseColor.danger
             )
-            metricTile(
-                label: "Received",
-                value: insights?.receivedUsd ?? 0,
-                color: TaliseColor.fg
+            StatTile(
+                eyebrow: "Received",
+                value: TaliseFormat.local2(insights?.receivedUsd ?? 0)
             )
-            metricTile(
-                label: "Saved",
-                value: insights?.savedUsd ?? 0,
-                color: TaliseColor.accent
+            StatTile(
+                eyebrow: "Saved",
+                value: TaliseFormat.local2(insights?.savedUsd ?? 0),
+                accent: true
             )
         }
-    }
-
-    private func metricTile(label: String, value: Double, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            MicroLabel(text: label, color: TaliseColor.fgDim).kerning(1.5)
-            Text(TaliseFormat.local2(value))
-                .font(TaliseFont.heading(16, weight: .medium))
-                .kerning(-0.5)
-                .foregroundStyle(color)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 18)
+        .redacted(reason: loading && insights == nil ? .placeholder : [])
+        .opacity(loading && insights == nil ? 0.6 : 1)
     }
 
     // MARK: - Counterparties strip
@@ -83,33 +68,55 @@ struct InsightsSection: View {
                 ForEach(Array(list.enumerated()), id: \.element.id) { idx, cp in
                     counterpartyRow(cp)
                     if idx < list.count - 1 {
-                        LiquidGlassDivider(inset: 14)
+                        RowDivider()
                     }
                 }
             }
-            .taliseGlass(cornerRadius: 18)
-        } else if !loading {
-            Text("No counterparties yet this month.")
-                .font(TaliseFont.mono(10, weight: .light))
-                .foregroundStyle(TaliseColor.fgDim)
-                .padding(.vertical, 4)
+            .padding(.horizontal, 18)
+            .taliseGlass(cornerRadius: 20)
+        } else if loading {
+            VStack(spacing: 0) {
+                skeletonRow
+                RowDivider()
+                skeletonRow
+            }
+            .padding(.horizontal, 18)
+            .taliseGlass(cornerRadius: 20)
+            .redacted(reason: .placeholder)
+            .opacity(0.6)
+        } else {
+            VStack(spacing: 4) {
+                Text("No movements yet this month.")
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 22)
+            .taliseGlass(cornerRadius: 20)
         }
     }
 
     private func counterpartyRow(_ cp: InsightsCounterparty) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("You moved \(TaliseFormat.local2(cp.totalUsd))")
-                    .font(TaliseFont.body(13, weight: .light))
-                    .foregroundStyle(TaliseColor.fg)
-                Text("with \(cp.displayName) · \(cp.count) tx\(cp.count == 1 ? "" : "s")")
-                    .font(TaliseFont.mono(10, weight: .light))
-                    .foregroundStyle(TaliseColor.fgDim)
+        PremiumListRow(
+            icon: "arrow.left.arrow.right",
+            kind: .neutral,
+            title: "You moved \(TaliseFormat.local2(cp.totalUsd))",
+            subtitle: "with \(cp.displayName) · \(cp.count) tx\(cp.count == 1 ? "" : "s")"
+        )
+    }
+
+    private var skeletonRow: some View {
+        HStack(spacing: 14) {
+            Circle().fill(TaliseColor.surface2).frame(width: 36, height: 36)
+            VStack(alignment: .leading, spacing: 6) {
+                Capsule().fill(TaliseColor.line).frame(width: 120, height: 10)
+                Capsule().fill(TaliseColor.line).frame(width: 70, height: 8)
             }
-            Spacer()
+            Spacer(minLength: 8)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .frame(minHeight: 60)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Data

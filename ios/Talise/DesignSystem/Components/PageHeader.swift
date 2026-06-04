@@ -25,17 +25,7 @@ struct PageHeader: View {
     }
 }
 
-struct SectionHeader: View {
-    let title: String
-    var right: AnyView? = nil
-
-    var body: some View {
-        HStack {
-            Eyebrow(text: title)
-            Spacer()
-            if let right {
-                right
-            }
-        }
-    }
-}
+// NOTE: the section eyebrow is now the shared generic `SectionHeader<Trailing>`
+// in TopGlow.swift (string title + optional trailing slot). The old
+// non-generic `SectionHeader { title; right }` lived here and was removed —
+// it had no remaining callers and collided with the new type.

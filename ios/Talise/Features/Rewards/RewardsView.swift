@@ -1,51 +1,41 @@
 import SwiftUI
 import UIKit
 
-/// Rewards tab — the money-management hub.
+/// Rewards tab — the points + perks hub.
 ///
-/// Phase 1 (this file): tier badge with next-tier progress, lifetime
-/// stats row (sent + saved in the user's display currency), earn-rules
-/// card explaining how points accrue, referral card.
+/// Rewards = points + perks. The money-management surfaces (Round-up,
+/// Goals, Insights) moved to the Invest tab where they semantically
+/// belong — Round-up auto-supplies to NAVI, Goals are savings buckets,
+/// Insights are spend/save analytics. Rewards stays focused on: tier
+/// progression, lifetime tallies, how-you-earn rules, the redemption
+/// catalogue, and referrals.
 ///
-/// Section anchors for parallel-agent work — DO NOT collapse these
-/// markers; the Phase 2/3/4 agents key off them:
-///
-///   // ANCHOR: roundup-section   ← Phase 2 (Round-up & Save card)
-///   // ANCHOR: goals-section     ← Phase 3 (Savings Goals)
-///   // ANCHOR: redeem-section    ← Phase 4 (Redemption catalogue)
-///
-/// Each agent owns its own struct file (RoundupCard.swift,
-/// GoalsSection.swift, RedemptionsSection.swift) and inserts a single
-/// call site at its anchor — no overlapping edits on the body.
+/// Section ordering (premium spec C.2):
+///   Hero (tier + points + progress) → Lifetime tiles → How you earn
+///   → Redeem points → Your referral code → inline error.
 struct RewardsView: View {
     @State private var summary: RewardsSummary?
     @State private var loading = true
     @State private var error: String?
 
     var body: some View {
-        // Rewards = points + perks hub. The Money-management surfaces
-        // (Round-up, Goals, Insights) moved to the Invest tab where
-        // they semantically belong — Round-up auto-supplies to NAVI,
-        // Goals are savings buckets, Insights are spend/save analytics.
-        // Rewards stays focused on: tier progression, lifetime tallies,
-        // how-you-earn rules, the redemption catalogue, and referrals.
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 22) {
-                header
-                tierCard
+            VStack(alignment: .leading, spacing: 28) {
+                heroCard
                 lifetimeStatsRow
-                earnRulesCard
+                earnRulesSection
                 // ANCHOR: redeem-section
-                RedemptionsSection(pointsTotal: summary?.pointsTotal ?? 0, onRedeemed: { Task { await load() } })
+                redeemSection
                 referralCard
                 if let error {
                     Text(error)
                         .font(TaliseFont.body(12, weight: .light))
                         .foregroundStyle(TaliseColor.danger)
+                        .padding(.horizontal, 4)
                 }
                 Spacer(minLength: 120)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 22)
             .padding(.top, 24)
         }
         .refreshable { await load() }
@@ -53,220 +43,128 @@ struct RewardsView: View {
         .task { await load() }
     }
 
-    // MARK: - Header
+    // MARK: - Hero card
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            MicroLabel(text: "Rewards", color: TaliseColor.fgDim).kerning(1.5)
-            Text("Spend, save, earn")
-                .font(TaliseFont.heading(28, weight: .medium))
-                .kerning(-1)
-                .foregroundStyle(TaliseColor.fg)
-        }
-    }
-
-    // MARK: - Tier card
-
-    /// Tier badge + total points + progress bar to the next tier. The
-    /// progress bar fades to a "Top tier" pill when there's no next
-    /// rung. Tier info is server-computed (lib/rewards/earn.ts → TIERS)
-    /// so iOS doesn't drift from the canonical thresholds.
+    /// The one tinted card on the screen: tier eyebrow, the big points
+    /// figure (white — the green is the card wash + progress, not the
+    /// number), then an honest progress bar to the next tier. Tier info
+    /// is server-computed (lib/rewards/earn.ts → TIERS) so iOS doesn't
+    /// drift from the canonical thresholds.
     @ViewBuilder
-    private var tierCard: some View {
+    private var heroCard: some View {
         let tier = summary?.tier
         let points = summary?.pointsTotal ?? 0
 
         VStack(alignment: .leading, spacing: 18) {
-            // Tier label sits above a big accent-green points number.
-            // The earlier rosette-on-the-right was a separate visual
-            // element fighting the brand (bronze orange vs Talise
-            // green); dropped in favor of letting the number itself
-            // be the hero — exactly the treatment the Round-up
-            // card uses for "Saved via round-up ₦2.00".
-            VStack(alignment: .leading, spacing: 6) {
-                MicroLabel(
-                    text: tier?.label.uppercased() ?? "BRONZE",
-                    color: TaliseColor.accent
-                ).kerning(2.0)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("\(points)")
-                        .font(TaliseFont.heading(44, weight: .medium))
-                        .kerning(-1.6)
-                        .foregroundStyle(TaliseColor.accent)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                    Text("points")
-                        .font(TaliseFont.body(13, weight: .light))
-                        .foregroundStyle(TaliseColor.fgDim)
-                }
-            }
-
-            tierProgressBar(tier: tier, points: points)
+            HeroAmount(
+                eyebrow: tier?.label.uppercased() ?? "BRONZE",
+                value: "\(points)",
+                unit: "pts",
+                loading: loading
+            )
+            tierProgress(tier: tier, points: points)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 22)
+        .taliseGlass(cornerRadius: 20, tint: TaliseColor.accent)
     }
 
-    /// "850 points to Silver" + a filled progress bar. The bar always
-    /// has a minimum filled width (8pt) so brand-new users at 4 of
-    /// 500 points don't see what looks like an empty track. Replaces
-    /// the pill on top-tier accounts.
+    /// Honest progress to the next tier — no fake minimum fill, so a
+    /// brand-new user at 4 of 500 points sees a near-empty rail (which
+    /// is the truth). Collapses to a single accent line on top tier.
     @ViewBuilder
-    private func tierProgressBar(tier: RewardsTier?, points: Int) -> some View {
+    private func tierProgress(tier: RewardsTier?, points: Int) -> some View {
         if let nextLabel = tier?.nextLabel, let toNext = tier?.pointsToNext, toNext > 0 {
+            let total = points + toNext
+            let progress = total > 0 ? Double(points) / Double(total) : 0
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                QuietProgressBar(progress: progress)
+                HStack(alignment: .firstTextBaseline) {
                     Text("\(toNext.formatted()) to \(nextLabel)")
-                        .font(TaliseFont.mono(11, weight: .light))
+                        .font(TaliseFont.mono(11, weight: .regular))
                         .foregroundStyle(TaliseColor.fgMuted)
-                    Spacer()
-                    Text("\(points.formatted()) / \((points + toNext).formatted())")
-                        .font(TaliseFont.mono(10, weight: .light))
+                    Spacer(minLength: 8)
+                    Text("\(points.formatted()) / \(total.formatted())")
+                        .font(TaliseFont.mono(10, weight: .regular))
                         .foregroundStyle(TaliseColor.fgDim)
                 }
-                GeometryReader { geo in
-                    let total = points + toNext
-                    let progress: CGFloat = total > 0 ? CGFloat(points) / CGFloat(total) : 0
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.06))
-                        // Min 8pt filled so the bar reads as "started"
-                        // even for sub-1% progress. Looks like a real
-                        // step instead of an empty rail.
-                        Capsule().fill(TaliseColor.accent)
-                            .frame(width: max(8, geo.size.width * progress))
-                    }
-                }
-                .frame(height: 8)
             }
         } else if tier != nil {
             Text("Top tier — every point still counts toward perks")
-                .font(TaliseFont.mono(11, weight: .light))
+                .font(TaliseFont.mono(11, weight: .regular))
                 .foregroundStyle(TaliseColor.accent)
         }
     }
 
     // MARK: - Lifetime stats row
 
-    /// Two tiles side-by-side: lifetime Sent + lifetime Saved, in the
-    /// user's display currency. The on-chain values are USD; the
-    /// formatter localizes via CurrencySettings.
+    /// Two tiles side-by-side: lifetime Sent (white) + lifetime Saved
+    /// (the one accent tile — the savings side is the win). On-chain
+    /// values are USD; `TaliseFormat.local2` localizes the display.
     private var lifetimeStatsRow: some View {
         HStack(spacing: 12) {
-            lifetimeTile(
-                label: "Lifetime sent",
-                value: summary?.lifetimeSentUsd ?? 0,
-                accent: false
+            StatTile(
+                eyebrow: "Lifetime sent",
+                value: TaliseFormat.local2(summary?.lifetimeSentUsd ?? 0)
             )
-            lifetimeTile(
-                label: "Lifetime saved",
-                value: summary?.lifetimeSavedUsd ?? 0,
+            StatTile(
+                eyebrow: "Lifetime saved",
+                value: TaliseFormat.local2(summary?.lifetimeSavedUsd ?? 0),
                 accent: true
             )
         }
     }
 
-    private func lifetimeTile(label: String, value: Double, accent: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            MicroLabel(text: label, color: TaliseColor.fgDim).kerning(1.5)
-            Text(TaliseFormat.local2(value))
-                // Bigger + bolder than the previous 22pt — matches the
-                // confident "₦2.00" treatment on the Round-up card.
-                // Accent tile gets vivid Talise green; the other stays
-                // white so the eye picks the savings side as the win.
-                .font(TaliseFont.heading(26, weight: .medium))
-                .kerning(-0.9)
-                .foregroundStyle(accent ? TaliseColor.accent : TaliseColor.fg)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 22)
-    }
+    // MARK: - How you earn
 
-    // MARK: - Earn rules card
-
-    /// Transparent "how points work" explainer. Reads from the server's
-    /// `pointRates` so the displayed numbers always match the engine.
-    /// If `pointRates` is missing (older server build) we fall back to
-    /// hardcoded copy that mirrors the documented defaults.
+    /// Transparent "how points work" explainer as one grouped card of
+    /// rows. Reads the server's `pointRates` so the numbers always match
+    /// the engine; falls back to documented defaults on older builds.
+    /// The rate value is the only green thing per row (rates ARE the
+    /// financial figure) — titles and glyphs read uniform.
     @ViewBuilder
-    private var earnRulesCard: some View {
+    private var earnRulesSection: some View {
         let rates = summary?.pointRates
         VStack(alignment: .leading, spacing: 12) {
-            MicroLabel(text: "How you earn", color: TaliseColor.fgDim).kerning(1.5)
-            // Visually-consistent rows — every icon uses the same
-            // subtle disc, every label same weight. The RATE value on
-            // the right is what differentiates the row (e.g. 5 pts/$1
-            // round-up reads as the standout because of the number,
-            // not because the whole row looks different).
+            SectionHeader("How you earn")
             VStack(spacing: 0) {
-                earnRule(
-                    icon: "paperplane",
-                    label: "Send money",
-                    rate: rates?.send ?? 1
-                )
-                earnRuleDivider
-                earnRule(
-                    icon: "leaf.fill",
-                    label: "Save to yield",
-                    rate: rates?.invest ?? 3
-                )
-                earnRuleDivider
-                earnRule(
-                    icon: "arrow.triangle.2.circlepath",
-                    label: "Round-up auto-save",
-                    rate: rates?.roundup ?? 5
-                )
-                earnRuleDivider
-                earnRule(
-                    icon: "target",
-                    label: "Add to a goal",
-                    rate: rates?.goal ?? 4
-                )
+                earnRow(icon: "paperplane", title: "Send money", rate: rates?.send ?? 1)
+                RowDivider()
+                earnRow(icon: "leaf.fill", title: "Save to yield", rate: rates?.invest ?? 3)
+                RowDivider()
+                earnRow(icon: "arrow.triangle.2.circlepath", title: "Round-up auto-save", rate: rates?.roundup ?? 5)
+                RowDivider()
+                earnRow(icon: "target", title: "Add to a goal", rate: rates?.goal ?? 4)
             }
+            .padding(.horizontal, 18)
             .padding(.vertical, 4)
-            .taliseGlass(cornerRadius: 22)
+            .taliseGlass(cornerRadius: 20)
         }
     }
 
-    /// Uniform row treatment — same icon disc, same label weight, same
-    /// rate-text size across all four. The rate VALUE is the only
-    /// thing that varies (and accent-green so it's the data-point the
-    /// eye finds first). Earlier revision accented one whole row
-    /// (Save to yield) and left the other three muted, which made
-    /// the muted rows read as "lesser perks" rather than "different
-    /// rates of the same system".
-    private func earnRule(icon: String, label: String, rate: Int) -> some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(TaliseColor.accent.opacity(0.16))
-                    .frame(width: 34, height: 34)
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(TaliseColor.accent)
-            }
-            Text(label)
-                .font(TaliseFont.body(14, weight: .light))
-                .foregroundStyle(TaliseColor.fg)
-            Spacer()
+    private func earnRow(icon: String, title: String, rate: Int) -> some View {
+        PremiumListRow(icon: icon, kind: .earn, title: title) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(rate)")
                     .font(TaliseFont.heading(15, weight: .medium))
                     .foregroundStyle(TaliseColor.accent)
                 Text(rate == 1 ? "pt / $1" : "pts / $1")
-                    .font(TaliseFont.mono(10, weight: .light))
+                    .font(TaliseFont.mono(10, weight: .regular))
                     .foregroundStyle(TaliseColor.fgDim)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
     }
 
-    private var earnRuleDivider: some View {
-        LiquidGlassDivider(inset: 14)
+    // MARK: - Redeem
+
+    /// Redemption catalogue. Owns its own struct (RedemptionsSection)
+    /// and the exact call site below — the section header + grouped
+    /// list styling lives inside that component now.
+    private var redeemSection: some View {
+        RedemptionsSection(
+            pointsTotal: summary?.pointsTotal ?? 0,
+            onRedeemed: { Task { await load() } }
+        )
     }
 
     // MARK: - Referral card
@@ -274,32 +172,34 @@ struct RewardsView: View {
     @ViewBuilder
     private var referralCard: some View {
         if let code = summary?.code {
-            VStack(alignment: .leading, spacing: 14) {
-                MicroLabel(text: "Your referral code", color: TaliseColor.fgDim).kerning(1.5)
-                HStack {
-                    Text(code)
-                        .font(TaliseFont.mono(15, weight: .light))
-                        .foregroundStyle(TaliseColor.fg)
-                    Spacer()
-                    LiquidGlassPill(title: "Copy", icon: "doc.on.doc") {
-                        UIPasteboard.general.string = "https://talise.io/r/\(code)"
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader("Your referral code")
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text(code)
+                            .font(TaliseFont.mono(15, weight: .regular))
+                            .foregroundStyle(TaliseColor.fg)
+                        Spacer(minLength: 8)
+                        LiquidGlassPill(title: "Copy", icon: "doc.on.doc", compact: true) {
+                            UIPasteboard.general.string = "https://talise.io/r/\(code)"
+                        }
+                    }
+                    if (summary?.referralCount ?? 0) > 0 {
+                        Text("\(summary?.referralCount ?? 0) friends joined with your code")
+                            .font(TaliseFont.mono(11, weight: .regular))
+                            .foregroundStyle(TaliseColor.fgMuted)
+                    }
+                    LiquidGlassButton(
+                        title: "Share Talise",
+                        icon: "square.and.arrow.up",
+                        size: .lg
+                    ) {
+                        share(text: "Join me on Talise: https://talise.io/r/\(code)")
                     }
                 }
-                if (summary?.referralCount ?? 0) > 0 {
-                    Text("\(summary?.referralCount ?? 0) friends joined with your code")
-                        .font(TaliseFont.mono(11, weight: .light))
-                        .foregroundStyle(TaliseColor.accent)
-                }
-                LiquidGlassButton(
-                    title: "Share Talise",
-                    icon: "square.and.arrow.up",
-                    size: .lg
-                ) {
-                    share(text: "Join me on Talise: https://talise.io/r/\(code)")
-                }
+                .padding(20)
+                .taliseGlass(cornerRadius: 20)
             }
-            .padding(18)
-            .taliseGlass(cornerRadius: 22)
         }
     }
 

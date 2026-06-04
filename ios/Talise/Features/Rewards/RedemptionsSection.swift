@@ -3,10 +3,11 @@ import UIKit
 
 /// Phase 4 — Redemption catalogue.
 ///
-/// Renders a 2-column grid of perks the user can spend `pointsTotal` on.
-/// Cards: icon, label, point cost, "Redeem" button (disabled + showing
-/// "X pts needed" when the user can't afford). Tap → confirm sheet →
-/// `POST /api/rewards/redeem` → success haptic + parent refetch.
+/// Renders a grouped list of perks the user can spend `pointsTotal` on.
+/// Each row: kind-styled badge, label, one-line description, and a trailing
+/// "X pts" pill (tappable when affordable) or dim "X pts" hint when locked.
+/// Tap → confirm sheet → `POST /api/rewards/redeem` → success haptic +
+/// parent refetch.
 ///
 /// Sits at `// ANCHOR: redeem-section` in `RewardsView.swift`. Owns its
 /// own load lifecycle (catalogue fetch is independent of the rewards
@@ -28,16 +29,9 @@ struct RedemptionsSection: View {
     @State private var redeemingSku: String?
     @State private var lastRedeemError: String?
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-    ]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                MicroLabel(text: "Redeem points", color: TaliseColor.fgDim).kerning(1.5)
-                Spacer()
+            SectionHeader("Redeem points") {
                 if loading {
                     ProgressView()
                         .controlSize(.mini)
@@ -45,20 +39,19 @@ struct RedemptionsSection: View {
                 }
             }
 
-            if items.isEmpty && !loading && error == nil {
+            if loading && items.isEmpty {
+                skeletonCard
+            } else if items.isEmpty && error == nil {
                 emptyState
             } else {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(items) { item in
-                        card(item)
-                    }
-                }
+                catalogueCard
             }
 
             if let lastRedeemError {
                 Text(lastRedeemError)
                     .font(TaliseFont.mono(11, weight: .light))
                     .foregroundStyle(TaliseColor.danger)
+                    .padding(.horizontal, 4)
             }
         }
         .task { await loadCatalogue() }
@@ -69,70 +62,73 @@ struct RedemptionsSection: View {
         }
     }
 
-    // MARK: - Card
+    // MARK: - Catalogue list
 
-    private func card(_ item: RedeemSKU) -> some View {
-        let affordable = item.canAfford || item.pointsCost <= pointsTotal
-        return VStack(alignment: .leading, spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(affordable ? TaliseColor.accent.opacity(0.18) : TaliseColor.surface2)
-                    .frame(width: 36, height: 36)
-                Image(systemName: item.icon ?? "gift")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(affordable ? TaliseColor.accent : TaliseColor.fgMuted)
+    /// One grouped r20 card of `PremiumListRow`s with inset hairlines —
+    /// never a stack of floating per-item cards.
+    private var catalogueCard: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                row(item)
+                if index < items.count - 1 {
+                    RowDivider()
+                }
             }
-
-            Text(item.label)
-                .font(TaliseFont.heading(14, weight: .medium))
-                .foregroundStyle(TaliseColor.fg)
-                .fixedSize(horizontal: false, vertical: true)
-                .lineLimit(2)
-
-            Text(item.description)
-                .font(TaliseFont.body(11, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 4)
-
-            Text("\(item.pointsCost) pts")
-                .font(TaliseFont.mono(11, weight: .light))
-                .foregroundStyle(affordable ? TaliseColor.accent : TaliseColor.fgDim)
-
-            redeemButton(item, affordable: affordable)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
-        .taliseGlass(cornerRadius: 18, tint: affordable ? TaliseColor.accent : nil)
-        .opacity(affordable ? 1.0 : 0.62)
+        .padding(.horizontal, 18)
+        .taliseGlass(cornerRadius: 20)
     }
 
-    @ViewBuilder
-    private func redeemButton(_ item: RedeemSKU, affordable: Bool) -> some View {
-        let busy = redeemingSku == item.sku
-        if affordable {
-            LiquidGlassButton(
-                title: busy ? "Redeeming…" : "Redeem",
-                tint: TaliseColor.accent,
-                size: .sm,
-                loading: busy
-            ) {
-                confirming = item
-            }
-            .disabled(busy)
-        } else {
-            let needed = max(0, item.pointsCost - pointsTotal)
-            HStack {
-                Text("\(needed) pts needed")
-                    .font(TaliseFont.mono(11, weight: .light))
+    private func row(_ item: RedeemSKU) -> some View {
+        let affordable = item.canAfford || item.pointsCost <= pointsTotal
+        let needed = max(0, item.pointsCost - pointsTotal)
+        return PremiumListRow(
+            icon: item.icon ?? "gift",
+            kind: affordable ? .earn : .locked,
+            title: item.label,
+            subtitle: item.description
+        ) {
+            if affordable {
+                LiquidGlassPill(
+                    title: redeemingSku == item.sku ? "…" : "\(item.pointsCost) pts",
+                    tint: TaliseColor.accent,
+                    compact: true
+                ) {
+                    confirming = item
+                }
+            } else {
+                // Non-interactive dim text — not a fake button.
+                Text("\(needed) pts")
+                    .font(TaliseFont.mono(11, weight: .regular))
                     .foregroundStyle(TaliseColor.fgDim)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 36)
-            .taliseGlass(cornerRadius: 18)
         }
+        .opacity(affordable ? 1.0 : 0.55)
+    }
+
+    // MARK: - Loading skeleton
+
+    /// Two skeleton rows inside the real card shape (A.8).
+    private var skeletonCard: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<2, id: \.self) { index in
+                HStack(spacing: 14) {
+                    Circle().fill(TaliseColor.surface2).frame(width: 36, height: 36)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Capsule().fill(TaliseColor.line).frame(width: 80, height: 10)
+                        Capsule().fill(TaliseColor.line).frame(width: 50, height: 8)
+                    }
+                    Spacer()
+                }
+                .frame(minHeight: 60)
+                .padding(.vertical, 4)
+                if index < 1 { RowDivider() }
+            }
+        }
+        .redacted(reason: .placeholder)
+        .opacity(0.6)
+        .padding(.horizontal, 18)
+        .taliseGlass(cornerRadius: 20)
     }
 
     // MARK: - Empty / error states
@@ -141,26 +137,29 @@ struct RedemptionsSection: View {
         VStack(spacing: 6) {
             Text(error ?? "No perks available right now")
                 .font(TaliseFont.body(13, weight: .light))
-                .foregroundStyle(TaliseColor.fg)
+                .foregroundStyle(TaliseColor.fgDim)
             Text("Earn points by sending and saving — perks unlock as you go.")
-                .font(TaliseFont.mono(10, weight: .light))
+                .font(TaliseFont.mono(10, weight: .regular))
                 .foregroundStyle(TaliseColor.fgDim)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
-        .taliseGlass(cornerRadius: 22)
+        .padding(.vertical, 22)
+        .padding(.horizontal, 16)
+        .taliseGlass(cornerRadius: 20)
     }
 
     // MARK: - Confirm sheet
 
     private func confirmSheet(_ sku: RedeemSKU) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                MicroLabel(text: "Confirm redemption", color: TaliseColor.fgDim).kerning(1.5)
+                Text("CONFIRM REDEMPTION")
+                    .font(TaliseFont.mono(10, weight: .regular)).tracking(2.0)
+                    .foregroundStyle(TaliseColor.fgMuted)
                 Text(sku.label)
-                    .font(TaliseFont.heading(22, weight: .medium))
+                    .font(TaliseFont.heading(22, weight: .medium)).kerning(-0.8)
                     .foregroundStyle(TaliseColor.fg)
                 Text(sku.description)
                     .font(TaliseFont.body(13, weight: .light))
@@ -168,28 +167,35 @@ struct RedemptionsSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    MicroLabel(text: "Cost", color: TaliseColor.fgDim).kerning(1.5)
+            VStack(spacing: 0) {
+                PremiumListRow(
+                    icon: sku.icon ?? "gift",
+                    kind: .earn,
+                    title: "Cost"
+                ) {
                     Text("\(sku.pointsCost) pts")
-                        .font(TaliseFont.heading(18, weight: .medium))
+                        .font(TaliseFont.body(14, weight: .light)).kerning(-0.56)
                         .foregroundStyle(TaliseColor.accent)
                 }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    MicroLabel(text: "Balance after", color: TaliseColor.fgDim).kerning(1.5)
+                RowDivider()
+                PremiumListRow(
+                    icon: "creditcard",
+                    kind: .neutral,
+                    title: "Balance after"
+                ) {
                     Text("\(max(0, pointsTotal - sku.pointsCost)) pts")
-                        .font(TaliseFont.heading(18, weight: .medium))
+                        .font(TaliseFont.body(14, weight: .light)).kerning(-0.56)
                         .foregroundStyle(TaliseColor.fg)
                 }
             }
-            .padding(16)
-            .taliseGlass(cornerRadius: 16)
+            .padding(.horizontal, 18)
+            .taliseGlass(cornerRadius: 20)
 
             Spacer()
 
             LiquidGlassButton(
                 title: redeemingSku == sku.sku ? "Redeeming…" : "Confirm redemption",
+                tint: TaliseColor.accent,
                 size: .lg,
                 loading: redeemingSku == sku.sku
             ) {

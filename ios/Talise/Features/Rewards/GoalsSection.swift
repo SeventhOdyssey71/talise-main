@@ -25,23 +25,29 @@ struct GoalsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            MicroLabel(text: "Savings goals", color: TaliseColor.fgDim).kerning(1.5)
+            SectionHeader("Savings goals")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 12) {
-                    ForEach(goals) { goal in
-                        GoalCard(goal: goal)
-                            .onTapGesture { selected = goal }
+                    if loading && goals.isEmpty {
+                        GoalCardSkeleton()
+                        GoalCardSkeleton()
+                    } else {
+                        ForEach(goals) { goal in
+                            GoalCard(goal: goal)
+                                .onTapGesture { selected = goal }
+                        }
                     }
                     NewGoalTile()
                         .onTapGesture { showingNewGoal = true }
                 }
-                .padding(.horizontal, 2)
+                .padding(.horizontal, 4)
             }
-            .frame(height: 156)
+            .frame(height: 148)
             if let error, !error.isEmpty {
                 Text(error)
                     .font(TaliseFont.mono(10, weight: .light))
                     .foregroundStyle(TaliseColor.danger)
+                    .padding(.horizontal, 4)
             }
         }
         .task { await load() }
@@ -85,8 +91,9 @@ private struct GoalCard: View {
                         .lineLimit(1)
                     if let label = goal.deadlineLabel {
                         Text(label)
-                            .font(TaliseFont.mono(10, weight: .light))
-                            .foregroundStyle(TaliseColor.fgMuted)
+                            .font(TaliseFont.mono(10, weight: .regular))
+                            .kerning(-0.32)
+                            .foregroundStyle(TaliseColor.fgDim)
                     }
                 }
                 Spacer()
@@ -104,32 +111,61 @@ private struct GoalCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                 Text("of \(TaliseFormat.local2(goal.targetUsd))")
-                    .font(TaliseFont.mono(10, weight: .light))
+                    .font(TaliseFont.mono(10, weight: .regular))
+                    .kerning(-0.32)
                     .foregroundStyle(TaliseColor.fgDim)
                     .lineLimit(1)
             }
         }
-        .padding(14)
+        .padding(18)
         .frame(width: 168, height: 148, alignment: .topLeading)
-        .taliseGlass(cornerRadius: 18, tint: TaliseColor.accent)
+        .taliseGlass(cornerRadius: 20)
     }
 }
 
+/// Goal progress ring — honest math, no fake floor. An empty goal reads
+/// empty (mirrors `QuietProgressBar`'s clamp with no minimum).
 private struct ProgressRing: View {
     let progress: Double
+
+    private var clamped: CGFloat { CGFloat(min(max(progress, 0), 1)) }
 
     var body: some View {
         ZStack {
             Circle()
                 .stroke(Color.white.opacity(0.08), lineWidth: 4)
             Circle()
-                .trim(from: 0, to: max(0.02, CGFloat(progress)))
+                .trim(from: 0, to: clamped)
                 .stroke(TaliseColor.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            Text("\(Int(progress * 100))%")
-                .font(TaliseFont.mono(9, weight: .light))
+            Text("\(Int(clamped * 100))%")
+                .font(TaliseFont.mono(9, weight: .regular))
                 .foregroundStyle(TaliseColor.accent)
         }
+    }
+}
+
+/// Loading placeholder shaped exactly like a `GoalCard` (A.8) — a badge
+/// disc + two capsule bars, redacted. Honors the section's `loading`.
+private struct GoalCardSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                Capsule().fill(TaliseColor.line).frame(width: 80, height: 10)
+                Spacer()
+                Circle().fill(TaliseColor.surface2).frame(width: 36, height: 36)
+            }
+            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 6) {
+                Capsule().fill(TaliseColor.line).frame(width: 70, height: 12)
+                Capsule().fill(TaliseColor.line).frame(width: 50, height: 8)
+            }
+        }
+        .padding(18)
+        .frame(width: 168, height: 148, alignment: .topLeading)
+        .taliseGlass(cornerRadius: 20)
+        .redacted(reason: .placeholder)
+        .opacity(0.6)
     }
 }
 
@@ -148,20 +184,21 @@ private struct NewGoalTile: View {
                 .font(TaliseFont.heading(13, weight: .medium))
                 .foregroundStyle(TaliseColor.fg)
             Text("Name a bucket")
-                .font(TaliseFont.mono(10, weight: .light))
+                .font(TaliseFont.mono(10, weight: .regular))
+                .kerning(-0.32)
                 .foregroundStyle(TaliseColor.fgDim)
                 .multilineTextAlignment(.center)
         }
         .frame(width: 168, height: 148)
         .background(TaliseColor.bg)
         .overlay(
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(
                     TaliseColor.accent.opacity(0.35),
                     style: StrokeStyle(lineWidth: 1, dash: [4, 4])
                 )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 
@@ -188,8 +225,8 @@ private struct GoalActionSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 28) {
                     summary
                     deposit
                     edit
@@ -198,9 +235,12 @@ private struct GoalActionSheet: View {
                         Text(error)
                             .font(TaliseFont.body(12, weight: .light))
                             .foregroundStyle(TaliseColor.danger)
+                            .padding(.horizontal, 4)
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 22)
+                .padding(.top, 24)
+                .padding(.bottom, 40)
             }
             .taliseScreenBackground()
             .navigationTitle(goal.name)
@@ -215,68 +255,105 @@ private struct GoalActionSheet: View {
     }
 
     private var summary: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("\(TaliseFormat.local2(goal.currentUsd)) saved")
-                .font(TaliseFont.heading(22, weight: .medium))
-                .foregroundStyle(TaliseColor.fg)
-            Text("of \(TaliseFormat.local2(goal.targetUsd))")
-                .font(TaliseFont.mono(11, weight: .light))
-                .foregroundStyle(TaliseColor.fgDim)
+        VStack(alignment: .leading, spacing: 16) {
+            HeroAmount(
+                eyebrow: "Saved so far",
+                value: TaliseFormat.local2(goal.currentUsd),
+                caption: "of \(TaliseFormat.local2(goal.targetUsd)) target",
+                captionAccent: false
+            )
+            QuietProgressBar(progress: goal.progress)
             if let pts = lastPointsAwarded, pts > 0 {
-                Text("+\(pts) points")
-                    .font(TaliseFont.heading(14, weight: .medium))
+                Text("+\(pts) points earned")
+                    .font(TaliseFont.body(13, weight: .light))
                     .foregroundStyle(TaliseColor.accent)
             }
         }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .taliseGlass(cornerRadius: 20, tint: TaliseColor.accent)
     }
 
     private var deposit: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            MicroLabel(text: "Add to goal", color: TaliseColor.fgDim).kerning(1.5)
-            HStack {
-                TextField("0.00", text: $depositText)
-                    .keyboardType(.decimalPad)
-                    .font(TaliseFont.heading(18, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .taliseGlass(cornerRadius: 14)
-                LiquidGlassPill(title: busy ? "..." : "Deposit", tint: TaliseColor.accent) {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader("Add to goal")
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(CurrencySettings.shared.current.symbol)
+                        .font(TaliseFont.heading(28, weight: .medium))
+                        .foregroundStyle(TaliseColor.fgDim)
+                    TextField("0.00", text: $depositText)
+                        .keyboardType(.decimalPad)
+                        .font(TaliseFont.heading(28, weight: .medium))
+                        .kerning(-0.8)
+                        .tint(TaliseColor.accent)
+                        .foregroundStyle(TaliseColor.fg)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(TaliseColor.surface2)
+                )
+
+                Text("Tracking only — funds stay in your earning balance and keep earning points + yield.")
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+
+                LiquidGlassButton(
+                    title: busy ? "Adding…" : "Add to goal",
+                    tint: TaliseColor.accent,
+                    size: .lg,
+                    loading: busy
+                ) {
                     Task { await runDeposit() }
                 }
                 .disabled(busy || !canDeposit)
             }
-            Text("Tracking only — funds sit in your earning balance. Each $1 earns 4 points.")
-                .font(TaliseFont.mono(10, weight: .light))
-                .foregroundStyle(TaliseColor.fgDim)
+            .padding(20)
+            .taliseGlass(cornerRadius: 20)
         }
     }
 
     private var edit: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            MicroLabel(text: "Edit goal", color: TaliseColor.fgDim).kerning(1.5)
-            TextField("Name", text: $editName)
-                .font(TaliseFont.body(14, weight: .light))
-                .foregroundStyle(TaliseColor.fg)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .taliseGlass(cornerRadius: 14)
-            TextField("Target", text: $editTargetText)
-                .keyboardType(.decimalPad)
-                .font(TaliseFont.body(14, weight: .light))
-                .foregroundStyle(TaliseColor.fg)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .taliseGlass(cornerRadius: 14)
-            Button {
-                Task { await runEdit() }
-            } label: {
-                Text("Save changes")
-                    .font(TaliseFont.heading(13, weight: .medium))
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader("Edit goal")
+            VStack(alignment: .leading, spacing: 14) {
+                TextField("Name", text: $editName)
+                    .font(TaliseFont.body(14, weight: .light))
+                    .kerning(-0.48)
+                    .tint(TaliseColor.accent)
                     .foregroundStyle(TaliseColor.fg)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .taliseGlass(cornerRadius: 22)
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(TaliseColor.surface2)
+                    )
+                TextField("Target", text: $editTargetText)
+                    .keyboardType(.decimalPad)
+                    .font(TaliseFont.body(14, weight: .light))
+                    .kerning(-0.48)
+                    .tint(TaliseColor.accent)
+                    .foregroundStyle(TaliseColor.fg)
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(TaliseColor.surface2)
+                    )
+                Button {
+                    Task { await runEdit() }
+                } label: {
+                    Text(busy ? "Saving…" : "Save changes")
+                        .font(TaliseFont.body(13, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
             }
-            .buttonStyle(.plain)
-            .disabled(busy)
+            .padding(20)
+            .taliseGlass(cornerRadius: 20)
         }
     }
 
@@ -285,13 +362,10 @@ private struct GoalActionSheet: View {
             Task { await runArchive() }
         } label: {
             Text("Archive goal")
-                .font(TaliseFont.heading(13, weight: .medium))
+                .font(TaliseFont.body(13, weight: .light))
                 .foregroundStyle(TaliseColor.danger)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .overlay(
-                    Capsule().stroke(TaliseColor.danger.opacity(0.4), lineWidth: 1)
-                )
         }
         .buttonStyle(.plain)
         .disabled(busy)
@@ -309,9 +383,13 @@ private struct GoalActionSheet: View {
         busy = true
         defer { busy = false }
         do {
+            // The user types in their display currency (₦, £, …); the goal
+            // ledger settles in USD. Convert before sending — same path as
+            // EarnView's supply field.
+            let amountUsd = CurrencySettings.shared.convertToUsd(local: amount)
             let resp: SavingsGoalMutationResponse = try await APIClient.shared.post(
                 "/api/rewards/goals/\(goal.id)",
-                body: GoalDepositRequest(amountUsd: amount)
+                body: GoalDepositRequest(amountUsd: amountUsd)
             )
             lastPointsAwarded = resp.pointsAwarded
             depositText = ""
@@ -376,37 +454,53 @@ private struct NewGoalSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    MicroLabel(text: "New savings goal", color: TaliseColor.fgDim).kerning(1.5)
-                    TextField("Goal name (e.g. Laptop fund)", text: $name)
-                        .font(TaliseFont.body(14, weight: .light))
-                        .foregroundStyle(TaliseColor.fg)
-                        .padding(.horizontal, 14).padding(.vertical, 12)
-                        .taliseGlass(cornerRadius: 14)
-                    TextField("Target amount (USD)", text: $targetText)
-                        .keyboardType(.decimalPad)
-                        .font(TaliseFont.body(14, weight: .light))
-                        .foregroundStyle(TaliseColor.fg)
-                        .padding(.horizontal, 14).padding(.vertical, 12)
-                        .taliseGlass(cornerRadius: 14)
-                    LiquidGlassButton(
-                        title: busy ? "..." : "Create goal",
-                        tint: TaliseColor.accent,
-                        size: .lg,
-                        loading: busy
-                    ) {
-                        Task { await create() }
-                    }
-                    .disabled(busy || !canCreate)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    SectionHeader("New savings goal")
+                    VStack(alignment: .leading, spacing: 14) {
+                        TextField("Goal name (e.g. Laptop fund)", text: $name)
+                            .font(TaliseFont.body(14, weight: .light))
+                            .kerning(-0.48)
+                            .tint(TaliseColor.accent)
+                            .foregroundStyle(TaliseColor.fg)
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(TaliseColor.surface2)
+                            )
+                        TextField("Target amount (USD)", text: $targetText)
+                            .keyboardType(.decimalPad)
+                            .font(TaliseFont.body(14, weight: .light))
+                            .kerning(-0.48)
+                            .tint(TaliseColor.accent)
+                            .foregroundStyle(TaliseColor.fg)
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(TaliseColor.surface2)
+                            )
+                        LiquidGlassButton(
+                            title: busy ? "Creating…" : "Create goal",
+                            tint: TaliseColor.accent,
+                            size: .lg,
+                            loading: busy
+                        ) {
+                            Task { await create() }
+                        }
+                        .disabled(busy || !canCreate)
 
-                    if let error {
-                        Text(error)
-                            .font(TaliseFont.body(12, weight: .light))
-                            .foregroundStyle(TaliseColor.danger)
+                        if let error {
+                            Text(error)
+                                .font(TaliseFont.body(12, weight: .light))
+                                .foregroundStyle(TaliseColor.danger)
+                        }
                     }
+                    .padding(20)
+                    .taliseGlass(cornerRadius: 20)
                 }
-                .padding(20)
+                .padding(.horizontal, 22)
+                .padding(.top, 24)
+                .padding(.bottom, 40)
             }
             .taliseScreenBackground()
             .navigationTitle("New goal")

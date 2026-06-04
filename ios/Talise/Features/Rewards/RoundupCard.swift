@@ -66,31 +66,33 @@ struct RoundupCard: View {
             header
 
             if enabled {
-                LiquidGlassDivider()
+                RowDivider(inset: 18)
                 slider
-                LiquidGlassDivider()
+                RowDivider(inset: 18)
                 savedLine
             }
 
             footer
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 22)
+        .taliseGlass(cornerRadius: 20)
         .opacity(enabled ? 1.0 : 0.92)
         .animation(.easeInOut(duration: 0.18), value: enabled)
     }
 
-    // MARK: - Header (title + subtitle + toggle)
+    // MARK: - Header (eyebrow + subtitle + toggle)
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                MicroLabel(text: "Round-up & Save", color: TaliseColor.fgDim)
-                    .kerning(1.5)
+                Text("ROUND-UP & SAVE")
+                    .font(TaliseFont.mono(10, weight: .regular))
+                    .tracking(2.0)
+                    .foregroundStyle(TaliseColor.fgMuted)
                 Text(subtitleCopy)
                     .font(TaliseFont.body(13, weight: .light))
-                    .foregroundStyle(TaliseColor.fg)
+                    .foregroundStyle(TaliseColor.fgMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
@@ -130,13 +132,19 @@ struct RoundupCard: View {
 
     private var slider: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                MicroLabel(text: "Save percentage", color: TaliseColor.fgDim)
-                    .kerning(1.5)
+            HStack(alignment: .firstTextBaseline) {
+                Text("SAVE PERCENTAGE")
+                    .font(TaliseFont.mono(10, weight: .regular))
+                    .tracking(2.0)
+                    .foregroundStyle(TaliseColor.fgMuted)
                 Spacer()
                 Text("\(percentage)%")
-                    .font(TaliseFont.mono(13, weight: .light))
-                    .foregroundStyle(TaliseColor.accent)
+                    .font(TaliseFont.heading(22, weight: .medium))
+                    .kerning(-0.8)
+                    // White, not green — this is a setting readout, not an
+                    // earnings figure. The ONE green hero on this card is the
+                    // "Saved via round-up" total below.
+                    .foregroundStyle(TaliseColor.fg)
             }
             // Step:1 keeps the slider on integer percents (the backend
             // clamps to 1..10 ints anyway). onEditingChanged fires the
@@ -164,11 +172,13 @@ struct RoundupCard: View {
     private var savedLine: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
-                MicroLabel(text: "Saved via round-up", color: TaliseColor.fgDim)
-                    .kerning(1.5)
+                Text("SAVED VIA ROUND-UP")
+                    .font(TaliseFont.mono(10, weight: .regular))
+                    .tracking(2.0)
+                    .foregroundStyle(TaliseColor.fgMuted)
                 Text(TaliseFormat.local2(savedUsd))
                     .font(TaliseFont.heading(20, weight: .medium))
-                    .kerning(-0.6)
+                    .kerning(-0.8)
                     .foregroundStyle(TaliseColor.accent)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
@@ -176,7 +186,7 @@ struct RoundupCard: View {
             Spacer()
             Image(systemName: "leaf.fill")
                 .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(TaliseColor.accent.opacity(0.7))
+                .foregroundStyle(TaliseColor.fgMuted)
         }
     }
 
@@ -184,17 +194,13 @@ struct RoundupCard: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("How it works")
-                .font(TaliseFont.mono(10, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
-                .kerning(1.2)
-            Text("Every time you send money, we sweep your chosen percentage into your earning balance at ~5% APY. Funds stay in your wallet — and you earn 5 pts per $1 saved.")
-                .font(TaliseFont.body(11, weight: .light))
+            Text("Funds stay in your wallet and earn 5 pts per $1 saved.")
+                .font(TaliseFont.body(12, weight: .light))
                 .foregroundStyle(TaliseColor.fgDim)
                 .fixedSize(horizontal: false, vertical: true)
             if let error {
                 Text(error)
-                    .font(TaliseFont.mono(10, weight: .light))
+                    .font(TaliseFont.mono(10, weight: .regular))
                     .foregroundStyle(TaliseColor.danger)
                     .padding(.top, 2)
             }

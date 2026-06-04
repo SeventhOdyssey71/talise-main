@@ -39,9 +39,9 @@ struct EarnView: View {
         // Insights round out the surface as "how your money's working
         // for you". Rewards keeps the points / perks / referral.
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 22) {
-                header
-                venueCards
+            VStack(alignment: .leading, spacing: 28) {
+                heroCard
+                venueSection
                 supplyCard
                 // Money-management sections — relocated from Rewards.
                 // Each owns its own data fetch via .task internally;
@@ -54,14 +54,9 @@ struct EarnView: View {
                         .font(TaliseFont.body(12, weight: .light))
                         .foregroundStyle(TaliseColor.danger)
                 }
-                // "Now earning" success state intentionally NOT rendered
-                // here — it appears INSIDE supplyCard (replacing the
-                // input form) so the user sees the confirmation where
-                // they tapped, not at the bottom of the scroll below
-                // RoundupCard / Goals / Insights. See `supplyCard`.
                 Spacer(minLength: 120)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 22)
             .padding(.top, 24)
         }
         .refreshable { await load(); await loadRewards() }
@@ -107,37 +102,40 @@ struct EarnView: View {
         .pinGateHost()
     }
 
-    // MARK: - Header
+    // MARK: - Hero
 
-    private var header: some View {
-        // Dropped the "EARN" eyebrow — the tab bar already identifies
-        // the screen and "Make your money work" + the APY line carry
-        // the brand voice.
-        VStack(alignment: .leading, spacing: 6) {
-            // Fiat-framed headline — the user earns on *their money*, in
-            // their display currency ("on your naira" / "on your dollars"),
-            // never "supply USDsui to NAVI" (master plan §8: chain stays
-            // invisible; §9 GENIUS: must read as earning on dollars, not a
-            // stablecoin-balance yield feature).
+    /// The single tinted hero card. Makes the best-venue APY the headline
+    /// number while keeping the fiat framing — the user earns on *their
+    /// money*, in their display currency ("on your naira"/"on your dollars"),
+    /// never "supply USDsui to NAVI" (master plan §8: chain stays invisible;
+    /// §9 GENIUS: must read as earning on dollars, not a stablecoin-balance
+    /// yield feature). When no comparison has loaded the hero reads as a
+    /// quiet "connecting" placeholder rather than a hard zero.
+    private var heroCard: some View {
+        Group {
             if let best = comparison?.best {
-                Text(String(
-                    format: "Earn up to %.2f%% on your %@",
-                    best.apy * 100,
-                    moneyWord
-                ))
-                .font(TaliseFont.heading(24, weight: .medium))
-                .kerning(-1)
-                .foregroundStyle(TaliseColor.fg)
+                HeroAmount(
+                    eyebrow: "Best rate today",
+                    value: String(format: "%.2f%%", best.apy * 100),
+                    caption: String(
+                        format: "Earning on your %@ · not part of your balance",
+                        moneyWord
+                    ),
+                    captionAccent: false,
+                    loading: false
+                )
             } else {
-                Text(String(format: "Earn on your %@", moneyWord))
-                    .font(TaliseFont.heading(24, weight: .medium))
-                    .kerning(-1)
-                    .foregroundStyle(TaliseColor.fg)
+                HeroAmount(
+                    eyebrow: "Best rate today",
+                    value: "—",
+                    caption: "Connecting to earning venues…",
+                    captionAccent: false,
+                    loading: loading
+                )
             }
-            Text("A separate lending service, not part of your balance")
-                .font(TaliseFont.body(12, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
         }
+        .padding(20)
+        .taliseGlass(cornerRadius: 20, tint: TaliseColor.accent)
     }
 
     /// Plural "money word" for the user's display currency, used in the
@@ -175,196 +173,178 @@ struct EarnView: View {
         }
     }
 
-    private var venueCards: some View {
-        VStack(spacing: 12) {
+    /// Venues sorted best-first so the highest-yield option leads the list
+    /// (and gets the BEST tag). The `best` venue from the comparison floats
+    /// to the top; the rest keep their server order.
+    private func orderedVenues(_ cmp: YieldComparison) -> [YieldVenue] {
+        let visible = visibleVenues(cmp.venues)
+        guard let best = cmp.best?.venue else { return visible }
+        return visible.sorted { a, _ in a.venue == best }
+    }
+
+    private var venueSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader("Where your money earns")
+            venueListCard
+        }
+    }
+
+    @ViewBuilder
+    private var venueListCard: some View {
+        VStack(spacing: 0) {
             if loading {
-                ForEach(0..<2, id: \.self) { _ in
-                    venuePlaceholder
-                }
+                venueSkeletonRow
+                RowDivider()
+                venueSkeletonRow
             } else if let cmp = comparison, !cmp.venues.isEmpty {
-                ForEach(visibleVenues(cmp.venues)) { v in
-                    venueCard(v, best: v.venue == cmp.best?.venue)
+                let venues = orderedVenues(cmp)
+                ForEach(Array(venues.enumerated()), id: \.element.id) { idx, v in
+                    venueRow(v, best: v.venue == cmp.best?.venue)
+                    if idx < venues.count - 1 { RowDivider() }
                 }
             } else {
                 emptyState
             }
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 4)
+        .taliseGlass(cornerRadius: 20)
     }
 
-    private var venuePlaceholder: some View {
-        HStack {
+    private var venueSkeletonRow: some View {
+        HStack(spacing: 14) {
+            Circle().fill(TaliseColor.surface2).frame(width: 36, height: 36)
             VStack(alignment: .leading, spacing: 6) {
-                Capsule().fill(TaliseColor.line).frame(width: 70, height: 10)
-                Capsule().fill(TaliseColor.line).frame(width: 110, height: 8)
+                Capsule().fill(TaliseColor.line).frame(width: 80, height: 10)
+                Capsule().fill(TaliseColor.line).frame(width: 50, height: 8)
             }
             Spacer()
-            Capsule().fill(TaliseColor.line).frame(width: 60, height: 14)
         }
-        .padding(16)
-        .taliseGlass(cornerRadius: 20)
+        .frame(minHeight: 60)
+        .padding(.vertical, 4)
         .redacted(reason: .placeholder)
-        .opacity(0.5)
+        .opacity(0.6)
     }
 
     private var emptyState: some View {
         VStack(spacing: 4) {
             Text("No live venues right now.")
                 .font(TaliseFont.body(13, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
+                .foregroundStyle(TaliseColor.fgDim)
             Text("Pull to refresh.")
-                .font(TaliseFont.mono(10, weight: .light))
+                .font(TaliseFont.mono(10, weight: .regular))
                 .foregroundStyle(TaliseColor.fgDim)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
-        .taliseGlass(cornerRadius: 20)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 22)
     }
 
-    private func venueCard(_ v: YieldVenue, best: Bool) -> some View {
+    @ViewBuilder
+    private func venueRow(_ v: YieldVenue, best: Bool) -> some View {
         let hasPosition = (v.supplied ?? 0) > 0
-        return Button {
+        // APY < 1bp reads as "—" instead of "0.00%". DeepBook's USDsui
+        // margin pool currently has near-zero borrow utilization
+        // (suppliers earn util × borrowRate × 0.8); calling that "0.00%
+        // APY" misleads — it's "no demand for loans right now" not
+        // "guaranteed to pay 0".
+        let live = v.apy >= 0.0001
+        let apyText = live ? String(format: "%.2f%%", v.apy * 100) : "—"
+        // Localized subtitle — Nigerian user sees ₦, US user sees $, UK
+        // sees £, etc. Routes through TaliseFormat / CurrencySettings.
+        let subtitle = hasPosition ? "Supplied \(TaliseFormat.local2(v.supplied ?? 0))" : "Idle"
+
+        Button {
             // Only opens a withdraw sheet when the user actually has
-            // something to redeem — idle cards stay non-interactive.
+            // something to redeem — idle rows stay non-interactive.
             if hasPosition { withdrawTarget = v }
         } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(v.displayName)
-                        .font(TaliseFont.heading(14, weight: .medium))
-                        .foregroundStyle(TaliseColor.fg)
-                    if let supplied = v.supplied, supplied > 0 {
-                        HStack(spacing: 6) {
-                            // Localized — Nigerian user sees ₦, US user sees $,
-                            // UK user sees £, etc. Routes through TaliseFormat
-                            // which picks up CurrencySettings.shared.current.
-                            Text("Supplied \(TaliseFormat.local2(supplied))")
-                                .font(TaliseFont.mono(11, weight: .light))
-                                .foregroundStyle(TaliseColor.fgMuted)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(TaliseColor.fgDim)
-                        }
-                    } else {
-                        Text("Idle")
-                            .font(TaliseFont.mono(11, weight: .light))
-                            .foregroundStyle(TaliseColor.fgDim)
+            PremiumListRow(
+                icon: "leaf.fill",
+                kind: hasPosition ? .earn : .locked,
+                title: v.displayName,
+                subtitle: subtitle,
+                showsChevron: hasPosition
+            ) {
+                HStack(spacing: 8) {
+                    if best {
+                        Text("BEST")
+                            .font(TaliseFont.mono(9, weight: .regular))
+                            .tracking(1)
+                            .foregroundStyle(TaliseColor.accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule().fill(TaliseColor.accent.opacity(0.15))
+                            )
                     }
+                    Text(apyText)
+                        .font(TaliseFont.heading(22, weight: .medium))
+                        .kerning(-0.8)
+                        .foregroundStyle(live ? TaliseColor.accent : TaliseColor.fgDim)
                 }
-                Spacer()
-                // APY < 1bp reads as "—" instead of "0.00%". DeepBook's
-                // USDsui margin pool currently has near-zero borrow
-                // utilization (suppliers earn util × borrowRate × 0.8);
-                // calling that "0.00% APY" misleads — it's "no demand
-                // for loans right now" not "guaranteed to pay 0".
-                Text(v.apy >= 0.0001
-                     ? String(format: "%.2f%%", v.apy * 100)
-                     : "—")
-                    .font(TaliseFont.heading(22, weight: .medium))
-                    .kerning(-0.8)
-                    .foregroundStyle(v.apy >= 0.0001
-                                     ? TaliseColor.fg
-                                     : TaliseColor.fgDim)
             }
-            .padding(16)
-            .taliseGlass(cornerRadius: 20)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .opacity(hasPosition ? 1.0 : 0.55)
         .disabled(!hasPosition)
     }
 
     // MARK: - Supply card
 
     private var supplyCard: some View {
-        // Success state takes over the entire card so the user sees
-        // confirmation exactly where they tapped "Start earning",
-        // instead of as a banner at the bottom of the Earn scroll
-        // (which read as "appeared in History" — bug report 2026-05-29).
-        // The card auto-clears the success state after ~2s so the
-        // user returns to the input form ready to supply more, and
-        // the Home tab's activity feed already optimistically inserts
-        // the row via `.taliseTxCompleted` (see HomeView.applyOptimisticTx).
-        if let success {
-            return AnyView(supplySuccessCard(digest: success))
-        }
+        // The full-screen `SavingsSuccessView` is now the single success
+        // treatment (raised via `savingsPopupAmount`); the old in-card
+        // auto-dismiss celebration was removed so there's no competing
+        // double-confirmation. The Home tab's activity feed already
+        // optimistically inserts the row via `.taliseTxCompleted`.
         let currency = CurrencySettings.shared.current
-        return AnyView(VStack(alignment: .leading, spacing: 14) {
-            MicroLabel(text: "Amount", color: TaliseColor.fgDim).kerning(1.5)
-            HStack {
-                // Symbol prefix so the value reads naturally (₦12,000
-                // not "12000 NGN"). Keeps a single source of truth for
-                // formatting via TaliseFormat / CurrencySettings.
-                Text(currency.symbol)
-                    .font(TaliseFont.heading(28, weight: .medium))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                TextField("0.00", text: $amount)
-                    .keyboardType(.decimalPad)
-                    .font(TaliseFont.heading(28, weight: .medium))
-                    .kerning(-0.8)
-                    .foregroundStyle(TaliseColor.fg)
-                    .tint(TaliseColor.accent)
-                Spacer()
-                Text(currency.code)
-                    .font(TaliseFont.heading(14, weight: .medium))
-                    .foregroundStyle(TaliseColor.fgMuted)
-            }
-            .padding(14)
-            .taliseGlass(cornerRadius: 16)
-
-            if let projection = earningsProjection {
-                projectionBand(projection)
-            }
-
-            LiquidGlassButton(
-                title: supplying ? "Supplying…" : supplyLabel,
-                tint: TaliseColor.accent,
-                size: .lg,
-                loading: supplying
-            ) {
-                supplyTapped()
-            }
-            .disabled(!canSupply)
-        }
-        .padding(20)
-        .taliseGlass(cornerRadius: 25))
-    }
-
-    /// Post-tap celebration that REPLACES the supply input form in
-    /// place. Lives inside `supplyCard` so the user reads the success
-    /// confirmation exactly where they triggered it — not as an inline
-    /// banner at the bottom of the Earn scroll. Auto-clears after 2s.
-    private func supplySuccessCard(digest: String) -> some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Circle().fill(TaliseColor.accent.opacity(0.18))
-                    .frame(width: 56, height: 56)
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(TaliseColor.accent)
-            }
-            VStack(spacing: 4) {
-                Text("Now earning")
-                    .font(TaliseFont.heading(18, weight: .medium))
-                    .kerning(-0.4)
-                    .foregroundStyle(TaliseColor.fg)
-                MicroLabel(
-                    text: digest.prefix(20) + "…",
-                    color: TaliseColor.fgDim
+        return VStack(alignment: .leading, spacing: 12) {
+            SectionHeader("Add to earnings")
+            VStack(alignment: .leading, spacing: 14) {
+                // Amount input sub-block — quiet surface2 inset so the
+                // figure reads as an editable field inside the card.
+                HStack(spacing: 6) {
+                    // Symbol prefix so the value reads naturally (₦12,000
+                    // not "12000 NGN"). Single source of truth for
+                    // formatting via TaliseFormat / CurrencySettings.
+                    Text(currency.symbol)
+                        .font(TaliseFont.heading(28, weight: .medium))
+                        .foregroundStyle(TaliseColor.fgDim)
+                    TextField("0.00", text: $amount)
+                        .keyboardType(.decimalPad)
+                        .font(TaliseFont.heading(28, weight: .medium))
+                        .kerning(-0.8)
+                        .foregroundStyle(TaliseColor.fg)
+                        .tint(TaliseColor.accent)
+                    Spacer()
+                    Text(currency.code)
+                        .font(TaliseFont.mono(11, weight: .regular))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(TaliseColor.surface2)
                 )
+
+                if let projection = earningsProjection {
+                    projectionBand(projection)
+                }
+
+                LiquidGlassButton(
+                    title: supplying ? "Adding…" : supplyLabel,
+                    tint: TaliseColor.accent,
+                    size: .lg,
+                    loading: supplying
+                ) {
+                    supplyTapped()
+                }
+                .disabled(!canSupply)
             }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
-        .padding(.horizontal, 20)
-        .taliseGlass(cornerRadius: 25, tint: TaliseColor.accent)
-        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-        .task {
-            // Brief celebration, then drop back to the input form so
-            // the user can supply again. The Home tab already shows
-            // the new tx via the optimistic-insert pipeline, so we
-            // don't need to keep the banner up.
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            success = nil
+            .padding(20)
+            .taliseGlass(cornerRadius: 20)
         }
     }
 
@@ -410,46 +390,39 @@ struct EarnView: View {
     private func projectionBand(
         _ p: (day: Double, week: Double, month: Double, year: Double)
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            MicroLabel(
-                text: "You'll earn",
-                color: TaliseColor.fgDim
-            ).kerning(1.5)
-            VStack(spacing: 0) {
-                projectionRow(label: "Day",   value: p.day)
-                projectionRowDivider
-                projectionRow(label: "Week",  value: p.week)
-                projectionRowDivider
-                projectionRow(label: "Month", value: p.month)
-                projectionRowDivider
-                projectionRow(label: "Year",  value: p.year, accent: true)
+        // Year is the point — it's the hero figure (heading-18 accent).
+        // Day / month sit beneath as quiet supporting context. No
+        // four-row ledger; the projection answers "what do I get" in
+        // one glance.
+        VStack(alignment: .leading, spacing: 8) {
+            Text("YOU'LL EARN A YEAR")
+                .font(TaliseFont.mono(10, weight: .regular)).tracking(2.0)
+                .foregroundStyle(TaliseColor.fgMuted)
+            Text(formatProjection(p.year))
+                .font(TaliseFont.heading(18, weight: .medium))
+                .kerning(-0.6)
+                .foregroundStyle(TaliseColor.accent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            HStack(spacing: 6) {
+                Text("\(formatProjection(p.day)) a day")
+                Text("·")
+                Text("\(formatProjection(p.month)) a month")
             }
-            .padding(.vertical, 4)
-            .taliseGlass(cornerRadius: 16)
+            .font(TaliseFont.mono(11, weight: .regular))
+            .kerning(-0.32)
+            .foregroundStyle(TaliseColor.fgDim)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(TaliseColor.surface2)
+        )
         .transition(.opacity.combined(with: .move(edge: .top)))
         .animation(.easeInOut(duration: 0.18), value: amount)
-    }
-
-    private func projectionRow(label: String, value: Double, accent: Bool = false) -> some View {
-        HStack {
-            Text(label)
-                .font(TaliseFont.body(13, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
-            Spacer()
-            Text(formatProjection(value))
-                .font(TaliseFont.heading(15, weight: .medium))
-                .kerning(-0.4)
-                .foregroundStyle(accent ? TaliseColor.accent : TaliseColor.fg)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
-    }
-
-    private var projectionRowDivider: some View {
-        LiquidGlassDivider(inset: 12)
     }
 
     private func formatProjection(_ v: Double) -> String {
@@ -466,15 +439,15 @@ struct EarnView: View {
         }
         // Render the button caption in the user's display currency
         // (₦12,000 not "$12000") so the action matches the input pill.
-        // Drop the venue name — users care about the action ("Earn $X")
-        // not which protocol routes underneath.
-        return "Earn \(TaliseFormat.local2(amountUsd))"
+        // Drop the venue name — users care about the action not which
+        // protocol routes underneath.
+        return "Add \(TaliseFormat.local2(amountUsd))"
     }
 
-    // The inline `successBanner` was removed 2026-05-29 — the
-    // "Now earning" celebration now renders inside `supplyCard` via
-    // `supplySuccessCard(digest:)` so it surfaces where the user
-    // tapped, not at the bottom of the Earn scroll.
+    // Success is now a single full-screen treatment (`SavingsSuccessView`,
+    // raised via `savingsPopupAmount`). The old inline `successBanner` and
+    // in-card auto-dismiss celebration were both removed so nothing
+    // competes with it.
 
     // MARK: - Data
 
@@ -688,7 +661,7 @@ private struct WithdrawSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 28) {
                     header
                     positionCard
                     partialField
@@ -702,8 +675,8 @@ private struct WithdrawSheet: View {
                     }
                     Spacer(minLength: 16)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 22)
+                .padding(.horizontal, 22)
+                .padding(.top, 24)
             }
             actionBar
         }
@@ -727,13 +700,32 @@ private struct WithdrawSheet: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            MicroLabel(text: "Position", color: TaliseColor.fgDim).kerning(1.5)
-            Text("Your earnings")
-                .font(TaliseFont.heading(24, weight: .medium))
-                .kerning(-1)
-                .foregroundStyle(TaliseColor.fg)
+        // The hero figure is the user's earnings — cumulative yield when
+        // the venue exposes it, otherwise the supplied position. Symbol
+        // rides the figure; the localized formatter is applied to the
+        // pre-symbol value via a stripped local2.
+        let symbol = CurrencySettings.shared.current.symbol
+        let heroUsd = earnedSoFar ?? supplied
+        return HeroAmount(
+            eyebrow: earnedSoFar != nil ? "Your earnings" : "Your position",
+            value: localAmount(heroUsd),
+            symbol: symbol,
+            caption: earnedSoFar != nil
+                ? "Interest accrued on \(TaliseFormat.local2(supplied))"
+                : "Supplied and earning"
+        )
+    }
+
+    /// Local-currency figure WITHOUT the symbol — `HeroAmount` rides the
+    /// symbol separately. `TaliseFormat.local2` prefixes the symbol, so we
+    /// strip it here for the hero's symbol slot.
+    private func localAmount(_ usd: Double) -> String {
+        let formatted = TaliseFormat.local2(usd)
+        let symbol = CurrencySettings.shared.current.symbol
+        if formatted.hasPrefix(symbol) {
+            return String(formatted.dropFirst(symbol.count))
         }
+        return formatted
     }
 
     private var positionCard: some View {
@@ -742,7 +734,7 @@ private struct WithdrawSheet: View {
         // local formatter applies CurrencySettings.shared.current.
         VStack(spacing: 0) {
             row(label: "Supplied", value: TaliseFormat.local2(supplied))
-            rowDivider
+            RowDivider(inset: 18)
             row(
                 label: "APY",
                 value: String(format: "%.2f%%", apy * 100),
@@ -750,19 +742,17 @@ private struct WithdrawSheet: View {
             )
             // "Earned so far" — server-computed cumulative yield since
             // the user's first supply. Only shown when the venue
-            // exposes the breakdown (Navi today). Green accent +
-            // larger weight so the user reads it as the headline
-            // number; the per-day burn rate sits beneath in muted
-            // copy.
+            // exposes the breakdown (Navi today). Green accent so the
+            // user reads it as the earnings number.
             if let earned = earnedSoFar {
-                rowDivider
+                RowDivider(inset: 18)
                 row(
                     label: "Earned so far",
                     value: TaliseFormat.local2(earned),
                     accent: true
                 )
             }
-            rowDivider
+            RowDivider(inset: 18)
             // Show actual amount whenever there's a position earning yield —
             // the previous `>= 0.0001 USD` threshold hid daily earnings for
             // small positions (e.g. a ₦57 supplied position earns ~₦0.10/day
@@ -776,6 +766,7 @@ private struct WithdrawSheet: View {
                     : "—"
             )
         }
+        .padding(.horizontal, 20)
         .padding(.vertical, 4)
         .taliseGlass(cornerRadius: 20)
     }
@@ -783,61 +774,72 @@ private struct WithdrawSheet: View {
     private func row(label: String, value: String, accent: Bool = false) -> some View {
         HStack {
             Text(label)
-                .font(TaliseFont.body(13, weight: .light))
+                .font(TaliseFont.body(14, weight: .light))
+                .kerning(-0.48)
                 .foregroundStyle(TaliseColor.fgMuted)
             Spacer()
             Text(value)
-                .font(TaliseFont.heading(15, weight: .medium))
-                .kerning(-0.4)
+                .font(TaliseFont.body(14, weight: .light))
+                .kerning(-0.56)
                 .foregroundStyle(accent ? TaliseColor.accent : TaliseColor.fg)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 13)
-    }
-
-    private var rowDivider: some View {
-        LiquidGlassDivider(inset: 14)
+        .frame(minHeight: 52)
     }
 
     private var partialField: some View {
         let currency = CurrencySettings.shared.current
         return VStack(alignment: .leading, spacing: 10) {
-            MicroLabel(text: "Withdraw amount", color: TaliseColor.fgDim).kerning(1.5)
-            HStack {
-                // Symbol prefix so the value reads naturally for the
-                // user's locale. Input + display + the MAX shortcut
-                // all stay in their selected currency; conversion to
-                // USDsui happens once at submit via partialUsd.
-                Text(currency.symbol)
-                    .font(TaliseFont.heading(22, weight: .medium))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                TextField("0.00", text: $partial)
-                    .keyboardType(.decimalPad)
-                    .font(TaliseFont.heading(22, weight: .medium))
-                    .kerning(-0.6)
-                    .foregroundStyle(TaliseColor.fg)
-                    .tint(TaliseColor.accent)
-                Spacer()
-                LiquidGlassPill(title: "MAX", tint: TaliseColor.accent, compact: true) {
-                    // Convert the on-chain supplied USDsui balance to
-                    // the user's display currency so MAX fills the
-                    // field in the units they're typing in.
-                    let (localMax, _) = CurrencySettings.shared.convert(usd: supplied)
-                    partial = String(format: "%.2f", localMax)
+            SectionHeader("Withdraw amount")
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    // Symbol prefix so the value reads naturally for the
+                    // user's locale. Input + display + the MAX shortcut
+                    // all stay in their selected currency; conversion to
+                    // USDsui happens once at submit via partialUsd.
+                    Text(currency.symbol)
+                        .font(TaliseFont.heading(22, weight: .medium))
+                        .foregroundStyle(TaliseColor.fgDim)
+                    TextField("0.00", text: $partial)
+                        .keyboardType(.decimalPad)
+                        .font(TaliseFont.heading(22, weight: .medium))
+                        .kerning(-0.6)
+                        .foregroundStyle(TaliseColor.fg)
+                        .tint(TaliseColor.accent)
+                    Spacer()
+                    Text(currency.code)
+                        .font(TaliseFont.mono(11, weight: .regular))
+                        .foregroundStyle(TaliseColor.fgDim)
                 }
-                Text(currency.code)
-                    .font(TaliseFont.heading(13, weight: .medium))
-                    .foregroundStyle(TaliseColor.fgMuted)
+                HStack {
+                    MicroLabel(
+                        text: "Available \(TaliseFormat.local2(supplied))",
+                        color: TaliseColor.fgDim
+                    )
+                    Spacer()
+                    LiquidGlassPill(title: "MAX", tint: TaliseColor.accent, compact: true) {
+                        // Convert the on-chain supplied USDsui balance to
+                        // the user's display currency so MAX fills the
+                        // field in the units they're typing in.
+                        let (localMax, _) = CurrencySettings.shared.convert(usd: supplied)
+                        partial = String(format: "%.2f", localMax)
+                    }
+                }
             }
-            .padding(14)
-            .taliseGlass(cornerRadius: 16)
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(TaliseColor.surface2)
+            )
         }
     }
 
     private var actionBar: some View {
-        VStack(spacing: 10) {
+        // ONE primary CTA (the partial withdraw) — the "earned" and
+        // "all" shortcuts sit beneath as quiet pills so nothing competes
+        // with the primary. All three actions are preserved.
+        VStack(spacing: 12) {
             LiquidGlassButton(
                 title: withdrawing
                     ? "Working…"
@@ -852,54 +854,54 @@ private struct WithdrawSheet: View {
             }
             .disabled(!canWithdrawPartial)
 
-            // "Withdraw earned" — server computes the exact USDsui
-            // earned amount at request time so the value on the
-            // button label can lag chain truth by a few seconds
-            // without a misclick burning the user's principal. The
-            // button is only visible when there's enough accrued
-            // yield to be worth the gas (see WITHDRAW_EARNED_DUST_USD).
-            if let earned = earnedSoFar, canWithdrawEarned {
-                let (local, _) = CurrencySettings.shared.convert(usd: earned)
-                let label = "Withdraw earned (\(CurrencySettings.shared.current.symbol)\(String(format: "%.2f", local)))"
-                LiquidGlassButton(
-                    title: withdrawing ? "Working…" : label,
-                    tint: TaliseColor.accent,
-                    size: .md,
-                    loading: withdrawing
-                ) {
-                    Task { await withdrawEarned() }
+            HStack(spacing: 10) {
+                // "Withdraw earned" — server computes the exact USDsui
+                // earned amount at request time so the value on the
+                // label can lag chain truth by a few seconds without a
+                // misclick burning the user's principal. Only shown when
+                // there's enough accrued yield to be worth the gas (see
+                // WITHDRAW_EARNED_DUST_USD).
+                if let earned = earnedSoFar, canWithdrawEarned {
+                    let (local, _) = CurrencySettings.shared.convert(usd: earned)
+                    let label = "Earned \(CurrencySettings.shared.current.symbol)\(String(format: "%.2f", local))"
+                    LiquidGlassPill(title: label, tint: TaliseColor.accent) {
+                        Task { await withdrawEarned() }
+                    }
+                    .disabled(withdrawing)
                 }
-                .disabled(withdrawing)
+                LiquidGlassPill(title: "Withdraw all + rewards") {
+                    Task { await withdraw(all: true) }
+                }
+                .disabled(withdrawing || supplied <= 0)
+                Spacer(minLength: 0)
             }
-
-            LiquidGlassButton(
-                title: "Withdraw all + rewards",
-                tint: nil,
-                size: .md
-            ) {
-                Task { await withdraw(all: true) }
-            }
-            .disabled(withdrawing || supplied <= 0)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 22)
         .padding(.top, 12)
         .padding(.bottom, 32)
     }
 
     private func successBanner(_ digest: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(TaliseColor.accent)
+        HStack(spacing: 14) {
+            ZStack {
+                Circle().fill(TaliseColor.accent.opacity(0.18)).frame(width: 36, height: 36)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(TaliseColor.accent)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text("Withdrawn")
-                    .font(TaliseFont.body(13, weight: .light))
+                    .font(TaliseFont.body(14, weight: .light)).kerning(-0.48)
                     .foregroundStyle(TaliseColor.fg)
-                MicroLabel(text: digest.prefix(20) + "…", color: TaliseColor.fgDim)
+                Text(digest.prefix(20) + "…")
+                    .font(TaliseFont.mono(11)).kerning(-0.32)
+                    .foregroundStyle(TaliseColor.fgDim)
             }
-            Spacer()
+            Spacer(minLength: 8)
         }
-        .padding(14)
-        .taliseGlass(cornerRadius: 16, tint: TaliseColor.accent)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .taliseGlass(cornerRadius: 20, tint: TaliseColor.accent)
     }
 
     private func withdraw(all: Bool) async {
@@ -1057,15 +1059,16 @@ private struct EarnDisclosureSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 28) {
                     header
                     pointsCard
                     Text("By continuing you’re choosing to use this optional service. You can withdraw your money at any time. This is not financial advice.")
                         .font(TaliseFont.body(12, weight: .light))
                         .foregroundStyle(TaliseColor.fgDim)
+                        .padding(.horizontal, 4)
                     Spacer(minLength: 8)
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 22)
                 .padding(.top, 26)
             }
             actionBar
@@ -1077,7 +1080,9 @@ private struct EarnDisclosureSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            MicroLabel(text: "Before you start", color: TaliseColor.fgDim).kerning(1.5)
+            Text("BEFORE YOU START")
+                .font(TaliseFont.mono(10, weight: .regular)).tracking(2.0)
+                .foregroundStyle(TaliseColor.fgMuted)
             Text(apy > 0
                  ? String(format: "Earn around %.2f%% on your %@", apy * 100, moneyWord)
                  : "Earn on your \(moneyWord)")
@@ -1094,40 +1099,45 @@ private struct EarnDisclosureSheet: View {
     /// (1) it's a separate service, (2) not part of your balance,
     /// (3) returns aren't guaranteed.
     private var pointsCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 0) {
             point(
                 icon: "building.columns",
                 title: "A separate lending service",
                 body: "Earn is optional and runs through a third-party lending protocol. It’s not a banking or savings product offered by Talise."
             )
-            divider
+            RowDivider()
             point(
                 icon: "wallet.pass",
                 title: "Not part of your balance",
                 body: "Money you put into Earn is moved into the lending service, separate from your spendable balance. You choose what to add — nothing moves automatically."
             )
-            divider
+            RowDivider()
             point(
                 icon: "chart.line.uptrend.xyaxis",
                 title: "Returns aren’t guaranteed",
                 body: "Rates vary and can change. Earnings are not guaranteed, and your money is not insured or protected against loss."
             )
         }
-        .padding(.vertical, 6)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 4)
         .taliseGlass(cornerRadius: 20)
     }
 
     private func point(icon: String, title: String, body: String) -> some View {
+        // Mirrors the `PremiumListRow` badge (36×36 earn disc + accent
+        // glyph) so the disclosure reads as part of the same kit, but
+        // carries a wrapping body paragraph the universal row can't — the
+        // explainer text here is regulatory and must render in full.
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(TaliseColor.accent)
-                .frame(width: 22, alignment: .center)
-                .padding(.top, 2)
+            ZStack {
+                Circle().fill(TaliseColor.accent.opacity(0.18)).frame(width: 36, height: 36)
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(TaliseColor.accent)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(TaliseFont.heading(15, weight: .medium))
-                    .kerning(-0.3)
+                    .font(TaliseFont.body(14, weight: .light)).kerning(-0.48)
                     .foregroundStyle(TaliseColor.fg)
                 Text(body)
                     .font(TaliseFont.body(13, weight: .light))
@@ -1136,12 +1146,7 @@ private struct EarnDisclosureSheet: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 18)
         .padding(.vertical, 16)
-    }
-
-    private var divider: some View {
-        LiquidGlassDivider(inset: 18)
     }
 
     private var actionBar: some View {
@@ -1153,16 +1158,19 @@ private struct EarnDisclosureSheet: View {
             ) {
                 onAccept()
             }
-            LiquidGlassButton(
-                title: "Not now",
-                tint: nil,
-                size: .md
-            ) {
+            Button {
                 onCancel()
                 dismiss()
+            } label: {
+                Text("Not now")
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 36)
             }
+            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 22)
         .padding(.top, 12)
         .padding(.bottom, 32)
     }
