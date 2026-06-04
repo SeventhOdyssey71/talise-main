@@ -26,7 +26,7 @@ export function TaliseProfileCard({
 }) {
   return (
     <div
-      className={`relative w-full max-w-full overflow-hidden rounded-[22px] text-white shadow-[0_24px_60px_-20px_rgba(20,48,12,0.55)] ${
+      className={`relative w-full min-w-0 max-w-full overflow-hidden rounded-[22px] text-white shadow-[0_24px_60px_-20px_rgba(20,48,12,0.55)] ${
         fill
           ? "min-h-[176px] lg:h-full lg:min-h-[230px]"
           : "aspect-[1.586/1]"

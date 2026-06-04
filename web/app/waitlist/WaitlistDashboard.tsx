@@ -129,10 +129,12 @@ ${inviteLink}`;
           fill
         />
 
-        {/* RIGHT — actions: invite link + referral tally */}
-        <div className="flex flex-col gap-4">
+        {/* RIGHT — actions: invite link + referral tally. min-w-0 lets this
+            grid column shrink below its content so the long invite URL
+            truncates instead of forcing the whole grid (and page) wider. */}
+        <div className="flex min-w-0 flex-col gap-4">
       {/* Invite link — Copy + Share on X */}
-      <div className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-4 sm:p-5">
+      <div className="min-w-0 rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-4 sm:p-5">
         <div className="text-[14px] font-medium text-[var(--color-fg)]">
           Your invite link
         </div>
@@ -141,7 +143,7 @@ ${inviteLink}`;
           higher you climb, the sooner you&apos;re in.
         </p>
 
-        <div className="mt-3 flex items-center gap-2 rounded-full border border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-surface)_70%,var(--color-bg))] p-1.5 pl-3.5">
+        <div className="mt-3 flex min-w-0 items-center gap-2 rounded-full border border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-surface)_70%,var(--color-bg))] p-1.5 pl-3.5">
           <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[var(--color-fg)]">
             {inviteLink.replace(/^https?:\/\//, "")}
           </span>
