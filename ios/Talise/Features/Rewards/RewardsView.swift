@@ -7,12 +7,12 @@ import UIKit
 /// Goals, Insights) moved to the Invest tab where they semantically
 /// belong — Round-up auto-supplies to NAVI, Goals are savings buckets,
 /// Insights are spend/save analytics. Rewards stays focused on: tier
-/// progression, lifetime tallies, how-you-earn rules, the redemption
-/// catalogue, and referrals.
+/// progression, the redemption catalogue, how-you-earn rules, and referrals.
+/// (Lifetime sent/saved tiles were removed — wallet analytics, not points.)
 ///
-/// Section ordering (premium spec C.2):
-///   Hero (tier + points + progress) → Lifetime tiles → How you earn
-///   → Redeem points → Your referral code → inline error.
+/// Section ordering (ACTION-FIRST — lead with what you DO with points):
+///   Hero (tier + points + progress) → Redeem points → How you earn
+///   → Your referral code → inline error.
 struct RewardsView: View {
     @State private var summary: RewardsSummary?
     @State private var loading = true
@@ -22,10 +22,11 @@ struct RewardsView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 28) {
                 heroCard
-                lifetimeStatsRow
-                earnRulesSection
                 // ANCHOR: redeem-section
+                // Action-first: what you DO with points sits right under the
+                // hero, before the how-you-earn explainer.
                 redeemSection
+                earnRulesSection
                 referralCard
                 if let error {
                     Text(error)
@@ -93,25 +94,6 @@ struct RewardsView: View {
             Text("Top tier — every point still counts toward perks")
                 .font(TaliseFont.mono(11, weight: .regular))
                 .foregroundStyle(TaliseColor.accent)
-        }
-    }
-
-    // MARK: - Lifetime stats row
-
-    /// Two tiles side-by-side: lifetime Sent (white) + lifetime Saved
-    /// (the one accent tile — the savings side is the win). On-chain
-    /// values are USD; `TaliseFormat.local2` localizes the display.
-    private var lifetimeStatsRow: some View {
-        HStack(spacing: 12) {
-            StatTile(
-                eyebrow: "Lifetime sent",
-                value: TaliseFormat.local2(summary?.lifetimeSentUsd ?? 0)
-            )
-            StatTile(
-                eyebrow: "Lifetime saved",
-                value: TaliseFormat.local2(summary?.lifetimeSavedUsd ?? 0),
-                accent: true
-            )
         }
     }
 
