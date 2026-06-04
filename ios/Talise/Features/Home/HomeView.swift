@@ -82,11 +82,13 @@ struct HomeView: View {
                 usernameCard
                     .padding(.horizontal, 32)
                     .padding(.top, 24)
-                // Recent/activity feed moved OFF the home surface (2026-06-01)
-                // into the navbar "History" icon → opens HistoryView. Home now
-                // stays focused on balance + identity + send/receive. `activity`
-                // is still warmed in the background so the History sheet opens
-                // instantly seeded.
+                // Recent activity, back on the home surface (2026-06-04) per
+                // the design refs. Top 4 rows; "View all" opens the full
+                // HistoryView sheet. `activity` is warmed in the background so
+                // this paints instantly.
+                recentActivitySection
+                    .padding(.horizontal, 22)
+                    .padding(.top, 28)
                 Color.clear.frame(height: 120)
             }
         }
@@ -147,46 +149,70 @@ struct HomeView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 24, height: 22)
             Spacer()
-            HStack(spacing: 2) {
-                // History — moved off the Home surface into the navbar so the
-                // home screen stays focused on balance + send/receive. Opens
-                // the full activity sheet (HistoryView), seeded with any rows
-                // already warmed in `activity` for an instant paint.
-                Button {
-                    historySheetVisible = true
-                } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 21, weight: .regular))
-                        .foregroundStyle(TaliseColor.fg)
-                        .frame(width: 22, height: 22)
-                        .padding(6)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("History")
-
-                // Scan-to-Pay entry point. `qrcode.viewfinder` reads
-                // immediately as "scan a QR" at the navbar icon size; the 6pt
-                // padding keeps a comfortable hit target.
-                Button {
-                    scanToPaySheetVisible = true
-                } label: {
-                    Image(systemName: "qrcode.viewfinder")
-                        .font(.system(size: 22, weight: .regular))
-                        .foregroundStyle(TaliseColor.fg)
-                        .frame(width: 22, height: 22)
-                        .padding(6)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Scan to pay")
+            // Scan-to-Pay is the single top affordance now — History moved off
+            // the top into the on-page "Recent activity → View all". Styled as a
+            // soft circular glass chip to match the redesigned surface.
+            Button {
+                scanToPaySheetVisible = true
+            } label: {
+                Image(systemName: "qrcode.viewfinder")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(TaliseColor.fg)
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(TaliseColor.surface2))
+                    .contentShape(Circle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Scan to pay")
         }
-        .frame(height: 28)
+        .frame(height: 38)
         .sheet(isPresented: $scanToPaySheetVisible) {
             ScanToPayView()
                 .presentationDetents([.large])
                 .presentationBackground(.black)
+        }
+    }
+
+    // MARK: - Recent activity
+
+    /// On-page recent activity — the top 4 rows, with "View all" opening the
+    /// full HistoryView sheet. Reuses the warmed `activity` + the shared
+    /// `HistoryRow`; tapping a row opens its receipt (`receiptEntry`).
+    private var recentActivitySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("RECENT ACTIVITY")
+                    .font(TaliseFont.mono(10, weight: .regular))
+                    .tracking(2.0)
+                    .foregroundStyle(TaliseColor.fgMuted)
+                Spacer()
+                Button {
+                    historySheetVisible = true
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("View all")
+                            .font(TaliseFont.body(12, weight: .light))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundStyle(TaliseColor.fgMuted)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 2)
+
+            if activity.isEmpty {
+                Text("No activity yet")
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(TaliseColor.fgDim)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 18)
+            } else {
+                ForEach(Array(activity.prefix(4))) { entry in
+                    HistoryRow(entry: entry) { receiptEntry = entry }
+                }
+            }
         }
     }
 
