@@ -91,34 +91,41 @@ export function WaitlistDashboard({
 
   return (
     <div className="mx-auto w-full max-w-[460px] lg:max-w-[920px]">
-      <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
-        {/* LEFT — identity: position + the shareable profile card */}
-        <div className="flex flex-col gap-5">
-          <div className="text-center lg:text-left">
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
-              You&apos;re on the waitlist
-            </div>
-            {email ? (
-              <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
-                Confirmed for{" "}
-                <span className="break-all text-[var(--color-fg)]">{email}</span>
-              </div>
-            ) : null}
-            <div className="mt-3 text-[56px] font-semibold leading-none tracking-tight text-[var(--color-accent-deep)] sm:text-[64px]">
-              {position ? `#${position.toLocaleString()}` : "#…"}
-            </div>
-            <div className="mt-2 text-[12px] text-[var(--color-fg-muted)]">
-              {status?.total
-                ? `of ${status.total.toLocaleString()} in line — refer friends to climb`
-                : "Refer friends to climb the line"}
-            </div>
+      {/* Position headline — spans the full width on top so the two columns
+          below start level and stay balanced (no tall-left / short-right gap). */}
+      <div className="text-center">
+        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-dim)]">
+          You&apos;re on the waitlist
+        </div>
+        {email ? (
+          <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
+            Confirmed for{" "}
+            <span className="break-all text-[var(--color-fg)]">{email}</span>
           </div>
+        ) : null}
+        <div className="mt-3 text-[56px] font-semibold leading-none tracking-tight text-[var(--color-accent-deep)] sm:text-[64px]">
+          {position ? `#${position.toLocaleString()}` : "#…"}
+        </div>
+        <div className="mt-2 text-[12px] text-[var(--color-fg-muted)]">
+          {status?.total
+            ? `of ${status.total.toLocaleString()} in line — refer friends to climb`
+            : "Refer friends to climb the line"}
+        </div>
+      </div>
 
+      {/* Two balanced columns: the shareable card | the invite actions */}
+      <div className="mt-7 grid items-start gap-4 sm:gap-5 lg:grid-cols-2">
+        {/* LEFT — the shareable profile card + a quick share hint */}
+        <div className="flex flex-col gap-3">
           <TaliseProfileCard
             handle={handle}
             position={position}
             referralCount={referralCount}
           />
+          <p className="px-1 text-center text-[11px] leading-[1.5] text-[var(--color-fg-dim)] lg:text-left">
+            Screenshot your card to post it — or send your invite link. Every
+            signup moves you up.
+          </p>
         </div>
 
         {/* RIGHT — actions: invite link + referral tally */}
