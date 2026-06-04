@@ -12,18 +12,20 @@ struct TopGlow: View {
     var body: some View {
         LinearGradient(
             stops: [
-                .init(color: Color(hex: 0x6BA85A), location: 0.0),
-                .init(color: Color(hex: 0x355626), location: 0.18),
-                .init(color: Color.black,           location: 0.55),
+                // A QUIET deep-forest halo at the very top — a whisper of
+                // brand green, not the old loud olive wash. Fades to pure
+                // black fast so cards read crisp, not murky.
+                .init(color: Color(hex: 0x1C3D24), location: 0.0),
+                .init(color: Color(hex: 0x0C1A10), location: 0.16),
+                .init(color: Color.black,           location: 0.42),
                 .init(color: Color.black,           location: 1.0),
             ],
             startPoint: .top,
             endPoint: .bottom
         )
-        // Taller-than-content band so the bottom half stays pure black
-        // for the History rows + tab bar; the green only lives in the
-        // top ~30% of the screen, same as `WelcomeView`.
-        .frame(height: 520)
+        // Shorter band — the green only kisses the very top now; the rest
+        // of the screen is clean black so content + cards read sharply.
+        .frame(height: 360)
         .frame(maxWidth: .infinity, alignment: .top)
         .allowsHitTesting(false)
     }

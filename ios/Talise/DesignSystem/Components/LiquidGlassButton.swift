@@ -30,7 +30,7 @@ struct LiquidGlassButton: View {
                     ProgressView()
                         .progressViewStyle(.circular)
                         .controlSize(.small)
-                        .tint(TaliseColor.fg)
+                        .tint(labelColor)
                 } else if let icon {
                     Image(systemName: icon)
                         .font(.system(size: size.fontSize + 1, weight: .medium))
@@ -38,11 +38,22 @@ struct LiquidGlassButton: View {
                 Text(title)
                     .font(TaliseFont.heading(size.fontSize, weight: .medium))
             }
-            .foregroundStyle(TaliseColor.fg)
+            .foregroundStyle(labelColor)
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .frame(height: size.height)
             .padding(.horizontal, size.hPadding)
-            .taliseGlass(cornerRadius: cornerRadius, tint: tint)
+            .background(
+                // SOLID confident fill — a real primary, not a faint wash.
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(fillColor)
+            )
+            .overlay(
+                // Hairline only on the neutral (secondary) variant so it
+                // still reads as a button; filled variants need no edge.
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(TaliseColor.line, lineWidth: tint == nil ? 1 : 0)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .opacity(loading ? 0.85 : 1.0)
         }
         .taliseGlassPressable(cornerRadius: cornerRadius)
@@ -55,6 +66,21 @@ struct LiquidGlassButton: View {
         case .md: return 14
         case .lg: return 16
         }
+    }
+
+    /// Solid fill — a confident primary in the tint color, or a quiet flat
+    /// surface for the neutral/secondary variant.
+    private var fillColor: Color { tint ?? TaliseColor.surface2 }
+
+    /// Dark ink on the bright Talise greens (for contrast + pop); white on
+    /// the neutral surface and the darker tints (danger / gold).
+    private var labelColor: Color {
+        guard let tint else { return TaliseColor.fg }
+        let brightGreens = [
+            TaliseColor.accent, TaliseColor.greenMint,
+            TaliseColor.live, TaliseColor.success,
+        ]
+        return brightGreens.contains(tint) ? Color(hex: 0x0A140C) : TaliseColor.fg
     }
 }
 

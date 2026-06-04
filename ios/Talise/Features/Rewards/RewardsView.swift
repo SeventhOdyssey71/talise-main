@@ -143,7 +143,9 @@ struct RewardsView: View {
     }
 
     private func earnRow(icon: String, title: String, rate: Int) -> some View {
-        PremiumListRow(icon: icon, kind: .earn, title: title) {
+        // Neutral (quiet) glyphs so the ROW reads uniform — the green rate
+        // value is the only accent per row, not a column of green discs.
+        PremiumListRow(icon: icon, kind: .neutral, title: title) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(rate)")
                     .font(TaliseFont.heading(15, weight: .medium))
