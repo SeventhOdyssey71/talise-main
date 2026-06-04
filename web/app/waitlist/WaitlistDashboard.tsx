@@ -101,7 +101,7 @@ ${inviteLink}`;
   }
 
   return (
-    <div className="mx-auto w-full max-w-[460px] lg:max-w-[920px]">
+    <div className="mx-auto w-full max-w-[480px] lg:max-w-[1040px]">
       {/* Position headline — spans the full width on top so the two columns
           below start level and stay balanced (no tall-left / short-right gap). */}
       <div className="text-center">

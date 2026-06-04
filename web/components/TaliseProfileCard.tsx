@@ -26,8 +26,10 @@ export function TaliseProfileCard({
 }) {
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-[22px] text-white shadow-[0_24px_60px_-20px_rgba(20,48,12,0.55)] ${
-        fill ? "h-full min-h-[230px]" : "aspect-[1.586/1]"
+      className={`relative w-full max-w-full overflow-hidden rounded-[22px] text-white shadow-[0_24px_60px_-20px_rgba(20,48,12,0.55)] ${
+        fill
+          ? "aspect-[1.586/1] lg:aspect-auto lg:h-full lg:min-h-[230px]"
+          : "aspect-[1.586/1]"
       }`}
       style={{
         background:
@@ -53,7 +55,7 @@ export function TaliseProfileCard({
               />
             </svg>
             <span className="text-[13px] font-semibold tracking-tight text-white">
-              Talise
+              talise
             </span>
           </div>
           <span className="rounded-full bg-[#caffb8]/12 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-[#caffb8]">
@@ -67,13 +69,13 @@ export function TaliseProfileCard({
             @{handle}
           </div>
           <div className="mt-1.5 font-mono text-[12px] tracking-tight text-[#caffb8]/80">
-            {handle}.talise.sui
+            {handle}@talise.sui
           </div>
         </div>
 
         {/* bottom row — position + referrals */}
-        <div className="flex items-end justify-between">
-          <div>
+        <div className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
             <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-white/45">
               Position
             </div>
@@ -81,7 +83,7 @@ export function TaliseProfileCard({
               {typeof position === "number" && position > 0 ? `#${position.toLocaleString()}` : "—"}
             </div>
           </div>
-          <div className="text-right">
+          <div className="shrink-0 text-right">
             <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-white/45">
               Referrals
             </div>

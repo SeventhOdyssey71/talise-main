@@ -50,7 +50,7 @@ export default function WaitlistPage() {
           narrow (max-w-[440px], inside WaitlistForm), while the post-claim
           dashboard fans out to the full width for its side-by-side cards. So
           the section is generous and the children own their own max-width. */}
-      <section className="mx-auto flex w-full max-w-[920px] flex-1 flex-col items-center justify-center px-5 py-10 sm:px-6 sm:py-12">
+      <section className="mx-auto flex w-full max-w-[1040px] flex-1 flex-col items-center justify-center px-5 py-10 sm:px-6 sm:py-12">
         <div className="text-center">
           <h1 className="text-balance break-words text-[30px] font-medium leading-[1.08] tracking-[-0.025em] sm:text-[40px] lg:text-[44px]">
             Get an{" "}
