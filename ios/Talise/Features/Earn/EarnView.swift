@@ -5,33 +5,18 @@ import SwiftUI
 /// → ZkLoginCoordinator (Onara sponsored).
 struct EarnView: View {
     @State private var comparison: YieldComparison?
-    @State private var amount = ""
     @State private var loading = true
-    @State private var supplying = false
     @State private var error: String?
-    @State private var success: String?
-    /// When non-nil, the full-screen "You just saved …" celebration
-    /// (Figma node 130:2) is presented. Holds the localized, currency-
-    /// formatted amount the user just invested, e.g. "$2.12" or
-    /// "₦12,000.00". Cleared by the sheet's "Back to Invest" button.
-    @State private var savingsPopupAmount: String?
-    /// Active position (non-nil supplied amount) the user tapped on —
-    /// drives the withdraw sheet. Reset to nil to dismiss.
-    @State private var withdrawTarget: YieldVenue?
+    /// The venue the user tapped — drives the combined Add money / Withdraw
+    /// sheet (`EarnManageSheet`). Both the deposit and withdraw flows live in
+    /// that sheet now, so the main screen stays compact. Reset to nil to dismiss.
+    @State private var manageTarget: YieldVenue?
     /// Rewards summary fetched here (not via the Rewards tab) because
     /// `RoundupCard` lives on Invest now and needs the round-up config.
     /// Cheap GET; we refetch on pull-to-refresh + after the user
     /// toggles round-up so the "Saved this month" running tally stays
     /// in sync with the on-chain compound supplies.
     @State private var rewardsSummary: RewardsSummary?
-    /// When true, the one-time Earn opt-in disclosure sheet is presented.
-    /// We gate the FIRST supply behind it so the user explicitly accepts
-    /// that Earn is a separate lending service — not a property of their
-    /// balance, and yield is not guaranteed (master plan §8, §9: GENIUS
-    /// recharacterization risk). Set by `supplyTapped()` when the user
-    /// hasn't yet accepted; cleared on accept (which then runs the supply)
-    /// or dismiss (which does nothing — we NEVER auto-supply).
-    @State private var showEarnDisclosure = false
 
     var body: some View {
         // Invest = the money-management hub. Venues + Supply +
@@ -40,15 +25,15 @@ struct EarnView: View {
         // for you". Rewards keeps the points / perks / referral.
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 28) {
-                heroCard
                 venueSection
-                supplyCard
-                // Money-management sections — relocated from Rewards.
-                // Each owns its own data fetch via .task internally;
-                // RoundupCard needs `summary` so we fetch it here.
+                // Money-management sections. Each owns its own data fetch
+                // via .task internally; RoundupCard needs `summary` so we
+                // fetch it here. (The big rate hero, the on-screen deposit
+                // bar, and the monthly-analytics section were removed — the
+                // venue row already shows the rate, and deposit + withdraw
+                // both live inside the venue sheet now.)
                 RoundupCard(summary: rewardsSummary, onChange: { Task { await loadRewards() } })
                 GoalsSection()
-                InsightsSection()
                 if let error {
                     Text(error)
                         .font(TaliseFont.body(12, weight: .light))
@@ -63,96 +48,16 @@ struct EarnView: View {
         .taliseScreenBackground()
         .task { await load() }
         .task { await loadRewards() }
-        .fullScreenCover(isPresented: Binding(
-            get: { savingsPopupAmount != nil },
-            set: { if !$0 { savingsPopupAmount = nil } }
-        )) {
-            SavingsSuccessView(
-                amountText: savingsPopupAmount ?? "",
-                onDismiss: { savingsPopupAmount = nil }
-            )
-        }
-        .sheet(item: $withdrawTarget) { v in
-            WithdrawSheet(venue: v, bestApy: comparison?.best?.apy ?? 0) {
-                // After a successful withdraw, refresh the venue cards
-                // so the supplied amount drops back to "Idle".
+        // Tapping any venue opens the combined Add money / Withdraw sheet.
+        // Deposit + withdraw + the one-time disclosure gate + their success
+        // states all live inside that sheet (it mounts its own PIN host),
+        // so the main screen stays clean.
+        .sheet(item: $manageTarget) { v in
+            EarnManageSheet(venue: v, bestApy: comparison?.best?.apy ?? 0) {
+                // After a successful deposit or withdraw, refresh the venue
+                // cards so the supplied amount updates.
                 Task { await load() }
             }
-        }
-        // One-time opt-in disclosure gate before the user's FIRST supply.
-        // The user must explicitly accept that Earn is a separate lending
-        // service (not a property of their balance, yield not guaranteed)
-        // before any funds move — we NEVER auto-supply. On accept the
-        // sheet persists acceptance and continues into the supply flow.
-        .sheet(isPresented: $showEarnDisclosure) {
-            EarnDisclosureSheet(
-                apy: comparison?.best?.apy ?? 0,
-                moneyWord: moneyWord,
-                onAccept: {
-                    Self.markEarnDisclosureAccepted()
-                    showEarnDisclosure = false
-                    Task { await supply() }
-                },
-                onCancel: { showEarnDisclosure = false }
-            )
-        }
-        // Mount the PIN host at the EarnView root so its sheet
-        // presents in this tab's context — supply/withdraw confirm
-        // calls flow through here.
-        .pinGateHost()
-    }
-
-    // MARK: - Hero
-
-    /// The single tinted hero card. Makes the best-venue APY the headline
-    /// number while keeping the fiat framing — the user earns on *their
-    /// money*, in their display currency ("on your naira"/"on your dollars"),
-    /// never "supply USDsui to NAVI" (master plan §8: chain stays invisible;
-    /// §9 GENIUS: must read as earning on dollars, not a stablecoin-balance
-    /// yield feature). When no comparison has loaded the hero reads as a
-    /// quiet "connecting" placeholder rather than a hard zero.
-    private var heroCard: some View {
-        Group {
-            if let best = comparison?.best {
-                HeroAmount(
-                    eyebrow: "Best rate today",
-                    value: String(format: "%.2f%%", best.apy * 100),
-                    caption: String(
-                        format: "Earning on your %@ · not part of your balance",
-                        moneyWord
-                    ),
-                    captionAccent: false,
-                    loading: false
-                )
-            } else {
-                HeroAmount(
-                    eyebrow: "Best rate today",
-                    value: "—",
-                    caption: "Connecting to earning venues…",
-                    captionAccent: false,
-                    loading: loading
-                )
-            }
-        }
-        .padding(20)
-        .taliseGlass(cornerRadius: 20, tint: TaliseColor.accent)
-    }
-
-    /// Plural "money word" for the user's display currency, used in the
-    /// fiat-framed Earn copy ("Earn up to X% on your naira"). Falls back
-    /// to the generic "money" for any currency we don't have a colloquial
-    /// plural for. Kept local to EarnView so this reframe stays strictly
-    /// additive and doesn't touch CurrencySettings.
-    private var moneyWord: String {
-        switch CurrencySettings.shared.current.code {
-        case "USD", "CAD": return "dollars"
-        case "NGN":        return "naira"
-        case "GHS":        return "cedis"
-        case "KES":        return "shillings"
-        case "ZAR":        return "rand"
-        case "EUR":        return "euros"
-        case "GBP":        return "pounds"
-        default:           return "money"
         }
     }
 
@@ -252,19 +157,20 @@ struct EarnView: View {
         let apyText = live ? String(format: "%.2f%%", v.apy * 100) : "—"
         // Localized subtitle — Nigerian user sees ₦, US user sees $, UK
         // sees £, etc. Routes through TaliseFormat / CurrencySettings.
-        let subtitle = hasPosition ? "Supplied \(TaliseFormat.local2(v.supplied ?? 0))" : "Idle"
+        let subtitle = hasPosition ? "Supplied \(TaliseFormat.local2(v.supplied ?? 0))" : "Tap to add money"
 
         Button {
-            // Only opens a withdraw sheet when the user actually has
-            // something to redeem — idle rows stay non-interactive.
-            if hasPosition { withdrawTarget = v }
+            // Always opens the combined Add money / Withdraw sheet — idle
+            // rows open straight to "Add money" (there's no on-screen deposit
+            // bar anymore); rows with a position can switch to Withdraw.
+            manageTarget = v
         } label: {
             PremiumListRow(
                 icon: "leaf.fill",
-                kind: hasPosition ? .earn : .locked,
+                kind: hasPosition ? .earn : .neutral,
                 title: v.displayName,
                 subtitle: subtitle,
-                showsChevron: hasPosition
+                showsChevron: true
             ) {
                 HStack(spacing: 8) {
                     if best {
@@ -287,167 +193,7 @@ struct EarnView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .opacity(hasPosition ? 1.0 : 0.55)
-        .disabled(!hasPosition)
     }
-
-    // MARK: - Supply card
-
-    private var supplyCard: some View {
-        // The full-screen `SavingsSuccessView` is now the single success
-        // treatment (raised via `savingsPopupAmount`); the old in-card
-        // auto-dismiss celebration was removed so there's no competing
-        // double-confirmation. The Home tab's activity feed already
-        // optimistically inserts the row via `.taliseTxCompleted`.
-        let currency = CurrencySettings.shared.current
-        return VStack(alignment: .leading, spacing: 12) {
-            SectionHeader("Add to earnings")
-            VStack(alignment: .leading, spacing: 14) {
-                // Amount input sub-block — quiet surface2 inset so the
-                // figure reads as an editable field inside the card.
-                HStack(spacing: 6) {
-                    // Symbol prefix so the value reads naturally (₦12,000
-                    // not "12000 NGN"). Single source of truth for
-                    // formatting via TaliseFormat / CurrencySettings.
-                    Text(currency.symbol)
-                        .font(TaliseFont.heading(28, weight: .medium))
-                        .foregroundStyle(TaliseColor.fgDim)
-                    TextField("0.00", text: $amount)
-                        .keyboardType(.decimalPad)
-                        .font(TaliseFont.heading(28, weight: .medium))
-                        .kerning(-0.8)
-                        .foregroundStyle(TaliseColor.fg)
-                        .tint(TaliseColor.accent)
-                    Spacer()
-                    Text(currency.code)
-                        .font(TaliseFont.mono(11, weight: .regular))
-                        .foregroundStyle(TaliseColor.fgDim)
-                }
-                .padding(14)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(TaliseColor.surface2)
-                )
-
-                if let projection = earningsProjection {
-                    projectionBand(projection)
-                }
-
-                LiquidGlassButton(
-                    title: supplying ? "Adding…" : supplyLabel,
-                    tint: TaliseColor.accent,
-                    size: .lg,
-                    loading: supplying
-                ) {
-                    supplyTapped()
-                }
-                .disabled(!canSupply)
-            }
-            .padding(20)
-            .taliseGlass(cornerRadius: 20)
-        }
-    }
-
-    private var canSupply: Bool {
-        // Check the USD-converted amount, not the raw input — guards
-        // against the FX rates not having loaded yet (convertToUsd
-        // would return 0 in that edge case rather than letting a
-        // local-currency value sneak through as USDsui).
-        amountUsd > 0 && comparison?.best != nil && !supplying
-    }
-
-    // MARK: - Earnings projection
-
-    /// User's typed amount, converted from their display currency to
-    /// USD (USDsui is 1:1 USD). Single source of truth for everything
-    /// downstream: the projection math, the supply button label, and
-    /// the actual amount we POST to /api/earn/supply/prepare.
-    /// Returns 0 when the input is empty / malformed.
-    private var amountUsd: Double {
-        guard let local = Double(amount), local > 0 else { return 0 }
-        return CurrencySettings.shared.convertToUsd(local: local)
-    }
-
-    /// (daily, weekly, monthly, yearly) USD earnings at the best venue's
-    /// APY, for the amount currently in the input. Nil when no amount /
-    /// no venue / zero APY. Computed in USD so the format helper
-    /// (`TaliseFormat.local`) can do one consistent conversion back
-    /// to the user's display currency — earlier revision did the math
-    /// in local units and then double-converted in the formatter.
-    private var earningsProjection: (day: Double, week: Double, month: Double, year: Double)? {
-        let usd = amountUsd
-        guard usd > 0,
-              let best = comparison?.best, best.apy > 0 else { return nil }
-        let annual = usd * best.apy
-        return (
-            day:   annual / 365.0,
-            week:  annual / 52.0,
-            month: annual / 12.0,
-            year:  annual
-        )
-    }
-
-    private func projectionBand(
-        _ p: (day: Double, week: Double, month: Double, year: Double)
-    ) -> some View {
-        // Year is the point — it's the hero figure (heading-18 accent).
-        // Day / month sit beneath as quiet supporting context. No
-        // four-row ledger; the projection answers "what do I get" in
-        // one glance.
-        VStack(alignment: .leading, spacing: 8) {
-            Text("YOU'LL EARN A YEAR")
-                .font(TaliseFont.mono(10, weight: .regular)).tracking(2.0)
-                .foregroundStyle(TaliseColor.fgMuted)
-            Text(formatProjection(p.year))
-                .font(TaliseFont.heading(18, weight: .medium))
-                .kerning(-0.6)
-                .foregroundStyle(TaliseColor.accent)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            HStack(spacing: 6) {
-                Text("\(formatProjection(p.day)) a day")
-                Text("·")
-                Text("\(formatProjection(p.month)) a month")
-            }
-            .font(TaliseFont.mono(11, weight: .regular))
-            .kerning(-0.32)
-            .foregroundStyle(TaliseColor.fgDim)
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(TaliseColor.surface2)
-        )
-        .transition(.opacity.combined(with: .move(edge: .top)))
-        .animation(.easeInOut(duration: 0.18), value: amount)
-    }
-
-    private func formatProjection(_ v: Double) -> String {
-        // Routes through the user's display-currency setting so
-        // earnings show in ₦ for a Nigerian, $ for a US user, etc.
-        // Falls back to USD output until /api/fx has loaded.
-        TaliseFormat.local(v)
-    }
-
-    private var supplyLabel: String {
-        guard comparison?.best != nil else { return "Start earning" }
-        guard let local = Double(amount), local > 0 else {
-            return "Start earning"
-        }
-        // Render the button caption in the user's display currency
-        // (₦12,000 not "$12000") so the action matches the input pill.
-        // Drop the venue name — users care about the action not which
-        // protocol routes underneath.
-        return "Add \(TaliseFormat.local2(amountUsd))"
-    }
-
-    // Success is now a single full-screen treatment (`SavingsSuccessView`,
-    // raised via `savingsPopupAmount`). The old inline `successBanner` and
-    // in-card auto-dismiss celebration were both removed so nothing
-    // competes with it.
 
     // MARK: - Data
 
@@ -497,116 +243,75 @@ struct EarnView: View {
     static func markEarnDisclosureAccepted() {
         UserDefaults.standard.set(true, forKey: earnDisclosureKey)
     }
-
-    /// Supply-button entry point. On the user's FIRST supply we present
-    /// the opt-in disclosure sheet (which, on accept, runs `supply()`);
-    /// once accepted we go straight to `supply()`. We NEVER auto-supply —
-    /// the user always taps through this path explicitly.
-    private func supplyTapped() {
-        guard canSupply else { return }
-        if Self.hasAcceptedEarnDisclosure() {
-            Task { await supply() }
-        } else {
-            showEarnDisclosure = true
-        }
-    }
-
-    private func supply() async {
-        // amountUsd converts the user's local-currency input through
-        // their selected FX rate to USDsui (1:1 USD). Backend +
-        // notification payload both expect USDsui units — typed input
-        // stays in the user's currency only on screen.
-        let usd = amountUsd
-        guard let best = comparison?.best, usd > 0 else { return }
-        supplying = true
-        error = nil
-        success = nil
-        defer { supplying = false }
-
-        let localAmount = amount
-        let attemptOrder: [String] = [best.venue]
-
-        for venue in attemptOrder {
-            do {
-                struct Body: Encodable { let venue: String; let amount: Double }
-                let built: BuildKindResponse = try await APIClient.shared.post(
-                    "/api/earn/supply/prepare",
-                    body: Body(venue: venue, amount: usd)
-                )
-                let symbol = CurrencySettings.shared.current.symbol
-                let amountForPrompt = String(format: "$%.2f", usd)
-                try await PinGate.shared.requireUserPresence(
-                    reason: "Start earning on \(amountForPrompt)"
-                )
-                let result = try await ZkLoginCoordinator.shared.signAndSubmit(
-                    transactionKindB64: built.transactionKindB64,
-                    intent: "Earn \(symbol)\(localAmount)",
-                    rewards: ZkLoginCoordinator.RewardsMeta(
-                        kind: "invest",
-                        amountUsd: usd,
-                        venue: venue
-                    )
-                )
-                success = result.digest
-                // Capture the localized invested amount BEFORE clearing
-                // the input, then raise the full-screen "You just
-                // saved …" celebration (Figma 130:2). local2 converts
-                // the USD-denominated supply back to the user's display
-                // currency so a ₦ user sees ₦ and a $ user sees $.
-                savingsPopupAmount = TaliseFormat.local2(usd)
-                NotificationCenter.default.post(
-                    name: .taliseTxCompleted,
-                    object: TaliseTxEvent(
-                        digest: result.digest,
-                        direction: "invest",
-                        amountUsdsui: usd,
-                        counterparty: nil,
-                        counterpartyName: nil,
-                        venue: venue
-                    )
-                )
-                amount = ""
-                Task { await load() }
-                return
-            } catch PinError.cancelled {
-                // Silent: user dismissed the prompt. Leave the form
-                // intact so they can retry without re-typing.
-                self.error = nil
-                return
-            } catch PinError.forgotSignOut {
-                // PinService already cleared this user's hash.
-                self.error = "Sign in again to set a new PIN."
-                return
-            } catch {
-                self.error = error.localizedDescription
-                return
-            }
-        }
-    }
 }
 
-// MARK: - Withdraw sheet
+// MARK: - Earn manage sheet (Add money / Withdraw)
 
-/// Position-detail + redeem flow. Opens when the user taps a venue
-/// card with a non-zero `supplied` balance. Shows the current position
-/// (interest already accrued in-place — DeepBook's supply amount
-/// includes earned yield), then offers two paths:
-///   • "Withdraw all" — redeems every share including accrued interest
-///   • amount field   — partial withdraw in USDsui
-///
-/// Both POST to /api/earn/withdraw/prepare → ZkLoginCoordinator. The
-/// position display is live: APY × principal projects daily / yearly
-/// gain at the moment the sheet opens.
-private struct WithdrawSheet: View {
+/// The single entry point for both deposit and withdraw — opens when the
+/// user taps any venue row. A segmented control switches between:
+///   • Add money — amount field + a one-year earnings projection, gated
+///     behind the one-time opt-in disclosure on the FIRST supply.
+///   • Withdraw  — partial amount, "Withdraw all", and "Withdraw earned".
+/// Folding both flows in here keeps the main Invest screen compact (no
+/// on-screen deposit bar). Deposit POSTs /api/earn/supply/prepare; withdraw
+/// POSTs /api/earn/withdraw/prepare — both → ZkLoginCoordinator. The sheet
+/// mounts its own PIN host so confirmations surface inside it.
+private struct EarnManageSheet: View {
     let venue: YieldVenue
     let bestApy: Double
     let onClose: () -> Void
 
+    private enum Mode: Equatable { case add, withdraw }
+
     @Environment(\.dismiss) private var dismiss
+    @State private var mode: Mode = .add
+    @State private var depositText = ""
+    @State private var depositing = false
+    @State private var showDisclosure = false
     @State private var partial = ""
     @State private var withdrawing = false
     @State private var error: String?
     @State private var success: String?
+
+    /// Plural "money word" for the user's display currency, for the
+    /// disclosure copy ("earn on your naira"). Falls back to "money".
+    private var moneyWord: String {
+        switch CurrencySettings.shared.current.code {
+        case "USD", "CAD": return "dollars"
+        case "NGN":        return "naira"
+        case "GHS":        return "cedis"
+        case "KES":        return "shillings"
+        case "ZAR":        return "rand"
+        case "EUR":        return "euros"
+        case "GBP":        return "pounds"
+        default:           return "money"
+        }
+    }
+
+    // MARK: Deposit (Add money)
+
+    /// Typed deposit amount converted from display currency to USD (USDsui
+    /// is 1:1 USD). 0 when empty/malformed. Single source of truth for the
+    /// projection, the button label, and the /supply/prepare body.
+    private var depositUsd: Double {
+        guard let local = Double(depositText), local > 0 else { return 0 }
+        return CurrencySettings.shared.convertToUsd(local: local)
+    }
+
+    private var canDeposit: Bool { depositUsd > 0 && !depositing }
+
+    private var depositLabel: String {
+        guard depositUsd > 0 else { return "Start earning" }
+        return "Add \(TaliseFormat.local2(depositUsd))"
+    }
+
+    /// Projected yearly earnings (USD) for the typed amount at this venue's
+    /// APY. Nil when no amount / zero APY.
+    private var depositAnnual: Double? {
+        let usd = depositUsd
+        guard usd > 0, apy > 0 else { return nil }
+        return usd * apy
+    }
 
     /// On-chain position in USDsui (1:1 USD). Wire-side value; the UI
     /// renders it through TaliseFormat.local so a Nigerian user sees
@@ -663,8 +368,19 @@ private struct WithdrawSheet: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 28) {
                     header
-                    positionCard
-                    partialField
+                    // Segmented Add / Withdraw — only when there's a position
+                    // to withdraw. Idle venues open straight into Add money,
+                    // so a brand-new user isn't shown a withdraw tab they
+                    // can't use.
+                    if supplied > 0 {
+                        modePicker
+                        positionCard
+                    }
+                    if mode == .add || supplied <= 0 {
+                        addField
+                    } else {
+                        partialField
+                    }
                     if let error {
                         Text(error)
                             .font(TaliseFont.body(12, weight: .light))
@@ -685,35 +401,152 @@ private struct WithdrawSheet: View {
         // modals (see Profile, Send). Replaces the plain-black
         // ignore-safe-area background that read as a flat plate.
         .liquidGlassSheet(accent: TaliseColor.accent)
-        // Large-only detent so the sheet opens with the position card,
-        // withdraw-amount input, and both action buttons visible
-        // without an extra drag. The `.medium` option made the sheet
-        // land halfway up, cutting off the amount field — exactly the
-        // case the user flagged.
+        // Large-only detent so the sheet opens with everything visible
+        // without an extra drag.
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        // Host the PIN sheet inside this sheet's own presentation
-        // context. EarnView's host is the parent presenter (it already
-        // has this WithdrawSheet up), so the PIN call needs to surface
-        // from inside.
+        // Host the PIN sheet inside this sheet's own presentation context so
+        // deposit + withdraw confirmations surface from here.
         .pinGateHost()
+        // One-time opt-in disclosure before the FIRST deposit — presented
+        // from inside this sheet so, on accept, the supply continues in
+        // context. The supply NEVER runs without this explicit acceptance.
+        .sheet(isPresented: $showDisclosure) {
+            EarnDisclosureSheet(
+                apy: bestApy,
+                moneyWord: moneyWord,
+                onAccept: {
+                    EarnView.markEarnDisclosureAccepted()
+                    showDisclosure = false
+                    Task { await deposit() }
+                },
+                onCancel: { showDisclosure = false }
+            )
+        }
     }
 
-    private var header: some View {
-        // The hero figure is the user's earnings — cumulative yield when
-        // the venue exposes it, otherwise the supplied position. Symbol
-        // rides the figure; the localized formatter is applied to the
-        // pre-symbol value via a stripped local2.
-        let symbol = CurrencySettings.shared.current.symbol
-        let heroUsd = earnedSoFar ?? supplied
-        return HeroAmount(
-            eyebrow: earnedSoFar != nil ? "Your earnings" : "Your position",
-            value: localAmount(heroUsd),
-            symbol: symbol,
-            caption: earnedSoFar != nil
-                ? "Interest accrued on \(TaliseFormat.local2(supplied))"
-                : "Supplied and earning"
+    /// Segmented Add money / Withdraw control — a branded two-segment pill
+    /// (selected = solid accent + dark ink, the rest quiet).
+    private var modePicker: some View {
+        HStack(spacing: 4) {
+            segmentButton("Add money", .add)
+            segmentButton("Withdraw", .withdraw)
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(TaliseColor.surface2)
         )
+    }
+
+    private func segmentButton(_ title: String, _ m: Mode) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.15)) { mode = m }
+        } label: {
+            Text(title)
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(mode == m ? TaliseColor.bg : TaliseColor.fgMuted)
+                .frame(maxWidth: .infinity)
+                .frame(height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(mode == m ? TaliseColor.accent : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        if mode == .add && supplied <= 0 {
+            // First deposit: lead with the rate you'll earn. (Not a
+            // duplicate of the main-screen venue row — that's out of view
+            // behind this sheet.)
+            HeroAmount(
+                eyebrow: "Earn rate",
+                value: String(format: "%.2f%%", apy * 100),
+                caption: "On your \(moneyWord) · withdraw anytime"
+            )
+        } else {
+            // Existing position: show what they hold / have earned. Symbol
+            // rides the figure; the localized formatter is applied to the
+            // pre-symbol value via a stripped local2.
+            let symbol = CurrencySettings.shared.current.symbol
+            let heroUsd = earnedSoFar ?? supplied
+            HeroAmount(
+                eyebrow: earnedSoFar != nil ? "Your earnings" : "Your position",
+                value: localAmount(heroUsd),
+                symbol: symbol,
+                caption: earnedSoFar != nil
+                    ? "Interest accrued on \(TaliseFormat.local2(supplied))"
+                    : "Supplied and earning"
+            )
+        }
+    }
+
+    /// Add-money amount field + a one-year earnings projection. Mirrors the
+    /// withdraw field's styling so the two modes feel identical.
+    private var addField: some View {
+        let currency = CurrencySettings.shared.current
+        return VStack(alignment: .leading, spacing: 14) {
+            SectionHeader("Add to earnings")
+            HStack(spacing: 6) {
+                Text(currency.symbol)
+                    .font(TaliseFont.heading(22, weight: .medium))
+                    .foregroundStyle(TaliseColor.fgDim)
+                TextField("0.00", text: $depositText)
+                    .keyboardType(.decimalPad)
+                    .font(TaliseFont.heading(22, weight: .medium))
+                    .kerning(-0.6)
+                    .foregroundStyle(TaliseColor.fg)
+                    .tint(TaliseColor.accent)
+                Spacer()
+                Text(currency.code)
+                    .font(TaliseFont.mono(11, weight: .regular))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(TaliseColor.surface2)
+            )
+            if let annual = depositAnnual {
+                projectionBand(annual)
+            }
+        }
+    }
+
+    /// "You'll earn a year" band — year is the hero, day/month sit beneath.
+    private func projectionBand(_ annual: Double) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("YOU'LL EARN A YEAR")
+                .font(TaliseFont.mono(10, weight: .regular)).tracking(2.0)
+                .foregroundStyle(TaliseColor.fgMuted)
+            Text(TaliseFormat.local(annual))
+                .font(TaliseFont.heading(18, weight: .medium))
+                .kerning(-0.6)
+                .foregroundStyle(TaliseColor.accent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            HStack(spacing: 6) {
+                Text("\(TaliseFormat.local(annual / 365.0)) a day")
+                Text("·")
+                Text("\(TaliseFormat.local(annual / 12.0)) a month")
+            }
+            .font(TaliseFont.mono(11, weight: .regular))
+            .kerning(-0.32)
+            .foregroundStyle(TaliseColor.fgDim)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(TaliseColor.surface2)
+        )
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        .animation(.easeInOut(duration: 0.18), value: depositText)
     }
 
     /// Local-currency figure WITHOUT the symbol — `HeroAmount` rides the
@@ -835,7 +668,35 @@ private struct WithdrawSheet: View {
         }
     }
 
+    /// The pinned bottom action bar — the deposit CTA in Add mode, the
+    /// withdraw CTAs in Withdraw mode.
+    @ViewBuilder
     private var actionBar: some View {
+        if mode == .add || supplied <= 0 {
+            depositActionBar
+        } else {
+            withdrawActionBar
+        }
+    }
+
+    private var depositActionBar: some View {
+        VStack(spacing: 12) {
+            LiquidGlassButton(
+                title: depositing ? "Adding…" : depositLabel,
+                tint: TaliseColor.accent,
+                size: .lg,
+                loading: depositing
+            ) {
+                depositTapped()
+            }
+            .disabled(!canDeposit)
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 12)
+        .padding(.bottom, 32)
+    }
+
+    private var withdrawActionBar: some View {
         // ONE primary CTA (the partial withdraw) — the "earned" and
         // "all" shortcuts sit beneath as quiet pills so nothing competes
         // with the primary. All three actions are preserved.
@@ -890,7 +751,7 @@ private struct WithdrawSheet: View {
                     .foregroundStyle(TaliseColor.accent)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("Withdrawn")
+                Text(mode == .add ? "Added to earnings" : "Withdrawn")
                     .font(TaliseFont.body(14, weight: .light)).kerning(-0.48)
                     .foregroundStyle(TaliseColor.fg)
                 Text(digest.prefix(20) + "…")
@@ -902,6 +763,77 @@ private struct WithdrawSheet: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .taliseGlass(cornerRadius: 20, tint: TaliseColor.accent)
+    }
+
+    // MARK: Deposit action
+
+    /// Deposit entry point. On the user's FIRST supply we present the opt-in
+    /// disclosure (which, on accept, runs `deposit()`); once accepted we go
+    /// straight to it. We NEVER auto-supply — the user always taps through.
+    private func depositTapped() {
+        guard canDeposit else { return }
+        if EarnView.hasAcceptedEarnDisclosure() {
+            Task { await deposit() }
+        } else {
+            showDisclosure = true
+        }
+    }
+
+    /// Supply into THIS venue. Mirrors the withdraw flow: prepare → PIN →
+    /// sign + submit → optimistic activity row → brief success → dismiss.
+    /// `depositUsd` converts the local-currency input to USDsui (1:1 USD)
+    /// once, at the wire boundary.
+    private func deposit() async {
+        let usd = depositUsd
+        guard usd > 0 else { return }
+        depositing = true
+        error = nil
+        success = nil
+        defer { depositing = false }
+        do {
+            struct Body: Encodable { let venue: String; let amount: Double }
+            let built: BuildKindResponse = try await APIClient.shared.post(
+                "/api/earn/supply/prepare",
+                body: Body(venue: venue.venue, amount: usd)
+            )
+            let symbol = CurrencySettings.shared.current.symbol
+            let amountForPrompt = String(format: "$%.2f", usd)
+            try await PinGate.shared.requireUserPresence(
+                reason: "Start earning on \(amountForPrompt)"
+            )
+            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                transactionKindB64: built.transactionKindB64,
+                intent: "Earn \(symbol)\(depositText)",
+                rewards: ZkLoginCoordinator.RewardsMeta(
+                    kind: "invest",
+                    amountUsd: usd,
+                    venue: venue.venue
+                )
+            )
+            success = result.digest
+            NotificationCenter.default.post(
+                name: .taliseTxCompleted,
+                object: TaliseTxEvent(
+                    digest: result.digest,
+                    direction: "invest",
+                    amountUsdsui: usd,
+                    counterparty: nil,
+                    counterpartyName: nil,
+                    venue: venue.venue
+                )
+            )
+            depositText = ""
+            onClose()
+            // Brief beat to read the success state, then close.
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            dismiss()
+        } catch PinError.cancelled {
+            self.error = nil
+        } catch PinError.forgotSignOut {
+            self.error = "Sign in again to set a new PIN."
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     private func withdraw(all: Bool) async {
