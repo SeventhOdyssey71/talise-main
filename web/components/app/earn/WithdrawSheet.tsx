@@ -93,7 +93,7 @@ export function WithdrawSheet({
           </h2>
 
           {/* Position card */}
-          <div className="talise-glass overflow-hidden" style={{ borderRadius: 18 }}>
+          <div className="talise-glass overflow-hidden" style={{ borderRadius: 12 }}>
             <PositionRow label="Supplied" value={formatUsd(supplied, { fixed: true })} />
             <Divider />
             <PositionRow label="APY" value={formatApy(apy || bestApy)} accent />
@@ -119,7 +119,7 @@ export function WithdrawSheet({
             <MicroLabel>Withdraw amount</MicroLabel>
             <div
               className="talise-glass flex items-center gap-2 px-4 py-3.5"
-              style={{ borderRadius: 16 }}
+              style={{ borderRadius: 12 }}
             >
               <span className="text-[22px] font-medium text-fg-muted">{symbol}</span>
               <input

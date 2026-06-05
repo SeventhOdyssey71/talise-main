@@ -67,6 +67,15 @@ export function ensureWorkSchema(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS idx_work_invoices_user
          ON work_invoices (user_id, created_at DESC)`
     );
+    // Anti-double-settle: a single on-chain digest may close AT MOST one
+    // invoice. The pre-check in workInvoiceDigestUsed is a fast path; THIS
+    // partial-unique index is the authority that wins a concurrent race (the
+    // loser's UPDATE raises a unique violation). Mirrors the off-ramp
+    // single-use-payout guard (lib/db.ts idx_paga_offramps_digest).
+    await c.execute(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_work_invoices_pay_digest
+         ON work_invoices (pay_digest) WHERE pay_digest IS NOT NULL`
+    );
 
     // One row per work contract — an employment/freelance arrangement that
     // pays via an underlying stream (streams.id is the fk). The contract row
@@ -309,6 +318,23 @@ export async function voidWorkInvoice(id: string): Promise<void> {
 }
 
 /**
+ * Replay guard: true if a DIFFERENT invoice has already been settled with this
+ * exact on-chain digest. One payment digest may close at most one invoice — so
+ * a payment to a merchant can't be reused to clear a second same-amount invoice.
+ */
+export async function workInvoiceDigestUsed(
+  digest: string,
+  exceptId: string
+): Promise<boolean> {
+  await ensureWorkSchema();
+  const r = await db().execute({
+    sql: "SELECT 1 FROM work_invoices WHERE pay_digest = ? AND id <> ? LIMIT 1",
+    args: [digest, exceptId],
+  });
+  return r.rows.length > 0;
+}
+
+/**
  * Mark an open invoice paid. Records the on-chain digest + payer address for an
  * audit trail. Guarded on `status = 'open'` so a replay can't re-close a voided
  * or already-paid invoice.
@@ -317,9 +343,12 @@ export async function markWorkInvoicePaid(input: {
   id: string;
   digest: string;
   payerAddress?: string | null;
-}): Promise<void> {
+}): Promise<boolean> {
   await ensureWorkSchema();
-  await db().execute({
+  // Returns true iff THIS call claimed the row. A 0-row result means the
+  // invoice was no longer open; a unique-violation on pay_digest (the digest
+  // already settled another invoice) propagates to the caller as an error.
+  const r = await db().execute({
     sql: `UPDATE work_invoices
             SET status = 'paid', paid_at = ?, pay_digest = ?, paid_by_address = ?
           WHERE id = ? AND status = 'open'`,
@@ -330,4 +359,5 @@ export async function markWorkInvoicePaid(input: {
       input.id,
     ],
   });
+  return (r.rowsAffected ?? 0) > 0;
 }

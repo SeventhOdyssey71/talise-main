@@ -42,7 +42,7 @@ export function ChequeCard({
       className="relative w-full select-none overflow-hidden"
       style={{
         aspectRatio: "16 / 8.6",
-        borderRadius: 16,
+        borderRadius: 12,
         background:
           "linear-gradient(135deg, #f7f3e8 0%, #ede6d5 100%)",
         boxShadow:

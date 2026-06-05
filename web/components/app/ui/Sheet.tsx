@@ -42,7 +42,7 @@ export function Sheet({ open, onClose, title, children, size = "md" }: SheetProp
           // Radix still traps focus within the panel.
           onOpenAutoFocus={(e) => e.preventDefault()}
           className={`talise-glass talise-sheet-panel fixed inset-x-0 bottom-0 z-[101] mx-auto w-full outline-none ${MAX_W[size]} sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2`}
-          style={{ borderRadius: 24, maxHeight: "92vh" }}
+          style={{ borderRadius: 12, maxHeight: "92vh" }}
         >
           {/* Mobile grab handle */}
           <div className="flex justify-center pt-2.5 sm:hidden">

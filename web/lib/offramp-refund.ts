@@ -103,6 +103,20 @@ async function treasuryTransfer(toAddress: string, micros: bigint): Promise<stri
   return digest;
 }
 
+/**
+ * Pay USDsui out of the treasury to any address — the reusable form of
+ * `treasuryTransfer`. Used by the admin tester-seed path (closed-alpha
+ * money-in) to credit invited testers a small balance to transact with.
+ * Returns the on-chain digest. Requires `OFFRAMP_TREASURY_SK` (the same
+ * treasury that funds refunds) to be configured + hold USDsui.
+ */
+export async function treasurySendUsdsui(
+  toAddress: string,
+  usd: number
+): Promise<string> {
+  return treasuryTransfer(toAddress, usdToMicros(usd));
+}
+
 export type RefundResult = { refunded: boolean; digest?: string; reason?: string };
 
 /**

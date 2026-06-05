@@ -138,7 +138,7 @@ function ReceiptBody({ row }: { row: ActivityRow }) {
       {/* Details card */}
       <div
         className="talise-glass w-full"
-        style={{ borderRadius: 20 }}
+        style={{ borderRadius: 14 }}
       >
         {partyRow && (
           <>

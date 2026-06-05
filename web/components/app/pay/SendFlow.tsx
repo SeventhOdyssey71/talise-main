@@ -119,6 +119,13 @@ export function SendFlow() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
 
+  // When this send is paying a public invoice (?invoice=<id>), close it after
+  // the on-chain payment lands — verified server-side at /api/invoices/<id>/settle.
+  const invoiceId = params.get("invoice");
+  const [invoiceSettle, setInvoiceSettle] =
+    useState<"idle" | "pending" | "paid" | "error" | "unmatched">("idle");
+  const [unmatchedMsg, setUnmatchedMsg] = useState<string | null>(null);
+
   const { contacts } = useContacts();
 
   // Display-currency typed value → USD (USDsui). FX `rate` is local-per-USD.
@@ -280,14 +287,66 @@ export function SendFlow() {
     []
   );
 
+  // Close the invoice once payment lands. Settlement is verified on-chain
+  // server-side, so we just hand over the digest; retry a few times to ride out
+  // RPC indexing lag right after broadcast.
+  const settleInvoice = useCallback(async (id: string, d: string) => {
+    setInvoiceSettle("pending");
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(`/api/invoices/${encodeURIComponent(id)}/settle`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ digest: d }),
+        });
+        if (res.ok) {
+          setInvoiceSettle("paid");
+          return;
+        }
+        // Distinguish a PERMANENT mismatch (wrong amount/recipient, already
+        // settled, void) from transient RPC indexing lag. Only the latter is
+        // worth retrying — a permanent failure must not masquerade as lag.
+        let payload: { error?: string } = {};
+        try {
+          payload = await res.json();
+        } catch {
+          /* ignore */
+        }
+        const transient =
+          res.status === 429 ||
+          (res.status === 400 &&
+            /^could not verify payment yet/i.test(payload.error ?? ""));
+        if (!transient) {
+          setUnmatchedMsg(payload.error ?? null);
+          setInvoiceSettle("unmatched");
+          return;
+        }
+      } catch {
+        /* network blip — retry */
+      }
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+    // Exhausted transient retries — the payment landed; settlement just lagged.
+    setInvoiceSettle("error");
+  }, []);
+
   // ── Confirm ────────────────────────────────────────────────────────────────
   const onConfirm = useCallback(async () => {
     if (!resolved) return;
     setErrorMsg(null);
     try {
-      const { digest: d } = await send({ to: resolved.address, amountUsd });
+      // When paying an invoice the user hasn't manually edited, send the exact
+      // canonical USD from the pay link — not the value round-tripped through
+      // the payer's display-currency FX, which lands a few micro-units short
+      // and makes on-chain settlement reject (the invoice would never close).
+      const amountToSend =
+        invoiceId && !userTouchedAmount.current && linkAmountUsd != null
+          ? linkAmountUsd
+          : amountUsd;
+      const { digest: d } = await send({ to: resolved.address, amountUsd: amountToSend });
       setDigest(d);
       setStep("success");
+      if (invoiceId) void settleInvoice(invoiceId, d);
     } catch (e) {
       // NOT_SIGNED_IN bounces to OAuth inside useSignAndSend — don't show a
       // failure screen for that, just let the redirect happen.
@@ -296,7 +355,7 @@ export function SendFlow() {
       setStep("failure");
       throw e; // let SlideToConfirm spring back
     }
-  }, [resolved, amountUsd, send]);
+  }, [resolved, amountUsd, send, invoiceId, settleInvoice, linkAmountUsd]);
 
   const resetAll = useCallback(() => {
     setStep("amount");
@@ -360,14 +419,38 @@ export function SendFlow() {
       )}
 
       {step === "success" && digest && (
-        <SuccessStep
-          amountUsd={amountUsd}
-          to={resolved}
-          digest={digest}
-          onShareCopied={() => toast("Receipt link copied", "success")}
-          onDone={() => router.push("/app")}
-          onAgain={resetAll}
-        />
+        <>
+          <SuccessStep
+            amountUsd={amountUsd}
+            to={resolved}
+            digest={digest}
+            onShareCopied={() => toast("Receipt link copied", "success")}
+            onDone={() => router.push("/app")}
+            onAgain={resetAll}
+          />
+          {invoiceId && (
+            <div className="mx-auto mt-4 flex max-w-md items-center justify-center gap-2 text-[13px]">
+              {invoiceSettle === "paid" ? (
+                <span className="text-accent">✓ Invoice marked paid</span>
+              ) : invoiceSettle === "pending" ? (
+                <span className="text-fg-dim">Confirming invoice…</span>
+              ) : invoiceSettle === "unmatched" ? (
+                <span className="text-[var(--color-danger)]">
+                  Payment sent, but it didn&apos;t match this invoice
+                  {unmatchedMsg ? ` (${unmatchedMsg})` : ""}.
+                </span>
+              ) : invoiceSettle === "error" ? (
+                <span className="text-fg-dim">Payment sent — invoice will update shortly</span>
+              ) : null}
+              <a
+                href={`/i/${invoiceId}`}
+                className="text-fg-muted underline underline-offset-2 hover:text-fg"
+              >
+                View invoice
+              </a>
+            </div>
+          )}
+        </>
       )}
 
       {step === "failure" && (
@@ -577,7 +660,7 @@ function RecipientStep({
       <StepHeader eyebrow="Send to" onBack={onBack} />
 
       {/* Input */}
-      <GlassCard radius={20} className="px-4 py-3.5">
+      <GlassCard radius={14} className="px-4 py-3.5">
         <Eyebrow className="mb-1.5 block">To</Eyebrow>
         <div className="flex items-center gap-2">
           <input
@@ -656,7 +739,7 @@ function RecipientStep({
                 key={c.address}
                 type="button"
                 onClick={() => onPickContact(c)}
-                className="flex items-center gap-3 rounded-2xl px-2 py-2.5 text-left transition-colors hover:bg-accent-soft"
+                className="flex items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-accent-soft"
               >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-[12px] font-semibold text-fg">
                   {contactInitials(c)}
@@ -721,7 +804,7 @@ function ReviewStep({
       <StepHeader eyebrow="Review" onBack={onBack} />
 
       <h2
-        className="mb-6 text-center font-display text-[24px] font-semibold text-fg"
+        className="mb-6 text-center font-display text-[24px] font-medium text-fg"
         style={{ letterSpacing: "-0.03em" }}
       >
         Review send
@@ -729,7 +812,7 @@ function ReviewStep({
 
       <div className="space-y-2">
         {/* From card */}
-        <GlassCard radius={22} className="px-5 py-5">
+        <GlassCard radius={14} className="px-5 py-5">
           <Eyebrow className="mb-2 block">From {fromHandle}</Eyebrow>
           <div
             className="font-display font-semibold tabular-nums text-fg"
@@ -748,10 +831,10 @@ function ReviewStep({
         </div>
 
         {/* To card */}
-        <GlassCard radius={22} className="px-5 py-5">
+        <GlassCard radius={14} className="px-5 py-5">
           <Eyebrow className="mb-2 block">To</Eyebrow>
           <div
-            className="truncate font-display text-[20px] font-semibold text-fg"
+            className="truncate font-display text-[20px] font-medium text-fg"
             style={{ letterSpacing: "-0.02em" }}
           >
             {to.displayName}
@@ -894,7 +977,7 @@ function FailureStep({
       </span>
 
       <h2
-        className="font-display text-[28px] font-semibold text-fg"
+        className="font-display text-[28px] font-medium text-fg"
         style={{ letterSpacing: "-0.03em" }}
       >
         Send failed

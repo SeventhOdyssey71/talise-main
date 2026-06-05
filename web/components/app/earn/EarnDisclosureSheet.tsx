@@ -62,7 +62,7 @@ export function EarnDisclosureSheet({
           <p className="text-[13px] text-fg-muted">A few things to know first.</p>
         </div>
 
-        <div className="talise-glass overflow-hidden" style={{ borderRadius: 18 }}>
+        <div className="talise-glass overflow-hidden" style={{ borderRadius: 12 }}>
           {POINTS.map((p, i) => (
             <div key={p.title}>
               {i > 0 && <div className="mx-4 h-px bg-line" />}

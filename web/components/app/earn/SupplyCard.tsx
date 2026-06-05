@@ -174,7 +174,7 @@ export function SupplyCard() {
             />
           ))
         ) : (
-          <GlassCard className="px-5 py-6 text-center" radius={20}>
+          <GlassCard className="px-5 py-6 text-center" radius={14}>
             <p className="text-[13px] text-fg-muted">No live venues right now.</p>
             <button
               type="button"
@@ -189,7 +189,7 @@ export function SupplyCard() {
 
       {/* Supply card / success state */}
       {successDigest ? (
-        <GlassCard className="px-5 py-8 text-center" radius={24} tint="#caffb8">
+        <GlassCard className="px-5 py-8 text-center" radius={14} tint="#caffb8">
           {/* Piggy drops in + a coin falls into the slot with a little gulp —
               the web port of the iOS savings-success piggy. Plays once. */}
           <div className="mx-auto mb-1 grid place-items-center">
@@ -208,12 +208,12 @@ export function SupplyCard() {
           </button>
         </GlassCard>
       ) : (
-        <GlassCard className="space-y-4 p-5" radius={24}>
+        <GlassCard className="space-y-4 p-5" radius={14}>
           <div className="space-y-2">
             <Eyebrow>Amount</Eyebrow>
             <div
               className="talise-glass flex items-center gap-2 px-4 py-3.5"
-              style={{ borderRadius: 16 }}
+              style={{ borderRadius: 12 }}
             >
               <span className="text-[28px] font-medium text-fg-muted">{symbol}</span>
               <input
@@ -234,7 +234,7 @@ export function SupplyCard() {
           {projection && (
             <div className="space-y-2">
               <MicroLabel>You&apos;ll earn</MicroLabel>
-              <div className="talise-glass overflow-hidden" style={{ borderRadius: 16 }}>
+              <div className="talise-glass overflow-hidden" style={{ borderRadius: 12 }}>
                 <ProjectionRow label="Day" value={formatUsd(projection.day)} />
                 <Divider />
                 <ProjectionRow label="Week" value={formatUsd(projection.week)} />
@@ -337,13 +337,13 @@ function VenueRow({
 
   if (onWithdraw) {
     return (
-      <GlassCard as="button" onClick={onWithdraw} interactive radius={20} className="!p-0">
+      <GlassCard as="button" onClick={onWithdraw} interactive radius={14} className="!p-0">
         {body}
       </GlassCard>
     );
   }
   return (
-    <GlassCard radius={20} className="!p-0">
+    <GlassCard radius={14} className="!p-0">
       {body}
     </GlassCard>
   );
@@ -351,7 +351,7 @@ function VenueRow({
 
 function VenueSkeleton() {
   return (
-    <div className="talise-glass flex items-center justify-between px-4 py-4 opacity-70" style={{ borderRadius: 20 }}>
+    <div className="talise-glass flex items-center justify-between px-4 py-4 opacity-70" style={{ borderRadius: 14 }}>
       <div className="space-y-2">
         <div className="h-2.5 w-16 rounded-full bg-surface-2" />
         <div className="h-2 w-24 rounded-full bg-surface-2" />

@@ -22,10 +22,18 @@ export function ReceiveSheet({
 }) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const address = me?.suiAddress ?? "";
+  const handle = me?.taliseHandle ?? "";
   const qrValue = address ? `sui:${address}` : "sui:";
   const short = address ? `${address.slice(0, 8)}…${address.slice(-6)}` : "—";
+
+  // The friendly, on-brand way to get paid: a public pay link to your @handle
+  // (the /pay/[handle] page), not a raw 0x address.
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://talise.io";
+  const payLink = handle ? `${origin}/pay/${handle}` : "";
+  const payLinkShort = handle ? `${origin.replace(/^https?:\/\//, "")}/pay/${handle}` : "";
 
   async function copyAddress() {
     if (!address) return;
@@ -36,6 +44,18 @@ export function ReceiveSheet({
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
       toast("Couldn't copy address", "danger");
+    }
+  }
+
+  async function copyLink() {
+    if (!payLink) return;
+    try {
+      await navigator.clipboard.writeText(payLink);
+      setCopiedLink(true);
+      toast("Payment link copied", "success");
+      window.setTimeout(() => setCopiedLink(false), 1600);
+    } catch {
+      toast("Couldn't copy link", "danger");
     }
   }
 
@@ -57,16 +77,36 @@ export function ReceiveSheet({
           <QrImage value={qrValue} size={208} />
         </div>
 
+        {/* Primary: the friendly @handle pay link. Falls back to the address
+            chip when the user hasn't claimed a handle yet. */}
+        {payLink ? (
+          <button
+            type="button"
+            onClick={copyLink}
+            className="mt-5 inline-flex max-w-full items-center gap-2.5 rounded-xl bg-accent-deep px-4 py-2.5 text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
+          >
+            <span className="truncate font-mono text-[12px]">{payLinkShort}</span>
+            <HugeiconsIcon
+              icon={copiedLink ? Tick02Icon : Copy01Icon}
+              size={16}
+              strokeWidth={2}
+            />
+          </button>
+        ) : null}
+
         <button
           type="button"
           onClick={copyAddress}
           disabled={!address}
-          className="talise-glass mt-5 inline-flex max-w-full items-center gap-2.5 rounded-full px-4 py-2.5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:scale-[0.98] disabled:opacity-50"
+          className="talise-glass mt-3 inline-flex max-w-full items-center gap-2.5 rounded-full px-4 py-2 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:scale-[0.98] disabled:opacity-50"
         >
-          <span className="truncate font-mono text-[12px] text-fg-muted">{short}</span>
+          <span className="truncate font-mono text-[12px] text-fg-muted">
+            {payLink ? "or " : ""}
+            {short}
+          </span>
           <HugeiconsIcon
             icon={copied ? Tick02Icon : Copy01Icon}
-            size={16}
+            size={15}
             strokeWidth={2}
             color={copied ? "var(--color-accent)" : undefined}
             className={copied ? "" : "text-fg-dim"}

@@ -39,7 +39,7 @@ export function InsightsSection() {
       </div>
 
       {data && data.topCounterparties.length > 0 && (
-        <GlassCard radius={20} className="overflow-hidden !p-0">
+        <GlassCard radius={14} className="overflow-hidden !p-0">
           {data.topCounterparties.slice(0, 4).map((c, i) => (
             <div key={c.address}>
               {i > 0 && <div className="mx-4 h-px bg-line" />}
@@ -68,7 +68,7 @@ export function InsightsSection() {
       )}
 
       {data && data.topCounterparties.length === 0 && !loading && (
-        <GlassCard radius={20} className="flex items-center gap-3 px-4 py-4">
+        <GlassCard radius={14} className="flex items-center gap-3 px-4 py-4">
           <span
             className="flex size-9 shrink-0 items-center justify-center rounded-full text-accent"
             style={{ background: "var(--color-accent-soft)" }}
@@ -96,7 +96,7 @@ function Tile({
   loading?: boolean;
 }) {
   return (
-    <GlassCard radius={18} className="px-3 py-3.5">
+    <GlassCard radius={12} className="px-3 py-3.5">
       <span className="block font-mono text-[10px] uppercase tracking-[0.16em] text-fg-dim">
         {label}
       </span>

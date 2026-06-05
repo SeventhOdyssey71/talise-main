@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { normalizeHandle, RESERVED_USERNAMES } from "@/lib/handle";
-import { mintSubname, suins, suinsOperatorEnabled } from "@/lib/suins-operator";
+import { mintSubname, suins, suinsOperatorEnabled, LowOperatorGasError } from "@/lib/suins-operator";
 import { findTaliseSubnameForOwner } from "@/lib/suins-lookup";
 
 export const runtime = "nodejs";
@@ -102,6 +102,21 @@ export async function POST(req: Request) {
       });
       return NextResponse.json({ ok: true, username, digest, subnameNftId });
     } catch (err) {
+      // Low operator gas: not a real failure — tell the user to retry shortly
+      // (a 503 the client can surface calmly), don't dump on-chain detail.
+      if (err instanceof LowOperatorGasError) {
+        console.error(
+          `[username/claim] mint paused (gas low) user=${userId} handle=${username} — ask retry`
+        );
+        return NextResponse.json(
+          {
+            error:
+              "We're finalizing names on-chain — try claiming again in a few minutes.",
+            retry: true,
+          },
+          { status: 503 }
+        );
+      }
       const reason = (err as Error).message ?? "subname mint failed";
       return NextResponse.json(
         { error: `On-chain subname mint failed: ${reason}` },

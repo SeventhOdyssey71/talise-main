@@ -175,14 +175,14 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))}
               placeholder="0"
-              className="w-full rounded-2xl bg-surface px-4 py-3 text-[18px] text-fg outline-none ring-1 ring-line focus:ring-accent"
+              className="w-full rounded-xl bg-surface px-4 py-3 text-[18px] text-fg outline-none ring-1 ring-line focus:ring-accent"
             />
           </Field>
           <Field label="Bank">
             <select
               value={bankCode}
               onChange={(e) => setBankCode(e.target.value)}
-              className="w-full rounded-2xl bg-surface px-4 py-3 text-[15px] text-fg outline-none ring-1 ring-line focus:ring-accent"
+              className="w-full rounded-xl bg-surface px-4 py-3 text-[15px] text-fg outline-none ring-1 ring-line focus:ring-accent"
             >
               {BANKS.map((b) => (
                 <option key={b.code} value={b.code}>{b.name}</option>
@@ -195,7 +195,7 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
               value={account}
               onChange={(e) => setAccount(e.target.value.replace(/[^\d]/g, "").slice(0, 10))}
               placeholder="0123456789"
-              className="w-full rounded-2xl bg-surface px-4 py-3 text-[16px] tracking-wide text-fg outline-none ring-1 ring-line focus:ring-accent"
+              className="w-full rounded-xl bg-surface px-4 py-3 text-[16px] tracking-wide text-fg outline-none ring-1 ring-line focus:ring-accent"
             />
           </Field>
           {error && <p className="text-[13px] text-red-500">{error}</p>}
@@ -207,7 +207,7 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
 
       {step === "review" && quote && (
         <div className="space-y-5">
-          <div className="rounded-2xl bg-surface p-5 ring-1 ring-line">
+          <div className="rounded-xl bg-surface p-5 ring-1 ring-line">
             <Eyebrow>They receive</Eyebrow>
             <div className="mt-1 text-[30px] font-medium tracking-[-0.03em] text-fg">
               {ngn(quote.ngnAmount)}

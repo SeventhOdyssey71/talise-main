@@ -144,7 +144,7 @@ export function RequestPanel() {
       {mode === "request" && (
         <div className="mb-6 space-y-4">
           <Field label="Amount (optional)" hint="Leave blank for an open request.">
-            <div className="talise-glass flex items-center gap-2 rounded-2xl px-4 py-3">
+            <div className="talise-glass flex items-center gap-2 rounded-xl px-4 py-3">
               <span className="font-display text-[18px] text-fg-muted">$</span>
               <input
                 value={amount}
@@ -170,7 +170,7 @@ export function RequestPanel() {
           </Field>
 
           <Field label="Memo (optional)">
-            <div className="talise-glass rounded-2xl px-4 py-3">
+            <div className="talise-glass rounded-xl px-4 py-3">
               <input
                 value={memo}
                 onChange={(e) => setMemo(e.target.value.slice(0, 80))}
@@ -183,7 +183,7 @@ export function RequestPanel() {
       )}
 
       {/* QR card */}
-      <GlassCard radius={26} className="flex flex-col items-center px-6 py-8 text-center">
+      <GlassCard radius={14} className="flex flex-col items-center px-6 py-8 text-center">
         <span
           className="font-display text-[18px] font-semibold text-fg"
           style={{ letterSpacing: "-0.02em" }}
@@ -210,7 +210,7 @@ export function RequestPanel() {
           {qrValue ? (
             <QrImage value={qrValue} size={216} />
           ) : (
-            <div className="size-[240px] animate-pulse rounded-[20px] bg-surface-2" />
+            <div className="size-[240px] animate-pulse rounded-xl bg-surface-2" />
           )}
         </div>
 

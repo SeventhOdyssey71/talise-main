@@ -142,7 +142,7 @@ export function Redemptions({
           <div className="space-y-5 pt-1">
             <div className="flex items-center gap-3.5">
               <span
-                className="flex size-12 shrink-0 items-center justify-center rounded-2xl text-accent"
+                className="flex size-12 shrink-0 items-center justify-center rounded-xl text-accent"
                 style={{ background: "var(--color-accent-soft)" }}
               >
                 <HugeiconsIcon icon={iconFor(active)} size={24} strokeWidth={1.8} />
@@ -153,7 +153,7 @@ export function Redemptions({
               </div>
             </div>
 
-            <div className="flex items-center justify-between rounded-2xl bg-surface-2 px-4 py-3">
+            <div className="flex items-center justify-between rounded-xl bg-surface-2 px-4 py-3">
               <span className="text-[13px] text-fg-muted">Cost</span>
               <span className="text-[15px] font-medium text-accent tabular-nums">
                 {active.pointsCost.toLocaleString()} pts
@@ -204,7 +204,7 @@ function PerkCard({
     <GlassCard className="flex flex-col gap-4 p-5">
       <div className="flex items-start justify-between gap-3">
         <span
-          className="flex size-11 shrink-0 items-center justify-center rounded-2xl text-accent"
+          className="flex size-11 shrink-0 items-center justify-center rounded-xl text-accent"
           style={{ background: "var(--color-accent-soft)" }}
         >
           <HugeiconsIcon icon={iconFor(item)} size={22} strokeWidth={1.8} />

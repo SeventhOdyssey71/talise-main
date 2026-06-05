@@ -48,7 +48,7 @@ export function RoundupCard() {
   }
 
   return (
-    <GlassCard className="space-y-4 p-5" radius={24}>
+    <GlassCard className="space-y-4 p-5" radius={14}>
       <div className="flex items-start gap-3.5">
         <span
           className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"

@@ -87,7 +87,7 @@ export function PublicPay({ slug, amountUsd, memo }: PublicPayProps) {
         </div>
 
         {/* Pay card */}
-        <div className="talise-glass rounded-[28px] px-6 py-8 text-center">
+        <div className="talise-glass rounded-xl px-6 py-8 text-center">
           <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-dim">
             {amountLabel ? "Payment request" : "Pay"}
           </p>

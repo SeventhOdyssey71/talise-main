@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Quick-actions row: Send, Receive, Scan, Add money. Each is a glass tile with
- * a mint-tinted icon disc. Send → the Pay flow. Receive & Scan both open the
- * Receive sheet (QR of the user's address). Add money → Ramps (coming soon).
+ * Quick-actions row: Send, Receive, Scan. Each is a glass tile with a mint-
+ * tinted icon disc. Send → the Pay flow. Receive opens the Receive sheet (pay
+ * link + QR). Scan opens the camera scanner (mobile only).
  *
- * Desktop: a 4-up grid of tiles. Mobile: a 4-up grid that stays tidy on
- * narrow widths (icon over a short label).
+ * Mobile: a 3-up grid (icon over a short label). Desktop: 2-up (Scan hidden —
+ * no camera, and showing your own QR isn't "scanning").
  */
 
 import { useState } from "react";
@@ -42,13 +42,13 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge, className = "
   const inner = (
     <>
       <span
-        className="flex size-9 items-center justify-center rounded-xl text-accent sm:size-11 sm:rounded-2xl"
+        className="flex size-9 items-center justify-center rounded-xl text-accent sm:size-11 sm:rounded-xl"
         style={{ background: "var(--color-accent-soft)" }}
       >
         <HugeiconsIcon icon={icon} size={19} strokeWidth={1.9} color="var(--color-accent)" />
       </span>
       <span className="mt-2 flex min-w-0 flex-col sm:mt-2.5">
-        <span className="truncate text-[13px] font-semibold leading-tight text-fg sm:text-[14px]">
+        <span className="truncate text-[13px] font-medium leading-tight text-fg sm:text-[14px]">
           {label}
         </span>
         {/* Sublabel only on >=sm — on a 4-up mobile row it wraps ("Pay / anyone")
@@ -66,7 +66,7 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge, className = "
   );
 
   const cls =
-    `talise-glass relative flex flex-col items-start rounded-2xl px-3 py-3 text-left transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:translate-y-0 active:scale-[0.98] sm:rounded-3xl sm:px-3.5 sm:py-4 ${className}`;
+    `talise-glass relative flex flex-col items-start rounded-xl px-3 py-3 text-left transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:translate-y-0 active:scale-[0.98] sm:rounded-xl sm:px-3.5 sm:py-4 ${className}`;
 
   if (href) {
     return (

@@ -11,7 +11,7 @@ import {
 } from "@/lib/handle-claim";
 import { getClientIp, rateLimitAsync } from "@/lib/rate-limit";
 import { readSessionEntryId } from "@/lib/session";
-import { mintSubname, suinsOperatorEnabled } from "@/lib/suins-operator";
+import { mintSubname, suinsOperatorEnabled, LowOperatorGasError } from "@/lib/suins-operator";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -394,10 +394,39 @@ export async function POST(req: Request) {
       mintDigest = out.digest;
       mintNftId = out.subnameNftId;
     } catch (mintErr) {
-      // Roll back BOTH reservations so the user (or someone else) can
-      // retry. We log the underlying error but surface a generic 502
-      // — the caller cannot do anything useful with the on-chain
-      // failure detail.
+      // Low operator gas: do NOT roll back. Keep both reservations so the user
+      // KEEPS their name — it's reserved in the DB and the on-chain mint is
+      // finalized later (the sign-in hook `bindWaitlistHandleIfAny` re-mints
+      // reserved-but-unminted handles once gas is topped up). Return a calm
+      // 503, not a scary failure.
+      if (mintErr instanceof LowOperatorGasError) {
+        // Keep the handle reserved (waitlist_signups.claimed_handle, with
+        // handle_bound_user_id still NULL) but CLEAR the user-row reservation,
+        // so bindWaitlistHandleIfAny's recovery query is no longer
+        // short-circuited and re-mints the name on the user's next sign-in once
+        // the operator is topped up. Without this the name is stranded forever.
+        await c
+          .execute({
+            sql: "UPDATE users SET talise_username = NULL WHERE id = ? AND talise_username = ?",
+            args: [Number(user.id), norm.handle],
+          })
+          .catch(() => null);
+        console.error(
+          `[waitlist/handle/claim] RESERVED (gas low) email=${email} handle=${norm.handle} — name held, mint queued for next sign-in`
+        );
+        return NextResponse.json(
+          {
+            ok: true,
+            reserved: true,
+            handle: norm.handle,
+            message: `@${norm.handle} is reserved for you — we're finalizing it on-chain and it'll be live in a few minutes.`,
+          },
+          { status: 503 }
+        );
+      }
+      // Any other mint failure: roll back BOTH reservations so the user (or
+      // someone else) can retry. Surface a generic 502 — the caller can't do
+      // anything useful with the on-chain failure detail.
       const msg = (mintErr as Error).message.slice(0, 200);
       console.warn(
         `[waitlist/handle/claim] mint failed email=${email} handle=${norm.handle}: ${msg}`

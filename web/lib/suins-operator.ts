@@ -65,6 +65,67 @@ export function suinsOperatorAddress(): string {
   return operator().getPublicKey().toSuiAddress();
 }
 
+// ── Low-balance gas guard ────────────────────────────────────────────────────
+//
+// Each subname mint costs the operator ~0.0078 SUI in gas. When the operator
+// wallet runs dry, the mint tx fails on-chain — and the claim routes roll the
+// reservation back and surface a scary "mint failed" 502, exactly the incident
+// where a batch of users couldn't claim their names. This guard runs a cheap
+// balance read BEFORE we build/broadcast, so we can fail FAST and GRACEFULLY:
+// the routes keep the reservation and return a calm "reserved, finalizing
+// shortly" instead of losing the name. A WARN tier also logs early so the
+// operator gets topped up before claims ever pause.
+
+/** Below this (≈2-3 mints of runway) we stop minting and reserve+retry. */
+export const OPERATOR_GAS_BLOCK_SUI = 0.02;
+/** Below this (≈6 mints) we still mint but log a loud top-up alert. */
+export const OPERATOR_GAS_WARN_SUI = 0.05;
+
+/** Thrown by `assertOperatorGas()` when the operator can't safely fund a mint. */
+export class LowOperatorGasError extends Error {
+  readonly code = "LOW_OPERATOR_GAS" as const;
+  readonly sui: number;
+  constructor(sui: number) {
+    super(
+      `operator gas too low to mint: ${sui.toFixed(4)} SUI < ${OPERATOR_GAS_BLOCK_SUI} SUI threshold`
+    );
+    this.name = "LowOperatorGasError";
+    this.sui = sui;
+  }
+}
+
+/**
+ * Pre-mint gas check. Logs a loud alert in the WARN band (top up soon) and
+ * throws `LowOperatorGasError` in the BLOCK band (can't safely mint). Cheap —
+ * one `getBalance` read. Never throws on a balance-read failure (fails open so
+ * a transient RPC blip doesn't block a mint the wallet could actually afford).
+ */
+export async function assertOperatorGas(): Promise<void> {
+  const addr = suinsOperatorAddress();
+  let suiBal: number;
+  try {
+    // Read the balance DIRECTLY — not via getSuiBalance(), which swallows RPC
+    // errors and returns 0. A swallowed 0 would look like an empty wallet and
+    // wrongly BLOCK a mint on a transient blip. A genuine RPC failure here
+    // throws and we fail OPEN: never block a mint the wallet could afford.
+    const res = await sui().getBalance({ owner: addr });
+    suiBal = Number(BigInt(res.balance.balance)) / 1e9;
+  } catch {
+    return; // fail open
+  }
+  if (suiBal < OPERATOR_GAS_BLOCK_SUI) {
+    console.error(
+      `[ALERT][operator-gas] BLOCKING mints — ${suiBal.toFixed(4)} SUI on ${addr} (< ${OPERATOR_GAS_BLOCK_SUI}). TOP UP NOW; claims are being reserved + queued.`
+    );
+    throw new LowOperatorGasError(suiBal);
+  }
+  if (suiBal < OPERATOR_GAS_WARN_SUI) {
+    console.warn(
+      `[ALERT][operator-gas] LOW — ${suiBal.toFixed(4)} SUI on ${addr} (< ${OPERATOR_GAS_WARN_SUI}, ~${Math.floor(suiBal / 0.0078)} mints left). Top up soon.`
+    );
+  }
+}
+
 /**
  * Mint `<username>.talise.sui` as a transferable NFT and send it to
  * `userAddress`. Returns the tx digest + the new subname NFT object id.
@@ -84,6 +145,11 @@ export async function mintSubname(opts: {
       `TALISE_SUI_EXPIRY_MS invalid or expired (got ${process.env.TALISE_SUI_EXPIRY_MS})`
     );
   }
+
+  // Fail fast + graceful if the operator can't fund the mint — the routes
+  // catch LowOperatorGasError, keep the reservation, and tell the user it's
+  // "reserved, finalizing shortly" rather than rolling back with a 502.
+  await assertOperatorGas();
 
   const tx = new Transaction();
   const suinsTx = new SuinsTransaction(suins(), tx);

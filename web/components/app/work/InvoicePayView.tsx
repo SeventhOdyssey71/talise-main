@@ -23,6 +23,8 @@ type PublicInvoice = {
   status: "open" | "paid" | "void";
   dueMs: number | null;
   createdAt: number;
+  payDigest?: string | null;
+  paidAt?: number | null;
 };
 
 type Issuer = { handle: string; address: string; name: string | null };
@@ -175,7 +177,7 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
             )}
 
             {invoice.lineItems.length > 0 ? (
-              <div className="overflow-hidden rounded-2xl border border-line">
+              <div className="overflow-hidden rounded-xl border border-line">
                 <table className="w-full text-left text-[14px]">
                   <thead>
                     <tr className="border-b border-line bg-[var(--color-surface-2)]">
@@ -222,7 +224,7 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
               </div>
             ) : (
               invoice.memo && (
-                <div className="rounded-2xl border border-line px-4 py-3.5">
+                <div className="rounded-xl border border-line px-4 py-3.5">
                   <MicroLabel>For</MicroLabel>
                   <p className="mt-1 text-[14px] text-fg">{invoice.memo}</p>
                 </div>
@@ -259,9 +261,35 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
                 </p>
               </>
             ) : invoice.status === "paid" ? (
-              <div className="flex items-center justify-center gap-2 rounded-full bg-[var(--color-accent-soft)] py-3 text-[14px] text-accent">
-                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} strokeWidth={2} />
-                This invoice has been paid. Thank you.
+              <div className="space-y-3">
+                <div className="flex items-center justify-center gap-2 rounded-xl bg-[var(--color-accent-soft)] py-3 text-[14px] text-accent">
+                  <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} strokeWidth={2} />
+                  Paid
+                  {invoice.paidAt
+                    ? ` · ${new Date(invoice.paidAt).toLocaleDateString(undefined, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })}`
+                    : ""}
+                  . Thank you.
+                </div>
+                {invoice.payDigest && (
+                  <div className="rounded-xl border border-line px-4 py-3">
+                    <MicroLabel>On-chain receipt</MicroLabel>
+                    <a
+                      href={`https://suiscan.xyz/mainnet/tx/${invoice.payDigest}`}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="mt-1 block break-all font-mono text-[12px] text-accent underline-offset-2 hover:underline"
+                    >
+                      {invoice.payDigest}
+                    </a>
+                    <p className="mt-1 text-[11px] text-fg-dim">
+                      Settled on Sui — verify this payment on-chain.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center justify-center gap-2 rounded-full bg-[var(--color-surface-2)] py-3 text-[14px] text-fg-dim">

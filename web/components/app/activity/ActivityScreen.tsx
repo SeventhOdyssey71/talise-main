@@ -24,7 +24,7 @@ import {
  * empty after a send and history never shrinks.
  */
 export function ActivityScreen() {
-  const { entries, loading } = useActivity(50);
+  const { entries, loading, error, refresh } = useActivity(50);
   const [filter, setFilter] = useState<FilterKey>("all");
   const [selected, setSelected] = useState<ActivityRow | null>(null);
   const [open, setOpen] = useState(false);
@@ -71,7 +71,7 @@ export function ActivityScreen() {
               aria-pressed={active}
               className={
                 active
-                  ? "shrink-0 rounded-full bg-accent-soft px-4 py-2 text-[13px] font-semibold text-accent transition-colors"
+                  ? "shrink-0 rounded-full bg-accent-soft px-4 py-2 text-[13px] font-medium text-accent transition-colors"
                   : "shrink-0 rounded-full bg-surface-2 px-4 py-2 text-[13px] font-medium text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg"
               }
             >
@@ -87,6 +87,17 @@ export function ActivityScreen() {
           {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonRow key={i} />
           ))}
+        </div>
+      ) : error && entries.length === 0 ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-line px-4 py-4">
+          <span className="text-[14px] text-fg-muted">Couldn&apos;t load your activity.</span>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="rounded-full border border-line px-3.5 py-1.5 text-[13px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+          >
+            Retry
+          </button>
         </div>
       ) : filtered.length === 0 ? (
         <div className="pt-6">

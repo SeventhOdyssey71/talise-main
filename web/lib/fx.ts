@@ -86,6 +86,30 @@ export const FLAG: Record<Currency, string> = {
   VND: "🇻🇳",
 };
 
+/**
+ * ISO-3166 alpha-2 country code per currency — keys the circle-flag SVGs
+ * vendored at `/public/flags/<cc>.svg` (HatScripts/circle-flags, MIT). Used by
+ * the <Flag/> component so pickers render crisp circular flags instead of the
+ * emoji fallback (which doesn't render on Windows Chrome).
+ */
+// Keyed by string (not Currency) so display-only currencies the picker also
+// lists (EUR/GBP/CAD) get a flag without forcing entries into FX/FLAG/NAME.
+export const CC: Record<string, string> = {
+  NGN: "ng",
+  KES: "ke",
+  GHS: "gh",
+  ZAR: "za",
+  USD: "us",
+  JPY: "jp",
+  SGD: "sg",
+  PHP: "ph",
+  IDR: "id",
+  VND: "vn",
+  EUR: "eu",
+  GBP: "gb",
+  CAD: "ca",
+};
+
 /** Full display name per currency (for pickers). */
 export const CURRENCY_NAME: Record<Currency, string> = {
   NGN: "Nigerian Naira",

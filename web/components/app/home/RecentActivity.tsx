@@ -97,7 +97,7 @@ function RowSkeleton() {
 }
 
 export function RecentActivity() {
-  const { entries, loading } = useActivity(6);
+  const { entries, loading, error, refresh } = useActivity(6);
   const loadedOnce = useRef(false);
   // Re-render once on tick so relative timestamps ("5m") stay roughly fresh
   // while the user lingers on Home.
@@ -132,8 +132,19 @@ export function RecentActivity() {
           <RowSkeleton />
           <RowSkeleton />
         </div>
+      ) : error && top.length === 0 ? (
+        <GlassCard className="flex items-center justify-between gap-3 px-4 py-4" radius={14}>
+          <span className="text-[13px] text-fg-muted">Couldn&apos;t load activity.</span>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="rounded-full border border-line px-3 py-1.5 text-[12px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+          >
+            Retry
+          </button>
+        </GlassCard>
       ) : top.length === 0 ? (
-        <GlassCard className="py-2" radius={22}>
+        <GlassCard className="py-2" radius={14}>
           <EmptyState
             icon={
               <HugeiconsIcon
@@ -150,7 +161,14 @@ export function RecentActivity() {
       ) : (
         <div className="space-y-2.5">
           {top.map((e) => (
-            <ActivityRow key={e.digest} entry={e} />
+            <ActivityRow
+              key={
+                e.digest && e.digest.length > 0
+                  ? e.digest
+                  : `${e.direction}:${e.timestampMs}:${e.amountUsdsui ?? ""}`
+              }
+              entry={e}
+            />
           ))}
         </div>
       )}

@@ -167,7 +167,7 @@ export function HandleClaimCard({ onClaimed }: { onClaimed: () => void }) {
 
       <div
         className="talise-glass flex items-center gap-1.5 px-4 py-3"
-        style={{ borderRadius: 16 }}
+        style={{ borderRadius: 12 }}
       >
         <HugeiconsIcon
           icon={AtIcon}

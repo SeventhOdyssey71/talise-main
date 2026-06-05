@@ -35,7 +35,7 @@ export function BusinessAccountCard() {
     setError(null);
     try {
       await api("/api/account/switch", { method: "POST", body: { to } });
-      window.location.href = to === "business" ? "/business" : "/app";
+      window.location.href = to === "business" ? "/business/dashboard" : "/app";
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not switch accounts.";
       if (to === "business" && /not set up/i.test(msg)) {
@@ -55,8 +55,8 @@ export function BusinessAccountCard() {
         method: "POST",
         body: { businessName: bizName.trim(), businessHandle: bizHandle.trim().toLowerCase() },
       });
-      // add-business also flips account_type to business → land on /business.
-      window.location.href = "/business";
+      // add-business also flips account_type to business → land on the dashboard.
+      window.location.href = "/business/dashboard";
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not set up the business account.");
       setBusy(false);

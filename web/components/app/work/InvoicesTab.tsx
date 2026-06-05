@@ -351,7 +351,7 @@ function CreateInvoiceSheet({
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
               placeholder="Acme Inc."
-              className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
             />
           </Field>
           <Field label="Customer email" hint="For your records only (optional)">
@@ -360,7 +360,7 @@ function CreateInvoiceSheet({
               onChange={(e) => setCustomerEmail(e.target.value)}
               placeholder="billing@acme.com"
               type="email"
-              className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
             />
           </Field>
         </div>
@@ -369,7 +369,7 @@ function CreateInvoiceSheet({
           <select
             value={currency}
             onChange={(e) => setCurrency(e.target.value)}
-            className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none"
+            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none"
           >
             {currencies.map((c) => (
               <option key={c.code} value={c.code} className="bg-surface text-fg">
@@ -440,12 +440,12 @@ function CreateInvoiceSheet({
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
             placeholder="Thanks for your business!"
-            className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
           />
         </Field>
 
         {/* Live preview total */}
-        <div className="flex items-center justify-between rounded-2xl border border-line bg-[var(--color-surface-2)] px-4 py-3.5">
+        <div className="flex items-center justify-between rounded-xl border border-line bg-[var(--color-surface-2)] px-4 py-3.5">
           <span className="text-[14px] text-fg-muted">Invoice total</span>
           <span
             className="text-[22px] font-semibold text-fg"

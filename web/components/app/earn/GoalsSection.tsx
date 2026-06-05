@@ -58,7 +58,7 @@ export function GoalsSection() {
           <GoalSkeleton />
         </div>
       ) : goals.length === 0 ? (
-        <GlassCard radius={20} className="px-2 py-4">
+        <GlassCard radius={14} className="px-2 py-4">
           <EmptyState
             icon={<HugeiconsIcon icon={Target02Icon} size={26} strokeWidth={1.6} />}
             title="No goals yet"
@@ -117,7 +117,7 @@ function GoalCard({
   const pct = goal.targetUsd > 0 ? Math.min(1, goal.currentUsd / goal.targetUsd) : 0;
   const complete = pct >= 1;
   return (
-    <GlassCard radius={20} className="p-4">
+    <GlassCard radius={14} className="p-4">
       <div className="flex items-center gap-3.5">
         <ProgressRing pct={pct} color={color} />
         <div className="min-w-0 flex-1">
@@ -181,7 +181,7 @@ function ProgressRing({ pct, color }: { pct: number; color: string }) {
 
 function GoalSkeleton() {
   return (
-    <div className="talise-glass flex items-center gap-3.5 p-4 opacity-70" style={{ borderRadius: 20 }}>
+    <div className="talise-glass flex items-center gap-3.5 p-4 opacity-70" style={{ borderRadius: 14 }}>
       <div className="size-[52px] shrink-0 rounded-full bg-surface-2" />
       <div className="flex-1 space-y-2">
         <div className="h-2.5 w-24 rounded-full bg-surface-2" />

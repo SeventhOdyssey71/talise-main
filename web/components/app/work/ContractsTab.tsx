@@ -484,7 +484,7 @@ function CreateContractSheet({
             value={payeeInput}
             onChange={(e) => setPayeeInput(e.target.value)}
             placeholder="@alice or 0x…"
-            className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
           />
         </Field>
         {resolving && (
@@ -504,13 +504,13 @@ function CreateContractSheet({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Senior contractor — design"
-            className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
           />
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Rate per period">
-            <div className="talise-glass flex items-center rounded-2xl px-3.5 py-2.5">
+            <div className="talise-glass flex items-center rounded-xl px-3.5 py-2.5">
               <span className="text-[15px] text-fg-dim">$</span>
               <input
                 value={rate}
@@ -528,7 +528,7 @@ function CreateContractSheet({
               onChange={(e) => setPeriods(e.target.value.replace(/[^\d]/g, ""))}
               inputMode="numeric"
               placeholder="4"
-              className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
               style={{ fontVariantNumeric: "tabular-nums" }}
             />
           </Field>
@@ -555,7 +555,7 @@ function CreateContractSheet({
         </div>
 
         {/* Live preview */}
-        <div className="rounded-2xl border border-line bg-[var(--color-surface-2)] px-4 py-4">
+        <div className="rounded-xl border border-line bg-[var(--color-surface-2)] px-4 py-4">
           {total > 0 ? (
             <>
               <p className="text-[14px] leading-relaxed text-fg">
