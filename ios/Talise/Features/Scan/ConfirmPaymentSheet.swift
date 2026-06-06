@@ -71,6 +71,19 @@ struct ConfirmPaymentSheet: View {
     var body: some View {
         ZStack {
             TaliseColor.bg.ignoresSafeArea()
+            // Soft brand-green wash lit from the top of the sheet — the
+            // iOS-26 "lit from above" feel. Display-only, never hit-tests.
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [TaliseColor.greenMint.opacity(0.08), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 320)
+                Spacer(minLength: 0)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
 
             if let success {
                 // Reuse the EXISTING success celebration shown by the Send
@@ -176,7 +189,26 @@ struct ConfirmPaymentSheet: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 22)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(TaliseColor.surface.opacity(0.5))
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.16), Color.white.opacity(0.04)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     /// Initials monogram in a green disc — derived from the resolved display

@@ -1,6 +1,8 @@
 /** Home (dashboard) feature barrel. */
 
 export { BalanceHero } from "./BalanceHero";
+export { ActionPills } from "./ActionPills";
+export { DoMoreCard } from "./DoMoreCard";
 export { QuickActions } from "./QuickActions";
 export { IdentityCard } from "./IdentityCard";
 export { RecentActivity } from "./RecentActivity";

@@ -3,10 +3,10 @@
 /**
  * Display-currency picker for /app/settings.
  *
- * A glass row showing the active currency that opens a Sheet listing all 13
- * supported display currencies. Selecting one calls useCurrency().setCurrency
- * (persisted in localStorage). This is DISPLAY-ONLY — the wallet always
- * settles in USDsui.
+ * Renders a settings row (no outer border — meant to live inside a GlassCard
+ * with divide-y). Opens a Sheet listing all supported display currencies.
+ * Selecting one calls useCurrency().setCurrency (persisted in localStorage).
+ * This is DISPLAY-ONLY — the wallet always settles in USDsui.
  */
 
 import { useState } from "react";
@@ -24,9 +24,12 @@ export function CurrencyPicker() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="talise-history-row flex w-full items-center gap-3.5 px-3.5 py-3 text-left transition-transform hover:-translate-y-px"
+        className="flex w-full items-center gap-3.5 px-5 py-3.5 text-left transition-colors hover:bg-surface-2"
       >
-        <Flag code={currency} size={40} className="ring-1 ring-line" />
+        {/* Circular flag chip — size-10 matches the other icon chips in this card */}
+        <span className="size-10 shrink-0 overflow-hidden rounded-full ring-1 ring-line">
+          <Flag code={currency} size={40} className="block" />
+        </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[15px] font-medium text-fg">
             Display currency
@@ -36,11 +39,8 @@ export function CurrencyPicker() {
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
-          <span className="text-[15px] font-medium text-fg">
-            {active.symbol}
-          </span>
-          <span className="font-mono text-[12px] text-fg-muted">
-            {active.code}
+          <span className="rounded-full bg-surface-2 px-3 py-1 text-[13px] font-medium text-fg">
+            {active.symbol}&nbsp;{active.code}
           </span>
           <HugeiconsIcon
             icon={UnfoldMoreIcon}
@@ -72,7 +72,9 @@ export function CurrencyPicker() {
                   selected ? "bg-accent-soft" : "hover:bg-accent-soft"
                 }`}
               >
-                <Flag code={c.code} size={36} className="ring-1 ring-line" />
+                <span className="size-9 shrink-0 overflow-hidden rounded-full ring-1 ring-line">
+                  <Flag code={c.code} size={36} className="block" />
+                </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[15px] font-medium text-fg">
                     {c.label}

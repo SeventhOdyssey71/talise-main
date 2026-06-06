@@ -23,30 +23,40 @@ struct LiquidGlassSheet: ViewModifier {
         content
             .background(
                 ZStack(alignment: .top) {
-                    // Solid opaque sheet surface — NO blur material. The sheet
-                    // reads as a flat panel, not frosted glass.
-                    Rectangle().fill(TaliseColor.bg)
+                    // Dark base so the sheet stays legible over any presenting
+                    // view, with a thin material on top so the canvas reads
+                    // faintly through — the iOS-26 frosted sheet.
+                    Rectangle().fill(TaliseColor.bg.opacity(0.86))
+                    Rectangle().fill(.ultraThinMaterial)
                     if let accent {
-                        // Quiet flat top wash (no blur) — a faint "lit from
-                        // above" green tint matching the screens' TopGlow.
-                        LinearGradient(
-                            colors: [accent.opacity(0.10), .clear],
-                            startPoint: .top,
-                            endPoint: .bottom
+                        // A brand bloom near the top so the sheet feels "lit
+                        // from above" like the screens' TopGlow. Radial +
+                        // blur for soft depth, screened so it reads as light.
+                        RadialGradient(
+                            colors: [accent.opacity(0.26), accent.opacity(0.05), .clear],
+                            center: UnitPoint(x: 0.5, y: 0.0),
+                            startRadius: 0,
+                            endRadius: 260
                         )
-                        .frame(height: 240)
+                        .frame(height: 300)
                         .frame(maxWidth: .infinity, alignment: .top)
+                        .blur(radius: 22)
+                        .blendMode(.screen)
                         .allowsHitTesting(false)
                     }
                 }
                 .ignoresSafeArea()
             )
             .overlay(alignment: .top) {
-                // Faint flat hairline at the sheet's top edge (grabber line).
-                Rectangle()
-                    .fill(TaliseColor.line)
-                    .frame(height: 1)
-                    .allowsHitTesting(false)
+                // Specular hairline at the sheet's top edge (grabber line) —
+                // a bright-to-clear gradient instead of a flat gray bar.
+                LinearGradient(
+                    colors: [Color.white.opacity(0.22), Color.white.opacity(0.04)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(height: 1)
+                .allowsHitTesting(false)
             }
             .presentationBackground(.clear)
     }

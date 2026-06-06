@@ -158,8 +158,30 @@ struct HomeView: View {
                 Image(systemName: "qrcode.viewfinder")
                     .font(.system(size: 18, weight: .regular))
                     .foregroundStyle(TaliseColor.fg)
-                    .frame(width: 38, height: 38)
-                    .background(Circle().fill(TaliseColor.surface2))
+                    .frame(width: 40, height: 40)
+                    // Liquid Glass chip: a translucent disc with a soft
+                    // top highlight and a faint gradient rim.
+                    .background(
+                        ZStack {
+                            Circle().fill(.ultraThinMaterial)
+                            Circle().fill(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.10), Color.clear],
+                                    startPoint: .top, endPoint: .bottom
+                                )
+                            )
+                        }
+                    )
+                    .overlay(
+                        Circle().strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.20), Color.white.opacity(0.04)],
+                                startPoint: .top, endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                    )
+                    .clipShape(Circle())
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
@@ -209,14 +231,11 @@ struct HomeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 22)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(TaliseColor.surface)
-                    )
+                    .liquidGlassCard(cornerRadius: 20)
             } else {
-                // One flat surface card holding the rows, separated by hairline
-                // dividers indented past the badge — the clean Apple-system list
-                // look. No per-row glass; the card is the only chrome.
+                // One translucent glass card holding the rows, separated by
+                // hairline dividers indented past the badge — the clean
+                // Apple-system list look on a single liquid-glass plate.
                 let rows = Array(activity.prefix(4))
                 VStack(spacing: 0) {
                     ForEach(rows.indices, id: \.self) { i in
@@ -229,10 +248,7 @@ struct HomeView: View {
                         }
                     }
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(TaliseColor.surface)
-                )
+                .liquidGlassCard(cornerRadius: 20)
             }
         }
     }
@@ -254,11 +270,17 @@ struct HomeView: View {
                 // since it's pegged 1:1 to USD on chain. SUI balance
                 // gets its own sub-line so the user still sees gas
                 // headroom without a "total USD" rollup that can drift
-                // with SUI price.
+                // with SUI price. Big, clean hero figure with a whisper
+                // of a top-down white gradient for the premium iOS-26 sheen.
                 Text(usdsuiFormatted)
-                    .font(TaliseFont.display(34, weight: .medium))
-                    .kerning(-1.2)
-                    .foregroundStyle(TaliseColor.fg)
+                    .font(TaliseFont.display(40, weight: .medium))
+                    .kerning(-1.6)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [TaliseColor.fg, TaliseColor.fg.opacity(0.82)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
                     .contentTransition(.numericText())
                     .redacted(reason: loadingBalance ? .placeholder : [])
 
@@ -357,8 +379,43 @@ struct HomeView: View {
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(accented ? TaliseColor.greenMint : TaliseColor.fg)
                 .rotationEffect(.degrees(degrees))
-                .frame(width: 40, height: 40)
-                .taliseGlass(cornerRadius: 10, tint: accented ? TaliseColor.greenMint : nil)
+                .frame(width: 44, height: 44)
+                // iOS-26 Liquid Glass action pill: a translucent material
+                // plate with a soft top-down highlight, a faint gradient
+                // stroke, and (when accented) a low mint wash so the
+                // primary actions glow without shouting over the balance.
+                .background(
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .fill(.ultraThinMaterial)
+                        if accented {
+                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                .fill(TaliseColor.greenMint.opacity(0.14))
+                        }
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.10), Color.clear],
+                                    startPoint: .top, endPoint: .bottom
+                                )
+                            )
+                    }
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(accented ? 0.30 : 0.18),
+                                    Color.white.opacity(0.04)
+                                ],
+                                startPoint: .top, endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .shadow(color: Color.black.opacity(0.35), radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
     }
@@ -367,14 +424,14 @@ struct HomeView: View {
 
     private var usernameCard: some View {
         ZStack(alignment: .topLeading) {
-            // Empty container the glass modifier attaches to. The
-            // 212pt height matches the Figma spec; the glass
-            // treatment (.ultraThinMaterial + dark tint + top
-            // hairline + drop shadow) lives in TaliseGlassCard so
-            // it stays in sync with the bottom nav pill.
+            // Empty container the glass treatment attaches to. The
+            // 212pt height matches the Figma spec. iOS-26 Liquid Glass:
+            // a translucent material plate, a soft brand-green diagonal
+            // wash, a top-down specular highlight, and a gradient
+            // hairline edge — the hero "your money lands here" card.
             Color.clear
                 .frame(height: 212)
-                .taliseGlass(cornerRadius: 25)
+                .liquidGlassCard(cornerRadius: 25, greenWash: true)
             // Branded Sui coin mark in the card's top-right corner.
             // Source PNG is the full-color Sui mark, so we render as
             // original (no template tint). Box bumped 18×24 → 26×26
@@ -950,12 +1007,12 @@ struct HomeView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .taliseGlass(cornerRadius: 18)
+            .liquidGlassCard(cornerRadius: 18, greenWash: true)
             // Keep the soft accent ring so the sweep CTA still reads as
             // a green-tinted nudge against the neutral-glass siblings.
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(TaliseColor.accent.opacity(0.18), lineWidth: 1)
+                    .stroke(TaliseColor.accent.opacity(0.22), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -1296,6 +1353,71 @@ struct TaliseTxEvent {
     let counterpartyName: String?
     /// "deepbook" | "navi" — only set for invest/withdraw.
     let venue: String?
+}
+
+/// iOS-26 Liquid Glass card treatment, local to the Home surface. The
+/// shared `.taliseGlass()` is intentionally FLAT (75 call sites depend on
+/// that); this reintroduces tasteful translucency just for the redesigned
+/// dashboard cards — a `.ultraThinMaterial` plate, an optional soft
+/// brand-green diagonal wash, a top-down specular highlight, a gradient
+/// hairline edge, and a soft drop shadow that lifts the card off black.
+private struct HomeLiquidGlassCard: ViewModifier {
+    let cornerRadius: CGFloat
+    let greenWash: Bool
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    // Quiet darkening so the material reads on the black
+                    // canvas rather than washing toward grey.
+                    shape.fill(Color.black.opacity(0.22))
+                    if greenWash {
+                        shape.fill(
+                            LinearGradient(
+                                colors: [
+                                    TaliseColor.greenDeep.opacity(0.22),
+                                    Color.clear,
+                                    TaliseColor.greenMint.opacity(0.06)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    }
+                    // Top-down specular sheen — the signature glass highlight.
+                    shape.fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.08), Color.clear],
+                            startPoint: .top, endPoint: .center
+                        )
+                    )
+                }
+            )
+            .overlay(
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.22),
+                            Color.white.opacity(0.05),
+                            Color.white.opacity(0.10)
+                        ],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .clipShape(shape)
+            .shadow(color: Color.black.opacity(0.30), radius: 18, x: 0, y: 10)
+    }
+}
+
+private extension View {
+    func liquidGlassCard(cornerRadius: CGFloat = 25, greenWash: Bool = false) -> some View {
+        modifier(HomeLiquidGlassCard(cornerRadius: cornerRadius, greenWash: greenWash))
+    }
 }
 
 private struct TaliseLogoMark: View {

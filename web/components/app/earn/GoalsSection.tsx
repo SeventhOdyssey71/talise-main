@@ -47,7 +47,7 @@ export function GoalsSection() {
           onClick={() => setCreating(true)}
           className="inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-accent"
         >
-          <HugeiconsIcon icon={PlusSignIcon} size={13} strokeWidth={2.2} />
+          <HugeiconsIcon icon={PlusSignIcon} size={12} strokeWidth={2.2} />
           New goal
         </button>
       </div>
@@ -60,7 +60,7 @@ export function GoalsSection() {
       ) : goals.length === 0 ? (
         <GlassCard radius={14} className="px-2 py-4">
           <EmptyState
-            icon={<HugeiconsIcon icon={Target02Icon} size={26} strokeWidth={1.6} />}
+            icon={<HugeiconsIcon icon={Target02Icon} size={24} strokeWidth={1.6} />}
             title="No goals yet"
             subtitle="Set a target — a trip, a rainy-day fund — and track every contribution."
             action={
@@ -118,10 +118,10 @@ function GoalCard({
   const complete = pct >= 1;
   return (
     <GlassCard radius={14} className="p-4">
-      <div className="flex items-center gap-3.5">
+      <div className="flex items-center gap-3">
         <ProgressRing pct={pct} color={color} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-medium tracking-[-0.01em] text-fg">
+          <p className="truncate text-[14px] font-medium tracking-[-0.01em] text-fg">
             {goal.name}
           </p>
           <p className="truncate font-mono text-[11px] text-fg-dim">
@@ -130,7 +130,7 @@ function GoalCard({
           </p>
         </div>
       </div>
-      <div className="mt-3.5">
+      <div className="mt-3">
         <PrimaryButton full variant="ghost" onClick={onDeposit}>
           {complete ? "Add more" : "Add to goal"}
         </PrimaryButton>
@@ -140,8 +140,8 @@ function GoalCard({
 }
 
 function ProgressRing({ pct, color }: { pct: number; color: string }) {
-  const size = 52;
-  const stroke = 5;
+  const size = 48;
+  const stroke = 4.5;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const dash = c * pct;
@@ -170,7 +170,7 @@ function ProgressRing({ pct, color }: { pct: number; color: string }) {
         y="50%"
         dominantBaseline="central"
         textAnchor="middle"
-        className="rotate-90 fill-fg font-mono text-[11px] font-medium"
+        className="rotate-90 fill-fg font-mono text-[10px] font-medium"
         style={{ transformOrigin: "center" }}
       >
         {Math.round(pct * 100)}%
@@ -181,13 +181,13 @@ function ProgressRing({ pct, color }: { pct: number; color: string }) {
 
 function GoalSkeleton() {
   return (
-    <div className="talise-glass flex items-center gap-3.5 p-4 opacity-70" style={{ borderRadius: 14 }}>
-      <div className="size-[52px] shrink-0 rounded-full bg-surface-2" />
+    <GlassCard radius={14} className="flex items-center gap-3 p-4 opacity-70">
+      <div className="size-12 shrink-0 rounded-full bg-surface-2" />
       <div className="flex-1 space-y-2">
         <div className="h-2.5 w-24 rounded-full bg-surface-2" />
         <div className="h-2 w-32 rounded-full bg-surface-2" />
       </div>
-    </div>
+    </GlassCard>
   );
 }
 
@@ -242,14 +242,13 @@ function NewGoalSheet({
             onChange={(e) => setName(e.target.value)}
             maxLength={40}
             placeholder="Japan trip"
-            className="talise-glass w-full px-4 py-3 text-[15px] text-fg outline-none placeholder:text-fg-dim"
-            style={{ borderRadius: 14 }}
+            className="w-full rounded-xl border border-line bg-surface-2 px-4 py-3 text-[14px] text-fg outline-none placeholder:text-fg-dim"
           />
         </Field>
 
         <Field label={`Target (${currency})`}>
-          <div className="talise-glass flex items-center gap-2 px-4 py-3" style={{ borderRadius: 14 }}>
-            <span className="text-[18px] font-medium text-fg-muted">{symbol}</span>
+          <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3">
+            <span className="text-[17px] font-medium text-fg-muted">{symbol}</span>
             <input
               inputMode="decimal"
               value={target}
@@ -258,7 +257,7 @@ function NewGoalSheet({
                 if ((v.match(/\./g) ?? []).length <= 1) setTarget(v);
               }}
               placeholder="0.00"
-              className="w-full bg-transparent text-[18px] font-medium tabular-nums text-fg outline-none placeholder:text-fg-dim"
+              className="w-full bg-transparent text-[17px] font-medium tabular-nums text-fg outline-none placeholder:text-fg-dim"
             />
           </div>
         </Field>
@@ -350,8 +349,8 @@ function DepositSheet({
               : "Goal reached — keep adding if you like."}
           </p>
           <Field label={`Amount (${currency})`}>
-            <div className="talise-glass flex items-center gap-2 px-4 py-3" style={{ borderRadius: 14 }}>
-              <span className="text-[22px] font-medium text-fg-muted">{symbol}</span>
+            <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3">
+              <span className="text-[20px] font-medium text-fg-muted">{symbol}</span>
               <input
                 inputMode="decimal"
                 value={amount}
@@ -361,7 +360,7 @@ function DepositSheet({
                   setError(null);
                 }}
                 placeholder="0.00"
-                className="w-full bg-transparent text-[22px] font-medium tabular-nums text-fg outline-none placeholder:text-fg-dim"
+                className="w-full bg-transparent text-[20px] font-medium tabular-nums text-fg outline-none placeholder:text-fg-dim"
               />
             </div>
           </Field>

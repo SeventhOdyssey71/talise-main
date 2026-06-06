@@ -91,7 +91,7 @@ export function tintColor(category: Category): string | null {
 
 export function DirectionBadge({
   category,
-  size = 38,
+  size = 36,
   iconSize,
 }: {
   category: Category;

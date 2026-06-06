@@ -65,9 +65,9 @@ struct RewardsView: View {
             )
             tierProgress(tier: tier, points: points)
         }
-        .padding(20)
+        .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 20, tint: TaliseColor.accent)
+        .earnHeroGlass(cornerRadius: 24)
     }
 
     /// Honest progress to the next tier — no fake minimum fill, so a
@@ -121,6 +121,7 @@ struct RewardsView: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 4)
             .taliseGlass(cornerRadius: 20)
+            .earnGlassLift(cornerRadius: 20)
         }
     }
 
@@ -183,6 +184,7 @@ struct RewardsView: View {
                 }
                 .padding(20)
                 .taliseGlass(cornerRadius: 20)
+                .earnGlassLift(cornerRadius: 20)
             }
         }
     }

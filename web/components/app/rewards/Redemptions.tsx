@@ -101,10 +101,10 @@ export function Redemptions({
 
   if (items.length === 0) {
     return (
-      <section className="space-y-3">
+      <section className="space-y-2.5">
         <MicroLabel>Redeem your points</MicroLabel>
-        <GlassCard className="px-5 py-8 text-center">
-          <p className="text-[14px] text-fg-muted">New perks are on the way.</p>
+        <GlassCard className="px-5 py-7 text-center" radius={14}>
+          <p className="text-[13px] text-fg-muted">New perks are on the way.</p>
           <p className="mt-1 text-[12px] text-fg-dim">
             Keep earning — your points are banked and ready.
           </p>
@@ -114,7 +114,7 @@ export function Redemptions({
   }
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-2.5">
       <MicroLabel>Redeem your points</MicroLabel>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {items.map((item) => (
@@ -139,32 +139,34 @@ export function Redemptions({
         size="sm"
       >
         {active && (
-          <div className="space-y-5 pt-1">
+          <div className="space-y-4 pt-1">
+            {/* Perk summary row */}
             <div className="flex items-center gap-3.5">
-              <span
-                className="flex size-12 shrink-0 items-center justify-center rounded-xl text-accent"
-                style={{ background: "var(--color-accent-soft)" }}
-              >
-                <HugeiconsIcon icon={iconFor(active)} size={24} strokeWidth={1.8} />
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+                <HugeiconsIcon icon={iconFor(active)} size={22} strokeWidth={1.8} />
               </span>
               <div className="min-w-0">
-                <p className="text-[16px] font-medium text-fg">{active.label}</p>
-                <p className="text-[13px] text-fg-dim">{active.description}</p>
+                <p className="text-[15px] font-medium text-fg">{active.label}</p>
+                <p className="text-[12px] text-fg-dim">{active.description}</p>
               </div>
             </div>
 
-            <div className="flex items-center justify-between rounded-xl bg-surface-2 px-4 py-3">
-              <span className="text-[13px] text-fg-muted">Cost</span>
-              <span className="text-[15px] font-medium text-accent tabular-nums">
-                {active.pointsCost.toLocaleString()} pts
-              </span>
-            </div>
-            <div className="flex items-center justify-between px-4 -mt-2">
-              <span className="font-mono text-[11px] text-fg-dim">Balance after</span>
-              <span className="font-mono text-[11px] text-fg-dim tabular-nums">
-                {Math.max(0, pointsTotal - active.pointsCost).toLocaleString()} pts
-              </span>
-            </div>
+            {/* Cost + balance-after rows */}
+            <GlassCard className="overflow-hidden !p-0" radius={12}>
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="text-[13px] text-fg-muted">Cost</span>
+                <span className="text-[14px] font-medium text-accent tabular-nums">
+                  {active.pointsCost.toLocaleString()} pts
+                </span>
+              </div>
+              <div className="mx-4 h-px bg-line" />
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="font-mono text-[11px] text-fg-dim">Balance after</span>
+                <span className="font-mono text-[11px] tabular-nums text-fg-dim">
+                  {Math.max(0, pointsTotal - active.pointsCost).toLocaleString()} pts
+                </span>
+              </div>
+            </GlassCard>
 
             {active.kind === "pending" && (
               <p className="text-[12px] text-fg-dim">
@@ -201,16 +203,13 @@ function PerkCard({
   // Shown only when !canAfford — the gap between cost and the user's balance.
   const shortfall = Math.max(0, item.pointsCost - pointsTotal);
   return (
-    <GlassCard className="flex flex-col gap-4 p-5">
+    <GlassCard className="flex flex-col gap-3.5 p-4" radius={14}>
       <div className="flex items-start justify-between gap-3">
-        <span
-          className="flex size-11 shrink-0 items-center justify-center rounded-xl text-accent"
-          style={{ background: "var(--color-accent-soft)" }}
-        >
-          <HugeiconsIcon icon={iconFor(item)} size={22} strokeWidth={1.8} />
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+          <HugeiconsIcon icon={iconFor(item)} size={20} strokeWidth={1.8} />
         </span>
         <span className="flex items-baseline gap-1 font-mono text-accent">
-          <span className="text-[15px] font-medium tabular-nums">
+          <span className="text-[14px] font-medium tabular-nums">
             {item.pointsCost.toLocaleString()}
           </span>
           <span className="text-[10px] text-fg-dim">pts</span>
@@ -218,13 +217,13 @@ function PerkCard({
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="text-[15px] font-medium text-fg">{item.label}</p>
-        <p className="mt-1 text-[13px] leading-snug text-fg-dim">{item.description}</p>
+        <p className="text-[14px] font-medium text-fg">{item.label}</p>
+        <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">{item.description}</p>
       </div>
 
       {item.minTier ? (
         <div className="flex items-center gap-1.5 font-mono text-[11px] text-fg-dim">
-          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} strokeWidth={1.8} />
+          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={12} strokeWidth={1.8} />
           Unlocks at {TIER_LABEL[item.minTier] ?? item.minTier}
         </div>
       ) : item.canAfford ? (

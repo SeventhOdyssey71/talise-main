@@ -109,9 +109,24 @@ struct TxReceiptView: View {
     private var directionBadge: some View {
         VStack(spacing: 10) {
             ZStack {
+                // iOS-26 glass hero chip: the tinted disc carries a soft
+                // top-down highlight and a faint white rim so it reads as a
+                // translucent token floating on the dark sheet.
                 Circle()
                     .fill(badgeBg)
-                    .frame(width: 64, height: 64)
+                    .frame(width: 68, height: 68)
+                    .overlay(
+                        Circle().fill(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.14), Color.clear],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                        )
+                    )
+                    .overlay(
+                        Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.30), radius: 12, x: 0, y: 6)
                 Image(systemName: badgeIcon)
                     .font(.system(size: 24, weight: .medium))
                     .foregroundStyle(badgeFg)
@@ -188,7 +203,7 @@ struct TxReceiptView: View {
             row(label: "Digest", value: shortDigest, mono: true)
         }
         .padding(.vertical, 4)
-        .taliseGlass(cornerRadius: 22)
+        .receiptGlassCard(cornerRadius: 22)
     }
 
     private func row(label: String, value: String, mono: Bool = false) -> some View {
@@ -252,13 +267,27 @@ struct TxReceiptView: View {
                 .foregroundStyle(TaliseColor.fg)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
-                // Flat solid capsule — no blur, no specular gradient, no
-                // shadow. A clean raised chip on the page.
+                // iOS-26 Liquid Glass secondary action: a translucent
+                // capsule with a soft top highlight and a faint gradient rim.
                 .background(
-                    Capsule().fill(TaliseColor.surface2)
+                    ZStack {
+                        Capsule().fill(.ultraThinMaterial)
+                        Capsule().fill(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.08), Color.clear],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                        )
+                    }
                 )
                 .overlay(
-                    Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
+                    Capsule().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.20), Color.white.opacity(0.04)],
+                            startPoint: .top, endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
                 )
                 .clipShape(Capsule())
             }
@@ -300,5 +329,47 @@ struct TxReceiptView: View {
             return
         }
         UIApplication.shared.open(url)
+    }
+}
+
+/// iOS-26 Liquid Glass card for the receipt's details block — a translucent
+/// `.ultraThinMaterial` plate over a quiet darkening, a top-down specular
+/// sheen, and a gradient hairline edge. Local to this sheet so the shared
+/// flat `.taliseGlass()` stays untouched.
+private struct ReceiptGlassCard: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color.black.opacity(0.22))
+                    shape.fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.07), Color.clear],
+                            startPoint: .top, endPoint: .center
+                        )
+                    )
+                }
+            )
+            .overlay(
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.20), Color.white.opacity(0.05)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .clipShape(shape)
+            .shadow(color: Color.black.opacity(0.26), radius: 16, x: 0, y: 9)
+    }
+}
+
+private extension View {
+    func receiptGlassCard(cornerRadius: CGFloat = 22) -> some View {
+        modifier(ReceiptGlassCard(cornerRadius: cornerRadius))
     }
 }

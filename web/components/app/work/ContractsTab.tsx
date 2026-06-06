@@ -111,17 +111,19 @@ export function ContractsTab() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      {/* Section header */}
       <div className="flex items-center justify-between">
-        <MicroLabel>Active contracts</MicroLabel>
+        <Eyebrow>Active contracts</Eyebrow>
         <PrimaryButton onClick={() => setCreateOpen(true)} variant="ghost">
-          <HugeiconsIcon icon={Add01Icon} size={16} strokeWidth={2} />
+          <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} />
           New contract
         </PrimaryButton>
       </div>
 
+      {/* Content */}
       {loading ? (
-        <div className="flex justify-center py-16">
+        <div className="flex justify-center py-12">
           <Spinner size={22} />
         </div>
       ) : contracts.length === 0 ? (
@@ -132,23 +134,25 @@ export function ContractsTab() {
             subtitle="Set up recurring pay for a contractor or teammate. Fund it once — Talise releases each pay period automatically."
             action={
               <PrimaryButton onClick={() => setCreateOpen(true)}>
-                <HugeiconsIcon icon={PlusSignIcon} size={16} strokeWidth={2} />
+                <HugeiconsIcon icon={PlusSignIcon} size={15} strokeWidth={2} />
                 Hire someone
               </PrimaryButton>
             }
           />
         </GlassCard>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {contracts.map((c) => (
-            <ContractCard
+        /* Wise-style: all contracts in one flat card as stacked rows */
+        <GlassCard className="overflow-hidden p-0">
+          {contracts.map((c, i) => (
+            <ContractRow
               key={c.id}
               c={c}
               formatUsd={formatUsd}
               onCancel={() => cancel(c)}
+              divider={i < contracts.length - 1}
             />
           ))}
-        </div>
+        </GlassCard>
       )}
 
       <CreateContractSheet
@@ -163,14 +167,18 @@ export function ContractsTab() {
   );
 }
 
-function ContractCard({
+// ── Contract row (Wise list-row pattern) ───────────────────────────────────
+
+function ContractRow({
   c,
   formatUsd,
   onCancel,
+  divider,
 }: {
   c: Contract;
   formatUsd: (usd: number, o?: { fixed?: boolean }) => string;
   onCancel: () => void;
+  divider: boolean;
 }) {
   const pct = c.totalUsd > 0 ? Math.min(100, (c.paidUsd / c.totalUsd) * 100) : 0;
   const stateTone =
@@ -197,63 +205,68 @@ function ContractCard({
   const payee = c.payeeHandle || `${c.payeeAddress.slice(0, 6)}…${c.payeeAddress.slice(-4)}`;
 
   return (
-    <GlassCard className="flex flex-col gap-3 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-medium text-fg">{c.title}</p>
-          <p className="mt-0.5 truncate font-mono text-[12px] text-fg-dim">{payee}</p>
-        </div>
-        <StatusPill label={stateLabel} tone={stateTone} />
+    <div>
+      <div className="talise-history-row flex items-start gap-3.5 px-4 py-3.5">
+        {/* Circular icon chip */}
+        <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <HugeiconsIcon icon={UserGroupIcon} size={17} strokeWidth={1.8} />
+        </span>
+
+        {/* Title + payee + progress */}
+        <span className="min-w-0 flex-1 space-y-2">
+          <span>
+            <span className="block truncate text-[15px] font-medium text-fg">{c.title}</span>
+            <span className="block truncate font-mono text-[11px] text-fg-dim">
+              {payee} · {formatUsd(c.rateUsd, { fixed: true })}/{c.cadenceLabel}
+            </span>
+          </span>
+
+          {/* Progress bar */}
+          <span className="block">
+            <span className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+              <span
+                className="block h-full rounded-full bg-accent-deep transition-[width] duration-500"
+                style={{ width: `${pct}%` }}
+              />
+            </span>
+            <span className="mt-1 flex items-center justify-between">
+              <span className="font-mono text-[11px] text-fg-dim" style={{ fontVariantNumeric: "tabular-nums" }}>
+                {formatUsd(c.paidUsd, { fixed: true })} / {formatUsd(c.totalUsd, { fixed: true })}
+              </span>
+              <span className="font-mono text-[10px] text-fg-dim">
+                {c.periodsPaid}/{c.periods}
+              </span>
+            </span>
+          </span>
+        </span>
+
+        {/* Status + next pay + action */}
+        <span className="flex shrink-0 flex-col items-end gap-2">
+          <StatusPill label={stateLabel} tone={stateTone} />
+          {next ? (
+            <span className="font-mono text-[11px] text-fg-dim">
+              Next {next.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            </span>
+          ) : (
+            <span className="font-mono text-[11px] text-fg-dim">
+              {formatUsd(c.remainingUsd, { fixed: true })} left
+            </span>
+          )}
+          {c.status === "active" && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] text-fg-dim transition-colors hover:bg-surface-2 hover:text-[var(--color-danger)]"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+              Cancel
+            </button>
+          )}
+        </span>
       </div>
 
-      <p className="text-[13px] text-fg-muted">
-        {formatUsd(c.rateUsd, { fixed: true })} every {c.cadenceLabel} · {c.periods}{" "}
-        {c.cadenceLabel}
-        {c.periods === 1 ? "" : "s"}
-      </p>
-
-      {/* Progress */}
-      <div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-surface-2)]">
-          <div
-            className="h-full rounded-full bg-accent-deep transition-[width] duration-500"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <div className="mt-1.5 flex items-center justify-between text-[12px]">
-          <span className="text-fg-muted" style={{ fontVariantNumeric: "tabular-nums" }}>
-            Paid {formatUsd(c.paidUsd, { fixed: true })} of{" "}
-            {formatUsd(c.totalUsd, { fixed: true })}
-          </span>
-          <span className="font-mono text-fg-dim">
-            {c.periodsPaid}/{c.periods}
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-auto flex items-center justify-between pt-1">
-        {next ? (
-          <span className="text-[12px] text-fg-dim">
-            Next pay{" "}
-            {next.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-          </span>
-        ) : (
-          <span className="text-[12px] text-fg-dim">
-            {formatUsd(c.remainingUsd, { fixed: true })} remaining
-          </span>
-        )}
-        {c.status === "active" && (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-fg-dim transition-colors hover:text-[var(--color-danger)]"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
-            Cancel
-          </button>
-        )}
-      </div>
-    </GlassCard>
+      {divider && <div className="mx-4 border-t border-line" />}
+    </div>
   );
 }
 
@@ -493,7 +506,7 @@ function CreateContractSheet({
           </div>
         )}
         {resolved && (
-          <div className="flex items-center gap-2 rounded-xl bg-[var(--color-accent-soft)] px-3 py-2 text-[13px] text-accent">
+          <div className="flex items-center gap-2 rounded-xl bg-accent-soft px-3 py-2 text-[13px] text-accent">
             Paying {resolved.displayName}
           </div>
         )}
@@ -534,15 +547,16 @@ function CreateContractSheet({
           </Field>
         </div>
 
+        {/* Cadence selector */}
         <div>
-          <Eyebrow className="mb-2 block">Cadence</Eyebrow>
+          <Eyebrow className="mb-2.5 block">Cadence</Eyebrow>
           <div className="flex flex-wrap gap-2">
             {CADENCES.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => setCadence(c.id)}
-                className={`rounded-full px-4 py-2 text-[13px] font-medium transition-colors ${
+                className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors ${
                   cadence === c.id
                     ? "bg-accent-deep text-white"
                     : "talise-glass text-fg-muted hover:text-fg"
@@ -555,7 +569,7 @@ function CreateContractSheet({
         </div>
 
         {/* Live preview */}
-        <div className="rounded-xl border border-line bg-[var(--color-surface-2)] px-4 py-4">
+        <div className="rounded-xl border border-line bg-surface-2 px-4 py-4">
           {total > 0 ? (
             <>
               <p className="text-[14px] leading-relaxed text-fg">

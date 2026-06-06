@@ -43,7 +43,7 @@ struct SendRecipientView: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 18)
         }
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .taliseScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             inputFocused = true
@@ -72,15 +72,15 @@ struct SendRecipientView: View {
         HStack {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(TaliseColor.fg)
-                    .frame(width: 36, height: 36)
-                    .background(Circle().fill(TaliseColor.surfaceGlass))
+                    .frame(width: 38, height: 38)
+                    .glassCircle()
             }
             Spacer()
-            MicroLabel(text: "Send to", color: TaliseColor.fgDim).kerning(1.5)
+            MicroLabel(text: "Send to", color: TaliseColor.fgMuted).kerning(2.0)
             Spacer()
-            Color.clear.frame(width: 36, height: 36)
+            Color.clear.frame(width: 38, height: 38)
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -135,10 +135,10 @@ struct SendRecipientView: View {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(TaliseColor.accent)
+                    .foregroundStyle(TaliseColor.greenMint)
                 Text(r.displayName ?? r.address)
                     .font(TaliseFont.mono(11, weight: .light))
-                    .foregroundStyle(TaliseColor.accent)
+                    .foregroundStyle(TaliseColor.greenMint)
                 Text(shortAddress(r.address))
                     .font(TaliseFont.mono(10, weight: .light))
                     .foregroundStyle(TaliseColor.fgDim)
@@ -185,8 +185,7 @@ struct SendRecipientView: View {
                         ForEach(contacts) { c in
                             contactRow(c)
                             if c.id != contacts.last?.id {
-                                Divider().background(TaliseColor.line)
-                                    .padding(.leading, 70)
+                                LiquidGlassDivider(inset: 70)
                             }
                         }
                     }
@@ -203,8 +202,17 @@ struct SendRecipientView: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(TaliseColor.surface)
+                        .fill(.ultraThinMaterial)
                         .frame(width: 38, height: 38)
+                        .overlay(
+                            Circle().strokeBorder(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.18), Color.white.opacity(0.03)],
+                                    startPoint: .top, endPoint: .bottom
+                                ),
+                                lineWidth: 0.8
+                            )
+                        )
                     Text(initials(for: c))
                         .font(TaliseFont.heading(13, weight: .medium))
                         .foregroundStyle(TaliseColor.fg)
@@ -278,11 +286,23 @@ struct SendRecipientView: View {
         }) {
             Text("Next")
                 .font(TaliseFont.heading(16, weight: .medium))
-                .foregroundStyle(TaliseColor.bg)
+                .foregroundStyle(canAdvance ? Color(hex: 0x0A140C) : TaliseColor.fgDim)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
-                .background(canAdvance ? TaliseColor.fg : TaliseColor.fg.opacity(0.35))
-                .clipShape(Capsule())
+                .background(
+                    Capsule()
+                        .fill(canAdvance ? TaliseColor.greenMint : TaliseColor.surface2)
+                )
+                .overlay(
+                    Capsule().strokeBorder(
+                        Color.white.opacity(canAdvance ? 0.18 : 0.06),
+                        lineWidth: 0.8
+                    )
+                )
+                .shadow(
+                    color: TaliseColor.greenMint.opacity(canAdvance ? 0.25 : 0),
+                    radius: 16, y: 6
+                )
         }
         .disabled(!canAdvance)
     }

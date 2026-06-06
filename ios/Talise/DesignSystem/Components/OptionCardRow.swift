@@ -18,8 +18,11 @@ struct OptionCardRow: View {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(accent.opacity(0.15))
-                    .frame(width: 40, height: 40)
+                    .fill(accent.opacity(0.16))
+                    .frame(width: 42, height: 42)
+                Circle()
+                    .strokeBorder(accent.opacity(0.28), lineWidth: 0.75)
+                    .frame(width: 42, height: 42)
                 Image(systemName: icon)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(accent)
@@ -53,13 +56,59 @@ struct OptionCardRow: View {
                 .foregroundStyle(TaliseColor.fgDim)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(TaliseColor.surfaceGlass)
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(TaliseColor.line, lineWidth: 0.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .taliseGlass(cornerRadius: 18)
+    }
+}
+
+// MARK: - GlassSection (iOS-26 Liquid Glass container)
+// Defined here (not a standalone file) so it's part of the compiled target.
+
+/// Translucent material plate with a soft top-lit specular rim + optional
+/// brand wash — the reintroduced Liquid Glass counterpart to flat `taliseGlass`.
+struct GlassSection: ViewModifier {
+    var cornerRadius: CGFloat = 20
+    var tint: Color? = nil
+    var tintOpacity: Double = 0.07
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(TaliseColor.surface.opacity(0.55))
+                    if let tint {
+                        shape.fill(tint.opacity(tintOpacity))
+                    }
+                }
+            )
+            .overlay(
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.16),
+                            Color.white.opacity(0.04),
+                            Color.white.opacity(0.02),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .clipShape(shape)
+    }
+}
+
+extension View {
+    /// Apply the reintroduced iOS-26 Liquid Glass treatment to a container.
+    func glassSection(
+        cornerRadius: CGFloat = 20,
+        tint: Color? = nil,
+        tintOpacity: Double = 0.07
+    ) -> some View {
+        modifier(GlassSection(cornerRadius: cornerRadius, tint: tint, tintOpacity: tintOpacity))
     }
 }

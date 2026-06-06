@@ -121,28 +121,52 @@ struct ProfileView: View {
                 .frame(width: 88, height: 88)
                 .clipShape(Circle())
                 .overlay(
-                    Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    // Specular liquid-glass rim — a soft white-to-clear
+                    // gradient edge so the avatar reads as lit from above.
+                    Circle().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.30), Color.white.opacity(0.04)],
+                            startPoint: .top, endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
                 )
-                .shadow(color: Color.black.opacity(0.4), radius: 14, x: 0, y: 6)
+                .shadow(color: Color.black.opacity(0.4), radius: 16, x: 0, y: 8)
             } else {
                 initialsDisc
             }
         }
+        // A whisper of brand-green halo behind the avatar so the hero feels
+        // "lit" — the iOS-26 glow, kept faint so it never reads as a ring.
+        .background(
+            Circle()
+                .fill(TaliseColor.accent.opacity(0.16))
+                .frame(width: 104, height: 104)
+                .blur(radius: 22)
+        )
     }
 
-    /// Avatar fallback — a frosted disc that sits *over* the page
-    /// background, not on it. Simple material + tint + single shadow;
-    /// the old gradient stroke + dual shadow added more chrome than
-    /// the rest of the screen earned.
+    /// Avatar fallback — a translucent glass disc that sits *over* the page
+    /// background. A material-backed circle with a soft gradient rim and a
+    /// quiet accent wash so the initials read as Liquid Glass, not a flat chip.
     private var initialsDisc: some View {
         ZStack {
-            Circle().fill(TaliseColor.surface2)
+            Circle().fill(.ultraThinMaterial)
+            Circle().fill(TaliseColor.accent.opacity(0.10))
             Text(initials)
                 .font(TaliseFont.heading(32, weight: .medium))
                 .foregroundStyle(TaliseColor.fg)
         }
         .frame(width: 88, height: 88)
-        .overlay(Circle().strokeBorder(TaliseColor.line, lineWidth: 1))
+        .overlay(
+            Circle().strokeBorder(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.28), Color.white.opacity(0.04)],
+                    startPoint: .top, endPoint: .bottom
+                ),
+                lineWidth: 1
+            )
+        )
         .clipShape(Circle())
     }
 
@@ -194,10 +218,10 @@ struct ProfileView: View {
             statCell(label: "Since", value: memberSinceMonth, accent: false)
         }
         .frame(maxWidth: .infinity)
-        // Liquid glass — same recipe as the BottomNavPill. A whisper of
-        // accent tint (0.06) makes the strip feel "alive" without going
-        // loud: it carries the user's KYC + Rewards standing.
-        .taliseGlass(cornerRadius: 18, tint: TaliseColor.accent.opacity(0.06))
+        // Liquid glass — a frosted plate with a whisper of accent wash so
+        // the strip feels "alive" without going loud: it carries the user's
+        // KYC + Rewards standing.
+        .glassSection(cornerRadius: 20, tint: TaliseColor.accent, tintOpacity: 0.07)
     }
 
     /// One column of the stats strip. `maxWidth: .infinity` gives all
@@ -364,8 +388,17 @@ struct ProfileView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Capsule().fill(TaliseColor.surfaceGlass))
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+                .background(Capsule().fill(.ultraThinMaterial))
+                .background(Capsule().fill(TaliseColor.surface2.opacity(0.6)))
+                .overlay(
+                    Capsule().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.16), Color.white.opacity(0.04)],
+                            startPoint: .top, endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+                )
                 .clipShape(Capsule())
             }
             .padding(.horizontal, 18)
@@ -557,10 +590,11 @@ struct ProfileView: View {
             .foregroundStyle(Color(hex: 0xE08D8A))
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(Color(hex: 0xE08D8A).opacity(0.10))
+            .background(Capsule().fill(.ultraThinMaterial))
+            .background(Capsule().fill(Color(hex: 0xE08D8A).opacity(0.10)))
             .overlay(
                 Capsule()
-                    .stroke(Color(hex: 0xE08D8A).opacity(0.25), lineWidth: 1)
+                    .strokeBorder(Color(hex: 0xE08D8A).opacity(0.28), lineWidth: 1)
             )
             .clipShape(Capsule())
         }
@@ -590,11 +624,9 @@ struct ProfileView: View {
             Eyebrow(text: title)
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // Same Liquid Glass treatment used everywhere else in the
-                // app (BottomNavPill, activity card). Without this, the
-                // section reads as a flat slab instead of frosted glass
-                // over the page bg.
-                .taliseGlass(cornerRadius: 18)
+                // iOS-26 Liquid Glass section: a translucent material plate
+                // with a soft top-lit specular rim instead of a flat slab.
+                .glassSection(cornerRadius: 20)
         }
     }
 

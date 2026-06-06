@@ -49,14 +49,14 @@ struct SendReviewView: View {
             }
 
             VStack(spacing: 8) {
-                SlideToConfirm(title: "Slide to send") {
+                SlideToConfirm(title: "Slide to send", tint: TaliseColor.greenMint) {
                     await onConfirm()
                 }
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 18)
         }
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .taliseScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .onAppear { lockQuote() }
         .onReceive(countdown) { _ in tick() }
@@ -97,10 +97,10 @@ struct SendReviewView: View {
         HStack {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(TaliseColor.fg)
-                    .frame(width: 36, height: 36)
-                    .background(Circle().fill(TaliseColor.surfaceGlass))
+                    .frame(width: 38, height: 38)
+                    .glassCircle()
             }
             Spacer()
         }
@@ -171,10 +171,10 @@ struct SendReviewView: View {
 
     private var arrow: some View {
         Image(systemName: "arrow.down")
-            .font(.system(size: 16, weight: .medium))
-            .foregroundStyle(TaliseColor.fgMuted)
-            .frame(width: 28, height: 28)
-            .background(Circle().fill(TaliseColor.surfaceGlass))
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(TaliseColor.greenMint)
+            .frame(width: 32, height: 32)
+            .glassCircle()
     }
 
     // MARK: - To card
@@ -193,7 +193,7 @@ struct SendReviewView: View {
             if let sends = draft.previousSendsToRecipient, sends > 0 {
                 Text(sends == 1 ? "1 previous send" : "\(sends) previous sends")
                     .font(TaliseFont.mono(11, weight: .light))
-                    .foregroundStyle(TaliseColor.accent)
+                    .foregroundStyle(TaliseColor.greenMint)
                     .padding(.top, 2)
             }
         }
@@ -231,11 +231,14 @@ struct SendReviewView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(TaliseColor.accent)
+                        .foregroundStyle(TaliseColor.greenMint)
                     Text(q.rateLine)
                         .font(TaliseFont.mono(12, weight: .regular))
                         .foregroundStyle(TaliseColor.fg)
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .glassCapsule()
                 Spacer()
                 Text("Rate held \(secondsLeft)s")
                     .font(TaliseFont.mono(11, weight: .light))
@@ -244,7 +247,7 @@ struct SendReviewView: View {
                     .animation(.snappy(duration: 0.18), value: secondsLeft)
             }
 
-            Divider().background(TaliseColor.line)
+            LiquidGlassDivider()
 
             quoteRow(
                 label: "Fee (\(spreadBpsLabel(q)))",
@@ -255,7 +258,7 @@ struct SendReviewView: View {
                 value: TaliseFormat.symbolic(q.senderDebitLocal, currency: q.senderCurrency, fixed: 2)
             )
 
-            Divider().background(TaliseColor.line)
+            LiquidGlassDivider()
 
             // The guaranteed receive amount — the headline of the block.
             HStack(alignment: .firstTextBaseline) {
@@ -265,7 +268,7 @@ struct SendReviewView: View {
                 Spacer()
                 Text(TaliseCurrency.recipientSymbolic(q.recipientReceiveLocal, currency: q.recipientCurrency))
                     .font(TaliseFont.heading(20, weight: .medium))
-                    .foregroundStyle(TaliseColor.accent)
+                    .foregroundStyle(TaliseColor.greenMint)
             }
 
             Text("Guaranteed for the held rate. Talise moves this as digital dollars, 1:1.")
@@ -308,7 +311,7 @@ struct SendReviewView: View {
         HStack(spacing: 6) {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(TaliseColor.accent)
+                .foregroundStyle(TaliseColor.greenMint)
             Text("No network fee — sponsored by Talise.")
                 .font(TaliseFont.mono(11, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)

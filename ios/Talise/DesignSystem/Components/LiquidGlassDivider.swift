@@ -14,9 +14,17 @@ struct LiquidGlassDivider: View {
     var inset: CGFloat = 0
 
     var body: some View {
-        color
-            .frame(height: 1 / UIScreen.main.scale)
-            .padding(.horizontal, inset)
+        // A soft specular hairline — the line brightens toward the center and
+        // fades at both ends, so it reads as a glass seam rather than a hard
+        // gray bar. When a caller passes a custom solid `color`, honor it as
+        // the line's brightest tone.
+        LinearGradient(
+            colors: [color.opacity(0.25), color, color.opacity(0.25)],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        .frame(height: 1 / UIScreen.main.scale)
+        .padding(.horizontal, inset)
     }
 }
 

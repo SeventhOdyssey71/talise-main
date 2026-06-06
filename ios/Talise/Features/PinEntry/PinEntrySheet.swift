@@ -25,15 +25,18 @@ struct PinEntrySheet: View {
             // intentionally tight so the eye lands on the dots, not on
             // an oversized chrome.
             Text(titleText)
-                .font(TaliseFont.heading(20, weight: .medium))
+                .font(TaliseFont.heading(22, weight: .medium))
+                .kerning(-0.6)
                 .foregroundStyle(TaliseColor.fg)
-                .padding(.top, 18)
+                .padding(.top, 22)
+                .contentTransition(.opacity)
             Text(subtitleText)
                 .font(TaliseFont.body(13))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .padding(.top, 4)
+                .lineSpacing(2)
+                .padding(.horizontal, 36)
+                .padding(.top, 6)
 
             pinDots
                 .padding(.top, 24)
@@ -68,7 +71,21 @@ struct PinEntrySheet: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .background(
+            ZStack {
+                TaliseColor.bg
+                // Quiet brand-green bloom from the top of the sheet — the
+                // iOS-26 liquid-glass wash, fading to clean black under the
+                // numpad so the digits stay crisp.
+                RadialGradient(
+                    colors: [Color(hex: 0x1C3D24).opacity(0.65), Color.clear],
+                    center: .init(x: 0.5, y: 0.0),
+                    startRadius: 0,
+                    endRadius: 360
+                )
+            }
+            .ignoresSafeArea()
+        )
     }
 
     private var titleText: String {
@@ -98,16 +115,29 @@ struct PinEntrySheet: View {
     /// the rounded-rect outlines we had before, and the focal point
     /// becomes the digits themselves rather than the chrome.
     private var pinDots: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 24) {
             ForEach(0..<pinLength, id: \.self) { idx in
+                let filled = idx < entry.count
                 Circle()
-                    .strokeBorder(TaliseColor.fgDim, lineWidth: 1.2)
+                    .strokeBorder(
+                        filled ? Color.clear : TaliseColor.fgDim,
+                        lineWidth: 1.2
+                    )
                     .background(
                         Circle().fill(
-                            idx < entry.count ? TaliseColor.fg : Color.clear
+                            filled
+                                ? AnyShapeStyle(
+                                    LinearGradient(
+                                        colors: [TaliseColor.fg, TaliseColor.fgSubtle],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                                : AnyShapeStyle(Color.clear)
                         )
                     )
-                    .frame(width: 14, height: 14)
+                    .frame(width: 15, height: 15)
+                    .scaleEffect(filled ? 1.0 : 0.9)
                     .animation(.spring(response: 0.22, dampingFraction: 0.7), value: entry)
             }
         }

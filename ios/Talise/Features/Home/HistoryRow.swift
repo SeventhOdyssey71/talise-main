@@ -35,16 +35,27 @@ struct HistoryRow: View {
         Button(action: onTap) {
             HStack(spacing: 14) {
                 ZStack {
-                    // Tinted directional badge — dusty red for Sent,
-                    // mossy green for Received, accent for Invest. The
-                    // bg is the tint at ~32% over the page bg, the
-                    // arrow is the tint at full saturation so it
-                    // reads as a colored glyph on a colored disc.
+                    // Tinted directional badge — mossy green for Received,
+                    // forest for Sent, accent for Invest. iOS-26 glass chip:
+                    // the colored disc carries a soft top-down highlight and
+                    // a faint white rim so it reads as a translucent token,
+                    // not a flat dot.
                     Circle()
                         .fill(badgeBgColor)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 36, height: 36)
+                        .overlay(
+                            Circle().fill(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.12), Color.clear],
+                                    startPoint: .top, endPoint: .bottom
+                                )
+                            )
+                        )
+                        .overlay(
+                            Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.75)
+                        )
                     Image(systemName: iconName)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(badgeFgColor)
                 }
                 VStack(alignment: .leading, spacing: 2) {

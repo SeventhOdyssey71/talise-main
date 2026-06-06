@@ -17,17 +17,26 @@ struct KYCView: View {
 
     var body: some View {
         ZStack {
+            // Same cinematic canvas as sign-in: black base + a quiet
+            // brand-green bloom from the top so the onboarding flow reads
+            // as one continuous iOS-26 surface.
             TaliseColor.bg.ignoresSafeArea()
+            kycWash.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
                     VStack(alignment: .leading, spacing: 12) {
                         Eyebrow(text: "Verify · 1 of 1")
-                        Text("Finish setting up your account")
-                            .font(TaliseFont.heading(28))
+                        Text("Finish setting up\nyour account")
+                            .font(TaliseFont.display(30, weight: .medium))
+                            .kerning(-0.8)
                             .foregroundStyle(TaliseColor.fg)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
                         Text("We verified your Google account. One last step: tell us where you'll be using Talise, and whether this is for you or your business.")
                             .font(TaliseFont.body(14))
                             .foregroundStyle(TaliseColor.fgMuted)
+                            .lineSpacing(3)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
@@ -71,6 +80,18 @@ struct KYCView: View {
         }
     }
 
+    /// Soft brand-green bloom from the top — mirrors the sign-in wash so the
+    /// onboarding flow reads as one continuous surface.
+    private var kycWash: some View {
+        RadialGradient(
+            colors: [Color(hex: 0x1C3D24).opacity(0.7), Color.clear],
+            center: .init(x: 0.2, y: 0.0),
+            startRadius: 0,
+            endRadius: 480
+        )
+        .allowsHitTesting(false)
+    }
+
     private func row(code: String, name: String) -> some View {
         Button {
             country = code
@@ -103,25 +124,40 @@ struct KYCView: View {
         .buttonStyle(.plain)
     }
 
-    /// Selected = solid white pill (deliberate picker affordance, keep
-    /// as-is). Unselected = neutral glass — backdrop refresh from the
-    /// previous flat `TaliseColor.surface`.
+    /// Selected = a confident brand-green liquid-glass tile (dark ink on the
+    /// bright mint, with a soft top highlight). Unselected = neutral glass.
     @ViewBuilder
     private func tileLabel(title: String, sub: String, selected: Bool) -> some View {
+        let inkColor: Color = selected ? Color(hex: 0x0A140C) : TaliseColor.fg
         let content = VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(TaliseFont.heading(15))
-                .foregroundStyle(selected ? TaliseColor.bg : TaliseColor.fg)
+                .foregroundStyle(inkColor)
             Text(sub)
                 .font(TaliseFont.body(12))
-                .foregroundStyle(selected ? TaliseColor.bg.opacity(0.7) : TaliseColor.fgMuted)
+                .foregroundStyle(selected ? inkColor.opacity(0.66) : TaliseColor.fgMuted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         if selected {
             content
-                .background(TaliseColor.fg)
-                .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.md))
+                .background(
+                    ZStack {
+                        LinearGradient(
+                            colors: [TaliseColor.greenMint, TaliseColor.greenMint.opacity(0.82)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        // Soft specular highlight along the top edge.
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.25), Color.clear],
+                            startPoint: .top,
+                            endPoint: .center
+                        )
+                    }
+                )
+                .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.md, style: .continuous))
+                .animation(.easeOut(duration: 0.2), value: selected)
         } else {
             content.taliseGlass(cornerRadius: TaliseRadius.md)
         }

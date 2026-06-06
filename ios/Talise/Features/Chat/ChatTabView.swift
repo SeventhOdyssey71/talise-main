@@ -156,7 +156,7 @@ struct ChatTabView: View {
                     .background(TaliseColor.accent)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             case .assistant:
-                content.taliseGlass(cornerRadius: 18)
+                content.glassSection(cornerRadius: 18)
             }
         }
     }
@@ -224,11 +224,17 @@ struct ChatTabView: View {
         .padding(.leading, 18)
         .padding(.trailing, 8)
         .padding(.vertical, 8)
-        .background(
-            Capsule().fill(TaliseColor.surface2)
-        )
+        .background(Capsule().fill(.ultraThinMaterial))
+        .background(Capsule().fill(TaliseColor.surface2.opacity(0.5)))
         .overlay(
-            Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
+            Capsule().strokeBorder(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.16), Color.white.opacity(0.04)],
+                    startPoint: .top, endPoint: .bottom
+                ),
+                lineWidth: 1
+            )
         )
+        .clipShape(Capsule())
     }
 }

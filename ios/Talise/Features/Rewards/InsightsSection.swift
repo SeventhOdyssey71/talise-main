@@ -74,6 +74,7 @@ struct InsightsSection: View {
             }
             .padding(.horizontal, 18)
             .taliseGlass(cornerRadius: 20)
+            .earnGlassLift(cornerRadius: 20)
         } else if loading {
             VStack(spacing: 0) {
                 skeletonRow

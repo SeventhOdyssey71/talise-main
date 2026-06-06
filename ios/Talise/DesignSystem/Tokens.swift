@@ -69,3 +69,82 @@ extension Color {
         self.init(red: r, green: g, blue: b)
     }
 }
+
+// MARK: - iOS-26 Liquid Glass gradient + material helpers
+//
+// Additive only. These compose the new Apple-2026 "Liquid Glass" look —
+// translucent fills, a soft top-down specular highlight stroke, a gentle
+// brand wash. Existing `TaliseColor.*` names are untouched, so every
+// feature view keeps compiling; these just give the LiquidGlass* components
+// (and any view that wants the look) a shared vocabulary.
+enum TaliseGlass {
+    /// The specular edge stroke for a glass surface — a bright top highlight
+    /// that fades to a near-invisible bottom edge. This is what reads as
+    /// "lit from above" on the translucent material.
+    static let edge = LinearGradient(
+        colors: [
+            Color.white.opacity(0.22),
+            Color.white.opacity(0.06),
+            Color.white.opacity(0.015),
+        ],
+        startPoint: .top,
+        endPoint: .bottom
+    )
+
+    /// A quieter edge for small chrome (pills, knobs) where the bright
+    /// highlight would otherwise dominate.
+    static let edgeSoft = LinearGradient(
+        colors: [
+            Color.white.opacity(0.16),
+            Color.white.opacity(0.04),
+            Color.clear,
+        ],
+        startPoint: .top,
+        endPoint: .bottom
+    )
+
+    /// The interior top highlight — a faint white sheen pooled at the top
+    /// inside the surface, fading out by ~40% height. Layer it over the
+    /// material to give the glass a curved, polished crown.
+    static let topSheen = LinearGradient(
+        colors: [
+            Color.white.opacity(0.10),
+            Color.white.opacity(0.0),
+        ],
+        startPoint: .top,
+        endPoint: .bottom
+    )
+
+    /// Soft ambient shadow tuned for dark glass cards — deep but diffuse,
+    /// so cards float a hair off the black canvas without a harsh halo.
+    static let shadow = Color.black.opacity(0.55)
+
+    /// A directional brand wash (for tinted glass) — a diagonal sweep of a
+    /// color, brightest at the top-leading corner.
+    static func wash(_ color: Color, strength: Double = 0.16) -> LinearGradient {
+        LinearGradient(
+            colors: [color.opacity(strength), color.opacity(strength * 0.25), .clear],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+}
+
+extension TaliseColor {
+    /// The canonical green CTA gradient — `greenDeep` deepening toward a
+    /// darker forest at the bottom, so a filled primary button reads as a
+    /// dimensional pill rather than a flat block.
+    static let greenCTA = LinearGradient(
+        colors: [Color(hex: 0x5BA343), Color(hex: 0x3C7A2C)],
+        startPoint: .top,
+        endPoint: .bottom
+    )
+
+    /// Mint→deep accent sweep, for hero glints / progress fills that want a
+    /// little brand life without going neon.
+    static let greenSweep = LinearGradient(
+        colors: [greenMint, greenDeep],
+        startPoint: .leading,
+        endPoint: .trailing
+    )
+}

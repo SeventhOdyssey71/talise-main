@@ -150,7 +150,12 @@ struct WithdrawFlowView: View {
                     .padding(.top, 4)
                 }
             }
-            .background(TaliseColor.bg.ignoresSafeArea())
+            .background(
+                ZStack(alignment: .top) {
+                    TaliseColor.bg.ignoresSafeArea()
+                    TopGlow().ignoresSafeArea(edges: .top)
+                }
+            )
             .toolbar(.hidden, for: .navigationBar)
         }
         .tint(TaliseColor.fg)
@@ -169,8 +174,18 @@ struct WithdrawFlowView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(TaliseColor.fg)
-                    .frame(width: 32, height: 32)
-                    .background(Circle().fill(TaliseColor.surfaceGlass))
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(.ultraThinMaterial))
+                    .overlay(
+                        Circle().strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.14), Color.white.opacity(0.03)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                    )
             }
         }
         .padding(.horizontal, 20)
@@ -239,7 +254,12 @@ private struct BankWithdrawView: View {
             .padding(.horizontal, 20)
             .padding(.top, 12)
         }
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .background(
+            ZStack(alignment: .top) {
+                TaliseColor.bg.ignoresSafeArea()
+                TopGlow().ignoresSafeArea(edges: .top)
+            }
+        )
         .navigationTitle("Withdraw to Bank")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(TaliseColor.bg, for: .navigationBar)
@@ -265,12 +285,7 @@ private struct BankWithdrawView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .background(TaliseColor.surfaceGlass)
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(TaliseColor.line, lineWidth: 0.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .glassField()
     }
 
     private var accountField: some View {
@@ -280,12 +295,7 @@ private struct BankWithdrawView: View {
             .foregroundStyle(TaliseColor.fg)
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
-            .background(TaliseColor.surfaceGlass)
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(TaliseColor.line, lineWidth: 0.5)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .glassField()
             .onChange(of: accountNumber) { _, new in
                 // Strip non-digits, cap at 10 — Nigerian NUBAN format.
                 let cleaned = new.filter { $0.isNumber }
@@ -310,12 +320,7 @@ private struct BankWithdrawView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
-            .background(TaliseColor.surfaceGlass)
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(TaliseColor.line, lineWidth: 0.5)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .glassField()
         }
     }
 
@@ -338,5 +343,43 @@ private struct BankWithdrawView: View {
         // surface a clear "not live" notice so the user isn't left
         // wondering if their money moved.
         notice = "Bank withdrawals aren't live yet. Use Onchain Send for now — we'll email you when this opens."
+    }
+}
+
+// MARK: - Glass field treatment
+
+/// Liquid Glass treatment for the bank-form input fields: an
+/// `.ultraThinMaterial` plate over a faint dark surface, finished with a
+/// soft top-lit gradient hairline. Keeps the three fields visually
+/// identical without repeating the recipe at each call site.
+private struct GlassField: ViewModifier {
+    var cornerRadius: CGFloat = 16
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(TaliseColor.surface.opacity(0.45))
+                }
+            )
+            .overlay(
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.12), Color.white.opacity(0.03)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .clipShape(shape)
+    }
+}
+
+private extension View {
+    func glassField(cornerRadius: CGFloat = 16) -> some View {
+        modifier(GlassField(cornerRadius: cornerRadius))
     }
 }

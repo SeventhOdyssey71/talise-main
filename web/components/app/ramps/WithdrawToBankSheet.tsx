@@ -17,12 +17,17 @@
  */
 
 import { useCallback, useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  CheckmarkCircle02Icon,
+  Alert02Icon,
+  Clock01Icon,
+} from "@hugeicons/core-free-icons";
 import {
   Sheet,
   Field,
   PrimaryButton,
   SlideToConfirm,
-  Spinner,
   Eyebrow,
   StatusPill,
   useToast,
@@ -207,12 +212,13 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
 
       {step === "review" && quote && (
         <div className="space-y-5">
-          <div className="rounded-xl bg-surface p-5 ring-1 ring-line">
+          {/* Quote summary card */}
+          <div className="rounded-xl border border-line bg-surface p-5">
             <Eyebrow>They receive</Eyebrow>
-            <div className="mt-1 text-[30px] font-medium tracking-[-0.03em] text-fg">
+            <div className="mt-1 text-[28px] font-semibold tabular-nums tracking-[-0.03em] text-fg">
               {ngn(quote.ngnAmount)}
             </div>
-            <div className="mt-3 space-y-1.5 text-[14px] text-fg-muted">
+            <div className="mt-4 divide-y divide-line text-[13px]">
               <Row k="To" v={quote.accountName} />
               <Row k="Bank" v={bankName} />
               <Row k="Account" v={`••••${account.slice(-4)}`} />
@@ -220,16 +226,19 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
               <Row k="Rate" v={`$1 = ${ngn(quote.fxRate)}`} />
             </div>
           </div>
+
           <p className="text-center text-[12px] text-fg-dim">
-            Quote locked for 60s. Slide to send {usd(quote.usdsuiAmount)} USDsui and pay out{" "}
-            {ngn(quote.ngnAmount)}.
+            Quote locked for 60 s — slide to confirm.
           </p>
+
           {error && <p className="text-center text-[13px] text-red-500">{error}</p>}
+
           <SlideToConfirm
             label="Slide to withdraw"
             onConfirm={confirmWithdraw}
             resetSignal={resetSignal}
           />
+
           <button
             type="button"
             onClick={() => { setStep("form"); setError(null); }}
@@ -241,26 +250,49 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
       )}
 
       {step === "result" && (
-        <div className="space-y-5 py-2 text-center">
+        <div className="flex flex-col items-center gap-4 py-4 text-center">
           {finalStatus === "failed" ? (
             <>
-              <StatusPill label="Failed" tone="pending" />
-              <p className="text-[15px] text-fg">{error ?? "The payout could not be completed."}</p>
-              <p className="text-[12px] text-fg-dim">
-                If your USDsui left your wallet, it will be returned automatically.
-              </p>
+              <span className="flex size-12 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--color-danger)_14%,white)] text-[var(--color-danger)]">
+                <HugeiconsIcon icon={Alert02Icon} size={24} strokeWidth={2} />
+              </span>
+              <div>
+                <h3 className="text-[18px] font-medium tracking-[-0.02em] text-fg">Payout failed</h3>
+                <p className="mt-1 text-[14px] leading-relaxed text-fg-muted">
+                  {error ?? "The payout could not be completed."}
+                </p>
+                <p className="mt-2 text-[12px] text-fg-dim">
+                  If your USDsui left your wallet, it will be returned automatically.
+                </p>
+              </div>
               <PrimaryButton full onClick={reset}>Try again</PrimaryButton>
             </>
           ) : (
             <>
-              <div className="text-[40px]">{finalStatus === "settled" ? "✅" : "🚀"}</div>
-              <h3 className="text-[20px] font-medium tracking-[-0.02em] text-fg">
-                {finalStatus === "settled" ? "Paid out" : "On its way"}
-              </h3>
-              <p className="text-[15px] text-fg-muted">
-                {quote ? ngn(quote.ngnAmount) : ""} to {quote?.accountName ?? "your bank"}
-                {finalStatus === "settled" ? " has landed." : " — banks usually settle in seconds."}
-              </p>
+              <span
+                className={`flex size-12 items-center justify-center rounded-full ${
+                  finalStatus === "settled"
+                    ? "bg-accent-soft text-accent"
+                    : "bg-[color-mix(in_srgb,var(--color-accent-soft)_60%,white)] text-accent"
+                }`}
+              >
+                <HugeiconsIcon
+                  icon={finalStatus === "settled" ? CheckmarkCircle02Icon : Clock01Icon}
+                  size={24}
+                  strokeWidth={2}
+                />
+              </span>
+              <div>
+                <h3 className="text-[18px] font-medium tracking-[-0.02em] text-fg">
+                  {finalStatus === "settled" ? "Paid out" : "On its way"}
+                </h3>
+                <p className="mt-1 text-[14px] leading-relaxed text-fg-muted">
+                  {quote ? ngn(quote.ngnAmount) : ""} to {quote?.accountName ?? "your bank"}
+                  {finalStatus === "settled"
+                    ? " has landed."
+                    : " — banks usually settle in seconds."}
+                </p>
+              </div>
               <PrimaryButton full onClick={close}>Done</PrimaryButton>
             </>
           )}
@@ -272,9 +304,9 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
 
 function Row({ k, v }: { k: string; v: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex items-center justify-between gap-3 py-2">
       <span className="text-fg-dim">{k}</span>
-      <span className="text-right text-fg">{v}</span>
+      <span className="text-right font-medium text-fg">{v}</span>
     </div>
   );
 }

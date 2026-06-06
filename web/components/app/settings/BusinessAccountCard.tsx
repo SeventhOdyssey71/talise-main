@@ -63,18 +63,25 @@ export function BusinessAccountCard() {
     }
   }
 
-  const handleValid = bizName.trim().length >= 2 && /^[a-z0-9_]{3,}$/.test(bizHandle.trim().toLowerCase());
+  const handleValid =
+    bizName.trim().length >= 2 && /^[a-z0-9_]{3,}$/.test(bizHandle.trim().toLowerCase());
 
   return (
-    <section className="space-y-2.5">
+    <section className="space-y-3">
       <Eyebrow>Business</Eyebrow>
-      <GlassCard className="space-y-4 p-5">
-        <div className="flex items-start gap-3.5">
+      <GlassCard className="divide-y divide-line overflow-hidden p-0" radius={14}>
+
+        {/* Info row */}
+        <div className="flex items-start gap-3.5 px-5 py-4">
           <span
-            className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
+            className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
             style={{ background: "var(--color-accent-soft)" }}
           >
-            <HugeiconsIcon icon={isBusiness ? UserIcon : Building06Icon} size={20} strokeWidth={1.8} />
+            <HugeiconsIcon
+              icon={isBusiness ? UserIcon : Building06Icon}
+              size={20}
+              strokeWidth={1.8}
+            />
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-[15px] font-medium text-fg">
@@ -88,54 +95,89 @@ export function BusinessAccountCard() {
           </div>
         </div>
 
+        {/* Setup form — only visible before the business profile exists */}
         {!isBusiness && setupOpen && (
-          <div className="space-y-3 border-t border-line pt-4">
+          <div className="space-y-3 px-5 py-4">
             <label className="block">
-              <Eyebrow className="mb-1.5 block">Business name</Eyebrow>
+              <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.18em] text-fg-dim">
+                Business name
+              </span>
               <input
                 value={bizName}
                 onChange={(e) => setBizName(e.target.value.slice(0, 64))}
                 placeholder="Acme Inc."
-                className="talise-glass w-full bg-transparent px-4 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
-                style={{ borderRadius: 14 }}
+                className="w-full rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors"
               />
             </label>
             <label className="block">
-              <Eyebrow className="mb-1.5 block">Business handle</Eyebrow>
+              <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.18em] text-fg-dim">
+                Business handle
+              </span>
               <input
                 value={bizHandle}
-                onChange={(e) => setBizHandle(e.target.value.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase().slice(0, 32))}
+                onChange={(e) =>
+                  setBizHandle(
+                    e.target.value
+                      .replace(/[^a-zA-Z0-9_]/g, "")
+                      .toLowerCase()
+                      .slice(0, 32)
+                  )
+                }
                 placeholder="acme"
-                className="talise-glass w-full bg-transparent px-4 py-2.5 font-mono text-[15px] text-fg outline-none placeholder:text-fg-dim"
-                style={{ borderRadius: 14 }}
+                className="w-full rounded-xl border border-line bg-surface-2 px-4 py-2.5 font-mono text-[15px] text-fg outline-none placeholder:text-fg-dim focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors"
               />
-              <span className="mt-1 block text-[12px] text-fg-dim">
+              <span className="mt-1.5 block text-[12px] text-fg-dim">
                 Clients pay you at @{bizHandle.trim() || "yourbusiness"}.talise.sui
               </span>
             </label>
           </div>
         )}
 
-        {error && <p className="text-[13px] text-red-500">{error}</p>}
-
-        {isBusiness ? (
-          <PrimaryButton onClick={() => void switchTo("personal")} loading={busy} variant="ghost">
-            Switch to personal
-          </PrimaryButton>
-        ) : setupOpen ? (
-          <div className="flex items-center gap-2.5">
-            <PrimaryButton onClick={() => void createBusiness()} disabled={!handleValid || busy} loading={busy}>
-              Create business account
-            </PrimaryButton>
-            <PrimaryButton onClick={() => { setSetupOpen(false); setError(null); }} variant="ghost">
-              Cancel
-            </PrimaryButton>
+        {/* Error message */}
+        {error && (
+          <div className="px-5 py-3">
+            <p className="text-[13px]" style={{ color: "var(--color-danger)" }}>
+              {error}
+            </p>
           </div>
-        ) : (
-          <PrimaryButton onClick={() => void switchTo("business")} loading={busy}>
-            Switch to business
-          </PrimaryButton>
         )}
+
+        {/* CTA row */}
+        <div className="flex items-center gap-2.5 px-5 py-4">
+          {isBusiness ? (
+            <PrimaryButton
+              onClick={() => void switchTo("personal")}
+              loading={busy}
+              variant="ghost"
+            >
+              Switch to personal
+            </PrimaryButton>
+          ) : setupOpen ? (
+            <>
+              <PrimaryButton
+                onClick={() => void createBusiness()}
+                disabled={!handleValid || busy}
+                loading={busy}
+              >
+                Create business account
+              </PrimaryButton>
+              <PrimaryButton
+                onClick={() => {
+                  setSetupOpen(false);
+                  setError(null);
+                }}
+                variant="ghost"
+              >
+                Cancel
+              </PrimaryButton>
+            </>
+          ) : (
+            <PrimaryButton onClick={() => void switchTo("business")} loading={busy}>
+              Switch to business
+            </PrimaryButton>
+          )}
+        </div>
+
       </GlassCard>
     </section>
   );

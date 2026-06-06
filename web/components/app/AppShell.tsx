@@ -13,7 +13,7 @@
  * Mounts <CurrencyProvider> + <ToastProvider> for everything beneath it.
  */
 
-import { useMemo, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -257,7 +257,7 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
 
 function SignInScreen({ returnTo = "/app" }: { returnTo?: string }) {
   return (
-    <div className="landing-mint talise-appshell relative min-h-screen overflow-hidden text-fg">
+    <div className="app-clean talise-appshell relative min-h-screen overflow-hidden text-fg">
       <div className="talise-top-glow" />
       <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6">
         <div className="talise-glass w-full max-w-sm rounded-xl px-7 py-9 text-center">
@@ -339,15 +339,9 @@ function AccountMenu({
 
 function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: ReactNode }) {
   const pathname = usePathname() ?? nav.brandHref;
-  const title = useMemo(() => {
-    const matched = Object.keys(nav.titles)
-      .filter((k) => isActive(pathname, k, nav.brandHref))
-      .sort((a, b) => b.length - a.length)[0];
-    return matched ? nav.titles[matched] : "Talise";
-  }, [pathname, nav]);
 
   return (
-    <div className="landing-mint talise-appshell relative min-h-screen text-fg">
+    <div className="app-clean talise-appshell relative min-h-screen text-fg">
       <div className="talise-top-glow" />
 
       {/* ── Desktop sidebar (lg+) ── */}
@@ -386,16 +380,9 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
         </div>
       </aside>
 
-      {/* ── Main area ── */}
+      {/* ── Main area ── (no desktop topbar — the sidebar shows the active
+          page; content leads, Wise-style) */}
       <div className="relative z-10 lg:pl-60">
-        {/* Desktop topbar */}
-        <header className="sticky top-0 z-20 hidden items-center justify-between border-b border-line bg-[color-mix(in_srgb,var(--color-bg)_82%,transparent)] px-8 py-3 backdrop-blur-xl lg:flex">
-          <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-fg">{title}</h1>
-          <div className="flex items-center gap-3">
-            <BalanceChip homeHref={nav.brandHref} />
-          </div>
-        </header>
-
         {/* Mobile mini-bar — transparent, sits on the mint gradient and scrolls
             away with the content (no bar background / border). */}
         <header className="relative z-30 flex items-center justify-between px-4 pb-1 pt-3 lg:hidden">
@@ -407,7 +394,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
         </header>
 
         {/* Content column */}
-        <main className="mx-auto w-full max-w-[1040px] px-4 pb-32 pt-4 sm:px-6 lg:px-8 lg:pb-12 lg:pt-6">
+        <main className="mx-auto w-full max-w-[1040px] px-4 pb-32 pt-4 sm:px-6 lg:px-8 lg:pb-12 lg:pt-16">
           {children}
         </main>
       </div>

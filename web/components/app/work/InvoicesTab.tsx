@@ -100,17 +100,19 @@ export function InvoicesTab() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      {/* Section header */}
       <div className="flex items-center justify-between">
-        <MicroLabel>Your invoices</MicroLabel>
+        <Eyebrow>Your invoices</Eyebrow>
         <PrimaryButton onClick={() => setCreateOpen(true)} variant="ghost">
-          <HugeiconsIcon icon={Add01Icon} size={16} strokeWidth={2} />
+          <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} />
           New invoice
         </PrimaryButton>
       </div>
 
+      {/* Content */}
       {loading ? (
-        <div className="flex justify-center py-16">
+        <div className="flex justify-center py-12">
           <Spinner size={22} />
         </div>
       ) : invoices.length === 0 ? (
@@ -121,25 +123,27 @@ export function InvoicesTab() {
             subtitle="Create your first invoice and share a pay link that works for anyone — gasless, no wallet needed."
             action={
               <PrimaryButton onClick={() => setCreateOpen(true)}>
-                <HugeiconsIcon icon={PlusSignIcon} size={16} strokeWidth={2} />
+                <HugeiconsIcon icon={PlusSignIcon} size={15} strokeWidth={2} />
                 Create invoice
               </PrimaryButton>
             }
           />
         </GlassCard>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {invoices.map((inv) => (
-            <InvoiceCard
+        /* Wise-style: all invoices in one flat card as stacked rows */
+        <GlassCard className="overflow-hidden p-0">
+          {invoices.map((inv, i) => (
+            <InvoiceRow
               key={inv.id}
               inv={inv}
               formatUsd={formatUsd}
               onCopy={() => copyLink(inv.id)}
               onMarkPaid={() => mutate(inv.id, "mark-paid")}
               onVoid={() => mutate(inv.id, "void")}
+              divider={i < invoices.length - 1}
             />
           ))}
-        </div>
+        </GlassCard>
       )}
 
       <CreateInvoiceSheet
@@ -154,18 +158,22 @@ export function InvoicesTab() {
   );
 }
 
-function InvoiceCard({
+// ── Invoice row (Wise list-row pattern) ────────────────────────────────────
+
+function InvoiceRow({
   inv,
   formatUsd,
   onCopy,
   onMarkPaid,
   onVoid,
+  divider,
 }: {
   inv: Invoice;
   formatUsd: (usd: number, o?: { fixed?: boolean }) => string;
   onCopy: () => void;
   onMarkPaid: () => void;
   onVoid: () => void;
+  divider: boolean;
 }) {
   const tone =
     inv.status === "paid" ? "completed" : inv.status === "void" ? "danger" : "pending";
@@ -180,55 +188,79 @@ function InvoiceCard({
   });
 
   return (
-    <GlassCard className="flex flex-col gap-3 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-medium text-fg">{title}</p>
-          <p className="mt-0.5 font-mono text-[11px] text-fg-dim">
-            {inv.id} · {created}
-          </p>
+    <div>
+      <div className="talise-history-row flex items-center gap-3.5 px-4 py-3.5">
+        {/* Circular icon chip */}
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <HugeiconsIcon icon={Invoice01Icon} size={17} strokeWidth={1.8} />
+        </span>
+
+        {/* Title + meta */}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-medium text-fg">{title}</span>
+          <span className="block truncate font-mono text-[11px] text-fg-dim">
+            {inv.id.slice(0, 8)}… · {created}
+          </span>
+        </span>
+
+        {/* Amount + status */}
+        <span className="flex shrink-0 flex-col items-end gap-1.5">
+          <span
+            className="text-[15px] font-semibold text-fg"
+            style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}
+          >
+            {formatUsd(inv.amountUsd, { fixed: true })}
+          </span>
+          <StatusPill label={label} tone={tone} />
+        </span>
+      </div>
+
+      {/* Inline actions for open invoices */}
+      {inv.status === "open" && (
+        <div className="flex items-center gap-1 px-4 pb-3 pt-0">
+          <button
+            type="button"
+            onClick={onCopy}
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-accent"
+          >
+            <HugeiconsIcon icon={Copy01Icon} size={12} strokeWidth={2} />
+            Copy link
+          </button>
+          <button
+            type="button"
+            onClick={onMarkPaid}
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-accent transition-colors hover:bg-accent-soft"
+          >
+            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={12} strokeWidth={2} />
+            Mark paid
+          </button>
+          <button
+            type="button"
+            onClick={onVoid}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-fg-dim transition-colors hover:text-[var(--color-danger)]"
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+            Void
+          </button>
         </div>
-        <StatusPill label={label} tone={tone} />
-      </div>
+      )}
 
-      <div
-        className="text-[24px] font-semibold text-fg"
-        style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
-      >
-        {formatUsd(inv.amountUsd, { fixed: true })}
-      </div>
+      {/* Copy link on non-open invoices */}
+      {inv.status !== "open" && (
+        <div className="flex items-center gap-1 px-4 pb-3 pt-0">
+          <button
+            type="button"
+            onClick={onCopy}
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-accent"
+          >
+            <HugeiconsIcon icon={Copy01Icon} size={12} strokeWidth={2} />
+            Copy link
+          </button>
+        </div>
+      )}
 
-      <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onCopy}
-          className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-surface-2)] px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg"
-        >
-          <HugeiconsIcon icon={Copy01Icon} size={13} strokeWidth={2} />
-          Copy link
-        </button>
-        {inv.status === "open" && (
-          <>
-            <button
-              type="button"
-              onClick={onMarkPaid}
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-accent transition-colors hover:bg-accent-soft"
-            >
-              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} strokeWidth={2} />
-              Mark paid
-            </button>
-            <button
-              type="button"
-              onClick={onVoid}
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-fg-dim transition-colors hover:text-[var(--color-danger)]"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
-              Void
-            </button>
-          </>
-        )}
-      </div>
-    </GlassCard>
+      {divider && <div className="mx-4 border-t border-line" />}
+    </div>
   );
 }
 
@@ -345,6 +377,7 @@ function CreateInvoiceSheet({
   return (
     <Sheet open={open} onClose={onClose} title="New invoice" size="lg">
       <div className="space-y-4">
+        {/* Customer details */}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Customer name" hint="Shown on the invoice (optional)">
             <input
@@ -381,7 +414,7 @@ function CreateInvoiceSheet({
 
         {/* Line items */}
         <div>
-          <Eyebrow className="mb-2 block">Line items</Eyebrow>
+          <Eyebrow className="mb-2.5 block">Line items</Eyebrow>
           <div className="space-y-2">
             {items.map((it, i) => (
               <div key={i} className="flex items-center gap-2">
@@ -430,7 +463,7 @@ function CreateInvoiceSheet({
             onClick={addItem}
             className="mt-2.5 inline-flex items-center gap-1.5 text-[13px] text-accent transition-opacity hover:opacity-80"
           >
-            <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} />
+            <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={2} />
             Add line item
           </button>
         </div>
@@ -444,8 +477,8 @@ function CreateInvoiceSheet({
           />
         </Field>
 
-        {/* Live preview total */}
-        <div className="flex items-center justify-between rounded-xl border border-line bg-[var(--color-surface-2)] px-4 py-3.5">
+        {/* Live total */}
+        <div className="flex items-center justify-between rounded-xl border border-line bg-surface-2 px-4 py-3.5">
           <span className="text-[14px] text-fg-muted">Invoice total</span>
           <span
             className="text-[22px] font-semibold text-fg"
@@ -456,7 +489,7 @@ function CreateInvoiceSheet({
         </div>
 
         <PrimaryButton onClick={submit} disabled={!canSubmit} loading={submitting} full>
-          Create invoice & copy pay link
+          Create invoice &amp; copy pay link
         </PrimaryButton>
       </div>
     </Sheet>

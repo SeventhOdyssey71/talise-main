@@ -120,6 +120,7 @@ private struct GoalCard: View {
         .padding(18)
         .frame(width: 168, height: 148, alignment: .topLeading)
         .taliseGlass(cornerRadius: 20)
+        .earnGlassLift(cornerRadius: 20)
     }
 }
 
@@ -269,9 +270,9 @@ private struct GoalActionSheet: View {
                     .foregroundStyle(TaliseColor.accent)
             }
         }
-        .padding(20)
+        .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 20, tint: TaliseColor.accent)
+        .earnHeroGlass(cornerRadius: 24)
     }
 
     private var deposit: some View {
@@ -291,10 +292,7 @@ private struct GoalActionSheet: View {
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(TaliseColor.surface2)
-                )
+                .earnFieldGlass()
 
                 Text("Tracking only — funds stay in your earning balance and keep earning points + yield.")
                     .font(TaliseFont.body(13, weight: .light))
@@ -312,6 +310,7 @@ private struct GoalActionSheet: View {
             }
             .padding(20)
             .taliseGlass(cornerRadius: 20)
+            .earnGlassLift(cornerRadius: 20)
         }
     }
 
@@ -325,10 +324,7 @@ private struct GoalActionSheet: View {
                     .tint(TaliseColor.accent)
                     .foregroundStyle(TaliseColor.fg)
                     .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(TaliseColor.surface2)
-                    )
+                    .earnFieldGlass()
                 TextField("Target", text: $editTargetText)
                     .keyboardType(.decimalPad)
                     .font(TaliseFont.body(14, weight: .light))
@@ -336,10 +332,7 @@ private struct GoalActionSheet: View {
                     .tint(TaliseColor.accent)
                     .foregroundStyle(TaliseColor.fg)
                     .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(TaliseColor.surface2)
-                    )
+                    .earnFieldGlass()
                 Button {
                     Task { await runEdit() }
                 } label: {
@@ -354,6 +347,7 @@ private struct GoalActionSheet: View {
             }
             .padding(20)
             .taliseGlass(cornerRadius: 20)
+            .earnGlassLift(cornerRadius: 20)
         }
     }
 
@@ -464,10 +458,7 @@ private struct NewGoalSheet: View {
                             .tint(TaliseColor.accent)
                             .foregroundStyle(TaliseColor.fg)
                             .padding(14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(TaliseColor.surface2)
-                            )
+                            .earnFieldGlass()
                         TextField("Target amount (USD)", text: $targetText)
                             .keyboardType(.decimalPad)
                             .font(TaliseFont.body(14, weight: .light))
@@ -475,10 +466,7 @@ private struct NewGoalSheet: View {
                             .tint(TaliseColor.accent)
                             .foregroundStyle(TaliseColor.fg)
                             .padding(14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(TaliseColor.surface2)
-                            )
+                            .earnFieldGlass()
                         LiquidGlassButton(
                             title: busy ? "Creating…" : "Create goal",
                             tint: TaliseColor.accent,
@@ -497,6 +485,7 @@ private struct NewGoalSheet: View {
                     }
                     .padding(20)
                     .taliseGlass(cornerRadius: 20)
+                    .earnGlassLift(cornerRadius: 20)
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 24)

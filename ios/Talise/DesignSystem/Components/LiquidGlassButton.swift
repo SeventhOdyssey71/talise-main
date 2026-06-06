@@ -43,21 +43,54 @@ struct LiquidGlassButton: View {
             .frame(height: size.height)
             .padding(.horizontal, size.hPadding)
             .background(
-                // SOLID confident fill — a real primary, not a faint wash.
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(fillColor)
+                ZStack {
+                    let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    if let fillGradient {
+                        // Dimensional gradient fill for the bright-green CTA —
+                        // a real lit pill, not a flat block.
+                        shape.fill(fillGradient)
+                    } else if let tint {
+                        // Other tints (danger / gold) keep their solid identity
+                        // but ride on a thin material so they read as glass.
+                        shape.fill(.ultraThinMaterial)
+                        shape.fill(tint)
+                    } else {
+                        // Neutral / secondary — translucent glass surface.
+                        shape.fill(.ultraThinMaterial)
+                        shape.fill(TaliseColor.surface2.opacity(0.7))
+                    }
+                    // Interior top sheen — the polished-glass crown.
+                    shape.fill(TaliseGlass.topSheen)
+                }
             )
             .overlay(
-                // Hairline only on the neutral (secondary) variant so it
-                // still reads as a button; filled variants need no edge.
+                // Specular edge on every variant so it reads as a lit pill.
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(TaliseColor.line, lineWidth: tint == nil ? 1 : 0)
+                    .strokeBorder(tint == nil ? TaliseGlass.edge : TaliseGlass.edgeSoft, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .shadow(color: shadowColor, radius: 14, x: 0, y: 8)
             .opacity(loading ? 0.85 : 1.0)
         }
         .taliseGlassPressable(cornerRadius: cornerRadius)
         .disabled(loading)
+    }
+
+    /// Bright Talise greens get the dimensional `greenCTA` gradient; every
+    /// other tint keeps a solid fill (handled in the background ZStack).
+    private var fillGradient: LinearGradient? {
+        guard let tint else { return nil }
+        let brightGreens = [
+            TaliseColor.accent, TaliseColor.greenMint,
+            TaliseColor.greenDeep, TaliseColor.live, TaliseColor.success,
+        ]
+        return brightGreens.contains(tint) ? TaliseColor.greenCTA : nil
+    }
+
+    /// A faint brand-tinted glow under the primary CTA; neutral elsewhere.
+    private var shadowColor: Color {
+        if fillGradient != nil { return TaliseColor.greenDeep.opacity(0.35) }
+        return Color.black.opacity(0.4)
     }
 
     private var cornerRadius: CGFloat {
@@ -67,10 +100,6 @@ struct LiquidGlassButton: View {
         case .lg: return 16
         }
     }
-
-    /// Solid fill — a confident primary in the tint color, or a quiet flat
-    /// surface for the neutral/secondary variant.
-    private var fillColor: Color { tint ?? TaliseColor.surface2 }
 
     /// Dark ink on the bright Talise greens (for contrast + pop); white on
     /// the neutral surface and the darker tints (danger / gold).

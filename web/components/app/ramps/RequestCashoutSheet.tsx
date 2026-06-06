@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
-import { Sheet, PrimaryButton } from "@/components/app";
+import { Sheet, Field, PrimaryButton } from "@/components/app";
 
 /**
  * Concierge cash-out sheet (closed-alpha off-ramp).
@@ -32,7 +32,7 @@ const BANKS: { code: string; name: string }[] = [
 ];
 
 const inputCls =
-  "w-full rounded-xl border border-line bg-surface px-3.5 py-3 text-[15px] text-fg outline-none transition-colors focus:border-[color-mix(in_srgb,var(--color-accent-deep)_45%,var(--color-line))]";
+  "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[15px] text-fg outline-none transition-colors focus:border-[color-mix(in_srgb,var(--color-accent-deep)_45%,var(--color-line))] focus:ring-0";
 
 export function RequestCashoutSheet({
   open,
@@ -95,23 +95,20 @@ export function RequestCashoutSheet({
   return (
     <Sheet open={open} onClose={close} title="Cash out">
       {done ? (
-        <div className="flex flex-col items-center py-4 text-center">
-          <span className="flex size-14 items-center justify-center rounded-full bg-accent-soft text-accent">
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={30} strokeWidth={2} />
+        /* Success state */
+        <div className="flex flex-col items-center gap-4 py-4 text-center">
+          <span className="flex size-12 items-center justify-center rounded-full bg-accent-soft text-accent">
+            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={26} strokeWidth={2} />
           </span>
-          <p className="mt-4 text-[15px] leading-relaxed text-fg">{done}</p>
-          <div className="mt-6 w-full">
-            <PrimaryButton full onClick={close}>
-              Done
-            </PrimaryButton>
-          </div>
+          <p className="text-[15px] leading-relaxed text-fg">{done}</p>
+          <PrimaryButton full onClick={close}>
+            Done
+          </PrimaryButton>
         </div>
       ) : (
-        <div className="space-y-4">
-          <div>
-            <label className="mb-1.5 block text-[13px] font-medium text-fg-muted">
-              Amount (USDsui)
-            </label>
+        /* Form */
+        <div className="space-y-5">
+          <Field label="Amount (USDsui)">
             <input
               inputMode="decimal"
               value={amount}
@@ -119,12 +116,9 @@ export function RequestCashoutSheet({
               placeholder="0.00"
               className={inputCls}
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className="mb-1.5 block text-[13px] font-medium text-fg-muted">
-              Bank
-            </label>
+          <Field label="Bank">
             <select
               value={bankCode}
               onChange={(e) => setBankCode(e.target.value)}
@@ -137,12 +131,9 @@ export function RequestCashoutSheet({
                 </option>
               ))}
             </select>
-          </div>
+          </Field>
 
-          <div>
-            <label className="mb-1.5 block text-[13px] font-medium text-fg-muted">
-              Account number
-            </label>
+          <Field label="Account number" hint="10–12 digit account number.">
             <input
               inputMode="numeric"
               value={acct}
@@ -150,19 +141,16 @@ export function RequestCashoutSheet({
               placeholder="0123456789"
               className={inputCls}
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className="mb-1.5 block text-[13px] font-medium text-fg-muted">
-              Account name <span className="text-fg-dim">(optional)</span>
-            </label>
+          <Field label="Account name (optional)">
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="As it appears on your account"
               className={inputCls}
             />
-          </div>
+          </Field>
 
           {err && <p className="text-[13px] text-[var(--color-danger)]">{err}</p>}
 
@@ -171,7 +159,7 @@ export function RequestCashoutSheet({
           </PrimaryButton>
 
           <p className="text-[12px] leading-relaxed text-fg-dim">
-            During the beta, cash-outs are processed by hand within a few hours,
+            During the beta, cash-outs are processed by hand within a few hours
             at the live rate. We&apos;ll confirm once your naira is on the way.
           </p>
         </div>

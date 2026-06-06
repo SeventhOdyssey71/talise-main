@@ -43,14 +43,23 @@ struct SlideToConfirm: View {
             let progress = min(max(dragX / maxTravel, 0), 1)
 
             ZStack(alignment: .leading) {
-                // Base track
+                // Base track — translucent glass capsule with a specular edge.
                 Capsule()
-                    .fill(TaliseColor.surfaceGlass)
-                    .overlay(Capsule().stroke(TaliseColor.line, lineWidth: 1))
+                    .fill(.ultraThinMaterial)
+                    .overlay(Capsule().fill(TaliseColor.surfaceGlass.opacity(0.6)))
+                    .overlay(Capsule().fill(TaliseGlass.topSheen))
+                    .overlay(Capsule().strokeBorder(TaliseGlass.edgeSoft, lineWidth: 1))
 
-                // Trailing fill that follows the knob.
+                // Trailing fill that follows the knob — a brand wash deepening
+                // toward the knob so progress reads as it advances.
                 Capsule()
-                    .fill(tint.opacity(0.22))
+                    .fill(
+                        LinearGradient(
+                            colors: [tint.opacity(0.30), tint.opacity(0.16)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
                     .frame(width: dragX + knobSize + knobInset * 2)
 
                 // Title, fading out as the knob advances.
@@ -93,6 +102,8 @@ struct SlideToConfirm: View {
     private var knob: some View {
         ZStack {
             Circle().fill(tint)
+            Circle().fill(TaliseGlass.topSheen)
+            Circle().strokeBorder(TaliseGlass.edgeSoft, lineWidth: 1)
             if confirming {
                 ProgressView()
                     .progressViewStyle(.circular)

@@ -49,16 +49,14 @@ export function RoundupCard() {
 
   return (
     <GlassCard className="space-y-4 p-5" radius={14}>
-      <div className="flex items-start gap-3.5">
-        <span
-          className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-          style={{ background: "var(--color-accent-soft)" }}
-        >
-          <HugeiconsIcon icon={PiggyBankIcon} size={19} strokeWidth={1.8} />
+      {/* Header row: icon + title + toggle */}
+      <div className="flex items-center gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <HugeiconsIcon icon={PiggyBankIcon} size={17} strokeWidth={1.8} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-medium tracking-[-0.01em] text-fg">Round-up &amp; Save</p>
-          <p className="text-[13px] text-fg-muted">
+          <p className="text-[14px] font-medium tracking-[-0.01em] text-fg">Round-up &amp; Save</p>
+          <p className="text-[12px] text-fg-muted">
             Set aside a slice of every payment, automatically.
           </p>
         </div>
@@ -66,10 +64,10 @@ export function RoundupCard() {
       </div>
 
       {enabled && (
-        <div className="space-y-2.5">
+        <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Eyebrow>Save per payment</Eyebrow>
-            <span className="text-[15px] font-medium tabular-nums text-accent">
+            <span className="text-[14px] font-medium tabular-nums text-accent">
               {percentage}%
             </span>
           </div>
@@ -91,17 +89,12 @@ export function RoundupCard() {
         </div>
       )}
 
-      <div
-        className="flex items-center justify-between px-3.5 py-3"
-        style={{
-          borderRadius: 14,
-          background: "var(--color-accent-soft)",
-        }}
-      >
+      {/* Saved tally — accent-soft chip */}
+      <div className="flex items-center justify-between rounded-xl bg-accent-soft px-3.5 py-2.5">
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-dim">
           Saved via round-up
         </span>
-        <span className="text-[17px] font-medium tracking-[-0.02em] tabular-nums text-accent">
+        <span className="text-[16px] font-medium tracking-[-0.02em] tabular-nums text-accent">
           {formatUsd(savedUsd, { fixed: true })}
         </span>
       </div>

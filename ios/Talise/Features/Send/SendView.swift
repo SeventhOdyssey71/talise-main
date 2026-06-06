@@ -148,13 +148,13 @@ struct LegacySendView: View {
 
     var body: some View {
         ZStack {
-            TaliseColor.bg.ignoresSafeArea()
             if let success {
                 successView(success)
             } else {
                 form
             }
         }
+        .taliseScreenBackground()
         .presentationDragIndicator(.visible)
         .onAppear {
             // ContactsSheet writes the tapped address here when the user
@@ -267,13 +267,13 @@ struct LegacySendView: View {
         HStack(spacing: 6) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(TaliseColor.accent)
+                .foregroundStyle(TaliseColor.greenMint)
             VStack(alignment: .leading, spacing: 2) {
                 if let displayName = r.displayName, !displayName.isEmpty,
                    displayName != r.address {
                     Text(displayName)
                         .font(TaliseFont.mono(11, weight: .light))
-                        .foregroundStyle(TaliseColor.accent)
+                        .foregroundStyle(TaliseColor.greenMint)
                         .lineLimit(1)
                 }
                 Text(short(r.address))
@@ -380,7 +380,7 @@ struct LegacySendView: View {
                 if sending {
                     ProgressView()
                         .progressViewStyle(.circular)
-                        .tint(TaliseColor.bg)
+                        .tint(Color(hex: 0x0A140C))
                 } else {
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: 14, weight: .medium))
@@ -389,11 +389,20 @@ struct LegacySendView: View {
                 Text(sending ? "Sending…" : sendLabel)
                     .font(TaliseFont.heading(15, weight: .medium))
             }
-            .foregroundStyle(TaliseColor.bg)
+            .foregroundStyle(canSend ? Color(hex: 0x0A140C) : TaliseColor.fgDim)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .background(canSend ? TaliseColor.fg : TaliseColor.fg.opacity(0.35))
-            .clipShape(Capsule())
+            .background(
+                Capsule()
+                    .fill(canSend ? TaliseColor.greenMint : TaliseColor.surface2)
+            )
+            .overlay(
+                Capsule().strokeBorder(
+                    Color.white.opacity(canSend ? 0.18 : 0.06),
+                    lineWidth: 0.8
+                )
+            )
+            .shadow(color: TaliseColor.greenMint.opacity(canSend ? 0.25 : 0), radius: 16, y: 6)
         }
         .disabled(!canSend)
     }
@@ -418,11 +427,14 @@ struct LegacySendView: View {
             Spacer()
             ZStack {
                 Circle()
-                    .fill(TaliseColor.accent.opacity(0.15))
+                    .fill(TaliseColor.greenMint.opacity(0.15))
                     .frame(width: 84, height: 84)
+                    .overlay(
+                        Circle().strokeBorder(TaliseColor.greenMint.opacity(0.25), lineWidth: 0.8)
+                    )
                 Image(systemName: "checkmark")
                     .font(.system(size: 32, weight: .semibold))
-                    .foregroundStyle(TaliseColor.accent)
+                    .foregroundStyle(TaliseColor.greenMint)
             }
             Text("Sent")
                 .font(TaliseFont.heading(28, weight: .medium))
@@ -437,11 +449,11 @@ struct LegacySendView: View {
             Button(action: { onDone?(); dismiss() }) {
                 Text("Done")
                     .font(TaliseFont.heading(15, weight: .medium))
-                    .foregroundStyle(TaliseColor.bg)
+                    .foregroundStyle(Color(hex: 0x0A140C))
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(TaliseColor.fg)
-                    .clipShape(Capsule())
+                    .background(Capsule().fill(TaliseColor.greenMint))
+                    .shadow(color: TaliseColor.greenMint.opacity(0.25), radius: 16, y: 6)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
@@ -547,5 +559,76 @@ struct LegacySendView: View {
         } catch {
             balance = nil
         }
+    }
+}
+
+// MARK: - Liquid-Glass building blocks (shared across the Send flow)
+// Defined here (not a standalone file) so they're part of the compiled target.
+// Purely visual modifiers — no state, no logic.
+
+/// A translucent glass disc for circular chrome buttons (close / back / arrow).
+struct GlassCircle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(
+                ZStack {
+                    Circle().fill(.ultraThinMaterial)
+                    Circle().fill(Color.black.opacity(0.18))
+                }
+            )
+            .overlay(
+                Circle()
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.22), Color.white.opacity(0.04)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 0.8
+                    )
+            )
+            .clipShape(Circle())
+    }
+}
+
+extension View {
+    /// Wrap a circular chrome glyph in a translucent Liquid-Glass disc.
+    func glassCircle() -> some View { modifier(GlassCircle()) }
+}
+
+/// A translucent glass capsule for status pills (wallet pill, locked-rate chip).
+struct GlassCapsuleBackground: ViewModifier {
+    var tint: Color? = nil
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                ZStack {
+                    Capsule().fill(.ultraThinMaterial)
+                    Capsule().fill(Color.black.opacity(0.18))
+                    if let tint {
+                        Capsule().fill(tint.opacity(0.16))
+                    }
+                }
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.20), Color.white.opacity(0.04)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 0.8
+                    )
+            )
+            .clipShape(Capsule())
+    }
+}
+
+extension View {
+    /// Wrap a pill's contents in a translucent Liquid-Glass capsule.
+    func glassCapsule(tint: Color? = nil) -> some View {
+        modifier(GlassCapsuleBackground(tint: tint))
     }
 }

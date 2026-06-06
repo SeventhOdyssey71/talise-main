@@ -44,7 +44,7 @@ struct ClaimHandleSheet: View {
                 form
             }
         }
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .liquidGlassSheet()
         .presentationDragIndicator(.visible)
         .onAppear {
             if input.isEmpty, case .ready(let user) = session.phase {
@@ -109,9 +109,12 @@ struct ClaimHandleSheet: View {
                 .foregroundStyle(TaliseColor.fgMuted)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(TaliseColor.usernameCard)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .padding(.vertical, 16)
+        .glassSection(
+            cornerRadius: 16,
+            tint: availability == .available ? TaliseColor.accent : nil,
+            tintOpacity: 0.10
+        )
     }
 
     private var statusRow: some View {
@@ -165,29 +168,16 @@ struct ClaimHandleSheet: View {
     }
 
     private var claimButton: some View {
-        Button {
+        LiquidGlassButton(
+            title: claiming ? "Claiming…" : "Claim \(input)@talise.sui",
+            icon: claiming ? nil : "checkmark.seal.fill",
+            tint: canClaim ? TaliseColor.greenMint : nil,
+            loading: claiming
+        ) {
             Task { await claim() }
-        } label: {
-            HStack(spacing: 8) {
-                if claiming {
-                    ProgressView().controlSize(.small).tint(TaliseColor.bg)
-                } else {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                Text(claiming ? "Claiming…" : "Claim \(input)@talise.sui")
-                    .font(TaliseFont.heading(15, weight: .medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .foregroundStyle(TaliseColor.bg)
-            .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(canClaim ? TaliseColor.fg : TaliseColor.fg.opacity(0.35))
-            .clipShape(Capsule())
         }
         .disabled(!canClaim)
-        .buttonStyle(.plain)
+        .opacity(canClaim ? 1 : 0.55)
     }
 
     private var canClaim: Bool {
@@ -200,11 +190,21 @@ struct ClaimHandleSheet: View {
         VStack(spacing: 16) {
             Spacer(minLength: 24)
             ZStack {
-                Circle().fill(TaliseColor.accent.opacity(0.15)).frame(width: 84, height: 84)
+                Circle()
+                    .fill(TaliseColor.accent.opacity(0.22))
+                    .frame(width: 104, height: 104)
+                    .blur(radius: 18)
+                Circle().fill(.ultraThinMaterial).frame(width: 84, height: 84)
+                Circle().fill(TaliseColor.accent.opacity(0.14)).frame(width: 84, height: 84)
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 32, weight: .semibold))
                     .foregroundStyle(TaliseColor.accent)
             }
+            .overlay(
+                Circle()
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    .frame(width: 84, height: 84)
+            )
             Text("Claimed")
                 .font(TaliseFont.heading(28, weight: .medium))
                 .kerning(-1)
@@ -223,17 +223,9 @@ struct ClaimHandleSheet: View {
             // autoSwapCTA removed 2026-05-29 alongside the autoswap archive.
 
             Spacer()
-            Button {
+            LiquidGlassButton(title: "Done", tint: TaliseColor.greenMint) {
                 dismiss()
                 Task { await session.bootstrap() }
-            } label: {
-                Text("Done")
-                    .font(TaliseFont.heading(15, weight: .medium))
-                    .foregroundStyle(TaliseColor.bg)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(TaliseColor.fg)
-                    .clipShape(Capsule())
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 40)

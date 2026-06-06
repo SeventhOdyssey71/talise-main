@@ -126,9 +126,15 @@ private struct NumpadKeyStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
-                Circle()
-                    .fill(Color.white.opacity(configuration.isPressed ? 0.08 : 0))
-                    .frame(width: 64, height: 64)
+                ZStack {
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .opacity(configuration.isPressed ? 1 : 0)
+                    Circle()
+                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                        .opacity(configuration.isPressed ? 1 : 0)
+                }
+                .frame(width: 64, height: 64)
             )
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)

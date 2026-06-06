@@ -16,7 +16,7 @@ export function LifetimeStats({
 }) {
   const { formatLocal } = useCurrency();
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-2.5">
       <Tile label="Lifetime sent" value={formatLocal(sentUsd, { fixed: true })} />
       <Tile label="Lifetime saved" value={formatLocal(savedUsd, { fixed: true })} accent />
     </div>
@@ -33,11 +33,11 @@ function Tile({
   accent?: boolean;
 }) {
   return (
-    <GlassCard className="p-5">
+    <GlassCard className="p-4">
       <MicroLabel>{label}</MicroLabel>
       <div
-        className={`mt-2.5 tabular-nums ${accent ? "text-accent" : "text-fg"}`}
-        style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.025em", lineHeight: 1.1 }}
+        className={`mt-2 tabular-nums ${accent ? "text-accent" : "text-fg"}`}
+        style={{ fontSize: 22, fontWeight: 500, letterSpacing: "-0.025em", lineHeight: 1.15 }}
       >
         {value}
       </div>

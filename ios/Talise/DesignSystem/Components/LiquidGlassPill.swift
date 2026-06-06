@@ -32,14 +32,18 @@ struct LiquidGlassPill: View {
             .frame(height: compact ? 24 : 30)
             .background(
                 ZStack {
-                    // Flat solid capsule — no blur, no shadow.
-                    Capsule().fill(TaliseColor.surface2)
+                    // Translucent glass capsule — thin material under a dark
+                    // surface tint so the canvas reads faintly through.
+                    Capsule().fill(.ultraThinMaterial)
+                    Capsule().fill(TaliseColor.surface2.opacity(0.6))
                     if let tint {
-                        Capsule().fill(tint.opacity(0.18))
+                        Capsule().fill(tint.opacity(0.22))
                     }
+                    // Top sheen crown.
+                    Capsule().fill(TaliseGlass.topSheen)
                 }
             )
-            .overlay(Capsule().strokeBorder(TaliseColor.line, lineWidth: 1))
+            .overlay(Capsule().strokeBorder(TaliseGlass.edgeSoft, lineWidth: 1))
             .clipShape(Capsule())
         }
         .buttonStyle(LiquidGlassPillPressStyle())

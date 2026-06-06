@@ -31,7 +31,7 @@ struct SendAmountView: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 18)
         }
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .taliseScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
         .onAppear { Task { await loadBalance() } }
     }
@@ -42,15 +42,15 @@ struct SendAmountView: View {
         HStack {
             Button(action: onCancel) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(TaliseColor.fgMuted)
-                    .frame(width: 36, height: 36)
-                    .background(Circle().fill(TaliseColor.surfaceGlass))
+                    .frame(width: 38, height: 38)
+                    .glassCircle()
             }
             Spacer()
-            MicroLabel(text: "Send", color: TaliseColor.fgDim).kerning(1.5)
+            MicroLabel(text: "Send", color: TaliseColor.fgMuted).kerning(2.0)
             Spacer()
-            Color.clear.frame(width: 36, height: 36)
+            Color.clear.frame(width: 38, height: 38)
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -194,10 +194,11 @@ struct SendAmountView: View {
     private var walletPill: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(TaliseColor.accent)
+                .fill(TaliseColor.greenMint)
                 .frame(width: 6, height: 6)
+                .shadow(color: TaliseColor.greenMint.opacity(0.6), radius: 4)
             Text("MAIN WALLET")
-                .font(TaliseFont.mono(10, weight: .light))
+                .font(TaliseFont.mono(10, weight: .regular))
                 .kerning(1.5)
                 .foregroundStyle(TaliseColor.fg)
             if let avail = availableLocal {
@@ -211,10 +212,7 @@ struct SendAmountView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(Capsule().fill(TaliseColor.surfaceGlass))
-        .overlay(
-            Capsule().stroke(TaliseColor.line, lineWidth: 0.5)
-        )
+        .glassCapsule()
     }
 
     private var availableLocal: String? {
@@ -228,11 +226,23 @@ struct SendAmountView: View {
         Button(action: handleNext) {
             Text("Review")
                 .font(TaliseFont.heading(16, weight: .medium))
-                .foregroundStyle(TaliseColor.bg)
+                .foregroundStyle(canAdvance ? Color(hex: 0x0A140C) : TaliseColor.fgDim)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
-                .background(canAdvance ? TaliseColor.fg : TaliseColor.fg.opacity(0.35))
-                .clipShape(Capsule())
+                .background(
+                    Capsule()
+                        .fill(canAdvance ? TaliseColor.greenMint : TaliseColor.surface2)
+                )
+                .overlay(
+                    Capsule().strokeBorder(
+                        Color.white.opacity(canAdvance ? 0.18 : 0.06),
+                        lineWidth: 0.8
+                    )
+                )
+                .shadow(
+                    color: TaliseColor.greenMint.opacity(canAdvance ? 0.25 : 0),
+                    radius: 16, y: 6
+                )
         }
         .disabled(!canAdvance)
     }

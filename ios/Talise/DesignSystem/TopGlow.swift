@@ -10,22 +10,39 @@ import SwiftUI
 /// continue without a perceptible jump.
 struct TopGlow: View {
     var body: some View {
-        LinearGradient(
-            stops: [
-                // A QUIET deep-forest halo at the very top — a whisper of
-                // brand green, not the old loud olive wash. Fades to pure
-                // black fast so cards read crisp, not murky.
-                .init(color: Color(hex: 0x1C3D24), location: 0.0),
-                .init(color: Color(hex: 0x0C1A10), location: 0.16),
-                .init(color: Color.black,           location: 0.42),
-                .init(color: Color.black,           location: 1.0),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+        ZStack(alignment: .top) {
+            // The core vertical wash — a quiet deep-forest halo that kisses
+            // the very top and fades to pure black before the content area.
+            LinearGradient(
+                stops: [
+                    .init(color: Color(hex: 0x21462A), location: 0.0),
+                    .init(color: Color(hex: 0x0E2013), location: 0.18),
+                    .init(color: Color.black,           location: 0.46),
+                    .init(color: Color.black,           location: 1.0),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            // A soft radial brand bloom pooled under the notch — gives the
+            // wash an iOS-26 "lit from a point" depth instead of a flat band.
+            // Sits OVER the linear wash with a gentle blur so the brightness
+            // feels like light, not paint.
+            RadialGradient(
+                colors: [
+                    TaliseColor.greenDeep.opacity(0.28),
+                    TaliseColor.greenDeep.opacity(0.06),
+                    .clear,
+                ],
+                center: UnitPoint(x: 0.5, y: 0.0),
+                startRadius: 0,
+                endRadius: 280
+            )
+            .blur(radius: 26)
+            .blendMode(.screen)
+        }
         // Shorter band — the green only kisses the very top now; the rest
         // of the screen is clean black so content + cards read sharply.
-        .frame(height: 360)
+        .frame(height: 380)
         .frame(maxWidth: .infinity, alignment: .top)
         .allowsHitTesting(false)
     }
@@ -89,22 +106,30 @@ struct TaliseGlassCard: ViewModifier {
         return content
             .background(
                 ZStack {
-                    // 1. Flat solid surface — NO blur material. Clean opaque
-                    //    panel on the black page, in the Apple-system idiom.
-                    shape.fill(TaliseColor.surface)
-                    // 2. Optional directional tint — Sent / Received / Earn
-                    //    cards get a quiet flat wash of their green over the
-                    //    surface (no gradient, no glass).
+                    // 1. Translucent base — a near-opaque dark surface tint
+                    //    riding on a thin material so the black canvas and
+                    //    TopGlow read faintly THROUGH the card. This is the
+                    //    iOS-26 Liquid Glass plate, not a flat block.
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(TaliseColor.surface.opacity(0.78))
+                    // 2. Optional directional brand wash — Sent / Received /
+                    //    Earn cards get a diagonal gradient of their green.
                     if let tint {
-                        shape.fill(tint.opacity(0.13))
+                        shape.fill(TaliseGlass.wash(tint, strength: 0.18))
                     }
+                    // 3. Interior top sheen — a faint white crown pooled at
+                    //    the top edge, the polished-glass highlight.
+                    shape.fill(TaliseGlass.topSheen)
                 }
             )
             .overlay(
-                // 3. One faint hairline to define the card edge on black.
-                shape.strokeBorder(TaliseColor.line, lineWidth: 1)
+                // 4. Specular gradient edge — bright at the top, vanishing at
+                //    the bottom. Replaces the flat hairline with the lit edge.
+                shape.strokeBorder(TaliseGlass.edge, lineWidth: 1)
             )
             .clipShape(shape)
+            // 5. Soft ambient float off the black canvas.
+            .shadow(color: TaliseGlass.shadow, radius: 18, x: 0, y: 12)
             .opacity(isEnabled ? 1.0 : 0.6)
     }
 }
@@ -252,7 +277,7 @@ struct HeroAmount: View {
                     Text(symbol).font(TaliseFont.mono(15)).foregroundStyle(TaliseColor.fgDim)
                 }
                 Text(value)
-                    .font(TaliseFont.display(40, weight: .medium)).kerning(-1.6)
+                    .font(TaliseFont.display(42, weight: .semibold)).kerning(-1.6)
                     .foregroundStyle(TaliseColor.fg)
                     .lineLimit(1).minimumScaleFactor(0.5)
                     .contentTransition(.numericText())
@@ -426,7 +451,7 @@ struct QuietProgressBar: View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.06))
-                Capsule().fill(TaliseColor.accent)
+                Capsule().fill(TaliseColor.greenSweep)
                     .frame(width: geo.size.width * min(max(progress, 0), 1))
             }
         }

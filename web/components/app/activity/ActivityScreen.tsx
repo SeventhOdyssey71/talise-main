@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { InboxIcon } from "@hugeicons/core-free-icons";
-import { useActivity, Eyebrow, EmptyState } from "@/components/app";
+import { useActivity, Eyebrow, EmptyState, GlassCard } from "@/components/app";
 import { HistoryRow } from "./HistoryRow";
 import { ReceiptSheet } from "./ReceiptSheet";
 import {
@@ -17,11 +17,12 @@ import {
 /**
  * Full transaction history. Header + five filter chips (All / Sent / Received
  * / Earn / Swap), then the live feed from `useActivity(50)` rendered as
- * directional glass rows. Tapping a row opens the on-chain receipt sheet.
+ * borderless hover-fill rows (Wise-style). Tapping a row opens the receipt
+ * sheet.
  *
- * `useActivity` already auto-refreshes on the `talise:tx` window event and
- * serves the immutable snapshot floor first, so this screen never flashes
- * empty after a send and history never shrinks.
+ * `useActivity` auto-refreshes on the `talise:tx` window event and serves the
+ * immutable snapshot floor first — so this screen never flashes empty after a
+ * send and history never shrinks.
  */
 export function ActivityScreen() {
   const { entries, loading, error, refresh } = useActivity(50);
@@ -49,17 +50,17 @@ export function ActivityScreen() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <header className="space-y-1.5">
+      <header className="space-y-1">
         <Eyebrow>Activity</Eyebrow>
         <h1
-          className="text-[26px] font-medium text-fg lg:text-[30px]"
+          className="text-[26px] font-medium text-fg lg:text-[28px]"
           style={{ letterSpacing: "-0.03em" }}
         >
           All activity
         </h1>
       </header>
 
-      {/* Filter chips */}
+      {/* Filter chips — soft pills, horizontal scroll on narrow viewports */}
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {FILTERS.map((f) => {
           const active = f.key === filter;
@@ -71,8 +72,8 @@ export function ActivityScreen() {
               aria-pressed={active}
               className={
                 active
-                  ? "shrink-0 rounded-full bg-accent-soft px-4 py-2 text-[13px] font-medium text-accent transition-colors"
-                  : "shrink-0 rounded-full bg-surface-2 px-4 py-2 text-[13px] font-medium text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg"
+                  ? "shrink-0 rounded-full bg-accent-soft px-4 py-1.5 text-[13px] font-medium text-accent transition-colors"
+                  : "shrink-0 rounded-full bg-surface-2 px-4 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg"
               }
             >
               {f.label}
@@ -81,16 +82,21 @@ export function ActivityScreen() {
         })}
       </div>
 
-      {/* List */}
+      {/* List — skeleton / error / empty / rows */}
       {showSkeleton ? (
-        <div className="space-y-2.5">
-          {Array.from({ length: 6 }).map((_, i) => (
+        <div>
+          {Array.from({ length: 7 }).map((_, i) => (
             <SkeletonRow key={i} />
           ))}
         </div>
       ) : error && entries.length === 0 ? (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-line px-4 py-4">
-          <span className="text-[14px] text-fg-muted">Couldn&apos;t load your activity.</span>
+        <GlassCard
+          className="flex items-center justify-between gap-3 px-4 py-4"
+          radius={14}
+        >
+          <span className="text-[14px] text-fg-muted">
+            Couldn&apos;t load your activity.
+          </span>
           <button
             type="button"
             onClick={() => void refresh()}
@@ -98,9 +104,9 @@ export function ActivityScreen() {
           >
             Retry
           </button>
-        </div>
+        </GlassCard>
       ) : filtered.length === 0 ? (
-        <div className="pt-6">
+        <div className="pt-4">
           <EmptyState
             icon={<HugeiconsIcon icon={InboxIcon} size={26} strokeWidth={1.8} />}
             title={
@@ -116,13 +122,17 @@ export function ActivityScreen() {
           />
         </div>
       ) : (
-        <ul className="space-y-2.5">
+        /* Flat list — borderless rows need no card wrapper or inter-row gap;
+           the hover fill on each row gives visual separation on interaction. */
+        <div>
           {filtered.map((row) => (
-            <li key={rowKey(row)}>
-              <HistoryRow row={row} onOpen={() => openReceipt(row)} />
-            </li>
+            <HistoryRow
+              key={rowKey(row)}
+              row={row}
+              onOpen={() => openReceipt(row)}
+            />
           ))}
-        </ul>
+        </div>
       )}
 
       <ReceiptSheet row={selected} open={open} onClose={() => setOpen(false)} />
@@ -136,13 +146,14 @@ function rowKey(row: ActivityRow): string {
   return `${row.direction}:${row.timestampMs}:${row.amountUsdsui ?? ""}:${row.amountSui ?? ""}`;
 }
 
+/** Skeleton row sized to match the real HistoryRow (size-9 badge, two text lines). */
 function SkeletonRow() {
   return (
-    <div className="talise-history-row flex w-full items-center gap-3.5 px-4 py-3.5 sm:px-5">
-      <span className="size-[38px] shrink-0 animate-pulse rounded-full bg-surface-2" />
+    <div className="flex w-full items-center gap-3 px-3 py-3">
+      <span className="size-9 shrink-0 animate-pulse rounded-full bg-surface-2" />
       <span className="flex min-w-0 flex-1 flex-col gap-2">
         <span className="h-3 w-28 animate-pulse rounded-full bg-surface-2" />
-        <span className="h-2.5 w-20 animate-pulse rounded-full bg-surface-2" />
+        <span className="h-2.5 w-20 animate-pulse rounded-full bg-[color-mix(in_srgb,var(--color-surface-2)_70%,transparent)]" />
       </span>
       <span className="h-3.5 w-16 animate-pulse rounded-full bg-surface-2" />
     </div>

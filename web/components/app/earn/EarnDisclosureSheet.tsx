@@ -15,7 +15,7 @@ import {
   Wallet02Icon,
   ChartIncreaseIcon,
 } from "@hugeicons/core-free-icons";
-import { Sheet, PrimaryButton } from "@/components/app";
+import { Sheet, GlassCard, PrimaryButton } from "@/components/app";
 
 type Point = { icon: typeof BankIcon; title: string; body: string };
 
@@ -53,8 +53,8 @@ export function EarnDisclosureSheet({
   return (
     <Sheet open={open} onClose={onClose} title="Before you start" size="md">
       <div className="space-y-5 pb-1">
-        <div className="space-y-1.5">
-          <h2 className="text-[22px] font-medium tracking-[-0.02em] text-fg">
+        <div className="space-y-1">
+          <h2 className="text-[20px] font-medium tracking-[-0.02em] text-fg">
             {apy > 0
               ? `Earn around ${(apy * 100).toFixed(2)}% on your ${moneyWord}`
               : `Earn on your ${moneyWord}`}
@@ -62,27 +62,25 @@ export function EarnDisclosureSheet({
           <p className="text-[13px] text-fg-muted">A few things to know first.</p>
         </div>
 
-        <div className="talise-glass overflow-hidden" style={{ borderRadius: 12 }}>
+        {/* Disclosure points — flat card with hairline dividers */}
+        <GlassCard className="overflow-hidden !p-0" radius={12}>
           {POINTS.map((p, i) => (
             <div key={p.title}>
               {i > 0 && <div className="mx-4 h-px bg-line" />}
               <div className="flex items-start gap-3.5 px-4 py-4">
-                <span
-                  className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full text-accent"
-                  style={{ background: "var(--color-accent-soft)" }}
-                >
-                  <HugeiconsIcon icon={p.icon} size={18} strokeWidth={1.8} />
+                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+                  <HugeiconsIcon icon={p.icon} size={17} strokeWidth={1.8} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[15px] font-medium tracking-[-0.01em] text-fg">
+                  <p className="text-[14px] font-medium tracking-[-0.01em] text-fg">
                     {p.title}
                   </p>
-                  <p className="mt-1 text-[13px] leading-snug text-fg-muted">{p.body}</p>
+                  <p className="mt-1 text-[12px] leading-snug text-fg-muted">{p.body}</p>
                 </div>
               </div>
             </div>
           ))}
-        </div>
+        </GlassCard>
 
         <p className="text-[12px] leading-snug text-fg-dim">
           By continuing you&apos;re choosing to use this optional service. You can

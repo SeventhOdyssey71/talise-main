@@ -7,7 +7,7 @@ import {
   Copy01Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
-import { Sheet, Eyebrow, useCurrency } from "@/components/app";
+import { Sheet, Eyebrow, GlassCard, useCurrency } from "@/components/app";
 import { DirectionBadge } from "./DirectionBadge";
 import {
   type ActivityRow,
@@ -24,11 +24,15 @@ import {
 } from "./types";
 
 /**
- * On-chain receipt for a tapped activity row. The chain is the source of
- * truth: hero amount in the user's display currency, the USDsui sub-line,
- * counterparty/venue, timestamp, network, the canonical digest (with a
- * Suiscan link + copy), fee ("$0 — sponsored"), and the round-up if the send
- * carried one.
+ * On-chain receipt for a tapped activity row. Hero amount in the user's
+ * display currency, USDsui sub-line, counterparty/venue, timestamp, network,
+ * canonical digest (Suiscan link + copy), fee ("$0 — sponsored"), and the
+ * round-up if the send carried one.
+ *
+ * Design: hero badge + eyebrow label, big amount, clean detail card (flat
+ * white + hairline, list rows with thin dividers), then two action buttons
+ * (primary forest + ghost secondary). All radii follow the design system —
+ * rounded-xl for buttons and cards, rounded-full only for the badge and pills.
  */
 export function ReceiptSheet({
   row,
@@ -52,7 +56,7 @@ function ReceiptBody({ row }: { row: ActivityRow }) {
   const category = categoryOf(row);
   const coin = otherCoinOf(row);
   const inflow = isInflow(row);
-  const sign = inflow ? "+" : "-";
+  const sign = inflow ? "+" : "−";
 
   const copyDigest = async () => {
     try {
@@ -108,18 +112,18 @@ function ReceiptBody({ row }: { row: ActivityRow }) {
       : null;
 
   return (
-    <div className="flex flex-col items-center gap-6 pb-2 pt-1">
-      {/* Hero badge + label */}
-      <div className="flex flex-col items-center gap-2.5">
-        <DirectionBadge category={category} size={64} iconSize={26} />
+    <div className="flex flex-col items-center gap-5 pb-2 pt-1">
+      {/* Hero badge + transaction label */}
+      <div className="flex flex-col items-center gap-2">
+        <DirectionBadge category={category} size={56} iconSize={22} />
         <Eyebrow>{titleOf(row)}</Eyebrow>
       </div>
 
-      {/* Amount — sign-carrying headline in the display currency, USDsui below */}
+      {/* Big amount — sign-carrying headline in display currency, USDsui sub-line */}
       <div className="flex flex-col items-center gap-1 text-center">
         <span
           className="font-display font-semibold text-fg tabular-nums"
-          style={{ fontSize: 40, lineHeight: 1.04, letterSpacing: "-0.03em" }}
+          style={{ fontSize: 38, lineHeight: 1.06, letterSpacing: "-0.03em" }}
         >
           {heroPrimary}
         </span>
@@ -135,11 +139,8 @@ function ReceiptBody({ row }: { row: ActivityRow }) {
         )}
       </div>
 
-      {/* Details card */}
-      <div
-        className="talise-glass w-full"
-        style={{ borderRadius: 14 }}
-      >
+      {/* Details card — flat white + hairline, thin dividers between rows */}
+      <GlassCard className="w-full" radius={14}>
         {partyRow && (
           <>
             <DetailRow
@@ -167,15 +168,15 @@ function ReceiptBody({ row }: { row: ActivityRow }) {
         )}
         <Divider />
         <DetailRow label="Digest" value={shortDigest(row.digest)} mono />
-      </div>
+      </GlassCard>
 
-      {/* Actions */}
+      {/* Actions — primary forest CTA + ghost secondary, both rounded-xl */}
       <div className="flex w-full flex-col gap-2.5">
         <a
           href={suiscanUrl(row.digest)}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-accent-deep text-[15px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-[transform,background-color] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent-deep text-[15px] font-semibold text-white shadow-[0_4px_14px_-4px_rgba(35,78,20,0.38)] transition-[transform,background-color] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
         >
           <HugeiconsIcon icon={LinkSquare02Icon} size={16} strokeWidth={2} />
           View on Suiscan
@@ -183,7 +184,7 @@ function ReceiptBody({ row }: { row: ActivityRow }) {
         <button
           type="button"
           onClick={copyDigest}
-          className="talise-glass flex h-12 w-full items-center justify-center gap-2 rounded-full text-[14px] font-medium text-fg transition-colors hover:text-accent"
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_35%,var(--color-line))] hover:text-accent"
         >
           <HugeiconsIcon
             icon={copied ? Tick02Icon : Copy01Icon}
@@ -209,10 +210,10 @@ function DetailRow({
   valueClass?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
       <span className="shrink-0 text-[13px] text-fg-muted">{label}</span>
       <span
-        className={`min-w-0 truncate text-right ${mono ? "font-mono text-[12px]" : "text-[13px]"} ${valueClass}`}
+        className={`min-w-0 truncate text-right ${mono ? "font-mono text-[12px]" : "text-[13px] font-medium"} ${valueClass}`}
       >
         {value}
       </span>
@@ -221,5 +222,5 @@ function DetailRow({
 }
 
 function Divider() {
-  return <div className="mx-3 h-px bg-line" />;
+  return <div className="mx-4 h-px bg-line" />;
 }

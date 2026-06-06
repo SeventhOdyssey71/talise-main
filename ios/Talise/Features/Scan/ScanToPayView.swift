@@ -132,8 +132,11 @@ struct ScanToPayView: View {
 
     private var resolvingOverlay: some View {
         ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea()
-            VStack(spacing: 12) {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+                .overlay(Color.black.opacity(0.35).ignoresSafeArea())
+            VStack(spacing: 14) {
                 ProgressView()
                     .controlSize(.large)
                     .tint(.white)
@@ -141,6 +144,16 @@ struct ScanToPayView: View {
                     .font(TaliseFont.body(13, weight: .regular))
                     .foregroundStyle(.white)
             }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 22)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            )
         }
         .transition(.opacity)
     }
@@ -236,8 +249,17 @@ struct ScanToPayView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Capsule().fill(Color.black.opacity(0.55)))
-        .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1))
+        .background(Capsule().fill(.ultraThinMaterial))
+        .overlay(
+            Capsule().strokeBorder(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.2), Color.white.opacity(0.05)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 1
+            )
+        )
     }
 
     // MARK: - Top status bar
@@ -264,12 +286,19 @@ struct ScanToPayView: View {
             Image(systemName: "xmark")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
-                .frame(width: 36, height: 36)
+                .frame(width: 38, height: 38)
                 .background(
-                    Circle().fill(Color.black.opacity(0.55))
+                    Circle().fill(.ultraThinMaterial)
                 )
                 .overlay(
-                    Circle().stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    Circle().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.22), Color.white.opacity(0.06)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
                 )
         }
         .buttonStyle(.plain)
@@ -297,13 +326,20 @@ struct ScanToPayView: View {
             // setTorch). The icon swap mirrors the device state.
             Image(systemName: flashOn ? "bolt.fill" : "bolt.slash.fill")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 36, height: 36)
+                .foregroundStyle(flashOn ? TaliseColor.greenMint : .white)
+                .frame(width: 38, height: 38)
                 .background(
-                    Circle().fill(Color.black.opacity(0.55))
+                    Circle().fill(.ultraThinMaterial)
                 )
                 .overlay(
-                    Circle().stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    Circle().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.22), Color.white.opacity(0.06)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
                 )
         }
         .buttonStyle(.plain)

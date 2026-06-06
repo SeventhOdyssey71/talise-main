@@ -92,7 +92,16 @@ struct SuccessfulTxView: View {
                         .kerning(-0.3)
                         .foregroundStyle(.white)
                         .frame(width: 158, height: 41)
-                        .background(Capsule().fill(Color.white.opacity(0.2)))
+                        .background(
+                            ZStack {
+                                Capsule().fill(.ultraThinMaterial)
+                                Capsule().fill(Color.white.opacity(0.12))
+                            }
+                        )
+                        .overlay(
+                            Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8)
+                        )
+                        .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
 

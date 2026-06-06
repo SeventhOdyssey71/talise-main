@@ -98,7 +98,7 @@ struct CurrencyPocketsView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .taliseGlass(cornerRadius: 18)
+            .glassSection(cornerRadius: 20)
         }
     }
 
@@ -146,7 +146,8 @@ struct CurrencyPocketsView: View {
     /// language as the Profile avatar fallback, sized for a list row.
     private func currencyDisc(_ c: TaliseCurrency) -> some View {
         ZStack {
-            Circle().fill(TaliseColor.surface2)
+            Circle().fill(.ultraThinMaterial)
+            Circle().fill(TaliseColor.surface2.opacity(0.6))
             Text(c.symbol)
                 .font(TaliseFont.heading(14, weight: .medium))
                 .foregroundStyle(TaliseColor.fg)
@@ -155,7 +156,15 @@ struct CurrencyPocketsView: View {
                 .padding(.horizontal, 4)
         }
         .frame(width: 38, height: 38)
-        .overlay(Circle().strokeBorder(TaliseColor.line, lineWidth: 1))
+        .overlay(
+            Circle().strokeBorder(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.18), Color.white.opacity(0.04)],
+                    startPoint: .top, endPoint: .bottom
+                ),
+                lineWidth: 1
+            )
+        )
         .clipShape(Circle())
     }
 
@@ -280,7 +289,7 @@ private struct AddCurrencySheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .taliseGlass(cornerRadius: 18)
+                .glassSection(cornerRadius: 20)
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
             }
@@ -424,7 +433,7 @@ private struct FXQuoteSheet: View {
             countdownRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 18, tint: TaliseColor.accent.opacity(0.06))
+        .glassSection(cornerRadius: 20, tint: TaliseColor.accent, tintOpacity: 0.07)
     }
 
     private func amountRow(label: String, value: String, emphasis: Bool) -> some View {

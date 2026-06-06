@@ -48,7 +48,7 @@ struct SendInProgressView: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 18)
         }
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .taliseScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
     }
 
@@ -59,12 +59,7 @@ struct SendInProgressView: View {
                 .foregroundStyle(TaliseColor.fg)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
-                .background(
-                    Capsule().fill(TaliseColor.surfaceGlass)
-                )
-                .overlay(
-                    Capsule().stroke(TaliseColor.line, lineWidth: 0.5)
-                )
+                .glassCapsule()
         }
     }
 }
