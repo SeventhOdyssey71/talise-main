@@ -53,7 +53,52 @@ const SECURITY_HEADERS: Record<string, string> = {
 // through to the route's own parse — no regression.
 const MAX_API_BODY_BYTES = 1_048_576;
 
+// ── IP denylist (2026-06-07) ─────────────────────────────────────────
+// Hard-block abusive sources at the edge, before any route runs. Seeded
+// with the datacenter IP that flooded the waitlist sign-up (Tencent Cloud,
+// not a real user). Extend without a code change via the BLOCKED_IPS env
+// var (comma-separated exact IPs). Matched against the same non-spoofable
+// client-IP resolution the rate limiter uses (Vercel-set headers first).
+const BLOCKED_IPS: ReadonlySet<string> = new Set(
+  [
+    "43.134.125.171",
+    ...(process.env.BLOCKED_IPS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  ]
+);
+
+/**
+ * Resolve the true client IP for denylist matching. Mirrors
+ * lib/rate-limit.ts getClientIp: prefer the platform-set, non-spoofable
+ * headers (Vercel overwrites these on ingress) before the
+ * client-influenced x-forwarded-for, so an attacker can't dodge the block
+ * by sending their own X-Forwarded-For.
+ */
+function clientIp(req: NextRequest): string {
+  const vercel = req.headers.get("x-vercel-forwarded-for");
+  if (vercel) {
+    const first = vercel.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const xri = req.headers.get("x-real-ip");
+  if (xri) return xri.trim();
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return "unknown";
+}
+
 export function middleware(req: NextRequest) {
+  // Edge-level ban: denylisted IPs get 403 on EVERY path before any route
+  // or DB touch. Cheapest possible place to shed abusive traffic.
+  if (BLOCKED_IPS.size > 0 && BLOCKED_IPS.has(clientIp(req))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   if (
     req.nextUrl.pathname.startsWith("/api/") &&
     (req.method === "POST" || req.method === "PUT" || req.method === "PATCH")
