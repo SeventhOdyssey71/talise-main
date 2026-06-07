@@ -62,6 +62,7 @@ const MAX_API_BODY_BYTES = 1_048_576;
 const BLOCKED_IPS: ReadonlySet<string> = new Set(
   [
     "43.134.125.171",
+    "43.134.189.52",
     ...(process.env.BLOCKED_IPS ?? "")
       .split(",")
       .map((s) => s.trim())
