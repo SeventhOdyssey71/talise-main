@@ -4,16 +4,18 @@ import { Diamond } from "@/components/Diamond";
 import { WaitlistForm } from "./WaitlistForm";
 
 export const metadata: Metadata = {
-  title: "Talise. Waitlist is full.",
+  title: "Talise. Join the waitlist.",
   description:
-    "Talise's waitlist is full for this round. Follow @taliseio for the next opening.",
+    "Join the Talise waitlist — a dollar wallet you fund and send by @handle, gasless, no seed phrase.",
 };
 
 /**
- * Gas for SuiNS handle minting is exhausted, so new claims can't complete —
- * the waitlist is CLOSED for this round. Flip back to false to reopen it.
+ * Waitlist OPEN — collecting sign-ups for the next access round. Joining the
+ * waitlist consumes no gas (it only records the sign-up); handle minting /
+ * sponsored txns happen later at activation, once gas is topped up. Flip back
+ * to true to show the "waitlist is full" state and pause new sign-ups.
  */
-const WAITLIST_FULL = true;
+const WAITLIST_FULL = false;
 
 /**
  * Talise waitlist page. Mirrors the landing's dark visual language
