@@ -70,8 +70,10 @@ struct SignInView: View {
                                     .controlSize(.small)
                                     .tint(Color(hex: 0x0A140C))
                             } else {
-                                Image(systemName: "g.circle.fill")
-                                    .font(.system(size: 16, weight: .semibold))
+                                Image("GoogleG")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 18, height: 18)
                                 Text("Continue with Google")
                                     .font(TaliseFont.heading(16, weight: .medium))
                             }

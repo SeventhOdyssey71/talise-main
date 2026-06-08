@@ -10,14 +10,25 @@ import SwiftUI
 /// continue without a perceptible jump.
 struct TopGlow: View {
     var body: some View {
-        // Flat black canvas — the gradient bloom + radial glow are retired.
-        // Kept as a view (not removed) so the 50+ `TopGlow()` call sites stay
-        // intact; it now just paints clean black so content + cards read
-        // sharply on the Apple-system flat surface.
-        TaliseColor.bg
-            .frame(height: 380)
-            .frame(maxWidth: .infinity, alignment: .top)
-            .allowsHitTesting(false)
+        // Light-green top glow → black, matching the onboarding palette
+        // (`WelcomeView` / `OnboardingBackground`) so the authenticated
+        // tabs read as a continuation of the same surface. A subtle
+        // mossy-green wash fills the top band then falls into pure black
+        // well before the content area, keeping cards + text legible.
+        // The 380pt height clips the wash to the top of the screen.
+        LinearGradient(
+            stops: [
+                .init(color: Color(hex: 0x6BA85A).opacity(0.55), location: 0.0),
+                .init(color: Color(hex: 0x355626).opacity(0.40), location: 0.30),
+                .init(color: Color.black, location: 0.78),
+                .init(color: Color.black, location: 1.0),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 380)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .allowsHitTesting(false)
     }
 }
 

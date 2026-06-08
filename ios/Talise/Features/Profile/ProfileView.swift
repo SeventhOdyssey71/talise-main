@@ -57,7 +57,7 @@ struct ProfileView: View {
             .padding(.top, 12)
         }
         .refreshable { await loadRewards() }
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .taliseScreenBackground()
         .task { await loadRewards() }
         // AutoSwapSettings archived 2026-05-29 — sheet removed alongside
         // the autoswap system. The Preferences row that opened it has been
