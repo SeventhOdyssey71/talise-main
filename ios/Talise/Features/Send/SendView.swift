@@ -245,7 +245,10 @@ struct LegacySendView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .taliseGlass(cornerRadius: 20)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(TaliseColor.surface)
+            )
         }
     }
 
@@ -396,13 +399,6 @@ struct LegacySendView: View {
                 Capsule()
                     .fill(canSend ? TaliseColor.greenMint : TaliseColor.surface2)
             )
-            .overlay(
-                Capsule().strokeBorder(
-                    Color.white.opacity(canSend ? 0.18 : 0.06),
-                    lineWidth: 0.8
-                )
-            )
-            .shadow(color: TaliseColor.greenMint.opacity(canSend ? 0.25 : 0), radius: 16, y: 6)
         }
         .disabled(!canSend)
     }
@@ -427,11 +423,8 @@ struct LegacySendView: View {
             Spacer()
             ZStack {
                 Circle()
-                    .fill(TaliseColor.greenMint.opacity(0.15))
+                    .fill(TaliseColor.surface2)
                     .frame(width: 84, height: 84)
-                    .overlay(
-                        Circle().strokeBorder(TaliseColor.greenMint.opacity(0.25), lineWidth: 0.8)
-                    )
                 Image(systemName: "checkmark")
                     .font(.system(size: 32, weight: .semibold))
                     .foregroundStyle(TaliseColor.greenMint)
@@ -453,7 +446,6 @@ struct LegacySendView: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
                     .background(Capsule().fill(TaliseColor.greenMint))
-                    .shadow(color: TaliseColor.greenMint.opacity(0.25), radius: 16, y: 6)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
@@ -562,72 +554,39 @@ struct LegacySendView: View {
     }
 }
 
-// MARK: - Liquid-Glass building blocks (shared across the Send flow)
+// MARK: - Flat chrome building blocks (shared across the Send flow)
 // Defined here (not a standalone file) so they're part of the compiled target.
-// Purely visual modifiers — no state, no logic.
+// Purely visual modifiers — no state, no logic. Glassmorphism retired:
+// these are now SOLID flat fills (surface2 disc / capsule), no material,
+// no blur, no specular gradient stroke.
 
-/// A translucent glass disc for circular chrome buttons (close / back / arrow).
+/// A flat solid disc for circular chrome buttons (close / back / arrow).
 struct GlassCircle: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(
-                ZStack {
-                    Circle().fill(.ultraThinMaterial)
-                    Circle().fill(Color.black.opacity(0.18))
-                }
-            )
-            .overlay(
-                Circle()
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.22), Color.white.opacity(0.04)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 0.8
-                    )
-            )
+            .background(Circle().fill(TaliseColor.surface2))
             .clipShape(Circle())
     }
 }
 
 extension View {
-    /// Wrap a circular chrome glyph in a translucent Liquid-Glass disc.
+    /// Wrap a circular chrome glyph in a flat solid disc.
     func glassCircle() -> some View { modifier(GlassCircle()) }
 }
 
-/// A translucent glass capsule for status pills (wallet pill, locked-rate chip).
+/// A flat solid capsule for status pills (wallet pill, locked-rate chip).
 struct GlassCapsuleBackground: ViewModifier {
     var tint: Color? = nil
 
     func body(content: Content) -> some View {
         content
-            .background(
-                ZStack {
-                    Capsule().fill(.ultraThinMaterial)
-                    Capsule().fill(Color.black.opacity(0.18))
-                    if let tint {
-                        Capsule().fill(tint.opacity(0.16))
-                    }
-                }
-            )
-            .overlay(
-                Capsule()
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.20), Color.white.opacity(0.04)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 0.8
-                    )
-            )
+            .background(Capsule().fill(TaliseColor.surface2))
             .clipShape(Capsule())
     }
 }
 
 extension View {
-    /// Wrap a pill's contents in a translucent Liquid-Glass capsule.
+    /// Wrap a pill's contents in a flat solid capsule.
     func glassCapsule(tint: Color? = nil) -> some View {
         modifier(GlassCapsuleBackground(tint: tint))
     }

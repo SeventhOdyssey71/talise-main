@@ -2,14 +2,14 @@ import SwiftUI
 
 /// Single history row. Reused by Home (top 4) and HistoryView (full list).
 ///
-/// Visual treatment is the Liquid Glass card from TaliseGlassCard with
-/// a directional tint stacked over the system material:
-///   • Sent     → small red tint
-///   • Received → small green tint
-///   • Other    → no tint (neutral glass)
+/// FLAT row — the enclosing card supplies the surface; the row itself is
+/// transparent at rest with a flat solid circular icon chip. On press it
+/// picks up a faint directional wash:
+///   • Sent     → small forest-green wash
+///   • Received → small mint-green wash
+///   • Other    → no tint (neutral)
 ///
-/// Tints are intentionally low alpha (~0.10) so the row reads as
-/// "subtly colored glass" against the dark page, not a solid pill.
+/// No material, blur, or gradient — clean Apple-system list row.
 struct HistoryRow: View {
     let entry: ActivityEntryDTO
     let onTap: () -> Void
@@ -35,25 +35,13 @@ struct HistoryRow: View {
         Button(action: onTap) {
             HStack(spacing: 14) {
                 ZStack {
-                    // Tinted directional badge — mossy green for Received,
-                    // forest for Sent, accent for Invest. iOS-26 glass chip:
-                    // the colored disc carries a soft top-down highlight and
-                    // a faint white rim so it reads as a translucent token,
-                    // not a flat dot.
+                    // Tinted directional badge — a FLAT solid circular chip.
+                    // Mossy green for Received, forest for Sent, accent for
+                    // Invest. No gradient highlight, no white rim — just a
+                    // clean colored disc.
                     Circle()
                         .fill(badgeBgColor)
                         .frame(width: 36, height: 36)
-                        .overlay(
-                            Circle().fill(
-                                LinearGradient(
-                                    colors: [Color.white.opacity(0.12), Color.clear],
-                                    startPoint: .top, endPoint: .bottom
-                                )
-                            )
-                        )
-                        .overlay(
-                            Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.75)
-                        )
                     Image(systemName: iconName)
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(badgeFgColor)
@@ -147,12 +135,11 @@ struct HistoryRow: View {
         }
     }
 
-    // Direction now reads through SHADES OF GREEN (no red), matching the
-    // Talise palette: light mint (#CAFFB8) for money-in, a low/forest wash
-    // (#4B8A37) for money-out, the bright accent (#79D96C) for the glyph.
+    // Direction reads by COLOR: RED for money-out (Sent), GREEN for money-in
+    // (Received). Invest / withdraw / auto-swap stay on the brand accent green.
     private var tintColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0x4B8A37)
+        case .sent:     return Color(hex: 0xE5484D)
         case .received: return Color(hex: 0x79D96C)
         case .invest:   return TaliseColor.accent
         case .withdraw: return Color(hex: 0x79D96C)
@@ -165,8 +152,8 @@ struct HistoryRow: View {
     /// LIGHT mint shade; money-out gets the LOW forest shade.
     private var badgeBgColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0x4B8A37).opacity(0.18)
-        case .received: return Color(hex: 0xCAFFB8).opacity(0.42)
+        case .sent:     return Color(hex: 0xE5484D).opacity(0.16)
+        case .received: return Color(hex: 0x79D96C).opacity(0.20)
         case .invest:   return TaliseColor.accent.opacity(0.20)
         case .withdraw: return Color(hex: 0xCAFFB8).opacity(0.42)
         case .autoswap: return TaliseColor.accent.opacity(0.20)
@@ -178,8 +165,8 @@ struct HistoryRow: View {
     /// a brighter accent green on the low forest wash. Always green-on-green.
     private var badgeFgColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0x79D96C)
-        case .received: return Color(hex: 0x2E5E1F)
+        case .sent:     return Color(hex: 0xFF6B6B)
+        case .received: return Color(hex: 0xCAFFB8)
         case .invest:   return TaliseColor.accent
         case .withdraw: return Color(hex: 0x2E5E1F)
         case .autoswap: return TaliseColor.accent

@@ -94,6 +94,8 @@ struct MainTabView: View {
     @State private var chequeClaimCoverVisible = false
     @State private var myChequesCoverVisible = false
     @State private var streamCoverVisible = false
+    @State private var invoicesCoverVisible = false
+    @State private var contractsCoverVisible = false
 
     /// True whenever ANY sheet/cover is being presented over the tab
     /// content. Drives the blur applied to the underlying tab.
@@ -102,6 +104,7 @@ struct MainTabView: View {
             || crossBorderCoverVisible || claimSheetVisible
             || chequeWriteCoverVisible || chequeClaimCoverVisible
             || myChequesCoverVisible || streamCoverVisible
+            || invoicesCoverVisible || contractsCoverVisible
     }
 
     var body: some View {
@@ -170,6 +173,12 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: $streamCoverVisible) {
             StreamSetupView(onDone: { streamCoverVisible = false })
         }
+        .fullScreenCover(isPresented: $invoicesCoverVisible) {
+            InvoicesView(onDone: { invoicesCoverVisible = false })
+        }
+        .fullScreenCover(isPresented: $contractsCoverVisible) {
+            ContractsView(onDone: { contractsCoverVisible = false })
+        }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestDepositCover)) { _ in
             depositCoverVisible = true
         }
@@ -196,6 +205,12 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestStreamCover)) { _ in
             streamCoverVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestInvoicesCover)) { _ in
+            invoicesCoverVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestContractsCover)) { _ in
+            contractsCoverVisible = true
         }
         // When every cover/sheet has closed (the user is back on a bare tab,
         // typically Home after a send/deposit/withdraw), nudge Home to re-pull
@@ -227,6 +242,9 @@ extension Notification.Name {
     /// "My cheques" list cover — the user's written cheques + reclaim.
     static let taliseRequestMyChequesCover = Notification.Name("io.talise.requestMyChequesCover")
     static let taliseRequestStreamCover = Notification.Name("io.talise.requestStreamCover")
+    /// Work hub entry points (posted from the Withdraw hub): invoices + contracts.
+    static let taliseRequestInvoicesCover = Notification.Name("io.talise.requestInvoicesCover")
+    static let taliseRequestContractsCover = Notification.Name("io.talise.requestContractsCover")
 }
 
 /// Floating pill nav with the Figma's "Glass" treatment.

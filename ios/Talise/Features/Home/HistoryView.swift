@@ -85,7 +85,7 @@ struct HistoryView: View {
                             }
                         }
                     }
-                    .historyGlassCard(cornerRadius: 22)
+                    .historyFlatCard(cornerRadius: 22)
                 }
                 Color.clear.frame(height: 40)
             }
@@ -129,27 +129,10 @@ struct HistoryView: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 9)
                             .background(
-                                // Selected: a solid white pill. Unselected: a
-                                // translucent glass pill with a soft highlight
-                                // and a faint rim — the iOS-26 segmented look.
-                                Group {
-                                    if filter == f {
-                                        Capsule().fill(TaliseColor.fg)
-                                    } else {
-                                        Capsule().fill(.ultraThinMaterial)
-                                            .overlay(
-                                                Capsule().fill(
-                                                    LinearGradient(
-                                                        colors: [Color.white.opacity(0.08), Color.clear],
-                                                        startPoint: .top, endPoint: .bottom
-                                                    )
-                                                )
-                                            )
-                                            .overlay(
-                                                Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                                            )
-                                    }
-                                }
+                                // FLAT segmented control: selected = solid
+                                // white pill; unselected = flat surface2 pill.
+                                // No material, gradient, or rim.
+                                Capsule().fill(filter == f ? TaliseColor.fg : TaliseColor.surface2)
                             )
                             .clipShape(Capsule())
                     }
@@ -210,44 +193,22 @@ struct HistoryView: View {
     }
 }
 
-/// iOS-26 Liquid Glass card for the full-history list — a translucent
-/// `.ultraThinMaterial` plate over a quiet darkening, a top-down specular
-/// sheen, and a gradient hairline edge. Local to this sheet so the shared
-/// flat `.taliseGlass()` (75 call sites) stays untouched.
-private struct HistoryGlassCard: ViewModifier {
+/// FLAT card for the full-history list — a single solid
+/// `TaliseColor.surface` fill on a continuous rounded rectangle. No
+/// material, blur, gradient sheen, gradient stroke, or shadow.
+private struct HistoryFlatCard: ViewModifier {
     let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         return content
-            .background(
-                ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color.black.opacity(0.22))
-                    shape.fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.07), Color.clear],
-                            startPoint: .top, endPoint: .center
-                        )
-                    )
-                }
-            )
-            .overlay(
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.20), Color.white.opacity(0.05)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-            )
+            .background(shape.fill(TaliseColor.surface))
             .clipShape(shape)
-            .shadow(color: Color.black.opacity(0.28), radius: 16, x: 0, y: 9)
     }
 }
 
 private extension View {
-    func historyGlassCard(cornerRadius: CGFloat = 22) -> some View {
-        modifier(HistoryGlassCard(cornerRadius: cornerRadius))
+    func historyFlatCard(cornerRadius: CGFloat = 22) -> some View {
+        modifier(HistoryFlatCard(cornerRadius: cornerRadius))
     }
 }

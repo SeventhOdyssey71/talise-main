@@ -110,11 +110,13 @@ struct ClaimHandleSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 16)
-        .glassSection(
-            cornerRadius: 16,
-            tint: availability == .available ? TaliseColor.accent : nil,
-            tintOpacity: 0.10
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(availability == .available
+                      ? TaliseColor.accent.opacity(0.12)
+                      : TaliseColor.surface)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var statusRow: some View {
@@ -190,21 +192,11 @@ struct ClaimHandleSheet: View {
         VStack(spacing: 16) {
             Spacer(minLength: 24)
             ZStack {
-                Circle()
-                    .fill(TaliseColor.accent.opacity(0.22))
-                    .frame(width: 104, height: 104)
-                    .blur(radius: 18)
-                Circle().fill(.ultraThinMaterial).frame(width: 84, height: 84)
-                Circle().fill(TaliseColor.accent.opacity(0.14)).frame(width: 84, height: 84)
+                Circle().fill(TaliseColor.accent.opacity(0.16)).frame(width: 84, height: 84)
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 32, weight: .semibold))
                     .foregroundStyle(TaliseColor.accent)
             }
-            .overlay(
-                Circle()
-                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-                    .frame(width: 84, height: 84)
-            )
             Text("Claimed")
                 .font(TaliseFont.heading(28, weight: .medium))
                 .kerning(-1)
@@ -267,7 +259,11 @@ struct ClaimHandleSheet: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .taliseGlass(cornerRadius: 18)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(TaliseColor.surface)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -22,16 +22,8 @@ struct HeroNumber: View {
                 .kerning(-fontSize * 0.03)
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
-                .foregroundStyle(
-                    // A whisper of vertical sheen on the hero figure — bright
-                    // white crown softening toward the base, the premium
-                    // "polished numeral" look without losing legibility.
-                    LinearGradient(
-                        colors: [TaliseColor.fg, TaliseColor.fg.opacity(0.86)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+                // Flat solid figure — no vertical sheen gradient.
+                .foregroundStyle(TaliseColor.fg)
                 .contentTransition(.numericText())
             if let sub {
                 Text(sub)

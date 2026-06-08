@@ -144,7 +144,10 @@ struct SendReviewView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 22)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
     }
 
     private var displayAmount: String {
@@ -200,7 +203,10 @@ struct SendReviewView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 22)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
     }
 
     private var recipientPrimary: String {
@@ -279,7 +285,10 @@ struct SendReviewView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity)
-        .taliseGlass(cornerRadius: 22)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
     }
 
     private func quoteRow(label: String, value: String) -> some View {

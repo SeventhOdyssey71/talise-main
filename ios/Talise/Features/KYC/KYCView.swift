@@ -17,11 +17,9 @@ struct KYCView: View {
 
     var body: some View {
         ZStack {
-            // Same cinematic canvas as sign-in: black base + a quiet
-            // brand-green bloom from the top so the onboarding flow reads
-            // as one continuous iOS-26 surface.
+            // Flat near-black canvas — matches the sign-in screen so the
+            // onboarding flow reads as one continuous surface.
             TaliseColor.bg.ignoresSafeArea()
-            kycWash.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -45,11 +43,16 @@ struct KYCView: View {
                             ForEach(countries, id: \.0) { code, name in
                                 row(code: code, name: name)
                                 if code != countries.last?.0 {
-                                    LiquidGlassDivider()
+                                    Rectangle()
+                                        .fill(TaliseColor.line)
+                                        .frame(height: 1)
                                 }
                             }
                         }
-                        .taliseGlass(cornerRadius: TaliseRadius.lg)
+                        .background(
+                            RoundedRectangle(cornerRadius: TaliseRadius.lg, style: .continuous)
+                                .fill(TaliseColor.surface)
+                        )
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
@@ -66,30 +69,37 @@ struct KYCView: View {
                             .foregroundStyle(TaliseColor.danger)
                     }
 
-                    LiquidGlassButton(
-                        title: "Continue",
-                        size: .lg,
-                        loading: submitting
-                    ) {
+                    // Flat solid primary CTA — green fill, dark ink, no glass.
+                    Button {
                         Task { await submit() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if submitting {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .controlSize(.small)
+                                    .tint(Color(hex: 0x0A140C))
+                            } else {
+                                Text("Continue")
+                                    .font(TaliseFont.heading(16, weight: .medium))
+                            }
+                        }
+                        .foregroundStyle(Color(hex: 0x0A140C))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(TaliseColor.greenMint)
+                        )
+                        .opacity(submitting ? 0.85 : 1.0)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(submitting)
                     .padding(.top, 8)
                 }
                 .padding(24)
             }
         }
-    }
-
-    /// Soft brand-green bloom from the top — mirrors the sign-in wash so the
-    /// onboarding flow reads as one continuous surface.
-    private var kycWash: some View {
-        RadialGradient(
-            colors: [Color(hex: 0x1C3D24).opacity(0.7), Color.clear],
-            center: .init(x: 0.2, y: 0.0),
-            startRadius: 0,
-            endRadius: 480
-        )
-        .allowsHitTesting(false)
     }
 
     private func row(code: String, name: String) -> some View {
@@ -124,12 +134,12 @@ struct KYCView: View {
         .buttonStyle(.plain)
     }
 
-    /// Selected = a confident brand-green liquid-glass tile (dark ink on the
-    /// bright mint, with a soft top highlight). Unselected = neutral glass.
+    /// Selected = a flat brand-green tile (dark ink on the bright mint).
+    /// Unselected = a flat neutral surface. No gradient, no specular sheen.
     @ViewBuilder
     private func tileLabel(title: String, sub: String, selected: Bool) -> some View {
         let inkColor: Color = selected ? Color(hex: 0x0A140C) : TaliseColor.fg
-        let content = VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(TaliseFont.heading(15))
                 .foregroundStyle(inkColor)
@@ -139,28 +149,11 @@ struct KYCView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        if selected {
-            content
-                .background(
-                    ZStack {
-                        LinearGradient(
-                            colors: [TaliseColor.greenMint, TaliseColor.greenMint.opacity(0.82)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        // Soft specular highlight along the top edge.
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.25), Color.clear],
-                            startPoint: .top,
-                            endPoint: .center
-                        )
-                    }
-                )
-                .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.md, style: .continuous))
-                .animation(.easeOut(duration: 0.2), value: selected)
-        } else {
-            content.taliseGlass(cornerRadius: TaliseRadius.md)
-        }
+        .background(
+            RoundedRectangle(cornerRadius: TaliseRadius.md, style: .continuous)
+                .fill(selected ? TaliseColor.greenMint : TaliseColor.surface)
+        )
+        .animation(.easeOut(duration: 0.2), value: selected)
     }
 
     private func submit() async {

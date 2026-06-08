@@ -67,29 +67,24 @@ struct TaliseButton: View {
                     let shape = RoundedRectangle(cornerRadius: TaliseRadius.sm, style: .continuous)
                     switch variant {
                     case .primary:
-                        // The confident green CTA — dimensional gradient pill.
-                        shape.fill(TaliseColor.greenCTA)
+                        // The confident green CTA — solid forest fill.
+                        shape.fill(TaliseColor.greenDeep)
                     case .danger:
-                        shape.fill(.ultraThinMaterial)
                         shape.fill(TaliseColor.danger)
                     case .secondary:
-                        // Translucent glass surface.
-                        shape.fill(.ultraThinMaterial)
-                        shape.fill(TaliseColor.surface.opacity(0.7))
+                        // Flat dark surface.
+                        shape.fill(TaliseColor.surface2)
                     case .ghost:
                         shape.fill(Color.clear)
-                    }
-                    if variant != .ghost {
-                        shape.fill(TaliseGlass.topSheen)
                     }
                 }
             )
             .overlay(
+                // One faint hairline only on the flat secondary surface.
                 RoundedRectangle(cornerRadius: TaliseRadius.sm, style: .continuous)
-                    .strokeBorder(edge, lineWidth: variant == .ghost ? 0 : 1)
+                    .strokeBorder(TaliseColor.line, lineWidth: variant == .secondary ? 1 : 0)
             )
             .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.sm, style: .continuous))
-            .shadow(color: shadowColor, radius: variant == .ghost ? 0 : 10, x: 0, y: 6)
             .opacity(loading ? 0.85 : 1.0)
         }
         .buttonStyle(.plain)
@@ -105,21 +100,6 @@ struct TaliseButton: View {
         }
     }
 
-    /// Specular gradient edge for filled variants; soft for secondary.
-    private var edge: LinearGradient {
-        switch variant {
-        case .secondary: return TaliseGlass.edge
-        default: return TaliseGlass.edgeSoft
-        }
-    }
-
-    private var shadowColor: Color {
-        switch variant {
-        case .primary: return TaliseColor.greenDeep.opacity(0.32)
-        case .danger: return TaliseColor.danger.opacity(0.3)
-        default: return Color.black.opacity(0.35)
-        }
-    }
 }
 
 #Preview {

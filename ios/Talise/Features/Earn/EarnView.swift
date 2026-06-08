@@ -113,8 +113,7 @@ struct EarnView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 4)
-        .taliseGlass(cornerRadius: 20)
-        .earnGlassLift(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     private var venueSkeletonRow: some View {
@@ -435,16 +434,8 @@ private struct EarnManageSheet: View {
         }
         .padding(4)
         .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.black.opacity(0.22))
-            }
-        )
-        .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                .fill(TaliseColor.surface2)
         )
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
@@ -459,14 +450,11 @@ private struct EarnManageSheet: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 38)
                 .background(
-                    ZStack {
+                    Group {
                         if mode == m {
-                            // Selected pill: solid accent with a soft top
-                            // specular so it reads as a lit liquid-glass key.
+                            // Selected pill: FLAT solid accent fill, no specular.
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(TaliseColor.accent)
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.25), lineWidth: 0.75)
                         }
                     }
                 )
@@ -621,8 +609,7 @@ private struct EarnManageSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 4)
-        .taliseGlass(cornerRadius: 20)
-        .earnGlassLift(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     private func row(label: String, value: String, accent: Bool = false) -> some View {
@@ -780,8 +767,7 @@ private struct EarnManageSheet: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .taliseGlass(cornerRadius: 20, tint: TaliseColor.accent)
-        .earnGlassLift(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     // MARK: Deposit action
@@ -1071,8 +1057,7 @@ private struct EarnDisclosureSheet: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 4)
-        .taliseGlass(cornerRadius: 20)
-        .earnGlassLift(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     private func point(icon: String, title: String, body: String) -> some View {
@@ -1128,11 +1113,17 @@ private struct EarnDisclosureSheet: View {
     }
 }
 
-// MARK: - Earn + Rewards Liquid Glass kit
+// MARK: - Earn + Rewards FLAT surface kit
 // Defined here (not a standalone file) so it's part of the compiled target.
 // Used across Earn + Rewards; purely visual modifiers, no state.
+//
+// Glassmorphism retired. These were translucent material + specular-gradient
+// plates; they're now FLAT solid surfaces (Cash App / Robinhood energy) —
+// no .ultraThinMaterial, no blur, no specular stroke, no gradient wash.
+// The modifier names + call sites are kept so nothing churns.
 
-/// Premium translucent hero plate for the one big figure per screen.
+/// FLAT hero plate for the one big figure per screen — a solid `surface`
+/// panel, no material, no tint wash, no specular edge.
 struct EarnHeroGlass: ViewModifier {
     var cornerRadius: CGFloat = 24
     var tint: Color = TaliseColor.accent
@@ -1140,108 +1131,47 @@ struct EarnHeroGlass: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         return content
-            .background(
-                ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color.black.opacity(0.34))
-                    shape.fill(
-                        LinearGradient(
-                            colors: [tint.opacity(0.22), tint.opacity(0.04), .clear],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                }
-            )
-            .overlay(
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.28),
-                            Color.white.opacity(0.06),
-                            tint.opacity(0.10),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
-            )
+            .background(shape.fill(TaliseColor.surface))
             .clipShape(shape)
     }
 }
 
-/// Translucent input-field chrome for amount / text fields.
+/// FLAT input-field chrome for amount / text fields — a solid raised
+/// `surface2` fill with no material and no specular stroke.
 struct EarnFieldGlass: ViewModifier {
     var cornerRadius: CGFloat = 16
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         return content
-            .background(
-                ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color.white.opacity(0.04))
-                }
-            )
-            .overlay(
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.14), Color.white.opacity(0.03)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
-            )
+            .background(shape.fill(TaliseColor.surface2))
             .clipShape(shape)
     }
 }
 
-/// A featherweight liquid-glass highlight layered over a `.taliseGlass()` card.
+/// No-op flat pass-through. Was a specular liquid-glass highlight layered
+/// over a card; flat surfaces need no lift, so this just clips to the card
+/// shape and adds nothing. Kept so the `.earnGlassLift()` call sites compile.
 struct EarnGlassLift: ViewModifier {
     var cornerRadius: CGFloat = 20
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        return content
-            .overlay(
-                shape
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.05), .clear],
-                            startPoint: .top,
-                            endPoint: .center
-                        )
-                    )
-                    .allowsHitTesting(false)
-            )
-            .overlay(
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.16), Color.white.opacity(0.02)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
-            )
-            .clipShape(shape)
+        content
     }
 }
 
 extension View {
-    /// Premium Liquid Glass hero plate for the one big figure per Earn/Rewards screen.
+    /// FLAT solid hero plate for the one big figure per Earn/Rewards screen.
     func earnHeroGlass(cornerRadius: CGFloat = 24, tint: Color = TaliseColor.accent) -> some View {
         modifier(EarnHeroGlass(cornerRadius: cornerRadius, tint: tint))
     }
 
-    /// Specular liquid-glass highlight layered over a `.taliseGlass()` card.
+    /// No-op flat pass-through (retired specular lift).
     func earnGlassLift(cornerRadius: CGFloat = 20) -> some View {
         modifier(EarnGlassLift(cornerRadius: cornerRadius))
     }
 
-    /// Translucent input-field chrome for amount / text fields.
+    /// FLAT solid input-field chrome for amount / text fields.
     func earnFieldGlass(cornerRadius: CGFloat = 16) -> some View {
         modifier(EarnFieldGlass(cornerRadius: cornerRadius))
     }

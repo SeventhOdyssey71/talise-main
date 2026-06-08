@@ -94,12 +94,7 @@ struct DepositFlowView: View {
                     .padding(.bottom, 28)
                 }
             }
-            .background(
-                ZStack(alignment: .top) {
-                    TaliseColor.bg.ignoresSafeArea()
-                    TopGlow().ignoresSafeArea(edges: .top)
-                }
-            )
+            .background(TaliseColor.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .overlay(alignment: .bottom) { comingSoonOverlay }
             .animation(.snappy(duration: 0.25), value: comingSoonToast)
@@ -123,17 +118,7 @@ struct DepositFlowView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(TaliseColor.fg)
                         .frame(width: 34, height: 34)
-                        .background(Circle().fill(.ultraThinMaterial))
-                        .overlay(
-                            Circle().strokeBorder(
-                                LinearGradient(
-                                    colors: [Color.white.opacity(0.14), Color.white.opacity(0.03)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                ),
-                                lineWidth: 1
-                            )
-                        )
+                        .background(Circle().fill(TaliseColor.surface2))
                 }
             }
             Text("Add money to your Talise wallet.")
@@ -169,8 +154,7 @@ struct DepositFlowView: View {
                 .foregroundStyle(TaliseColor.fg)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
-                .background(Capsule().fill(TaliseColor.surfaceGlassStrong))
-                .overlay(Capsule().stroke(TaliseColor.line, lineWidth: 0.5))
+                .background(Capsule().fill(TaliseColor.surface2))
                 .padding(.bottom, 32)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -250,29 +234,8 @@ private struct FundingPathCard: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(TaliseColor.surface.opacity(0.5))
-                // A faint tint of the card's own icon color, so live paths
-                // read a touch warmer than the dimmed "Soon" rows.
-                if !dimmed {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(iconTint.opacity(0.05))
-                }
-            }
-        )
-        .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.14), Color.white.opacity(0.03)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
+                .fill(TaliseColor.surface)
         )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .opacity(dimmed ? 0.7 : 1.0)
@@ -360,12 +323,7 @@ private struct DepositOnrampView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .background(
-            ZStack(alignment: .top) {
-                TaliseColor.bg.ignoresSafeArea()
-                TopGlow().ignoresSafeArea(edges: .top)
-            }
-        )
+        .background(TaliseColor.bg.ignoresSafeArea())
         .navigationTitle("Deposit into account")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(TaliseColor.bg, for: .navigationBar)
@@ -383,12 +341,7 @@ private struct DepositOnrampView: View {
                     .foregroundStyle(TaliseColor.fg)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 12)
-                    .background(
-                        Capsule().fill(TaliseColor.surfaceGlassStrong)
-                    )
-                    .overlay(
-                        Capsule().stroke(TaliseColor.line, lineWidth: 0.5)
-                    )
+                    .background(Capsule().fill(TaliseColor.surface2))
                     .padding(.bottom, 32)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -401,20 +354,7 @@ private struct DepositOnrampView: View {
     private var iconHero: some View {
         ZStack {
             Circle()
-                .fill(.ultraThinMaterial)
-                .frame(width: 72, height: 72)
-            Circle()
-                .fill(TaliseColor.greenMint.opacity(0.14))
-                .frame(width: 72, height: 72)
-            Circle()
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [TaliseColor.greenMint.opacity(0.4), Color.white.opacity(0.05)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
+                .fill(TaliseColor.greenMint.opacity(0.16))
                 .frame(width: 72, height: 72)
             Image(systemName: "creditcard.fill")
                 .font(.system(size: 25, weight: .medium))
@@ -496,21 +436,7 @@ private struct DepositOnrampView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 42)
                 .background(
-                    Group {
-                        if isSelected {
-                            Capsule().fill(TaliseColor.fg)
-                        } else {
-                            Capsule().fill(.ultraThinMaterial)
-                        }
-                    }
-                )
-                .overlay(
-                    Capsule().strokeBorder(
-                        isSelected
-                            ? Color.clear
-                            : Color.white.opacity(0.10),
-                        lineWidth: 1
-                    )
+                    Capsule().fill(isSelected ? TaliseColor.fg : TaliseColor.surface2)
                 )
         }
         .buttonStyle(.plain)

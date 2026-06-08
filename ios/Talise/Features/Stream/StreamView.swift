@@ -146,7 +146,12 @@ struct StreamSetupView: View {
             picker("OVER", value: $durationMin, options: durations)
             picker("EVERY", value: $intervalMin, options: intervals)
         }
-        .padding(18).glassSection(cornerRadius: 20)
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func picker(_ label: String, value: Binding<Int>, options: [(String, Int)]) -> some View {
@@ -161,18 +166,7 @@ struct StreamSetupView: View {
                                 .foregroundStyle(on ? Color(hex: 0x0A130D) : TaliseColor.fg)
                                 .padding(.horizontal, 14).padding(.vertical, 8)
                                 .background(
-                                    Group {
-                                        if on {
-                                            Capsule().fill(TaliseColor.greenMint)
-                                        } else {
-                                            Capsule().fill(.ultraThinMaterial)
-                                        }
-                                    }
-                                )
-                                .overlay(
-                                    Capsule().strokeBorder(
-                                        Color.white.opacity(on ? 0 : 0.10), lineWidth: 1
-                                    )
+                                    Capsule().fill(on ? TaliseColor.greenMint : TaliseColor.surface2)
                                 )
                                 .clipShape(Capsule())
                         }.buttonStyle(.plain)
@@ -221,7 +215,11 @@ struct StreamSetupView: View {
             Spacer(minLength: 0)
         }
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .glassSection(cornerRadius: 16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var previewCard: some View {
@@ -238,8 +236,12 @@ struct StreamSetupView: View {
                 .font(TaliseFont.mono(9)).foregroundStyle(TaliseColor.accent)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .glassSection(cornerRadius: 18, tint: TaliseColor.accent, tintOpacity: 0.08)
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(TaliseColor.accent.opacity(0.22), lineWidth: 1))
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(TaliseColor.accent.opacity(0.10))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(TaliseColor.accent.opacity(0.22), lineWidth: 1))
     }
 
     private var startBar: some View {
@@ -257,10 +259,8 @@ struct StreamSetupView: View {
             Spacer()
             Image(systemName: "dot.radiowaves.left.and.right")
                 .font(.system(size: 52)).foregroundStyle(TaliseColor.accent)
-                .background(
-                    Circle().fill(TaliseColor.accent.opacity(0.22))
-                        .frame(width: 96, height: 96).blur(radius: 24)
-                )
+                .frame(width: 96, height: 96)
+                .background(Circle().fill(TaliseColor.accent.opacity(0.16)))
             Text("Streaming started").font(TaliseFont.heading(22, weight: .medium)).foregroundStyle(TaliseColor.fg)
             Text("\(TaliseFormat.usd2(totalUsd)) to \(resolved?.displayString ?? "recipient") · \(numTranches) payments")
                 .font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted).multilineTextAlignment(.center).padding(.horizontal, 30)
@@ -449,8 +449,7 @@ struct StreamsListView: View {
                 Text(s.state.capitalized).font(TaliseFont.mono(9))
                     .foregroundStyle(s.state == "active" ? TaliseColor.accent : TaliseColor.fgMuted)
                     .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Capsule().fill(.ultraThinMaterial))
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+                    .background(Capsule().fill(TaliseColor.surface2))
                     .clipShape(Capsule())
             }
             GeometryReader { geo in
@@ -480,7 +479,12 @@ struct StreamsListView: View {
                     .padding(.top, 4)
             }
         }
-        .padding(16).glassSection(cornerRadius: 20)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     /// Cancel a stream (sender-only). The server flips the row to cancelled,

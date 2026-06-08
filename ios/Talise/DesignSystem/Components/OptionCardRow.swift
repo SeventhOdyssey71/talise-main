@@ -62,11 +62,13 @@ struct OptionCardRow: View {
     }
 }
 
-// MARK: - GlassSection (iOS-26 Liquid Glass container)
+// MARK: - GlassSection (flat container — glassmorphism retired)
 // Defined here (not a standalone file) so it's part of the compiled target.
 
-/// Translucent material plate with a soft top-lit specular rim + optional
-/// brand wash — the reintroduced Liquid Glass counterpart to flat `taliseGlass`.
+/// Flat solid surface plate with an optional quiet brand tint — name kept so
+/// existing `.glassSection(...)` call sites compile; it now renders the same
+/// clean flat panel as `.taliseGlass()` (solid fill + faint hairline, no
+/// material, no specular rim).
 struct GlassSection: ViewModifier {
     var cornerRadius: CGFloat = 20
     var tint: Color? = nil
@@ -77,33 +79,21 @@ struct GlassSection: ViewModifier {
         return content
             .background(
                 ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(TaliseColor.surface.opacity(0.55))
+                    shape.fill(TaliseColor.surface)
                     if let tint {
                         shape.fill(tint.opacity(tintOpacity))
                     }
                 }
             )
             .overlay(
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.16),
-                            Color.white.opacity(0.04),
-                            Color.white.opacity(0.02),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
+                shape.strokeBorder(TaliseColor.line, lineWidth: 1)
             )
             .clipShape(shape)
     }
 }
 
 extension View {
-    /// Apply the reintroduced iOS-26 Liquid Glass treatment to a container.
+    /// Apply the flat Talise surface treatment to a container.
     func glassSection(
         cornerRadius: CGFloat = 20,
         tint: Color? = nil,

@@ -8,10 +8,9 @@ struct SignInView: View {
 
     var body: some View {
         ZStack {
-            // Cinematic canvas: pure-black base with a soft brand-green
-            // wash blooming from the top-left, in the iOS-26 idiom.
+            // Flat near-black canvas. No bloom, no wash — the headline owns
+            // the screen.
             TaliseColor.bg.ignoresSafeArea()
-            signInWash.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: TaliseSpacing.xl) {
                 Spacer()
@@ -20,13 +19,7 @@ struct SignInView: View {
                 // the hero so the headline owns the screen.
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [TaliseColor.greenMint, TaliseColor.greenDeep],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(TaliseColor.greenMint)
                         .frame(width: 8, height: 8)
                     Text("TALISE")
                         .font(TaliseFont.mono(11, weight: .regular))
@@ -66,14 +59,34 @@ struct SignInView: View {
                             .transition(.opacity)
                     }
 
-                    LiquidGlassButton(
-                        title: "Continue with Google",
-                        icon: "g.circle.fill",
-                        size: .lg,
-                        loading: signingIn
-                    ) {
+                    // Flat solid primary CTA — green fill, dark ink, no glass.
+                    Button {
                         Task { await beginSignIn() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if signingIn {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .controlSize(.small)
+                                    .tint(Color(hex: 0x0A140C))
+                            } else {
+                                Image(systemName: "g.circle.fill")
+                                    .font(.system(size: 16, weight: .semibold))
+                                Text("Continue with Google")
+                                    .font(TaliseFont.heading(16, weight: .medium))
+                            }
+                        }
+                        .foregroundStyle(Color(hex: 0x0A140C))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(TaliseColor.greenMint)
+                        )
+                        .opacity(signingIn ? 0.85 : 1.0)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(signingIn)
 
                     Text("By continuing you agree to our Terms and Privacy.")
                         .font(TaliseFont.body(11))
@@ -89,26 +102,6 @@ struct SignInView: View {
         .animation(.easeOut(duration: 0.55), value: appeared)
         .animation(.easeOut(duration: 0.2), value: error)
         .onAppear { appeared = true }
-    }
-
-    /// Soft brand-green bloom from the top — a quiet liquid-glass wash, not
-    /// a loud gradient. Two stacked radial gradients keep it organic.
-    private var signInWash: some View {
-        ZStack {
-            RadialGradient(
-                colors: [Color(hex: 0x1C3D24).opacity(0.9), Color.clear],
-                center: .init(x: 0.15, y: 0.0),
-                startRadius: 0,
-                endRadius: 520
-            )
-            RadialGradient(
-                colors: [Color(hex: 0x14301C).opacity(0.6), Color.clear],
-                center: .init(x: 0.95, y: 0.28),
-                startRadius: 0,
-                endRadius: 420
-            )
-        }
-        .allowsHitTesting(false)
     }
 
     private func beginSignIn() async {

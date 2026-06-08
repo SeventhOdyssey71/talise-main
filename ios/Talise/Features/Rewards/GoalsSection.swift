@@ -119,8 +119,7 @@ private struct GoalCard: View {
         }
         .padding(18)
         .frame(width: 168, height: 148, alignment: .topLeading)
-        .taliseGlass(cornerRadius: 20)
-        .earnGlassLift(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 }
 
@@ -164,7 +163,7 @@ private struct GoalCardSkeleton: View {
         }
         .padding(18)
         .frame(width: 168, height: 148, alignment: .topLeading)
-        .taliseGlass(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
         .redacted(reason: .placeholder)
         .opacity(0.6)
     }
@@ -309,8 +308,7 @@ private struct GoalActionSheet: View {
                 .disabled(busy || !canDeposit)
             }
             .padding(20)
-            .taliseGlass(cornerRadius: 20)
-            .earnGlassLift(cornerRadius: 20)
+            .earnHeroGlass(cornerRadius: 20)
         }
     }
 
@@ -346,8 +344,7 @@ private struct GoalActionSheet: View {
                 .disabled(busy)
             }
             .padding(20)
-            .taliseGlass(cornerRadius: 20)
-            .earnGlassLift(cornerRadius: 20)
+            .earnHeroGlass(cornerRadius: 20)
         }
     }
 
@@ -484,8 +481,7 @@ private struct NewGoalSheet: View {
                         }
                     }
                     .padding(20)
-                    .taliseGlass(cornerRadius: 20)
-                    .earnGlassLift(cornerRadius: 20)
+                    .earnHeroGlass(cornerRadius: 20)
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 24)

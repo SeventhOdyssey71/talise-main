@@ -39,7 +39,7 @@ struct ChatTabView: View {
                 // Float above the bottom nav pill (≈ 84pt tall incl. shadow).
                 .padding(.bottom, 110)
         }
-        .taliseScreenBackground()
+        .background(TaliseColor.bg.ignoresSafeArea())
     }
 
     // MARK: - Header
@@ -144,9 +144,8 @@ struct ChatTabView: View {
     }
 
     /// User bubbles keep their accent-green fill (brand voice, "your turn");
-    /// assistant bubbles get the Liquid Glass treatment so they participate
-    /// in the rest of the app's depth language instead of reading as flat
-    /// gray plates against the page.
+    /// assistant bubbles get a flat solid surface plate — clean Apple-system
+    /// gray, no material/blur.
     private struct BubbleBackground: ViewModifier {
         let role: ChatMessage.Role
         func body(content: Content) -> some View {
@@ -156,7 +155,12 @@ struct ChatTabView: View {
                     .background(TaliseColor.accent)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             case .assistant:
-                content.glassSection(cornerRadius: 18)
+                content
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(TaliseColor.surface)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
     }
@@ -224,17 +228,7 @@ struct ChatTabView: View {
         .padding(.leading, 18)
         .padding(.trailing, 8)
         .padding(.vertical, 8)
-        .background(Capsule().fill(.ultraThinMaterial))
-        .background(Capsule().fill(TaliseColor.surface2.opacity(0.5)))
-        .overlay(
-            Capsule().strokeBorder(
-                LinearGradient(
-                    colors: [Color.white.opacity(0.16), Color.white.opacity(0.04)],
-                    startPoint: .top, endPoint: .bottom
-                ),
-                lineWidth: 1
-            )
-        )
+        .background(Capsule().fill(TaliseColor.surface2))
         .clipShape(Capsule())
     }
 }

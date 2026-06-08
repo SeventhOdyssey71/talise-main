@@ -76,8 +76,7 @@ struct RedemptionsSection: View {
             }
         }
         .padding(.horizontal, 18)
-        .taliseGlass(cornerRadius: 20)
-        .earnGlassLift(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     private func row(_ item: RedeemSKU) -> some View {
@@ -129,7 +128,7 @@ struct RedemptionsSection: View {
         .redacted(reason: .placeholder)
         .opacity(0.6)
         .padding(.horizontal, 18)
-        .taliseGlass(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     // MARK: - Empty / error states
@@ -148,7 +147,7 @@ struct RedemptionsSection: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 22)
         .padding(.horizontal, 16)
-        .taliseGlass(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     // MARK: - Confirm sheet
@@ -190,8 +189,7 @@ struct RedemptionsSection: View {
                 }
             }
             .padding(.horizontal, 18)
-            .taliseGlass(cornerRadius: 20)
-            .earnGlassLift(cornerRadius: 20)
+            .earnHeroGlass(cornerRadius: 20)
 
             Spacer()
 

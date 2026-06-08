@@ -70,81 +70,46 @@ extension Color {
     }
 }
 
-// MARK: - iOS-26 Liquid Glass gradient + material helpers
+// MARK: - Flat surface helpers (glassmorphism retired)
 //
-// Additive only. These compose the new Apple-2026 "Liquid Glass" look —
-// translucent fills, a soft top-down specular highlight stroke, a gentle
-// brand wash. Existing `TaliseColor.*` names are untouched, so every
-// feature view keeps compiling; these just give the LiquidGlass* components
-// (and any view that wants the look) a shared vocabulary.
+// Glassmorphism is retired. This enum kept ONLY so the 100+ existing call
+// sites (`TaliseGlass.edge`, `.topSheen`, `.wash(...)`, etc.) keep compiling —
+// every member now returns a FLAT, calm value: a hairline color, a clear
+// (no-op) fill, or a quiet solid tint. No more specular gradients, no white
+// sheens, no diagonal washes. The Apple-system flat look.
 enum TaliseGlass {
-    /// The specular edge stroke for a glass surface — a bright top highlight
-    /// that fades to a near-invisible bottom edge. This is what reads as
-    /// "lit from above" on the translucent material.
-    static let edge = LinearGradient(
-        colors: [
-            Color.white.opacity(0.22),
-            Color.white.opacity(0.06),
-            Color.white.opacity(0.015),
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
+    /// Was a bright specular edge stroke; now a single flat hairline color.
+    /// Used as a `strokeBorder` so a `LinearGradient`-shaped API still works
+    /// — but it's a uniform `TaliseColor.line` (no top-to-bottom highlight).
+    static let edge = LinearGradient(colors: [TaliseColor.line, TaliseColor.line], startPoint: .top, endPoint: .bottom)
 
-    /// A quieter edge for small chrome (pills, knobs) where the bright
-    /// highlight would otherwise dominate.
-    static let edgeSoft = LinearGradient(
-        colors: [
-            Color.white.opacity(0.16),
-            Color.white.opacity(0.04),
-            Color.clear,
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
+    /// Was a quieter specular edge; now the same flat hairline.
+    static let edgeSoft = LinearGradient(colors: [TaliseColor.line, TaliseColor.line], startPoint: .top, endPoint: .bottom)
 
-    /// The interior top highlight — a faint white sheen pooled at the top
-    /// inside the surface, fading out by ~40% height. Layer it over the
-    /// material to give the glass a curved, polished crown.
-    static let topSheen = LinearGradient(
-        colors: [
-            Color.white.opacity(0.10),
-            Color.white.opacity(0.0),
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
+    /// Was an interior white "crown" sheen; now a clear (no-op) fill so any
+    /// `.fill(TaliseGlass.topSheen)` paints nothing.
+    static let topSheen = LinearGradient(colors: [Color.clear, Color.clear], startPoint: .top, endPoint: .bottom)
 
-    /// Soft ambient shadow tuned for dark glass cards — deep but diffuse,
-    /// so cards float a hair off the black canvas without a harsh halo.
-    static let shadow = Color.black.opacity(0.55)
+    /// Was a soft ambient float shadow; now fully transparent so any
+    /// `.shadow(color: TaliseGlass.shadow, …)` renders nothing.
+    static let shadow = Color.clear
 
-    /// A directional brand wash (for tinted glass) — a diagonal sweep of a
-    /// color, brightest at the top-leading corner.
+    /// Was a diagonal brand wash; now a quiet FLAT solid tint at a low
+    /// opacity — same call signature, but a single uniform color (no
+    /// gradient, no fade).
     static func wash(_ color: Color, strength: Double = 0.16) -> LinearGradient {
-        LinearGradient(
-            colors: [color.opacity(strength), color.opacity(strength * 0.25), .clear],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        let c = color.opacity(min(strength, 0.14))
+        return LinearGradient(colors: [c, c], startPoint: .top, endPoint: .bottom)
     }
 }
 
 extension TaliseColor {
-    /// The canonical green CTA gradient — `greenDeep` deepening toward a
-    /// darker forest at the bottom, so a filled primary button reads as a
-    /// dimensional pill rather than a flat block.
-    static let greenCTA = LinearGradient(
-        colors: [Color(hex: 0x5BA343), Color(hex: 0x3C7A2C)],
-        startPoint: .top,
-        endPoint: .bottom
-    )
+    /// Was a dimensional CTA gradient; now a FLAT solid forest fill. Kept as
+    /// a `LinearGradient` (two identical stops) so `.fill(TaliseColor.greenCTA)`
+    /// call sites compile unchanged while rendering a clean solid pill.
+    static let greenCTA = LinearGradient(colors: [greenDeep, greenDeep], startPoint: .top, endPoint: .bottom)
 
-    /// Mint→deep accent sweep, for hero glints / progress fills that want a
-    /// little brand life without going neon.
-    static let greenSweep = LinearGradient(
-        colors: [greenMint, greenDeep],
-        startPoint: .leading,
-        endPoint: .trailing
-    )
+    /// Was a mint→deep sweep; now a FLAT solid accent fill (uniform two-stop
+    /// gradient) for progress fills — calm, no neon sweep.
+    static let greenSweep = LinearGradient(colors: [accent, accent], startPoint: .leading, endPoint: .trailing)
 }

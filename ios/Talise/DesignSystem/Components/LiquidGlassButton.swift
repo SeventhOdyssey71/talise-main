@@ -45,52 +45,29 @@ struct LiquidGlassButton: View {
             .background(
                 ZStack {
                     let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    if let fillGradient {
-                        // Dimensional gradient fill for the bright-green CTA —
-                        // a real lit pill, not a flat block.
-                        shape.fill(fillGradient)
-                    } else if let tint {
-                        // Other tints (danger / gold) keep their solid identity
-                        // but ride on a thin material so they read as glass.
-                        shape.fill(.ultraThinMaterial)
+                    if let tint {
+                        // Solid flat fill — the button's identity color. The
+                        // bright Talise greens render as the solid forest
+                        // CTA; other tints (danger / gold) keep their solid
+                        // color. No gradient, no material.
                         shape.fill(tint)
                     } else {
-                        // Neutral / secondary — translucent glass surface.
-                        shape.fill(.ultraThinMaterial)
-                        shape.fill(TaliseColor.surface2.opacity(0.7))
+                        // Neutral / secondary — flat dark surface.
+                        shape.fill(TaliseColor.surface2)
                     }
-                    // Interior top sheen — the polished-glass crown.
-                    shape.fill(TaliseGlass.topSheen)
                 }
             )
             .overlay(
-                // Specular edge on every variant so it reads as a lit pill.
+                // One faint hairline only on the neutral/secondary variant so
+                // it separates from the canvas; solid-tinted buttons need none.
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(tint == nil ? TaliseGlass.edge : TaliseGlass.edgeSoft, lineWidth: 1)
+                    .strokeBorder(TaliseColor.line, lineWidth: tint == nil ? 1 : 0)
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .shadow(color: shadowColor, radius: 14, x: 0, y: 8)
             .opacity(loading ? 0.85 : 1.0)
         }
         .taliseGlassPressable(cornerRadius: cornerRadius)
         .disabled(loading)
-    }
-
-    /// Bright Talise greens get the dimensional `greenCTA` gradient; every
-    /// other tint keeps a solid fill (handled in the background ZStack).
-    private var fillGradient: LinearGradient? {
-        guard let tint else { return nil }
-        let brightGreens = [
-            TaliseColor.accent, TaliseColor.greenMint,
-            TaliseColor.greenDeep, TaliseColor.live, TaliseColor.success,
-        ]
-        return brightGreens.contains(tint) ? TaliseColor.greenCTA : nil
-    }
-
-    /// A faint brand-tinted glow under the primary CTA; neutral elsewhere.
-    private var shadowColor: Color {
-        if fillGradient != nil { return TaliseColor.greenDeep.opacity(0.35) }
-        return Color.black.opacity(0.4)
     }
 
     private var cornerRadius: CGFloat {

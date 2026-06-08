@@ -299,7 +299,11 @@ struct ChequeWriteView: View {
             }
         }
         .padding(18)
-        .glassSection(cornerRadius: 20)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func labeled<V: View>(_ label: String, @ViewBuilder _ content: () -> V) -> some View {
@@ -552,8 +556,7 @@ struct MyChequesView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(TaliseColor.fg)
                     .frame(width: 32, height: 32)
-                    .background(Circle().fill(.ultraThinMaterial))
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+                    .background(Circle().fill(TaliseColor.surface2))
                     .clipShape(Circle())
             }.buttonStyle(.plain)
         }
@@ -563,12 +566,8 @@ struct MyChequesView: View {
         VStack(spacing: 12) {
             ForEach(0..<3, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(TaliseColor.surface)
                     .frame(height: 84)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
-                    )
                     .redacted(reason: .placeholder)
             }
         }
@@ -636,7 +635,11 @@ struct MyChequesView: View {
             }
         }
         .padding(16)
-        .glassSection(cornerRadius: 20)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     /// Color-code: funded = mint (live/reclaimable), claimed = muted,
@@ -775,7 +778,12 @@ struct ChequeClaimView: View {
             Text("Paste a cheque link").font(TaliseFont.heading(20, weight: .medium)).foregroundStyle(TaliseColor.fg)
             TextField("https://talise.io/c/…", text: $linkText, axis: .vertical)
                 .font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fg)
-                .padding(14).glassSection(cornerRadius: 16)
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(TaliseColor.surface)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             LiquidGlassButton(
                 title: loading ? "Loading…" : "Open cheque",
                 tint: TaliseColor.greenMint,
@@ -814,10 +822,8 @@ struct ChequeClaimView: View {
             Spacer(minLength: 30)
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 56)).foregroundStyle(TaliseColor.accent)
-                .background(
-                    Circle().fill(TaliseColor.accent.opacity(0.22))
-                        .frame(width: 96, height: 96).blur(radius: 22)
-                )
+                .frame(width: 96, height: 96)
+                .background(Circle().fill(TaliseColor.accent.opacity(0.16)))
             Text("\(TaliseFormat.local2(amt)) cashed").font(TaliseFont.heading(22, weight: .medium)).foregroundStyle(TaliseColor.fg)
             Text("It's in your Talise balance.").font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted)
             LiquidGlassButton(title: "Done", tint: TaliseColor.greenMint, action: onDone)

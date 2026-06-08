@@ -87,12 +87,7 @@ struct ReceiveView: View {
                 Spacer(minLength: 40)
             }
         }
-        .background(
-            ZStack(alignment: .top) {
-                TaliseColor.bg.ignoresSafeArea()
-                TopGlow().ignoresSafeArea(edges: .top)
-            }
-        )
+        .background(TaliseColor.bg.ignoresSafeArea())
         .presentationDragIndicator(.visible)
     }
 
@@ -128,22 +123,7 @@ struct ReceiveView: View {
             .frame(height: 52)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(TaliseColor.surface2.opacity(0.55))
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.14), Color.white.opacity(0.03)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
+                    .fill(TaliseColor.surface2)
             )
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
@@ -167,7 +147,6 @@ struct ReceiveView: View {
                 .padding(18)
                 .background(Color.white)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .shadow(color: Color.black.opacity(0.35), radius: 18, x: 0, y: 10)
 
             Text(short(address))
                 .font(TaliseFont.mono(13, weight: .light))
@@ -178,35 +157,10 @@ struct ReceiveView: View {
         .padding(.vertical, 30)
         .frame(maxWidth: .infinity)
         .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(TaliseColor.surface.opacity(0.5))
-                // Soft brand-green wash lit from the top — the iOS-26 look.
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [TaliseColor.greenMint.opacity(0.10), .clear],
-                            startPoint: .top,
-                            endPoint: .center
-                        )
-                    )
-            }
-        )
-        .overlay(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.18), Color.white.opacity(0.04)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
+                .fill(TaliseColor.surface)
         )
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: Color.black.opacity(0.4), radius: 24, x: 0, y: 14)
     }
 
     private var actions: some View {
@@ -249,43 +203,8 @@ struct ReceiveView: View {
             .foregroundStyle(primary ? TaliseColor.bg : TaliseColor.fg)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
-            .background(secondaryGlassBackground(primary: primary))
-            .overlay(secondaryGlassStroke(primary: primary))
+            .background(Capsule().fill(primary ? TaliseColor.fg : TaliseColor.surface2))
             .clipShape(Capsule())
-            .shadow(color: Color.black.opacity(primary ? 0 : 0.35), radius: 12, x: 0, y: 6)
-        }
-    }
-
-    /// Background swap for the secondary (Copy address) pill: keep the
-    /// primary Share pill flat-white (it's the high-affordance action),
-    /// but render the secondary pill as a liquid-glass capsule —
-    /// ultraThinMaterial + dark tint, so it sits on the page background
-    /// the same way the bottom nav pill does.
-    @ViewBuilder
-    private func secondaryGlassBackground(primary: Bool) -> some View {
-        if primary {
-            Capsule().fill(TaliseColor.fg)
-        } else {
-            ZStack {
-                Capsule().fill(.ultraThinMaterial)
-                Capsule().fill(TaliseColor.surface2.opacity(0.5))
-            }
-        }
-    }
-
-    /// Top specular hairline for the secondary pill — a soft gradient stroke
-    /// in the Liquid Glass language. Nothing on the primary (white) pill.
-    @ViewBuilder
-    private func secondaryGlassStroke(primary: Bool) -> some View {
-        if !primary {
-            Capsule().strokeBorder(
-                LinearGradient(
-                    colors: [Color.white.opacity(0.16), Color.white.opacity(0.04)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 1
-            )
         }
     }
 

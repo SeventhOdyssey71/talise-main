@@ -196,7 +196,6 @@ struct SendAmountView: View {
             Circle()
                 .fill(TaliseColor.greenMint)
                 .frame(width: 6, height: 6)
-                .shadow(color: TaliseColor.greenMint.opacity(0.6), radius: 4)
             Text("MAIN WALLET")
                 .font(TaliseFont.mono(10, weight: .regular))
                 .kerning(1.5)
@@ -232,16 +231,6 @@ struct SendAmountView: View {
                 .background(
                     Capsule()
                         .fill(canAdvance ? TaliseColor.greenMint : TaliseColor.surface2)
-                )
-                .overlay(
-                    Capsule().strokeBorder(
-                        Color.white.opacity(canAdvance ? 0.18 : 0.06),
-                        lineWidth: 0.8
-                    )
-                )
-                .shadow(
-                    color: TaliseColor.greenMint.opacity(canAdvance ? 0.25 : 0),
-                    radius: 16, y: 6
                 )
         }
         .disabled(!canAdvance)

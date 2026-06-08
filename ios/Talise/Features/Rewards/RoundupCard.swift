@@ -76,8 +76,11 @@ struct RoundupCard: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 20, tint: enabled ? TaliseColor.accent : nil)
-        .earnGlassLift(cornerRadius: 20)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .opacity(enabled ? 1.0 : 0.92)
         .animation(.easeInOut(duration: 0.18), value: enabled)
     }

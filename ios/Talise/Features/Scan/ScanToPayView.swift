@@ -132,10 +132,8 @@ struct ScanToPayView: View {
 
     private var resolvingOverlay: some View {
         ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
+            Color.black.opacity(0.7)
                 .ignoresSafeArea()
-                .overlay(Color.black.opacity(0.35).ignoresSafeArea())
             VStack(spacing: 14) {
                 ProgressView()
                     .controlSize(.large)
@@ -148,11 +146,7 @@ struct ScanToPayView: View {
             .padding(.vertical, 22)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(.ultraThinMaterial)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    .fill(TaliseColor.surface)
             )
         }
         .transition(.opacity)
@@ -249,17 +243,7 @@ struct ScanToPayView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Capsule().fill(.ultraThinMaterial))
-        .overlay(
-            Capsule().strokeBorder(
-                LinearGradient(
-                    colors: [Color.white.opacity(0.2), Color.white.opacity(0.05)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 1
-            )
-        )
+        .background(Capsule().fill(TaliseColor.surface))
     }
 
     // MARK: - Top status bar
@@ -287,19 +271,7 @@ struct ScanToPayView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 38, height: 38)
-                .background(
-                    Circle().fill(.ultraThinMaterial)
-                )
-                .overlay(
-                    Circle().strokeBorder(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.22), Color.white.opacity(0.06)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
-                )
+                .background(Circle().fill(TaliseColor.surface2))
         }
         .buttonStyle(.plain)
     }
@@ -328,19 +300,7 @@ struct ScanToPayView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(flashOn ? TaliseColor.greenMint : .white)
                 .frame(width: 38, height: 38)
-                .background(
-                    Circle().fill(.ultraThinMaterial)
-                )
-                .overlay(
-                    Circle().strokeBorder(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.22), Color.white.opacity(0.06)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
-                )
+                .background(Circle().fill(TaliseColor.surface2))
         }
         .buttonStyle(.plain)
     }

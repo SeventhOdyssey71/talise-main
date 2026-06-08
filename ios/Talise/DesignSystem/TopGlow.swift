@@ -10,41 +10,14 @@ import SwiftUI
 /// continue without a perceptible jump.
 struct TopGlow: View {
     var body: some View {
-        ZStack(alignment: .top) {
-            // The core vertical wash — a quiet deep-forest halo that kisses
-            // the very top and fades to pure black before the content area.
-            LinearGradient(
-                stops: [
-                    .init(color: Color(hex: 0x21462A), location: 0.0),
-                    .init(color: Color(hex: 0x0E2013), location: 0.18),
-                    .init(color: Color.black,           location: 0.46),
-                    .init(color: Color.black,           location: 1.0),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            // A soft radial brand bloom pooled under the notch — gives the
-            // wash an iOS-26 "lit from a point" depth instead of a flat band.
-            // Sits OVER the linear wash with a gentle blur so the brightness
-            // feels like light, not paint.
-            RadialGradient(
-                colors: [
-                    TaliseColor.greenDeep.opacity(0.28),
-                    TaliseColor.greenDeep.opacity(0.06),
-                    .clear,
-                ],
-                center: UnitPoint(x: 0.5, y: 0.0),
-                startRadius: 0,
-                endRadius: 280
-            )
-            .blur(radius: 26)
-            .blendMode(.screen)
-        }
-        // Shorter band — the green only kisses the very top now; the rest
-        // of the screen is clean black so content + cards read sharply.
-        .frame(height: 380)
-        .frame(maxWidth: .infinity, alignment: .top)
-        .allowsHitTesting(false)
+        // Flat black canvas — the gradient bloom + radial glow are retired.
+        // Kept as a view (not removed) so the 50+ `TopGlow()` call sites stay
+        // intact; it now just paints clean black so content + cards read
+        // sharply on the Apple-system flat surface.
+        TaliseColor.bg
+            .frame(height: 380)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .allowsHitTesting(false)
     }
 }
 
@@ -106,30 +79,21 @@ struct TaliseGlassCard: ViewModifier {
         return content
             .background(
                 ZStack {
-                    // 1. Translucent base — a near-opaque dark surface tint
-                    //    riding on a thin material so the black canvas and
-                    //    TopGlow read faintly THROUGH the card. This is the
-                    //    iOS-26 Liquid Glass plate, not a flat block.
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(TaliseColor.surface.opacity(0.78))
-                    // 2. Optional directional brand wash — Sent / Received /
-                    //    Earn cards get a diagonal gradient of their green.
+                    // 1. Solid flat surface — a clean opaque panel on the
+                    //    black page. No material, no blur.
+                    shape.fill(TaliseColor.surface)
+                    // 2. Optional quiet flat brand tint (Sent / Received /
+                    //    Earn) — a single low-opacity solid color, no gradient.
                     if let tint {
-                        shape.fill(TaliseGlass.wash(tint, strength: 0.18))
+                        shape.fill(tint.opacity(0.10))
                     }
-                    // 3. Interior top sheen — a faint white crown pooled at
-                    //    the top edge, the polished-glass highlight.
-                    shape.fill(TaliseGlass.topSheen)
                 }
             )
             .overlay(
-                // 4. Specular gradient edge — bright at the top, vanishing at
-                //    the bottom. Replaces the flat hairline with the lit edge.
-                shape.strokeBorder(TaliseGlass.edge, lineWidth: 1)
+                // 3. One faint hairline edge — flat, no specular highlight.
+                shape.strokeBorder(TaliseColor.line, lineWidth: 1)
             )
             .clipShape(shape)
-            // 5. Soft ambient float off the black canvas.
-            .shadow(color: TaliseGlass.shadow, radius: 18, x: 0, y: 12)
             .opacity(isEnabled ? 1.0 : 0.6)
     }
 }

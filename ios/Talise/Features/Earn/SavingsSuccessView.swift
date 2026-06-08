@@ -21,31 +21,14 @@ struct SavingsSuccessView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // One calm hero: the accent checkmark settles in on a soft
-                // translucent-glass halo so it reads as a lit iOS-26 mark.
+                // One calm hero: the accent checkmark settles in on a FLAT
+                // solid accent-tinted disc — no material, no specular ring.
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 64, weight: .medium))
                     .foregroundStyle(TaliseColor.accent)
                     .padding(26)
                     .background(
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .overlay(
-                                Circle().fill(TaliseColor.accent.opacity(0.10))
-                            )
-                            .overlay(
-                                Circle().strokeBorder(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.white.opacity(0.22),
-                                            TaliseColor.accent.opacity(0.10),
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    ),
-                                    lineWidth: 1
-                                )
-                            )
+                        Circle().fill(TaliseColor.accent.opacity(0.14))
                     )
                     .scrapbookFadeUp(delay: 0.05)
 
@@ -81,11 +64,6 @@ struct SavingsSuccessView: View {
                         .foregroundStyle(.black)
                         .frame(width: 175, height: 41)
                         .background(Capsule().fill(.white))
-                        .overlay(
-                            // Faint top specular so the white pill catches the
-                            // light like the rest of the liquid-glass surfaces.
-                            Capsule().strokeBorder(Color.white.opacity(0.5), lineWidth: 0.5)
-                        )
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 40)

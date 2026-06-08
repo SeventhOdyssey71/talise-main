@@ -49,7 +49,7 @@ struct CurrencyPocketsView: View {
             .padding(.horizontal, 24)
             .padding(.top, 12)
         }
-        .taliseScreenBackground()
+        .background(TaliseColor.bg.ignoresSafeArea())
         .navigationTitle("Currencies")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -98,7 +98,11 @@ struct CurrencyPocketsView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassSection(cornerRadius: 20)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(TaliseColor.surface)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
     }
 
@@ -142,12 +146,11 @@ struct CurrencyPocketsView: View {
         .buttonStyle(.plain)
     }
 
-    /// Small frosted disc carrying the currency symbol — same material
-    /// language as the Profile avatar fallback, sized for a list row.
+    /// Small flat disc carrying the currency symbol — solid surface chip,
+    /// sized for a list row.
     private func currencyDisc(_ c: TaliseCurrency) -> some View {
         ZStack {
-            Circle().fill(.ultraThinMaterial)
-            Circle().fill(TaliseColor.surface2.opacity(0.6))
+            Circle().fill(TaliseColor.surface2)
             Text(c.symbol)
                 .font(TaliseFont.heading(14, weight: .medium))
                 .foregroundStyle(TaliseColor.fg)
@@ -156,15 +159,6 @@ struct CurrencyPocketsView: View {
                 .padding(.horizontal, 4)
         }
         .frame(width: 38, height: 38)
-        .overlay(
-            Circle().strokeBorder(
-                LinearGradient(
-                    colors: [Color.white.opacity(0.18), Color.white.opacity(0.04)],
-                    startPoint: .top, endPoint: .bottom
-                ),
-                lineWidth: 1
-            )
-        )
         .clipShape(Circle())
     }
 
@@ -289,7 +283,11 @@ private struct AddCurrencySheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .glassSection(cornerRadius: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(TaliseColor.surface)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
             }
@@ -433,7 +431,11 @@ private struct FXQuoteSheet: View {
             countdownRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSection(cornerRadius: 20, tint: TaliseColor.accent, tintOpacity: 0.07)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func amountRow(label: String, value: String, emphasis: Bool) -> some View {

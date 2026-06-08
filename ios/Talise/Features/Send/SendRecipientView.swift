@@ -120,7 +120,10 @@ struct SendRecipientView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 20)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
     }
 
     @ViewBuilder
@@ -202,17 +205,8 @@ struct SendRecipientView: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(.ultraThinMaterial)
+                        .fill(TaliseColor.surface2)
                         .frame(width: 38, height: 38)
-                        .overlay(
-                            Circle().strokeBorder(
-                                LinearGradient(
-                                    colors: [Color.white.opacity(0.18), Color.white.opacity(0.03)],
-                                    startPoint: .top, endPoint: .bottom
-                                ),
-                                lineWidth: 0.8
-                            )
-                        )
                     Text(initials(for: c))
                         .font(TaliseFont.heading(13, weight: .medium))
                         .foregroundStyle(TaliseColor.fg)
@@ -292,16 +286,6 @@ struct SendRecipientView: View {
                 .background(
                     Capsule()
                         .fill(canAdvance ? TaliseColor.greenMint : TaliseColor.surface2)
-                )
-                .overlay(
-                    Capsule().strokeBorder(
-                        Color.white.opacity(canAdvance ? 0.18 : 0.06),
-                        lineWidth: 0.8
-                    )
-                )
-                .shadow(
-                    color: TaliseColor.greenMint.opacity(canAdvance ? 0.25 : 0),
-                    radius: 16, y: 6
                 )
         }
         .disabled(!canAdvance)

@@ -72,19 +72,9 @@ struct PinEntrySheet: View {
         }
         .frame(maxWidth: .infinity)
         .background(
-            ZStack {
-                TaliseColor.bg
-                // Quiet brand-green bloom from the top of the sheet — the
-                // iOS-26 liquid-glass wash, fading to clean black under the
-                // numpad so the digits stay crisp.
-                RadialGradient(
-                    colors: [Color(hex: 0x1C3D24).opacity(0.65), Color.clear],
-                    center: .init(x: 0.5, y: 0.0),
-                    startRadius: 0,
-                    endRadius: 360
-                )
-            }
-            .ignoresSafeArea()
+            // Flat near-black sheet — no bloom, no wash. The digits stay the
+            // focal point.
+            TaliseColor.bg.ignoresSafeArea()
         )
     }
 
@@ -124,17 +114,7 @@ struct PinEntrySheet: View {
                         lineWidth: 1.2
                     )
                     .background(
-                        Circle().fill(
-                            filled
-                                ? AnyShapeStyle(
-                                    LinearGradient(
-                                        colors: [TaliseColor.fg, TaliseColor.fgSubtle],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-                                : AnyShapeStyle(Color.clear)
-                        )
+                        Circle().fill(filled ? TaliseColor.fg : Color.clear)
                     )
                     .frame(width: 15, height: 15)
                     .scaleEffect(filled ? 1.0 : 0.9)

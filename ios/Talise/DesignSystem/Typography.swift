@@ -1,51 +1,27 @@
 import SwiftUI
-import UIKit
 
-/// Figma node 42-1819 uses DM Sans (Light/Regular/Medium with opsz 14)
-/// for display + body, and JetBrains Mono (ExtraLight/Light) for the
-/// micro-labels ($0.00 FEE, YOUR MONEY LANDS HERE, timestamps, Details).
-///
-/// To bundle the actual .ttf files: drop them under
-/// `Resources/DMSans/` and `Resources/JetBrainsMono/` and register from
-/// TaliseApp.registerFonts(). Until then everything falls back to SF Pro
-/// / SF Mono — visually close enough that the layout reads right.
+/// Typography = Apple's system font (SF Pro), used directly for the clean,
+/// native iOS feel. SF Pro for display/heading/body; SF Mono for the micro
+/// labels (timestamps, "$0.00 FEE"-style eyebrows). Big balances lean on the
+/// bold weights + tight tracking the call sites pass; everything else stays
+/// regular/medium. No bundled/custom fonts — the system font IS the brand here.
 enum TaliseFont {
-    // PostScript family name from the registered variable .ttf (verified
-    // via `fc-scan` on the bundled `Resources/DMSans/DMSans-Variable.ttf`
-    // — the family carries a space, the file name doesn't).
-    static let displayFamily = "DM Sans"
-    static let monoFamily = "JetBrainsMono"
-
-    static func display(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        custom(displayFamily, size: size, fallbackDesign: .default, weight: weight)
+    /// SF Pro — the primary display/heading face.
+    static func display(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
+        .system(size: size, weight: weight, design: .default)
     }
 
-    static func heading(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        custom(displayFamily, size: size, fallbackDesign: .default, weight: weight)
+    static func heading(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
+        .system(size: size, weight: weight, design: .default)
     }
 
-    static func body(_ size: CGFloat = 14, weight: Font.Weight = .light) -> Font {
-        custom(displayFamily, size: size, fallbackDesign: .default, weight: weight)
+    static func body(_ size: CGFloat = 14, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .default)
     }
 
+    /// SF Mono — for small tracked labels / numerals where a monospace reads.
     static func mono(_ size: CGFloat = 11, weight: Font.Weight = .regular) -> Font {
-        // Default weight bumped to .regular (was .light) so monospaced
-        // subtexts ("Balance", "$0.00 FEE", "YOUR MONEY LANDS HERE")
-        // read with proper presence on screen. Light JetBrains Mono
-        // reads as washed-out at small sizes against dark backgrounds.
-        custom(monoFamily, size: size, fallbackDesign: .monospaced, weight: weight)
-    }
-
-    private static func custom(
-        _ family: String,
-        size: CGFloat,
-        fallbackDesign: Font.Design,
-        weight: Font.Weight
-    ) -> Font {
-        if UIFont(name: family, size: size) != nil {
-            return .custom(family, size: size).weight(weight)
-        }
-        return .system(size: size, weight: weight, design: fallbackDesign)
+        .system(size: size, weight: weight, design: .monospaced)
     }
 }
 
