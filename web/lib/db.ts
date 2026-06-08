@@ -733,6 +733,32 @@ async function doEnsureSchema(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_kyc_intents_user
        ON kyc_upgrade_intents(user_id, created_at DESC)`,
 
+    // ─── linq_offramps (USDSUI → NGN bank payout via Linq) ───────────
+    // Linq hands back a deposit wallet it watches and pays the bank itself,
+    // so there's no treasury/on-chain-verify/refund state here — just the
+    // order record + its mirrored status. `id` is our uuid (also the Linq
+    // idempotencyKey); `linq_order_id` is Linq's order id (webhook + poll).
+    `CREATE TABLE IF NOT EXISTS linq_offramps (
+      id TEXT PRIMARY KEY,
+      linq_order_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      amount_usdsui NUMERIC NOT NULL,
+      amount_ngn NUMERIC NOT NULL,
+      rate NUMERIC NOT NULL,
+      bank_code TEXT NOT NULL,
+      bank_account_number TEXT NOT NULL,
+      bank_account_name TEXT,
+      wallet_address TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'initiated',
+      status_reason TEXT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_linq_offramps_user
+       ON linq_offramps (user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_linq_offramps_order
+       ON linq_offramps (linq_order_id)`,
+
     // ─── travel_rule_records (FATF Travel Rule audit log) ────────────
     // Master plan §7: above the ~$1,000 Travel Rule threshold, external
     // transfers must exchange IVMS-101 originator/beneficiary data. This
