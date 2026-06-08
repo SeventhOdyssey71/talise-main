@@ -1,5 +1,7 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { BankIcon } from "@hugeicons/core-free-icons";
 import { useCurrency } from "@/components/app";
 import { DirectionBadge } from "./DirectionBadge";
 import {
@@ -12,6 +14,11 @@ import {
   isInflow,
   otherCoinOf,
   formatCoinAmount,
+  offrampOf,
+  offrampState,
+  offrampChipLabel,
+  offrampBankLine,
+  formatNgn,
 } from "./types";
 
 /**
@@ -31,8 +38,73 @@ export function HistoryRow({
 }) {
   const { formatLocal } = useCurrency();
   const category = categoryOf(row);
-  const sub = counterpartyLabel(row);
   const time = relativeTime(row.timestampMs);
+  const offramp = offrampOf(row);
+
+  if (offramp) {
+    const chip =
+      offrampState(offramp.status) === "done"
+        ? null
+        : offrampChipLabel(offramp.status);
+    const bank = offramp.bankName?.trim();
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        data-direction="sent"
+        className="talise-history-row group relative flex w-full items-center gap-3 px-3 py-3 text-left transition-[transform,background-color,border-color] duration-150 ease-out active:scale-[0.995]"
+      >
+        {/* Bank/withdraw chip — warm danger disc (money out) */}
+        <span
+          className="flex size-9 shrink-0 items-center justify-center rounded-full"
+          style={{ background: "color-mix(in srgb, #c95a4a 16%, #ffffff)" }}
+        >
+          <HugeiconsIcon icon={BankIcon} size={17} color="#b3473b" strokeWidth={2} />
+        </span>
+
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span
+            className="truncate text-[14px] font-medium text-fg"
+            style={{ letterSpacing: "-0.01em" }}
+          >
+            {bank ? `Cash out → ${bank}` : "Cash out"}
+          </span>
+          <span className="flex min-w-0 items-center gap-1 text-[12px] text-fg-dim">
+            <span className="truncate">{offrampBankLine(offramp)}</span>
+            <span className="opacity-40">·</span>
+            <span className="shrink-0">{time}</span>
+          </span>
+        </span>
+
+        <span className="flex shrink-0 flex-col items-end gap-1 pl-2">
+          <span
+            className="whitespace-nowrap text-[15px] font-semibold tabular-nums"
+            style={{ color: "var(--color-danger)", letterSpacing: "-0.02em" }}
+          >
+            −{formatNgn(offramp.amountNgn)}
+          </span>
+          {chip && (
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+              style={
+                offrampState(offramp.status) === "failed"
+                  ? {
+                      color: "var(--color-danger)",
+                      background:
+                        "color-mix(in srgb, var(--color-danger) 12%, transparent)",
+                    }
+                  : { color: "var(--color-fg-muted)", background: "var(--color-surface-2)" }
+              }
+            >
+              {chip}
+            </span>
+          )}
+        </span>
+      </button>
+    );
+  }
+
+  const sub = counterpartyLabel(row);
 
   return (
     <button

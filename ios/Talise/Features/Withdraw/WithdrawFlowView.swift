@@ -753,6 +753,12 @@ private struct BankWithdrawView: View {
             resolvedName = r.accountName
             resolveError = nil
             resolving = false
+        } catch APIError.unauthorized {
+            guard self.accountNumber == accountNumber,
+                  self.selectedBank?.bankCode == bankCode else { return }
+            resolveError = "Sign in to continue."
+            resolvedName = nil
+            resolving = false
         } catch APIError.status(let code, let msg) {
             guard !Task.isCancelled,
                   self.accountNumber == accountNumber,

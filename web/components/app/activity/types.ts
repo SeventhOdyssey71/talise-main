@@ -221,3 +221,76 @@ export function absoluteTime(ms: number): string {
 export function suiscanUrl(digest: string): string {
   return `https://suiscan.xyz/mainnet/tx/${digest}`;
 }
+
+/* ── Cash-out (Linq off-ramp) ──────────────────────────────────────────── */
+
+/** The off-ramp payload attached to a USDsui→NGN bank cash-out row. */
+export type Offramp = NonNullable<ActivityEntry["offramp"]>;
+
+/** Read the off-ramp payload off a row, if present (and non-null). */
+export function offrampOf(row: ActivityRow): Offramp | null {
+  return row.offramp ?? null;
+}
+
+export type OfframpState = "done" | "failed" | "pending";
+
+/**
+ * Collapse Linq's free-text status into one of three states.
+ *   disbursed / settled / completed → done
+ *   timeout* / failed               → failed
+ *   everything else                 → pending (initiated, processing*, …)
+ */
+export function offrampState(status: string | null | undefined): OfframpState {
+  const s = (status ?? "").toLowerCase();
+  if (
+    s.includes("disbursed") ||
+    s.includes("settled") ||
+    s.includes("complete")
+  ) {
+    return "done";
+  }
+  if (s.includes("timeout") || s.includes("fail")) return "failed";
+  return "pending";
+}
+
+/** Short status chip label for a cash-out row. */
+export function offrampChipLabel(status: string | null | undefined): string {
+  switch (offrampState(status)) {
+    case "done":
+      return "Paid out";
+    case "failed":
+      return "Failed";
+    default:
+      return "Pending";
+  }
+}
+
+/** Friendly, sentence-cased status for the receipt's Status row. */
+export function offrampFriendlyStatus(
+  status: string | null | undefined
+): string {
+  switch (offrampState(status)) {
+    case "done":
+      return "Paid out";
+    case "failed":
+      return "Failed";
+    default:
+      return "In progress";
+  }
+}
+
+/** Format a naira amount as "₦12,345.67" (drops the kobo when whole). */
+export function formatNgn(amount: number): string {
+  if (!Number.isFinite(amount)) return "₦0";
+  const whole = Math.round(amount) === amount;
+  return `₦${amount.toLocaleString("en-NG", {
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+/** Bank subtitle, e.g. "GTBank ••••1234" / "GTBank" / "Bank account". */
+export function offrampBankLine(o: Offramp): string {
+  const bank = o.bankName?.trim() || "Bank account";
+  return o.accountLast4 ? `${bank} ••••${o.accountLast4}` : bank;
+}

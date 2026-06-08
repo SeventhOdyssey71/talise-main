@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
-import { userById } from "@/lib/db";
+import { db, ensureSchema, userById } from "@/lib/db";
+import { resolveLinqBank } from "@/lib/linq-banks";
 import { getRecentActivity, type ActivityEntry } from "@/lib/activity";
 import { memoTtl } from "@/lib/perf-cache";
 import {
@@ -106,6 +107,7 @@ type SerializedEntry = {
   venue: ActivityEntry["venue"];
   roundupUsdsui: ActivityEntry["roundupUsdsui"];
   otherCoin: ActivityEntry["otherCoin"];
+  offramp: ActivityEntry["offramp"];
 };
 
 function serializeEntries(entries: ActivityEntry[]): SerializedEntry[] {
@@ -122,7 +124,65 @@ function serializeEntries(entries: ActivityEntry[]): SerializedEntry[] {
     roundupUsdsui: e.roundupUsdsui,
     // Non-USDsui/SUI coin movement (WAL, USDC, …) — iOS renders "+ 10 WAL".
     otherCoin: e.otherCoin,
+    // Cash-out detail when this send is a Linq off-ramp (set by enrichOfframps).
+    offramp: e.offramp ?? null,
   }));
+}
+
+/**
+ * Relabel "sent" rows whose recipient is one of the user's Linq off-ramp
+ * deposit wallets into CASH-OUTS — attaching the NGN figure, bank, payout
+ * status, and rate from `linq_offramps`. Lets History render "Cash out →
+ * {bank}" and a proper receipt instead of an anonymous send to a 0x address.
+ * Best-effort: any failure leaves the rows untouched (history must not break).
+ */
+async function enrichOfframps(
+  userId: number,
+  entries: SerializedEntry[]
+): Promise<SerializedEntry[]> {
+  if (!entries.some((e) => e.direction === "sent" && e.counterparty)) {
+    return entries;
+  }
+  try {
+    await ensureSchema();
+    const r = await db().execute({
+      sql: `SELECT wallet_address, amount_ngn, bank_code, bank_account_number,
+                   status, rate, linq_order_id
+            FROM linq_offramps WHERE user_id = ?`,
+      args: [String(userId)],
+    });
+    if (r.rows.length === 0) return entries;
+    const byWallet = new Map<string, Record<string, unknown>>();
+    for (const row of r.rows as Array<Record<string, unknown>>) {
+      const w = String(row.wallet_address ?? "").toLowerCase();
+      if (w) byWallet.set(w, row);
+    }
+    return entries.map((e) => {
+      if (e.direction !== "sent" || !e.counterparty) return e;
+      const off = byWallet.get(e.counterparty.toLowerCase());
+      if (!off) return e;
+      const bankName = resolveLinqBank(String(off.bank_code ?? ""))?.name ?? null;
+      const acct = String(off.bank_account_number ?? "");
+      return {
+        ...e,
+        // Surface the bank instead of the raw 0x deposit wallet.
+        counterpartyName: bankName ?? "Bank account",
+        venue: "linq",
+        offramp: {
+          provider: "linq" as const,
+          amountNgn: Number(off.amount_ngn ?? 0),
+          bankName,
+          accountLast4: acct ? acct.slice(-4) : null,
+          status: String(off.status ?? "initiated"),
+          rate: Number(off.rate ?? 0),
+          orderId: String(off.linq_order_id ?? ""),
+        },
+      };
+    });
+  } catch (err) {
+    console.warn(`[api/activity] offramp enrich failed: ${(err as Error).message}`);
+    return entries;
+  }
 }
 
 // Display-only snapshot freshness, mirroring /api/balances. The ?fresh=1
@@ -190,7 +250,7 @@ async function computeLiveActivity(
         [] as ActivityEntry[]
       )
     : await cachedActivity(user.sui_address, limit, user.talise_vault_id ?? null);
-  const fresh = serializeEntries(raw);
+  const fresh = await enrichOfframps(user.id, serializeEntries(raw));
 
   const prev = await readActivitySnapshot(user.id);
   const prevEntries = (prev?.entries as SerializedEntry[] | undefined) ?? [];

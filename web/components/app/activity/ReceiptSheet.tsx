@@ -6,6 +6,7 @@ import {
   LinkSquare02Icon,
   Copy01Icon,
   Tick02Icon,
+  BankIcon,
 } from "@hugeicons/core-free-icons";
 import { Sheet, Eyebrow, GlassCard, useCurrency } from "@/components/app";
 import { DirectionBadge } from "./DirectionBadge";
@@ -21,6 +22,11 @@ import {
   absoluteTime,
   displayVenue,
   suiscanUrl,
+  offrampOf,
+  offrampState,
+  offrampFriendlyStatus,
+  offrampBankLine,
+  formatNgn,
 } from "./types";
 
 /**
@@ -51,6 +57,126 @@ export function ReceiptSheet({
 }
 
 function ReceiptBody({ row }: { row: ActivityRow }) {
+  const offramp = offrampOf(row);
+  if (offramp) return <CashOutReceipt row={row} offramp={offramp} />;
+  return <SendReceipt row={row} />;
+}
+
+/**
+ * USDsui→NGN bank cash-out receipt. Bank hero badge, big NGN payout, then the
+ * destination bank, the USDsui debited, the FX rate, status, date, and digest.
+ */
+function CashOutReceipt({
+  row,
+  offramp,
+}: {
+  row: ActivityRow;
+  offramp: NonNullable<ActivityRow["offramp"]>;
+}) {
+  const { formatLocal } = useCurrency();
+  const [copied, setCopied] = useState(false);
+  const done = offrampState(offramp.status) === "done";
+  const failed = offrampState(offramp.status) === "failed";
+
+  const copyDigest = async () => {
+    try {
+      await navigator.clipboard.writeText(row.digest);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked — no-op */
+    }
+  };
+
+  const sentUsdsui =
+    row.amountUsdsui != null
+      ? `${Math.abs(row.amountUsdsui).toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} USDsui`
+      : "—";
+
+  return (
+    <div className="flex flex-col items-center gap-5 pb-2 pt-1">
+      {/* Hero badge — bank glyph on a warm danger disc (money out) */}
+      <div className="flex flex-col items-center gap-2">
+        <span
+          className="flex items-center justify-center rounded-full"
+          style={{
+            width: 56,
+            height: 56,
+            background: "color-mix(in srgb, #c95a4a 16%, #ffffff)",
+          }}
+        >
+          <HugeiconsIcon icon={BankIcon} size={24} color="#b3473b" strokeWidth={2} />
+        </span>
+        <Eyebrow>Cash out</Eyebrow>
+      </div>
+
+      {/* Big NGN payout */}
+      <div className="flex flex-col items-center gap-1 text-center">
+        <span
+          className="font-display font-semibold text-fg tabular-nums"
+          style={{ fontSize: 38, lineHeight: 1.06, letterSpacing: "-0.03em" }}
+        >
+          {done ? "You received " : ""}
+          {formatNgn(offramp.amountNgn)}
+        </span>
+      </div>
+
+      {/* Details card */}
+      <GlassCard className="w-full" radius={14}>
+        <DetailRow label="To" value={offrampBankLine(offramp)} />
+        <Divider />
+        <DetailRow label="You sent" value={sentUsdsui} />
+        <Divider />
+        <DetailRow
+          label="Rate"
+          value={`$1 = ${formatNgn(offramp.rate)}`}
+        />
+        <Divider />
+        <DetailRow
+          label="Status"
+          value={offrampFriendlyStatus(offramp.status)}
+          valueClass={
+            failed ? "text-[color:var(--color-danger)]" : done ? "text-accent" : "text-fg"
+          }
+        />
+        <Divider />
+        <DetailRow label="Date" value={absoluteTime(row.timestampMs)} />
+        <Divider />
+        <DetailRow label="Digest" value={shortDigest(row.digest)} mono />
+      </GlassCard>
+
+      {/* Actions */}
+      <div className="flex w-full flex-col gap-2.5">
+        <a
+          href={suiscanUrl(row.digest)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent-deep text-[15px] font-semibold text-white shadow-[0_4px_14px_-4px_rgba(35,78,20,0.38)] transition-[transform,background-color] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
+        >
+          <HugeiconsIcon icon={LinkSquare02Icon} size={16} strokeWidth={2} />
+          View on Suiscan
+        </a>
+        <button
+          type="button"
+          onClick={copyDigest}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_35%,var(--color-line))] hover:text-accent"
+        >
+          <HugeiconsIcon
+            icon={copied ? Tick02Icon : Copy01Icon}
+            size={16}
+            strokeWidth={2}
+          />
+          {copied ? "Copied" : "Copy digest"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SendReceipt({ row }: { row: ActivityRow }) {
   const { formatLocal } = useCurrency();
   const [copied, setCopied] = useState(false);
   const category = categoryOf(row);

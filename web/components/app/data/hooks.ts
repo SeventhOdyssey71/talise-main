@@ -179,6 +179,19 @@ export type ActivityEntry = {
   venue: string | null;
   roundupUsdsui: number;
   otherCoin: string | null;
+  /**
+   * Present on USDsui→NGN bank cash-out rows (a "sent" tx whose recipient is a
+   * Linq off-ramp deposit wallet). `status` is Linq's free text.
+   */
+  offramp?: {
+    provider: "linq";
+    amountNgn: number;
+    bankName: string | null;
+    accountLast4: string | null;
+    status: string;
+    rate: number;
+    orderId: string;
+  } | null;
 };
 
 export type Contact = {

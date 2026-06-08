@@ -50,10 +50,13 @@ struct TxReceiptView: View {
     /// `isReceived ? received : sent`, which left every invest/withdraw
     /// receipt rendering with the brick-red "Sent" badge + label.
     private enum Category {
-        case sent, received, invest, withdraw
+        case sent, received, invest, withdraw, cashout
     }
 
     private var category: Category {
+        // A fiat off-ramp (Linq) rides direction "sent" but renders as its
+        // own CASH-OUT receipt — bank destination, naira payout, FX rate.
+        if entry.offramp != nil { return .cashout }
         switch entry.direction {
         case "received": return .received
         case "invest":   return .invest
@@ -65,6 +68,7 @@ struct TxReceiptView: View {
     private var badgeBg: Color {
         switch category {
         case .sent:     return TaliseColor.badgeSent
+        case .cashout:  return TaliseColor.badgeSent
         case .received: return TaliseColor.badgeReceived
         case .invest:   return TaliseColor.accent.opacity(0.22)
         case .withdraw: return TaliseColor.badgeReceived
@@ -74,6 +78,7 @@ struct TxReceiptView: View {
     private var badgeFg: Color {
         switch category {
         case .sent:     return Color(hex: 0xE08D8A)
+        case .cashout:  return Color(hex: 0xE08D8A)
         case .received: return Color(hex: 0x79D96C)
         case .invest:   return TaliseColor.accent
         case .withdraw: return Color(hex: 0x79D96C)
@@ -83,6 +88,7 @@ struct TxReceiptView: View {
     private var badgeIcon: String {
         switch category {
         case .sent:     return "arrow.up.right"
+        case .cashout:  return "building.columns"
         case .received: return "arrow.down.left"
         case .invest:   return "leaf.fill"
         case .withdraw: return "leaf"
@@ -92,6 +98,7 @@ struct TxReceiptView: View {
     private var headerLabel: String {
         switch category {
         case .sent:     return "Sent"
+        case .cashout:  return "Cash out"
         case .received: return "Received"
         case .invest:
             if let v = entry.venue, !v.isEmpty {
@@ -131,7 +138,7 @@ struct TxReceiptView: View {
             Text(primaryAmount)
                 .font(TaliseFont.display(40, weight: .medium))
                 .kerning(-1.4)
-                .foregroundStyle(TaliseColor.fg)
+                .foregroundStyle(category == .cashout ? Color(hex: 0xE5484D) : TaliseColor.fg)
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
             if let usdsui = entry.amountUsdsui {
@@ -148,6 +155,11 @@ struct TxReceiptView: View {
         // ₦ glyph at this big point size.
         // Inflow (received + withdraw from a venue) reads "+"; outflow
         // (sent + invest into a venue) reads "-".
+        // Cash-out hero is the NGN payout the user received, in red-outflow
+        // form ("-‍₦142,350.00"). The USDsui leg drops to the subtitle below.
+        if let off = entry.offramp {
+            return "-\u{202F}" + TaliseFormat.ngn(off.amountNgn)
+        }
         let isInflow = entry.isReceived || entry.isWithdraw
         let prefix = isInflow ? "+\u{202F}" : "-\u{202F}"
         if let usd = entry.amountUsdsui {
@@ -161,7 +173,61 @@ struct TxReceiptView: View {
 
     // MARK: - Details card
 
+    @ViewBuilder
     private var detailsCard: some View {
+        if let off = entry.offramp {
+            cashOutDetailsCard(off)
+        } else {
+            transferDetailsCard
+        }
+    }
+
+    /// CASH-OUT receipt body: destination bank, the USDsui debited, the
+    /// applied FX rate, the disbursement status, date, and the on-chain
+    /// digest (the chain leg is still the source of truth — keeps the
+    /// Suiscan link working).
+    private func cashOutDetailsCard(_ off: OfframpInfo) -> some View {
+        VStack(spacing: 0) {
+            row(label: "To", value: cashOutDestination(off))
+            divider
+            if let usd = entry.amountUsdsui {
+                row(label: "You sent",
+                    value: String(format: "%@ USDsui", TaliseFormat.usd2(Swift.abs(usd))))
+                divider
+            }
+            row(label: "Rate", value: "$1 = \(TaliseFormat.ngn(off.rate))")
+            divider
+            row(label: "Status", value: cashOutStatusLabel(off.status))
+            divider
+            row(label: "Date", value: dateFormatter.string(from: timestamp))
+            divider
+            row(label: "Digest", value: shortDigest, mono: true)
+        }
+        .padding(.vertical, 4)
+        .receiptFlatCard(cornerRadius: 22)
+    }
+
+    private func cashOutDestination(_ off: OfframpInfo) -> String {
+        let bank = (off.bankName?.isEmpty == false) ? off.bankName! : "Bank"
+        if let last4 = off.accountLast4, !last4.isEmpty {
+            return "\(bank) \u{2022}\u{2022}\u{2022}\u{2022}\(last4)"
+        }
+        return bank
+    }
+
+    /// Friendly Linq status → user-facing copy.
+    private func cashOutStatusLabel(_ status: String) -> String {
+        switch status.lowercased() {
+        case "disbursed", "settled", "completed", "complete", "success", "paid":
+            return "Paid out"
+        case "timeout", "failed", "error", "cancelled", "canceled":
+            return "Failed"
+        default:
+            return "Pending"
+        }
+    }
+
+    private var transferDetailsCard: some View {
         VStack(spacing: 0) {
             // Counterparty row depends on direction:
             //   sent     → "To"   <recipient>
@@ -172,7 +238,10 @@ struct TxReceiptView: View {
             // outgoing transfer, and showed "—" for venue txs because
             // there's no AddressOwner counterparty.
             switch category {
-            case .sent:
+            // `.cashout` is routed to `cashOutDetailsCard` before we ever
+            // reach here, so this branch is unreachable — but the switch
+            // must remain exhaustive.
+            case .sent, .cashout:
                 row(label: "To", value: counterpartyOrAddress, mono: !hasCounterpartyName)
             case .received:
                 row(label: "From", value: counterpartyOrAddress, mono: !hasCounterpartyName)

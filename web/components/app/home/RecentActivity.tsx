@@ -18,6 +18,7 @@ import {
   ArrowUpRight01Icon,
   ArrowDownLeft01Icon,
   Invoice01Icon,
+  BankIcon,
 } from "@hugeicons/core-free-icons";
 import {
   useActivity,
@@ -27,6 +28,12 @@ import {
   EmptyState,
   type ActivityEntry,
 } from "@/components/app";
+import {
+  offrampState,
+  offrampChipLabel,
+  offrampBankLine,
+  formatNgn,
+} from "../activity/types";
 import { relativeTime } from "./relativeTime";
 
 function counterpartyLabel(e: ActivityEntry): string {
@@ -44,6 +51,61 @@ function titleFor(e: ActivityEntry): string {
 
 function ActivityRow({ entry }: { entry: ActivityEntry }) {
   const { formatLocal } = useCurrency();
+
+  // Cash-out (USDsui→NGN bank off-ramp) renders distinctly: bank glyph, NGN
+  // payout in the danger tone, and a status chip while it's settling.
+  if (entry.offramp) {
+    const o = entry.offramp;
+    const bank = o.bankName?.trim();
+    const chip =
+      offrampState(o.status) === "done" ? null : offrampChipLabel(o.status);
+    return (
+      <div className="talise-history-row flex items-center gap-3.5 px-3.5 py-3" data-direction="sent">
+        <span
+          className="flex size-9 shrink-0 items-center justify-center rounded-full"
+          style={{ background: "color-mix(in srgb, #c95a4a 16%, #ffffff)" }}
+        >
+          <HugeiconsIcon icon={BankIcon} size={17} strokeWidth={2} color="#b3473b" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-medium text-fg">
+            {bank ? `Cash out → ${bank}` : "Cash out"}
+          </span>
+          <span className="block truncate text-[12px] text-fg-dim">
+            {offrampBankLine(o)}
+          </span>
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-0.5">
+          <span
+            className="text-[14px] font-semibold tabular-nums"
+            style={{ color: "var(--color-danger)" }}
+          >
+            −{formatNgn(o.amountNgn)}
+          </span>
+          {chip ? (
+            <span
+              className="rounded-full px-1.5 py-px text-[10px] font-medium"
+              style={
+                offrampState(o.status) === "failed"
+                  ? {
+                      color: "var(--color-danger)",
+                      background: "color-mix(in srgb, var(--color-danger) 12%, transparent)",
+                    }
+                  : { color: "var(--color-fg-muted)", background: "var(--color-surface-2)" }
+              }
+            >
+              {chip}
+            </span>
+          ) : (
+            <span className="mt-0.5 font-mono text-[10px] text-fg-dim">
+              {relativeTime(entry.timestampMs)}
+            </span>
+          )}
+        </span>
+      </div>
+    );
+  }
+
   const received = entry.direction === "received";
   const amt = formatLocal(entry.amountUsdsui, { fixed: true });
   const signed = `${received ? "+" : "−"}${amt}`;

@@ -131,6 +131,22 @@ export type ActivityEntry = {
     amount: string;
     decimals: number;
   } | null;
+  /**
+   * Set when this "sent" row is a USDsui → NGN bank CASH-OUT — i.e. the
+   * recipient address matched one of the user's Linq off-ramp deposit
+   * wallets. The activity route enriches it from `linq_offramps`. Lets the
+   * UI label the row "Cash out → {bank}" and render a receipt with the NGN
+   * figure, bank, and payout status instead of an anonymous "Sent".
+   */
+  offramp?: {
+    provider: "linq";
+    amountNgn: number;
+    bankName: string | null;
+    accountLast4: string | null;
+    status: string;
+    rate: number;
+    orderId: string;
+  } | null;
 };
 
 /**

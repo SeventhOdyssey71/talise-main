@@ -126,11 +126,33 @@ struct ActivityEntryDTO: Codable, Identifiable {
     /// precision on the wire. Optional so older API responses that
     /// pre-date this field decode without a custom init(from:).
     let otherCoin: ActivityOtherCoin?
+    /// Present on USDsui→fiat bank cash-out rows. When non-nil the row is
+    /// a fiat off-ramp (Linq) and should render as a "Cash out" — the
+    /// NGN payout, destination bank, and disbursement status — rather than
+    /// an anonymous on-chain "Sent". Optional so existing rows (which omit
+    /// it) keep decoding unchanged. Defaults to nil so the synthesized
+    /// memberwise initializer used by optimistic stubs in HomeView compiles
+    /// without threading an `offramp:` argument through every call site.
+    var offramp: OfframpInfo? = nil
 
     var id: String { digest }
     var isReceived: Bool { direction == "received" }
     var isInvest: Bool { direction == "invest" }
     var isWithdraw: Bool { direction == "withdraw" }
+}
+
+/// Fiat off-ramp metadata for a cash-out activity row. The server attaches
+/// this to USDsui→NGN bank disbursements (direction "sent", venue "linq").
+struct OfframpInfo: Codable, Hashable {
+    let provider: String
+    let amountNgn: Double
+    let bankName: String?
+    let accountLast4: String?
+    /// Linq order status: disbursed/settled/completed = paid out;
+    /// timeout/failed = failed; anything else = still pending.
+    let status: String
+    let rate: Double
+    let orderId: String
 }
 
 struct ActivityOtherCoin: Codable, Hashable {
