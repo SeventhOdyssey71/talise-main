@@ -35,6 +35,9 @@ struct ProfileView: View {
     /// Drives the `CurrencyPocketsView` presentation — a non-invasive
     /// entry into the multi-currency pockets surface (master plan §8).
     @State private var showPockets = false
+    /// Drives the `BankAccountsView` presentation — off-ramp Phase 2
+    /// "link a bank account to your @handle" management screen.
+    @State private var showBankAccounts = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -42,6 +45,7 @@ struct ProfileView: View {
                 hero
                 statsStrip
                 walletSection
+                bankAccountsSection
                 preferencesSection
                 securitySection
                 helpSection
@@ -79,6 +83,51 @@ struct ProfileView: View {
                     }
             }
             .environment(session)
+        }
+        .sheet(isPresented: $showBankAccounts) {
+            NavigationStack {
+                BankAccountsView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showBankAccounts = false }
+                                .foregroundStyle(TaliseColor.accent)
+                        }
+                    }
+            }
+            .environment(session)
+        }
+    }
+
+    // MARK: - Bank accounts section
+    //
+    // Off-ramp Phase 2 entry — a single row that opens the bank-account
+    // management screen (link / list / remove). Sits between Wallet and
+    // Preferences so it reads as a money-rails affordance, not a setting.
+
+    private var bankAccountsSection: some View {
+        section(title: "Cash out") {
+            Button {
+                showBankAccounts = true
+            } label: {
+                HStack {
+                    Image(systemName: "building.columns")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .frame(width: 22)
+                    rowLabel(
+                        title: "Bank accounts",
+                        subtitle: "Link a bank account to your @handle to cash out."
+                    )
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 

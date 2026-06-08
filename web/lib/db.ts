@@ -718,6 +718,34 @@ async function doEnsureSchema(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_linq_offramps_order
        ON linq_offramps (linq_order_id)`,
 
+    // ─── user_bank_accounts (linked NGN bank accounts, attested) ─────
+    // Off-ramp Phase 2: a user links an NGN bank account to their Talise
+    // @handle. We verify the account name via Linq (verifyBank) and the
+    // user signs a deterministic personal-message consent string with
+    // their zkLogin identity; that signature is stored as
+    // `attestation_digest` (the on-chain identity attestation that the
+    // user consented to the link). Phase 3 (Send "to bank" toggle) reads
+    // this table via getLinkedBankAccounts() so sending to @them can
+    // target the linked bank. `user_id` is TEXT (mirrors linq_offramps,
+    // which stores String(userId)) — the app id is numeric but we keep
+    // the same column shape as the sibling off-ramp table.
+    `CREATE TABLE IF NOT EXISTS user_bank_accounts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      bank_code TEXT NOT NULL,
+      account_number TEXT NOT NULL,
+      account_name TEXT,
+      attestation_digest TEXT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_user_bank_accounts_user
+       ON user_bank_accounts (user_id)`,
+    // One row per (user, bank, account) — re-linking the same account is
+    // an idempotent UPSERT (refreshes name + attestation), never a dup.
+    `CREATE UNIQUE INDEX IF NOT EXISTS uniq_user_bank_accounts
+       ON user_bank_accounts (user_id, bank_code, account_number)`,
+
     // ─── travel_rule_records (FATF Travel Rule audit log) ────────────
     // Master plan §7: above the ~$1,000 Travel Rule threshold, external
     // transfers must exchange IVMS-101 originator/beneficiary data. This

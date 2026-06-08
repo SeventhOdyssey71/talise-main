@@ -51,6 +51,13 @@ final class APIClient {
         return try await request(path: path, method: "POST", body: data)
     }
 
+    /// DELETE with a typed JSON response. No body — the resource is named
+    /// entirely by the path (e.g. `/api/me/bank/{id}`). Like POST it never
+    /// dedups, so each call gets its own round-trip.
+    func delete<T: Decodable>(_ path: String) async throws -> T {
+        try await request(path: path, method: "DELETE", body: Optional<Data>.none)
+    }
+
     private func request<T: Decodable>(
         path: String,
         method: String,

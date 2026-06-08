@@ -788,6 +788,92 @@ final class ZkLoginCoordinator {
         return SignedSubmission(digest: digest)
     }
 
+    /// Signs an arbitrary UTF-8 string as a Sui PERSONAL MESSAGE and returns
+    /// the full, base64 zkLogin signature ready to verify off-chain.
+    ///
+    /// Used by off-ramp bank-account attestation when the server hands back
+    /// an `attestMessage` (a string to sign) rather than a sponsored tx.
+    ///
+    /// Sui personal-message signing (matches `keypair.signPersonalMessage` in
+    /// @mysten/sui):
+    ///   bcsMessage   = ULEB128(len) || utf8(message)          (BCS vector<u8>)
+    ///   intentMessage = [3, 0, 0] || bcsMessage               (PersonalMessage scope)
+    ///   digest       = blake2b256(intentMessage)
+    ///   sig          = ed25519_sign(ephemeralSK, digest)
+    /// We then POST the ephemeral signature to `/api/zk/assemble-signature`,
+    /// which wraps it with the zkLogin proof + JWT metadata and returns the
+    /// composite zkLogin signature string.
+    func signPersonalMessage(_ message: String) async throws -> String {
+        guard let maxEpoch = ProofCache.shared.maxEpoch,
+              let jwtRandomness = ProofCache.shared.jwtRandomness else {
+            throw CoordinatorError.exchangeFailed("no proof cache — sign in again")
+        }
+
+        let messageBytes = Data(message.utf8)
+        // BCS vector<u8> = ULEB128 length prefix + raw bytes.
+        let bcsMessage = Self.uleb128(messageBytes.count) + messageBytes
+        // Personal-message intent scope is [3, 0, 0] (vs [0,0,0] for a tx).
+        let intentMessage = Data([3, 0, 0]) + bcsMessage
+        let digest = Blake2b.hash256(intentMessage)
+
+        let key = try EphemeralKeyStore.shared.loadOrCreate()
+        let rawSig = try key.signature(for: digest)
+        let pubKey = key.publicKey.rawRepresentation
+        let pubKeyB64 = pubKey.base64EncodedString()
+        // Sui SerializedSignature: 0x00 flag (Ed25519) + sig + pubkey.
+        let userSig = (Data([0x00]) + rawSig + pubKey).base64EncodedString()
+
+        // The assemble-signature endpoint binds the proof to `bytesB64` — for
+        // a personal message we hand it the BCS-encoded message so the server
+        // attaches the proof to the exact bytes we signed over.
+        var body: [String: Any] = [
+            "bytesB64": bcsMessage.base64EncodedString(),
+            "ephemeralPubKeyB64": pubKeyB64,
+            "maxEpoch": maxEpoch,
+            "randomness": jwtRandomness,
+            "userSignature": userSig,
+        ]
+        if let proofData = ProofCache.shared.proofRaw,
+           let proofJSON = try? JSONSerialization.jsonObject(with: proofData) as? [String: Any],
+           proofJSON["proofPoints"] is [String: Any] {
+            body["cachedProof"] = proofJSON
+        } else {
+            ProofCache.shared.proofRaw = nil
+        }
+
+        let resp = try await postAuthenticated(
+            path: "/api/zk/assemble-signature",
+            body: body
+        )
+        if let err = resp["error"] as? String {
+            throw CoordinatorError.executeFailed(err)
+        }
+        guard let signature = resp["signature"] as? String, !signature.isEmpty else {
+            throw CoordinatorError.executeFailed("no signature in response")
+        }
+        if let fresh = resp["freshProof"],
+           JSONSerialization.isValidJSONObject(fresh) {
+            ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: fresh)
+        }
+        return signature
+    }
+
+    /// Minimal unsigned-LEB128 encoder for a non-negative length. Sui's BCS
+    /// prefixes every variable-length collection with its element count this
+    /// way. Account numbers + bank names produce messages far below 127 bytes
+    /// (one byte), but we encode the general case for safety.
+    private static func uleb128(_ value: Int) -> Data {
+        var v = UInt(value)
+        var out = Data()
+        repeat {
+            var byte = UInt8(v & 0x7f)
+            v >>= 7
+            if v != 0 { byte |= 0x80 }
+            out.append(byte)
+        } while v != 0
+        return out
+    }
+
     // MARK: - Helpers
 
     /// Fetches the current Sui epoch and returns `epoch + 2` — the standard
