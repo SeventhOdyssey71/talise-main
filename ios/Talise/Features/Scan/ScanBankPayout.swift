@@ -665,14 +665,14 @@ struct ScanBankPayoutSheet: View {
             )
 
             // 2. Send EXACTLY the returned USDsui to Linq's deposit wallet.
-            //    forceSponsored: a bank payout is a Talise-sponsored transfer
-            //    and must land whether the user's USDsui is in the accumulator
-            //    or in Coin objects — the gasless rail can't source from coins.
+            //    sponsorFallback: try gasless first (free when funds are in the
+            //    accumulator); the server sponsors only when gasless can't
+            //    build (funds in Coin objects) so the payout still lands.
             let sent = try await ZkLoginCoordinator.shared.signAndSubmitSend(
                 to: order.walletAddress,
                 amountUsd: order.amountUsdsui,
                 intent: "Bank payout",
-                forceSponsored: true
+                sponsorFallback: true
             )
             guard !sent.digest.isEmpty else {
                 self.error = "Payment didn't land on chain. No funds moved."

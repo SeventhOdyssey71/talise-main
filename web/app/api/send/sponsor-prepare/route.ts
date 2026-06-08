@@ -88,19 +88,27 @@ export async function POST(req: Request) {
     amount?: number | string;
     asset?: string;
     /**
-     * Force the Onara-sponsored rail instead of the gasless rail.
+     * Allow falling back to the Onara-sponsored rail when the gasless rail
+     * can't serve this send — instead of returning a 400.
      *
      * The gasless rail (`balance::send_funds`) can ONLY source from the
-     * user's Address-Balance accumulator — it is provably impossible for
+     * user's Address-Balance accumulator; it is provably impossible for
      * users whose USDsui sits in `Coin<USDSUI>` objects. Talise-facilitated
-     * money-out flows (off-ramp cash-out, pay-to-bank) already promise the
-     * user a sponsored, fee-free transfer ("No network fee — sponsored by
-     * Talise") and MUST land regardless of the user's coin/accumulator
-     * balance shape. They set this so we skip the gasless attempt and go
-     * straight to Payment Kit, which sources from Coin objects via
-     * `coinWithBalance({useGasCoin:false})`. Plain P2P sends leave it unset
-     * and stay gasless-first (free), per the 2026-05-29 directive.
+     * money-out flows (off-ramp cash-out, pay-to-bank) promise the user a
+     * fee-free transfer ("No network fee — sponsored by Talise") and MUST
+     * land regardless of the user's coin/accumulator balance shape.
+     *
+     * With this set we still TRY gasless first — so a user whose funds are
+     * already in the accumulator gets a genuinely free transfer and Talise
+     * pays nothing — and only when gasless can't build do we fall through to
+     * Payment Kit (which sources from Coin objects via
+     * `coinWithBalance({useGasCoin:false})`) on Onara-sponsored gas. Plain
+     * P2P sends leave it unset and a gasless failure stays a hard 400, per
+     * the 2026-05-29 directive (a "free" send must never silently sponsor).
+     *
+     * `sponsored` is accepted as a legacy alias for the same intent.
      */
+    sponsorFallback?: boolean;
     sponsored?: boolean;
   };
   try {
@@ -123,11 +131,11 @@ export async function POST(req: Request) {
     );
   }
 
-  // Talise-sponsored money-out flows (off-ramp, pay-to-bank) force the
-  // sponsored rail — see the `sponsored` body field above. A gasless attempt
-  // would fail for any user whose USDsui is in Coin objects, not the
-  // accumulator, which is the common case.
-  const forceSponsored = body.sponsored === true;
+  // Talise-sponsored money-out flows (off-ramp, pay-to-bank) opt into a
+  // sponsored fallback — see the `sponsorFallback` body field above. We still
+  // try gasless first (free when the user's funds are in the accumulator) and
+  // only sponsor when the gasless build can't serve the send.
+  const sponsorFallback = body.sponsorFallback === true || body.sponsored === true;
 
   const asset = body.asset ?? "USDsui";
   if (!SUPPORTED_ASSETS.has(asset)) {
@@ -157,10 +165,13 @@ export async function POST(req: Request) {
   // 0.01 USDsui = 10,000 µ. Reject upfront with a clear copy instead of
   // letting the validator reject the tx ~1s later under an opaque
   // "Invalid withdraw reservation" string.
-  // Sponsored sends (forceSponsored) go through Payment Kit, NOT the gasless
-  // rail, so the validator's gasless minimum does not apply to them.
+  // A send below the gasless minimum can't take the gasless rail. For a plain
+  // P2P send that's a hard 400. For a sponsor-fallback flow it's fine — we
+  // simply skip the gasless attempt (see `tryGasless` below) and let Payment
+  // Kit handle it on sponsored gas, where the minimum doesn't apply.
   const MIN_GASLESS_MICROS = 10_000n;
-  if (asset === "USDsui" && !forceSponsored && onchain < MIN_GASLESS_MICROS) {
+  const belowGaslessMin = asset === "USDsui" && onchain < MIN_GASLESS_MICROS;
+  if (belowGaslessMin && !sponsorFallback) {
     return NextResponse.json(
       {
         error:
@@ -289,7 +300,12 @@ export async function POST(req: Request) {
   // Plain USDsui send (Save OFF) → gasless rail. Save-ON sends skip this and
   // fall through to the sponsored branch below, which supplies the round-up
   // to NAVI atomically in the same user-signed tx (see the routing note above).
-  if (asset === "USDsui" && deferredRoundupUsd <= 0 && !forceSponsored) {
+  // Try gasless when: USDsui, no Save leg, and the amount clears the gasless
+  // minimum. Sub-minimum sponsor-fallback sends skip straight to Payment Kit
+  // (the only path below 0.01) rather than attempting a build that can't pass.
+  const tryGasless =
+    asset === "USDsui" && deferredRoundupUsd <= 0 && !belowGaslessMin;
+  if (tryGasless) {
     try {
       const t0 = Date.now();
       const client = sui();
@@ -576,16 +592,18 @@ export async function POST(req: Request) {
       } else
       if (
         (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) &&
-        isSnsActive
+        (isSnsActive || sponsorFallback)
       ) {
         console.warn(
-          `[send/sponsor-prepare] gasless unreachable for user=${userId} (Coin-only balance state) AND SnS active; falling through to sponsored-coin-fallback. detail=${msg.slice(0, 200)}`
+          `[send/sponsor-prepare] gasless unreachable for user=${userId} (Coin-only balance state); ${isSnsActive ? "SnS active" : "sponsorFallback opted-in"} — falling through to sponsored-coin-fallback. detail=${msg.slice(0, 200)}`
         );
         gaslessFellBack = true;
         // Intentional fall-through — Payment Kit handles Coin<T>
-        // sourcing via coinWithBalance({useGasCoin:false}) AND the SnS
-        // NAVI supply leg lands atomically. Response surfaces
-        // mode: "sponsored-coin-fallback".
+        // sourcing via coinWithBalance({useGasCoin:false}). When SnS is on
+        // the NAVI supply leg lands atomically too. Response surfaces
+        // mode: "sponsored-coin-fallback". This is the off-ramp path: a user
+        // whose USDsui is in Coin objects gets a sponsored cash-out instead
+        // of a dead end, while accumulator-funded users stayed gasless above.
       } else if (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) {
         console.warn(
           `[send/sponsor-prepare] gasless unreachable for user=${userId} (accumulator underfunded); SnS off — returning ACCUMULATOR_UNDERFUNDED 400. detail=${msg.slice(0, 200)}`
@@ -607,6 +625,18 @@ export async function POST(req: Request) {
           },
           { status: 400 }
         );
+      } else if (sponsorFallback) {
+        // Uncategorized gasless failure on a sponsor-fallback flow (off-ramp,
+        // pay-to-bank): the user asked us to land the transfer, so fall
+        // through to the sponsored Payment Kit branch rather than 400-ing.
+        // This doesn't mask a real build bug — the sponsored branch runs its
+        // own build + simulate and will surface any genuine failure from
+        // there (outer catch → 500). A purely gasless-specific hiccup, by
+        // contrast, simply succeeds on the sponsored rail.
+        console.warn(
+          `[send/sponsor-prepare] gasless build failed (uncategorized) for user=${userId} but sponsorFallback opted-in; falling through to sponsored-coin-fallback. detail=${msg.slice(0, 200)}`
+        );
+        gaslessFellBack = true;
       } else {
         // Anything else: surface as 400 so iOS does NOT silently land on
         // `mode=sponsored`. Real build bugs deserve a loud failure.

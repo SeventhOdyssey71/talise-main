@@ -860,16 +860,16 @@ private struct BankWithdrawView: View {
 
             // 2. Send exactly the quoted USDsui to Linq's deposit wallet
             //    (sponsored/gasless — same rail as a normal send).
-            // forceSponsored: a cash-out is a Talise-sponsored transfer ("No
-            // network fee — sponsored by Talise" on the review screen). It
-            // must land whether the user's USDsui is in the accumulator or in
-            // Coin objects, so we pin the sponsored rail rather than letting
-            // it try the gasless rail (which only sources from the accumulator
-            // and fails for coin-only holders — the cause of the prior
-            // "Couldn't complete the withdrawal" error).
+            // sponsorFallback: a cash-out is fee-free to the user ("No network
+            // fee — sponsored by Talise" on the review screen). Try the
+            // gasless rail first (free for Talise when the user's USDsui is in
+            // the accumulator); if it can't build (funds in Coin objects — the
+            // common case, and the cause of the prior "Couldn't complete the
+            // withdrawal" error) the server sponsors it so the cash-out still
+            // lands.
             let sent = try await ZkLoginCoordinator.shared.signAndSubmitSend(
                 to: order.walletAddress, amountUsd: order.amountUsdsui,
-                intent: "Bank withdrawal", forceSponsored: true
+                intent: "Bank withdrawal", sponsorFallback: true
             )
             NotificationCenter.default.post(name: .taliseTxCompleted, object: TaliseTxEvent(
                 digest: sent.digest, direction: "sent", amountUsdsui: order.amountUsdsui,

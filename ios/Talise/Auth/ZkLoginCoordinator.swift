@@ -377,21 +377,22 @@ final class ZkLoginCoordinator {
     /// this instead of `signAndSubmit(transactionKindB64:)` for any
     /// Send. The legacy method stays for Earn/Vault flows which still
     /// need the explicit prepare→sponsor split.
-    /// `forceSponsored` pins the Onara-sponsored rail instead of the
-    /// gasless rail. Talise-facilitated money-out flows (off-ramp cash-out,
-    /// pay-to-bank) set this: they promise the user a fee-free sponsored
-    /// transfer ("No network fee — sponsored by Talise") and MUST land
-    /// regardless of whether the user's USDsui sits in the Address-Balance
-    /// accumulator or in `Coin<USDSUI>` objects. The gasless rail can only
-    /// source from the accumulator, so a coin-only holder's cash-out would
-    /// otherwise fail with an opaque "couldn't complete" error. Plain P2P
-    /// sends leave it false and stay gasless-first (genuinely free).
+    /// `sponsorFallback` lets a send fall back to the Onara-sponsored rail
+    /// when the gasless rail can't serve it — instead of failing. Gasless is
+    /// still tried FIRST, so a user whose USDsui is already in the
+    /// Address-Balance accumulator gets a genuinely free transfer; only when
+    /// gasless can't build (the common case: funds in `Coin<USDSUI>` objects)
+    /// does it sponsor. Talise-facilitated money-out flows (off-ramp
+    /// cash-out, pay-to-bank) set this — they promise a fee-free transfer
+    /// ("No network fee — sponsored by Talise") and MUST land regardless of
+    /// the user's balance shape. Plain P2P sends leave it false: a gasless
+    /// failure stays a hard error (a "free" send must never silently sponsor).
     func signAndSubmitSend(
         to: String,
         amountUsd: Double,
         asset: String = "USDsui",
         intent: String,
-        forceSponsored: Bool = false,
+        sponsorFallback: Bool = false,
         rewards: RewardsMeta? = nil
     ) async throws -> SignedSubmission {
         guard let maxEpoch = ProofCache.shared.maxEpoch,
@@ -425,10 +426,11 @@ final class ZkLoginCoordinator {
             "amount": amountUsd,
             "asset": asset,
         ]
-        // Pin the sponsored rail for Talise-facilitated money-out flows so
-        // the send lands even when the user's USDsui is in Coin objects
-        // (the gasless rail can only source from the accumulator).
-        if forceSponsored { prepareBody["sponsored"] = true }
+        // Allow a sponsored fallback for Talise-facilitated money-out flows:
+        // try gasless first (free when funds are in the accumulator), and let
+        // the server sponsor only when the gasless build can't serve the send
+        // (e.g. the user's USDsui is in Coin objects).
+        if sponsorFallback { prepareBody["sponsorFallback"] = true }
         let prep = try await postAuthenticated(
             path: "/api/send/sponsor-prepare",
             body: prepareBody
