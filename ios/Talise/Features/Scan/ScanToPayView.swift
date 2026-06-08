@@ -52,6 +52,33 @@ struct ScanToPayView: View {
     /// the `.sheet(item:)` that presents `ConfirmPaymentSheet`.
     @State private var pendingPayment: PendingPayment?
 
+    // MARK: Mode + bank path
+
+    /// Top toggle: scan with the camera vs. type a bank account by hand.
+    enum Mode { case scan, manual }
+    @State private var mode: Mode = .scan
+
+    /// A detected/entered bank account ready to pay out. Drives the
+    /// `.sheet(item:)` that presents `ScanBankPayoutSheet`.
+    @State private var pendingBank: PendingBankPayout?
+
+    /// OCR lock debounce. We require the SAME {bank, account} candidate on a
+    /// few consecutive frames before routing, so a half-read placard doesn't
+    /// fire a wrong account at the off-ramp.
+    @State private var ocrCandidate: BankAccountExtractor.Candidate?
+    @State private var ocrStreak = 0
+    private let ocrLockThreshold = 2
+
+    // Manual entry.
+    @State private var manualBank: ScanBank?
+    @State private var manualAccount: String = ""
+    @State private var showBankPicker = false
+    @FocusState private var manualAccountFocused: Bool
+
+    private var manualReady: Bool {
+        manualBank != nil && manualAccount.count == 10
+    }
+
     /// Same formatter HomeView uses for the headline figure — keeps the
     /// pill consistent with the user's "Balance $X.XX" elsewhere in the
     /// app. Empty wallet renders as "$0.00".
@@ -67,11 +94,13 @@ struct ScanToPayView: View {
 
             // Live camera feed sits behind the overlay so the corner
             // brackets + caption float on top of the frame.
-            if cameraState == .scanning {
+            if cameraState == .scanning && mode == .scan {
                 QRScannerView(
                     torchOn: flashOn,
                     resumeToken: resumeToken,
                     onCode: handleScan,
+                    onText: handleOCR,
+                    ocrEnabled: true,
                     onCameraAvailability: { available in
                         // The representable resolves availability after we
                         // optimistically entered .scanning; demote to the
@@ -83,14 +112,21 @@ struct ScanToPayView: View {
                 .ignoresSafeArea()
             }
 
-            overlay
+            if mode == .manual {
+                manualEntry
+            } else {
+                overlay
+            }
 
             // Permission / availability surfaces sit above the overlay so
-            // their copy isn't competing with the viewfinder caption.
-            switch cameraState {
-            case .denied:       deniedState
-            case .unavailable:  unavailableState
-            case .checking, .scanning: EmptyView()
+            // their copy isn't competing with the viewfinder caption. Only in
+            // scan mode — manual entry needs no camera.
+            if mode == .scan {
+                switch cameraState {
+                case .denied:       deniedState
+                case .unavailable:  unavailableState
+                case .checking, .scanning: EmptyView()
+                }
             }
 
             // Brief resolving veil between a valid scan and the confirm
@@ -119,6 +155,29 @@ struct ScanToPayView: View {
             .presentationDragIndicator(.hidden)
             .presentationBackground(TaliseColor.bg)
         }
+        .sheet(item: $pendingBank, onDismiss: rearmAfterBank) { payout in
+            ScanBankPayoutSheet(
+                bank: payout.bank,
+                accountNumber: payout.accountNumber,
+                onPaid: { dismiss() }
+            )
+            .presentationDetents([.height(580), .large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(TaliseColor.bg)
+        }
+        .sheet(isPresented: $showBankPicker) {
+            ScanBankPickerSheet(selected: manualBank) { manualBank = $0 }
+        }
+    }
+
+    /// After the bank sheet is dismissed without paying out, re-arm the
+    /// scanner + clear the OCR debounce so a fresh placard can lock.
+    private func rearmAfterBank() {
+        pendingBank = nil
+        didRoute = false
+        ocrCandidate = nil
+        ocrStreak = 0
+        resumeToken &+= 1
     }
 
     /// After the confirm sheet is dismissed WITHOUT a completed payment (the
@@ -127,6 +186,8 @@ struct ScanToPayView: View {
     private func rearmAfterConfirm() {
         pendingPayment = nil
         didRoute = false
+        ocrCandidate = nil
+        ocrStreak = 0
         resumeToken &+= 1
     }
 
@@ -180,6 +241,10 @@ struct ScanToPayView: View {
                     .foregroundStyle(.white)
                     .padding(.top, 28)
 
+                modeToggle
+                    .padding(.top, 18)
+                    .padding(.horizontal, 40)
+
                 Spacer(minLength: 0)
 
                 // Viewfinder frame — four rounded corner brackets tracing a
@@ -202,7 +267,7 @@ struct ScanToPayView: View {
                         .padding(.bottom, 52)
                         .transition(.opacity)
                 } else {
-                    Text("Center a Talise QR code inside the frame to pay instantly.")
+                    Text("Point at a Talise QR code, or a bank account number, to pay.")
                         .font(TaliseFont.body(13, weight: .regular))
                         .foregroundStyle(.white.opacity(0.85))
                         .multilineTextAlignment(.center)
@@ -244,6 +309,166 @@ struct ScanToPayView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(Capsule().fill(TaliseColor.surface))
+    }
+
+    // MARK: - Mode toggle
+
+    /// "Scan to pay / Enter manually" segmented control, glassy over the dark
+    /// scanner backdrop. Switching to manual stops feeding the camera (the
+    /// scanner is unmounted in `body`) and reveals the bank form.
+    private var modeToggle: some View {
+        HStack(spacing: 4) {
+            toggleSegment(title: "Scan to pay", isOn: mode == .scan) { mode = .scan }
+            toggleSegment(title: "Enter manually", isOn: mode == .manual) {
+                flashOn = false
+                mode = .manual
+            }
+        }
+        .padding(4)
+        .background(Capsule().fill(Color.white.opacity(0.14)))
+    }
+
+    private func toggleSegment(title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(TaliseFont.heading(13, weight: .medium))
+                .foregroundStyle(isOn ? TaliseColor.bg : .white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    Capsule().fill(isOn ? Color.white : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Manual entry
+
+    /// Type a bank + 10-digit account by hand. Mirrors the bank-form pattern
+    /// from `BankWithdrawView` (searchable picker + 10-digit field). Sits on
+    /// the dark scanner backdrop so the toggle stays in place.
+    private var manualEntry: some View {
+        VStack(spacing: 0) {
+            topStatusBar
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+
+            Text("Scan to pay")
+                .font(TaliseFont.heading(18, weight: .semibold))
+                .kerning(-18 * 0.03)
+                .foregroundStyle(.white)
+                .padding(.top, 28)
+
+            modeToggle
+                .padding(.top, 18)
+                .padding(.horizontal, 40)
+
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    manualLabel("Bank")
+                    Button { showBankPicker = true } label: {
+                        HStack(spacing: 12) {
+                            Text(manualBank?.name ?? "Select bank")
+                                .font(TaliseFont.body(15))
+                                .foregroundStyle(manualBank == nil ? .white.opacity(0.5) : .white)
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 15)
+                        .background(manualFieldShape.fill(Color.white.opacity(0.08)))
+                        .overlay(manualFieldShape.strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    manualLabel("Account number")
+                    TextField("", text: $manualAccount, prompt: Text("10-digit account number").foregroundColor(.white.opacity(0.4)))
+                        .keyboardType(.numberPad)
+                        .focused($manualAccountFocused)
+                        .font(TaliseFont.body(16))
+                        .foregroundStyle(.white)
+                        .tint(TaliseColor.greenMint)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 16)
+                        .background(manualFieldShape.fill(Color.white.opacity(0.08)))
+                        .overlay(manualFieldShape.strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+                        .onChange(of: manualAccount) { _, new in
+                            let trimmed = String(new.filter { $0.isNumber }.prefix(10))
+                            if trimmed != new { manualAccount = trimmed }
+                        }
+                }
+
+                Button(action: routeManual) {
+                    Text("Continue")
+                        .font(TaliseFont.heading(16, weight: .medium))
+                        .foregroundStyle(TaliseColor.bg)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(manualReady ? Color.white : Color.white.opacity(0.35))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(!manualReady)
+                .padding(.top, 6)
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 34)
+
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { manualAccountFocused = false }
+    }
+
+    private var manualFieldShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+    }
+
+    private func manualLabel(_ s: String) -> some View {
+        Text(s)
+            .font(TaliseFont.mono(10, weight: .light))
+            .kerning(1.3)
+            .foregroundStyle(.white.opacity(0.6))
+    }
+
+    /// Route the manually-entered bank + account to the payout sheet.
+    private func routeManual() {
+        guard let bank = manualBank, manualAccount.count == 10 else { return }
+        manualAccountFocused = false
+        pendingBank = PendingBankPayout(bank: bank, accountNumber: manualAccount)
+    }
+
+    // MARK: - OCR routing
+
+    /// Called per processed frame (throttled in the scanner) with the
+    /// recognized strings. We extract a {bank, 10-digit account} candidate and
+    /// debounce: the SAME candidate must appear on `ocrLockThreshold + 1`
+    /// consecutive frames before we lock + present the payout sheet. This
+    /// keeps a half-read placard from firing a wrong account.
+    private func handleOCR(_ strings: [String]) {
+        guard !didRoute, mode == .scan, pendingPayment == nil, pendingBank == nil else { return }
+        guard let candidate = BankAccountExtractor.extract(from: strings) else {
+            return
+        }
+        if candidate == ocrCandidate {
+            ocrStreak += 1
+        } else {
+            ocrCandidate = candidate
+            ocrStreak = 0
+        }
+        guard ocrStreak >= ocrLockThreshold else { return }
+
+        // Locked — route to the off-ramp. Latch so QR frames + further OCR
+        // can't double-route.
+        didRoute = true
+        #if canImport(UIKit)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+        pendingBank = PendingBankPayout(bank: candidate.bank, accountNumber: candidate.accountNumber)
     }
 
     // MARK: - Top status bar
@@ -496,6 +721,14 @@ private struct PendingPayment: Identifiable {
     let recipient: RecipientResolution
     let amount: Double?
     var id: String { recipient.address }
+}
+
+/// A detected/entered bank account ready for off-ramp payout. Drives the
+/// `.sheet(item:)` that presents `ScanBankPayoutSheet`.
+private struct PendingBankPayout: Identifiable {
+    let bank: ScanBank
+    let accountNumber: String
+    var id: String { "\(bank.code)-\(accountNumber)" }
 }
 
 // MARK: - Viewfinder frame
