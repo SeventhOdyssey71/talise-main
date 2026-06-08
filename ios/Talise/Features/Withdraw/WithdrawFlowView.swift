@@ -690,9 +690,8 @@ private struct BankWithdrawView: View {
 
     @ViewBuilder private var statusIcon: some View {
         if step == .sending {
-            ProgressView().controlSize(.large).tint(TaliseColor.fg)
-                .frame(width: 96, height: 96)
-                .background(Circle().fill(TaliseColor.surface2))
+            // Clean comet-tail ring in the brand mint — no grey backdrop.
+            TaliseLoadingRing(size: 64, lineWidth: 3.5)
         } else if finalStatus == "completed" {
             Image(systemName: paidOut ? "checkmark.seal.fill" : "clock.fill")
                 .font(.system(size: paidOut ? 56 : 50)).foregroundStyle(TaliseColor.greenMint)
@@ -1085,5 +1084,45 @@ private struct FieldSurface: ViewModifier {
 private extension View {
     func fieldSurface(cornerRadius: CGFloat = 16) -> some View {
         modifier(FieldSurface(cornerRadius: cornerRadius))
+    }
+}
+
+/// Clean, brand-mint loading ring — a comet-tail arc that fades from
+/// transparent into solid mint and spins smoothly. No grey backdrop, no
+/// system `ProgressView` dashes. Reusable across money flows.
+struct TaliseLoadingRing: View {
+    var size: CGFloat = 64
+    var lineWidth: CGFloat = 3.5
+    /// Active arc colour — defaults to the mint accent that reads on dark.
+    var color: Color = TaliseColor.greenMint
+
+    @State private var spinning = false
+
+    var body: some View {
+        ZStack {
+            // Faint full-circle track — adapts to the surface (light on dark,
+            // dark on light) without any filled grey disc behind it.
+            Circle()
+                .stroke(TaliseColor.fg.opacity(0.08), lineWidth: lineWidth)
+
+            // Comet-tail arc: angular gradient from clear → solid mint so the
+            // leading edge is crisp and the tail dissolves.
+            Circle()
+                .trim(from: 0, to: 0.92)
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(colors: [color.opacity(0), color]),
+                        center: .center
+                    ),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+                .rotationEffect(.degrees(spinning ? 360 : 0))
+        }
+        .frame(width: size, height: size)
+        .onAppear {
+            withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
+                spinning = true
+            }
+        }
     }
 }
