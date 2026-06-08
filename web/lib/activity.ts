@@ -315,17 +315,17 @@ function withTimeout<T>(p: Promise<T>, ms: number, leg: string, fallback: T): Pr
 const TX_HISTORY_QUERY = /* GraphQL */ `
   query ActivityHistory(
     $addr: SuiAddress!
-    $first: Int!
-    $after: String
+    $last: Int!
+    $before: String
   ) {
     transactions(
       filter: { affectedAddress: $addr }
-      first: $first
-      after: $after
+      last: $last
+      before: $before
     ) {
       pageInfo {
-        hasNextPage
-        endCursor
+        hasPreviousPage
+        startCursor
       }
       nodes {
         digest
@@ -398,7 +398,7 @@ type GraphQLActivityNode = {
 
 type GraphQLActivityResponse = {
   transactions: {
-    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    pageInfo: { hasPreviousPage: boolean; startCursor: string | null };
     nodes: Array<GraphQLActivityNode>;
   } | null;
 };
@@ -1420,7 +1420,14 @@ export async function getRecentActivity(
   // past iOS's 60s URLSession default and the client retries.
   const txHistoryWalk = async (): Promise<RawTx[]> => {
     const collected: RawTx[] = [];
-    let after: string | null = null;
+    // Sui GraphQL's `transactions` connection orders ASCENDING (oldest
+    // first). Paging forward with `first/after` therefore returns a user's
+    // OLDEST txs and never reaches recent activity once they have more than
+    // `fetchLimit` total — which froze History at the account's first ~50
+    // txs. Page BACKWARD from the newest with `last/before` instead so the
+    // most recent txs are always in the window. (Downstream sorts by
+    // timestamp desc, so within-page order is irrelevant.)
+    let before: string | null = null;
     let count = 0;
     while (count < fetchLimit) {
       const remaining = fetchLimit - count;
@@ -1435,14 +1442,14 @@ export async function getRecentActivity(
       // pieces.
       const res: { data?: GraphQLActivityResponse } = await suiGraphQL().query({
         query: TX_HISTORY_QUERY,
-        variables: { addr: address, first: pageSize, after },
+        variables: { addr: address, last: pageSize, before },
       });
       const page = res.data?.transactions;
       const nodes = page?.nodes ?? [];
       for (const n of nodes) collected.push(adaptGraphQLNodeToRawTx(n));
       count += nodes.length;
-      if (!page?.pageInfo.hasNextPage || !page.pageInfo.endCursor) break;
-      after = page.pageInfo.endCursor;
+      if (!page?.pageInfo.hasPreviousPage || !page.pageInfo.startCursor) break;
+      before = page.pageInfo.startCursor;
     }
     return collected;
   };
