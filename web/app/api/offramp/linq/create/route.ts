@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { db, ensureSchema, userById } from "@/lib/db";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { createOrder, linqConfigured } from "@/lib/linq";
+import { createOrder, getRate, linqConfigured } from "@/lib/linq";
 import { resolveLinqBank } from "@/lib/linq-banks";
 
 export const runtime = "nodejs";
@@ -46,6 +46,9 @@ export async function POST(req: Request) {
   }
 
   let body: {
+    /** Cash-out denominated in NGN — the user is credited exactly this. */
+    amountNgn?: number;
+    /** Or denominated in USDsui (the amount debited). One of the two. */
     amountUsdsui?: number;
     bankCode?: string;
     accountNumber?: string;
@@ -58,15 +61,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
 
-  const amountUsdsui = Number(body.amountUsdsui);
+  const reqNgn = Number(body.amountNgn);
+  const reqUsdsui = Number(body.amountUsdsui);
+  const wantsNgn = Number.isFinite(reqNgn) && reqNgn > 0;
+  const wantsUsdsui = Number.isFinite(reqUsdsui) && reqUsdsui > 0;
   const bankCode = String(body.bankCode ?? "").trim();
   const accountNumber = String(body.accountNumber ?? "").trim();
   const accountName = String(body.accountName ?? "").trim();
   const bank = resolveLinqBank(bankCode);
   const bankName = String(body.bankName ?? bank?.name ?? "").trim();
 
-  if (!Number.isFinite(amountUsdsui) || amountUsdsui <= 0) {
-    return NextResponse.json({ error: "amountUsdsui must be positive" }, { status: 400 });
+  if (!wantsNgn && !wantsUsdsui) {
+    return NextResponse.json(
+      { error: "amountNgn or amountUsdsui must be positive" },
+      { status: 400 }
+    );
   }
   if (!bank || !/^\d{10}$/.test(accountNumber) || !accountName) {
     return NextResponse.json(
@@ -75,13 +84,31 @@ export async function POST(req: Request) {
     );
   }
 
+  const r6 = (n: number) => Math.round(n * 1e6) / 1e6; // USDsui = 6 dp
+  const r2 = (n: number) => Math.round(n * 100) / 100; // NGN = 2 dp
+
+  // Initial amountStableCoin for the order (informational — Linq pays on what
+  // actually ARRIVES at the locked rate). For an NGN-denominated cash-out we
+  // estimate it from the display rate; we recompute the EXACT amount to send
+  // from the order's LOCKED rate below.
+  let initialUsdsui = wantsUsdsui ? reqUsdsui : 0;
+  if (wantsNgn && !wantsUsdsui) {
+    try {
+      const rateNow = (await getRate()).rate;
+      if (!Number.isFinite(rateNow) || rateNow <= 0) throw new Error("bad rate");
+      initialUsdsui = r6(reqNgn / rateNow);
+    } catch {
+      return NextResponse.json({ error: "rate_unavailable" }, { status: 503 });
+    }
+  }
+
   const id = randomUUID(); // our row id; doubles as the idempotency key
   const now = Date.now();
 
   let order;
   try {
     order = await createOrder({
-      amountStableCoin: amountUsdsui,
+      amountStableCoin: initialUsdsui,
       bankAccount: accountNumber,
       bankCode,
       bankName,
@@ -95,6 +122,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not start the cash-out.", reason }, { status: 502 });
   }
 
+  // Linq pays out (USDsui that ARRIVES) × the order's LOCKED rate. So to credit
+  // the user an exact NGN figure, send exactly amountNgn / lockedRate USDsui.
+  const lockedRate = order.rate > 0 ? order.rate : (order.amountNGN / Math.max(initialUsdsui, 1e-6));
+  const sendUsdsui = wantsNgn && !wantsUsdsui ? r6(reqNgn / lockedRate) : r6(initialUsdsui);
+  const creditNgn = r2(sendUsdsui * lockedRate);
+
   await ensureSchema();
   try {
     await db().execute({
@@ -107,9 +140,9 @@ export async function POST(req: Request) {
         id,
         order.id,
         String(userId),
-        amountUsdsui,
-        order.amountNGN,
-        order.rate,
+        sendUsdsui,
+        creditNgn,
+        lockedRate,
         bankCode,
         accountNumber,
         accountName,
@@ -129,9 +162,10 @@ export async function POST(req: Request) {
     linqOrderId: order.id,
     walletAddress: order.walletAddress,
     coinType: order.coinType,
-    amountUsdsui: order.amountStableCoin,
-    amountNgn: order.amountNGN,
-    rate: order.rate,
+    // EXACT amount to debit: send this and the user is credited `amountNgn`.
+    amountUsdsui: sendUsdsui,
+    amountNgn: creditNgn,
+    rate: lockedRate,
     // The client now sends exactly `amountUsdsui` USDSUI to `walletAddress`
     // (normal sponsored send), then polls /api/offramp/linq/status/[orderId].
     depositWindowMinutes: 10,

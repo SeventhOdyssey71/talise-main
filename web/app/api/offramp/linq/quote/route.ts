@@ -40,18 +40,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
 
-  let body: { amountUsdsui?: number; bankCode?: string; accountNumber?: string };
+  let body: {
+    amountNgn?: number;
+    amountUsdsui?: number;
+    bankCode?: string;
+    accountNumber?: string;
+  };
   try {
     body = (await req.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
 
-  const amountUsdsui = Number(body.amountUsdsui);
+  const reqNgn = Number(body.amountNgn);
+  const reqUsdsui = Number(body.amountUsdsui);
+  const wantsNgn = Number.isFinite(reqNgn) && reqNgn > 0;
+  const wantsUsdsui = Number.isFinite(reqUsdsui) && reqUsdsui > 0;
   const bankCode = String(body.bankCode ?? "").trim();
   const accountNumber = String(body.accountNumber ?? "").trim();
-  if (!Number.isFinite(amountUsdsui) || amountUsdsui <= 0) {
-    return NextResponse.json({ error: "amountUsdsui must be positive" }, { status: 400 });
+  if (!wantsNgn && !wantsUsdsui) {
+    return NextResponse.json(
+      { error: "amountNgn or amountUsdsui must be positive" },
+      { status: 400 }
+    );
   }
   if (!bankCode || !/^\d{10}$/.test(accountNumber)) {
     return NextResponse.json(
@@ -86,7 +97,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "rate_unavailable" }, { status: 503 });
   }
 
-  const amountNgn = Math.round(amountUsdsui * rate * 100) / 100;
+  // Quote either direction: NGN → the USDsui that will be debited, or
+  // USDsui → the NGN the recipient gets. Display rate; the order locks its own.
+  const amountUsdsui = wantsNgn
+    ? Math.round((reqNgn / rate) * 1e6) / 1e6
+    : Math.round(reqUsdsui * 1e6) / 1e6;
+  const amountNgn = wantsNgn
+    ? Math.round(reqNgn * 100) / 100
+    : Math.round(reqUsdsui * rate * 100) / 100;
 
   return NextResponse.json({
     accountName,

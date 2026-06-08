@@ -318,12 +318,25 @@ private struct BankWithdrawView: View {
         .init(name: "Moniepoint",               bankCode: "090405"),
     ]
 
+    /// Whether the user's display currency is NGN. When true the amount
+    /// field is denominated in Naira (the exact NGN they want credited) and
+    /// the backend debits the precise USDsui from Linq's locked rate; when
+    /// false (USD or any other display currency) the field stays in USDsui.
+    /// Branch on this everywhere rather than hardcoding NGN.
+    private var isNgnInput: Bool { CurrencySettings.shared.current.code == "NGN" }
+
+    /// Raw numeric value the user typed (NGN when `isNgnInput`, else USDsui).
+    private var amountValue: Double { Double(amount) ?? 0 }
+
+    /// The USDsui amount this input *implies* — only meaningful for the
+    /// USD path or for gating "can continue". For the NGN path the exact
+    /// debit comes from the server quote/create, never this estimate.
     private var usdsuiAmount: Double { Double(amount) ?? 0 }
 
     /// The account must be NAME-RESOLVED before we'll let the user move on —
     /// a wrong/unverifiable account can't proceed.
     private var canContinue: Bool {
-        usdsuiAmount > 0
+        amountValue > 0
             && selectedBank != nil
             && accountNumber.count == 10
             && resolvedName != nil
@@ -360,7 +373,7 @@ private struct BankWithdrawView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    fieldLabel("Amount in USDsui")
+                    fieldLabel(isNgnInput ? "Amount in Naira" : "Amount in USDsui")
                     amountField
                     estimateLine
                 }
@@ -402,7 +415,7 @@ private struct BankWithdrawView: View {
 
     private var amountField: some View {
         HStack(spacing: 8) {
-            Text("$")
+            Text(isNgnInput ? "₦" : "$")
                 .font(TaliseFont.heading(20, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
             TextField("", text: $amount, prompt: Text("0").foregroundColor(TaliseColor.fgDim))
@@ -415,16 +428,20 @@ private struct BankWithdrawView: View {
         .fieldSurface()
     }
 
-    /// Live "≈ ₦X" estimate under the amount. Display-only — the locked NGN
-    /// figure still comes from the quote at review.
+    /// Live estimate under the amount. Display-only — the locked figures
+    /// still come from the quote at review.
+    ///   - NGN input → "≈ {ngn / rate} USDsui" (what will be debited).
+    ///   - USD input → "≈ ₦{usdsui × rate}" (what the recipient receives).
     @ViewBuilder private var estimateLine: some View {
-        if let rate = displayRate, usdsuiAmount > 0 {
-            Text("≈ ₦\(ngnGrouped(usdsuiAmount * rate))")
+        if let rate = displayRate, rate > 0, amountValue > 0 {
+            Text(isNgnInput
+                 ? "≈ \(TaliseFormat.usd2(amountValue / rate)) USDsui"
+                 : "≈ ₦\(ngnGrouped(amountValue * rate))")
                 .font(TaliseFont.mono(12, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .padding(.leading, 2)
                 .contentTransition(.numericText())
-                .animation(.snappy(duration: 0.18), value: usdsuiAmount)
+                .animation(.snappy(duration: 0.18), value: amountValue)
         }
     }
 
@@ -542,7 +559,7 @@ private struct BankWithdrawView: View {
                         // Summary card — headline receive amount, then details.
                         VStack(spacing: 0) {
                             VStack(spacing: 6) {
-                                Eyebrow(text: "They receive")
+                                Eyebrow(text: "You receive")
                                 Text("₦\(ngnGrouped(q.amountNgn))")
                                     .font(TaliseFont.heading(40, weight: .medium))
                                     .kerning(-1)
@@ -782,11 +799,25 @@ private struct BankWithdrawView: View {
         guard canContinue, let bank = selectedBank else { return }
         quoting = true; error = nil
         defer { quoting = false }
-        struct Body: Encodable { let amountUsdsui: Double; let bankCode: String; let accountNumber: String }
+        // The backend accepts either amountNgn (NGN display currency — debits
+        // the exact USDsui from Linq's locked rate) or amountUsdsui (USD/other
+        // display currencies). Send whichever the user entered; leave the
+        // other nil so it's omitted from the JSON body.
+        struct Body: Encodable {
+            let amountNgn: Double?
+            let amountUsdsui: Double?
+            let bankCode: String
+            let accountNumber: String
+        }
         do {
             let q: LinqQuoteResp = try await APIClient.shared.post(
                 "/api/offramp/linq/quote",
-                body: Body(amountUsdsui: usdsuiAmount, bankCode: bank.bankCode, accountNumber: accountNumber)
+                body: Body(
+                    amountNgn: isNgnInput ? amountValue : nil,
+                    amountUsdsui: isNgnInput ? nil : amountValue,
+                    bankCode: bank.bankCode,
+                    accountNumber: accountNumber
+                )
             )
             quote = q
             withAnimation { step = .review }
@@ -804,8 +835,13 @@ private struct BankWithdrawView: View {
         defer { confirming = false }
         do {
             // 1. Create the Linq order — returns the deposit wallet to fund.
+            //    For NGN we send amountNgn (the exact credit) and trust the
+            //    response's amountUsdsui as the EXACT amount to debit; for
+            //    USD/other we send the quoted amountUsdsui. Send only the
+            //    field that matches the input so the other is omitted.
             struct CreateBody: Encodable {
-                let amountUsdsui: Double
+                let amountNgn: Double?
+                let amountUsdsui: Double?
                 let bankCode: String
                 let accountNumber: String
                 let accountName: String
@@ -814,7 +850,8 @@ private struct BankWithdrawView: View {
             let order: LinqCreateResp = try await APIClient.shared.post(
                 "/api/offramp/linq/create",
                 body: CreateBody(
-                    amountUsdsui: q.amountUsdsui,
+                    amountNgn: isNgnInput ? q.amountNgn : nil,
+                    amountUsdsui: isNgnInput ? nil : q.amountUsdsui,
                     bankCode: bank.bankCode,
                     accountNumber: accountNumber,
                     accountName: q.accountName,
