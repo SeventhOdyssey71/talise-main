@@ -759,6 +759,30 @@ async function doEnsureSchema(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_linq_offramps_order
        ON linq_offramps (linq_order_id)`,
 
+    // ─── user_bank_accounts (linked NGN payout banks per @handle) ────
+    // Off-ramp Phase 2/3: a user links a bank (consent signed) so they can be
+    // PAID to it. One row per user is the PRIMARY payout target (the bank a
+    // sender hits when they choose "pay to their bank" against a @handle).
+    `CREATE TABLE IF NOT EXISTS user_bank_accounts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      bank_code TEXT NOT NULL,
+      account_number TEXT NOT NULL,
+      account_name TEXT,
+      attestation_digest TEXT,
+      is_primary BOOLEAN NOT NULL DEFAULT false,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
+    // Additive ALTER for installs that pre-date is_primary; existing rows
+    // default false until one is explicitly set primary.
+    `ALTER TABLE user_bank_accounts ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT false`,
+    `CREATE INDEX IF NOT EXISTS idx_user_bank_accounts_user
+       ON user_bank_accounts (user_id)`,
+    // One row per (user, bank, account) — re-linking is an idempotent UPSERT.
+    `CREATE UNIQUE INDEX IF NOT EXISTS uniq_user_bank_accounts
+       ON user_bank_accounts (user_id, bank_code, account_number)`,
+
     // ─── travel_rule_records (FATF Travel Rule audit log) ────────────
     // Master plan §7: above the ~$1,000 Travel Rule threshold, external
     // transfers must exchange IVMS-101 originator/beneficiary data. This
