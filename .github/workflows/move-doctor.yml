@@ -1,0 +1,25 @@
+name: move-doctor
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  doctor:
+    name: Score Move codebase
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Score the codebase
+        run: |
+          SCORE=$(npx --yes move-doctor@latest . --score)
+          echo "move-doctor score: $SCORE"
+          if [ "$SCORE" -lt 80 ]; then
+            echo "::warning::move-doctor score below 80 threshold"
+          fi

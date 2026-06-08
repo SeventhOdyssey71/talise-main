@@ -326,7 +326,7 @@ EOF
     -H "Content-Type: application/json" \
     -d @- <<EOJSON
 {
-  "query": "mutation { podFindAndDeployOnDemand(input: { cloudType: SECURE, gpuCount: 1, volumeInGb: 50, containerDiskInGb: 50, minVcpuCount: 4, minMemoryInGb: 16, gpuTypeId: \"${GPU_TYPE}\", name: \"talise-zklogin-prover\", imageName: \"runpod/base:0.6.2-cuda12.4.1\", dockerArgs: \"\", ports: \"22/tcp,443/tcp,80/tcp\", volumeMountPath: \"/workspace\", env: [{ key: \"BOOTSTRAP_B64\", value: \"${BOOTSTRAP_B64}\" }] }) { id imageName machineId } }"
+  "query": "mutation { podFindAndDeployOnDemand(input: { cloudType: ${CLOUD_TYPE}, gpuCount: 1, volumeInGb: 20, containerDiskInGb: 25, minVcpuCount: 4, minMemoryInGb: 16, gpuTypeId: \"${GPU_TYPE}\", name: \"talise-zklogin-prover\", imageName: \"runpod/base:0.6.2-cuda12.4.1\", dockerArgs: \"\", ports: \"22/tcp,443/tcp,80/tcp\", volumeMountPath: \"/workspace\", env: [{ key: \"BOOTSTRAP_B64\", value: \"${BOOTSTRAP_B64}\" }] }) { id imageName machineId } }"
 }
 EOJSON
 )
@@ -360,7 +360,14 @@ EOJSON
   fi
 
   bold "==> Uploading bootstrap script via ssh"
-  render_bootstrap | ssh -o StrictHostKeyChecking=no -p "$PORT" "root@$IP" 'cat > /root/bootstrap.sh && chmod +x /root/bootstrap.sh && bash /root/bootstrap.sh'
+  # Use the dedicated RunPod keypair if it exists; falls back to the
+  # ssh-agent / default identity files when not present so the script
+  # stays portable.
+  SSH_KEY_OPT=""
+  if [[ -f "$HOME/.ssh/runpod-talise" ]]; then
+    SSH_KEY_OPT="-i $HOME/.ssh/runpod-talise -o IdentitiesOnly=yes"
+  fi
+  render_bootstrap | ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=30 $SSH_KEY_OPT -p "$PORT" "root@$IP" 'cat > /root/bootstrap.sh && chmod +x /root/bootstrap.sh && bash /root/bootstrap.sh'
 
   green "==> DONE."
   echo
