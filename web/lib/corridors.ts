@@ -4,13 +4,13 @@
  * how far along each one is (live / partner / planned).
  *
  * This is the merge of the two halves of the product directive:
- *   • African corridors  — NG/NGN (live via Paga), KE/KES, GH/GHS, ZA/ZAR.
+ *   • African corridors  — NG/NGN (live via Linq), KE/KES, GH/GHS, ZA/ZAR.
  *   • Asian / global      — JP/JPY, SG/SGD, PH/PHP, ID/IDR, VN/VND, US/USD.
  *
  * The model is deliberately descriptive metadata only — no I/O, no
  * provider clients. It is the registry that the FX edge, the (future)
  * corridor-agnostic transfers state machine, and the client UI all read
- * to decide what is offerable and at what spread. Provider wiring (Paga,
+ * to decide what is offerable and at what spread. Provider wiring (Linq,
  * JPYC, PayNow, ACH/FedNow…) lives behind the per-corridor rails named
  * here but is NOT implemented in this file.
  *
@@ -82,9 +82,9 @@ export interface Corridor {
   toCountry: CountryCode;
   /** Currency paid out on the recipient side. */
   toCcy: CorridorCurrency;
-  /** Fiat-in rail (collection). e.g. "Paga", "ACH/FedNow", "PayNow". */
+  /** Fiat-in rail (collection). e.g. "ACH/FedNow", "PayNow". */
   fiatInRail: string;
-  /** Fiat-out rail (payout). e.g. "Paga (NGN bank)", "Zengin", "PayNow". */
+  /** Fiat-out rail (payout). e.g. "Linq (NGN bank)", "Zengin", "PayNow". */
   fiatOutRail: string;
   /** Lifecycle stage. */
   status: CorridorStatus;
@@ -120,7 +120,7 @@ export interface Corridor {
  * separate entry and is added when that direction has a rail.
  *
  * Notes on status assignment (master plan §2 expansion order):
- *   • US→NG is "live": the Paga NGN bank-payout off-ramp is in production
+ *   • US→NG is "live": the Linq NGN bank-payout off-ramp is in production
  *     today and the US card on-ramp (Stripe) is live.
  *   • Singapore is the licensing anchor and first self-licensable market,
  *     so SG corridors are "partner" (PSP-fronted while the MPI pends).
@@ -136,12 +136,12 @@ export const CORRIDORS: readonly Corridor[] = [
     toCountry: "NG",
     toCcy: "NGN",
     fiatInRail: "ACH/FedNow (default), Stripe card (surcharged)",
-    fiatOutRail: "Paga (NGN bank deposit)",
+    fiatOutRail: "Linq (NGN bank deposit)",
     status: "live",
     spreadBps: 25,
     minorUnits: 0,
     licenseNote:
-      "US leg: agent of a licensed remitter (FinCEN MSB + state MTL pending). NG payout via Paga (CBN-licensed PSP); Talise is not the merchant-of-record.",
+      "US leg: agent of a licensed remitter (FinCEN MSB + state MTL pending). NG payout via Linq (licensed PSP); Talise is not the merchant-of-record.",
   },
   {
     id: "US-KE",

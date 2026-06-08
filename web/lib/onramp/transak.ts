@@ -18,18 +18,26 @@ import {
 import { computeRequirements } from "./requirements";
 
 /**
- * Transak on-ramp adapter — FALLBACK provider (card-supporting aggregator).
+ * Transak on-ramp adapter — the LIVE money-in provider for Talise.
  *
- * Transak does NOT deliver USDsui. It delivers USDC on Sui; the existing
- * AutoConvertBanner / swap leg then converts USDC → USDsui. So this adapter
- * always reports `deliverAsset = USDC` and `requiresSwapToUsdsui = true`, and
- * the SWAP-TO-USDSUI step is the caller's responsibility (the on-chain leg is
- * NOT USDsui yet when Transak completes).
+ * Transak's HOSTED WIDGET performs KYC itself (tiered: light KYC for small
+ * amounts, full ID for larger), so Talise collects no identity fields — we
+ * just build the widget URL with the user's Sui address locked in. Transak
+ * does NOT deliver USDsui; it delivers USDC on Sui, and a separate
+ * swap-to-USDsui step (`/api/swap/prepare`) converts it. So this adapter
+ * always reports `deliverAsset = USDC` and `requiresSwapToUsdsui = true`.
  *
- * STUB: with no `TRANSAK_API_KEY` set, every method returns deterministic,
- * typed mock data. Real call sites are marked `// TODO(live):`.
+ * With no `TRANSAK_API_KEY` set, `createOnrampSession` returns a deterministic
+ * stub URL so the modal + routes can be exercised without a live account.
+ * With the key set it builds a real Transak widget URL.
  *
- * Docs (for the live wiring): https://docs.transak.com
+ * Env:
+ *   TRANSAK_API_KEY       partner API key (required to go live)
+ *   TRANSAK_API_SECRET    webhook JWT signing secret (HS256)
+ *   TRANSAK_ENVIRONMENT   "PRODUCTION" | "STAGING" (default STAGING)
+ *   NEXT_PUBLIC_APP_URL   optional; used for the post-purchase redirect
+ *
+ * Docs: https://docs.transak.com  (widget params + webhook verification)
  */
 
 const NAME: OnrampProviderName = "transak";
@@ -40,42 +48,46 @@ function apiKey(): string | undefined {
 }
 
 function webhookSecret(): string | undefined {
-  // Transak signs webhooks with a JWT secret / API secret in production.
+  // Transak signs the webhook body as a JWT (HS256) with the API secret.
   return process.env.TRANSAK_API_SECRET || process.env.TRANSAK_API_KEY || undefined;
+}
+
+/** Production vs staging widget host, from TRANSAK_ENVIRONMENT (default STAGING). */
+function widgetBase(): string {
+  const env = (process.env.TRANSAK_ENVIRONMENT || "STAGING").toUpperCase();
+  return env === "PRODUCTION"
+    ? "https://global.transak.com"
+    : "https://global-stg.transak.com";
 }
 
 export const transakAdapter: OnrampProvider = {
   name: NAME,
   displayName: "Transak (card → USDC on Sui, then swap to USDsui)",
   deliverAsset: DELIVER,
+  // Transak's hosted widget runs the KYC, so Talise collects no fields.
+  widgetCollectsKyc: true,
 
   async getRequirements(
     input: RequirementsInput
   ): Promise<RequirementsResult> {
-    // Same tier ladder as Bridge. TODO(live): Transak surfaces KYC tiers via
-    // its own API; reconcile if its thresholds differ from the local ladder.
-    return computeRequirements(input);
+    // The widget enforces KYC itself (it asks the user for whatever the
+    // amount/country needs), so Talise requests NO fields up front. We still
+    // surface the indicative tier from the local ladder for display, but
+    // report nothing missing so the modal goes straight to checkout.
+    const r = computeRequirements(input);
+    return { ...r, missingFields: [], satisfied: true };
   },
 
   async createOrUpdateCustomer(profile: KycProfile): Promise<CustomerResult> {
-    const key = apiKey();
-    if (!key) {
-      const providerCustomerId = stubCustomerId(profile);
-      const status: OnrampKycStatus = profile.governmentIdRef
-        ? "pending"
-        : "approved";
-      return {
-        providerCustomerId,
-        status,
-        dailyLimitCents: 1_000_00,
-        monthlyLimitCents: 10_000_00,
-      };
-    }
-    // TODO(live): Transak's KYC is widget-driven; if using their partner KYC
-    // API, create/reference the user here and map the response.
-    throw new Error(
-      "transak: live createOrUpdateCustomer not implemented (TODO(live))"
-    );
+    // No partner-KYC API call here — Transak verifies identity in its widget.
+    // We only mint a STABLE partner reference so orders + webhooks reconcile
+    // back to this user. Works identically with or without an API key.
+    return {
+      providerCustomerId: partnerRef(profile),
+      status: "pending", // flips via verifyWebhook once Transak verifies
+      dailyLimitCents: null,
+      monthlyLimitCents: null,
+    };
   },
 
   async createOnrampSession(input: SessionInput): Promise<SessionResult> {
@@ -101,87 +113,144 @@ export const transakAdapter: OnrampProvider = {
       };
     }
 
-    // TODO(live): build a Transak widget URL (apiKey + walletAddress +
-    // cryptoCurrencyCode=USDC + network=sui + fiatAmount). Return it as
-    // `widgetUrl`. The USDC→USDsui swap is a SEPARATE on-chain step.
-    throw new Error(
-      "transak: live createOnrampSession not implemented (TODO(live))"
-    );
+    // Live Transak BUY widget. Lock the destination to the user's Sui address
+    // (disableWalletAddressForm) and pin the asset to USDC on the Sui network.
+    // The user's KYC + card/bank payment all happen inside this widget; on
+    // completion USDC lands on `destinationAddress`.
+    const params = new URLSearchParams({
+      apiKey: key,
+      productsAvailed: "BUY",
+      network: "sui",
+      cryptoCurrencyCode: "USDC",
+      defaultCryptoCurrency: "USDC",
+      walletAddress: input.destinationAddress,
+      disableWalletAddressForm: "true",
+      fiatCurrency: "USD",
+      defaultFiatAmount: String(Math.max(1, Math.round(input.amountCents / 100))),
+      partnerCustomerId: input.providerCustomerId,
+      themeColor: "2f7d31", // Talise green
+    });
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+    if (appUrl) {
+      params.set("redirectURL", `${appUrl.replace(/\/+$/, "")}/app?onramp=done`);
+    }
+
+    return {
+      provider: NAME,
+      widgetUrl: `${widgetBase()}?${params.toString()}`,
+      deliverAsset,
+      // Transak delivers USDC → a swap-to-USDsui step is still required.
+      requiresSwapToUsdsui: true,
+    };
   },
 
   async verifyWebhook(
     rawBody: string,
-    headers: Headers | Record<string, string>
+    _headers: Headers | Record<string, string>
   ): Promise<OnrampWebhookEvent> {
     const secret = webhookSecret();
-    const sig = headerGet(headers, "x-transak-signature");
 
+    // Transak posts `{ data: "<JWT>" }` where the JWT is HS256-signed with
+    // the API secret and its payload IS the order/event object. We verify the
+    // signature and decode, falling back to the raw body for unsigned/test
+    // posts (marked verified=false).
     let verified = false;
-    if (secret && sig) {
-      // TODO(live): Transak signs with a JWT (HS256) of the payload. This
-      // placeholder does an HMAC-SHA256 hex compare; replace with real JWT
-      // verification against TRANSAK_API_SECRET before going live.
-      const expected = crypto
-        .createHmac("sha256", secret)
-        .update(rawBody, "utf8")
-        .digest("hex");
-      const a = Buffer.from(expected, "utf8");
-      const b = Buffer.from(sig, "utf8");
-      verified = a.length === b.length && crypto.timingSafeEqual(a, b);
-    }
-
-    let raw: unknown = {};
+    let payload: Record<string, unknown> = {};
     try {
-      raw = JSON.parse(rawBody);
+      const outer = JSON.parse(rawBody) as { data?: unknown };
+      const token = typeof outer?.data === "string" ? outer.data : null;
+      if (token && secret) {
+        const decoded = verifyJwtHs256(token, secret);
+        if (decoded) {
+          verified = true;
+          payload = decoded;
+        }
+      } else {
+        // No JWT envelope — treat the body as the event object (unverified).
+        payload = (outer ?? {}) as Record<string, unknown>;
+      }
     } catch {
-      raw = { _unparsed: rawBody };
+      payload = { _unparsed: rawBody };
     }
 
-    const obj = (raw ?? {}) as Record<string, unknown>;
-    const kind = mapKind(
-      typeof obj.eventID === "string"
-        ? obj.eventID
-        : typeof obj.type === "string"
-          ? obj.type
-          : undefined
-    );
+    // The order/event fields may be nested under `webhookData` or be top-level.
+    const obj = ((payload.webhookData as Record<string, unknown>) ??
+      payload) as Record<string, unknown>;
+    const eventID =
+      typeof payload.eventID === "string"
+        ? payload.eventID
+        : typeof obj.status === "string"
+          ? obj.status
+          : undefined;
+
     return {
       provider: NAME,
       verified,
-      kind,
+      kind: mapKind(eventID),
       providerCustomerId:
         typeof obj.partnerCustomerId === "string"
           ? obj.partnerCustomerId
-          : typeof obj.customer_id === "string"
-            ? obj.customer_id
+          : typeof obj.partner_customer_id === "string"
+            ? obj.partner_customer_id
             : undefined,
-      status: mapStatus(obj.status),
+      status: mapStatus(obj.kycStatus ?? obj.status),
       tier: mapTier(obj.kycTier ?? obj.kyc_tier),
       country: typeof obj.country === "string" ? obj.country : undefined,
       dailyLimitCents: numOrNull(obj.daily_limit_cents),
       monthlyLimitCents: numOrNull(obj.monthly_limit_cents),
-      raw,
+      raw: payload,
     };
   },
 };
 
 // ── helpers ──────────────────────────────────────────────────────────
 
-function stubCustomerId(profile: KycProfile): string {
+/** Stable per-user partner reference (Transak `partnerCustomerId`). */
+function partnerRef(profile: KycProfile): string {
   const h = crypto
     .createHash("sha256")
     .update(`${profile.email}|${profile.country}`)
     .digest("hex")
     .slice(0, 16);
-  return `transak_stub_${h}`;
+  return `talise_${h}`;
 }
 
-function headerGet(
-  headers: Headers | Record<string, string>,
-  name: string
-): string | undefined {
-  if (headers instanceof Headers) return headers.get(name) ?? undefined;
-  return headers[name] ?? headers[name.toLowerCase()] ?? undefined;
+/** base64url decode → Buffer. */
+function b64urlToBuf(s: string): Buffer {
+  return Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+}
+
+/**
+ * Verify a compact HS256 JWT against `secret` and return its decoded payload,
+ * or null if the signature doesn't match / the token is malformed. No external
+ * dependency — Transak only ever uses HS256 for webhook signing.
+ */
+function verifyJwtHs256(
+  token: string,
+  secret: string
+): Record<string, unknown> | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [h, p, sig] = parts;
+  try {
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(`${h}.${p}`, "utf8")
+      .digest(); // raw bytes
+    const got = b64urlToBuf(sig);
+    if (
+      expected.length !== got.length ||
+      !crypto.timingSafeEqual(expected, got)
+    ) {
+      return null;
+    }
+    const json = JSON.parse(b64urlToBuf(p).toString("utf8"));
+    return json && typeof json === "object"
+      ? (json as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function mapKind(type?: string): OnrampWebhookEvent["kind"] {

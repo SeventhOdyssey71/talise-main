@@ -54,8 +54,8 @@ import postgres, { type Sql } from "postgres";
  *                       Primary writer: web/app/api/waitlist/route.ts +
  *                       web/lib/handle-claim.ts.
  *
- *   paga_offramps       Paga USDsui → NGN bank payout state machine.
- *                       Primary writer: web/app/api/offramp/paga/*.
+ *   linq_offramps       Linq USDSUI → NGN bank payout orders.
+ *                       Primary writer: web/app/api/offramp/linq/*.
  *
  *   kyc_upgrade_intents Append-only log of tier-upgrade requests + the
  *                       (mock) eKYC verdict. Never mutates users.kyc_tier.
@@ -65,8 +65,8 @@ import postgres, { type Sql } from "postgres";
  *   transfers           Corridor-agnostic transfers state machine
  *                       (quoted → debited → onchain_settling →
  *                       onchain_settled → fiat_out_pending → settled,
- *                       + failed/refunded). Generalizes paga_offramps for
- *                       all corridors. Primary writer: web/lib/transfers.ts.
+ *                       + failed/refunded) across all corridors.
+ *                       Primary writer: web/lib/transfers.ts.
  *
  *   float_pools         Per-corridor, per-currency, per-leg treasury
  *                       float inventory (fiat_in / fiat_out / usdc) with
@@ -517,83 +517,16 @@ async function doEnsureSchema(): Promise<void> {
     `CREATE UNIQUE INDEX IF NOT EXISTS uniq_waitlist_claimed_handle
        ON waitlist_signups (claimed_handle) WHERE claimed_handle IS NOT NULL`,
 
-    // ─── paga offramp (USDsui → NGN bank payouts) ────────────────────
-    // One row per "USDsui → NGN bank account" payout. The row carries
-    // the locked quote (fxRate, ngn/usdsui amounts), the user-provided
-    // bank coordinates, the Paga reference once we hand off, and the
-    // state-machine status. See `docs/offramp/paga-integration.md`.
-    `CREATE TABLE IF NOT EXISTS paga_offramps (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      usdsui_amount NUMERIC NOT NULL,
-      ngn_amount NUMERIC NOT NULL,
-      fx_rate NUMERIC NOT NULL,
-      bank_code TEXT NOT NULL,
-      bank_account_number TEXT NOT NULL,
-      bank_account_name TEXT,
-      paga_reference TEXT,
-      status TEXT NOT NULL,
-      status_reason TEXT,
-      created_at BIGINT NOT NULL,
-      debited_at BIGINT,
-      settled_at BIGINT,
-      failed_at BIGINT
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_paga_offramps_user ON paga_offramps(user_id, created_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_paga_offramps_status ON paga_offramps(status, created_at DESC)`,
-    // F2 (single-use payout): bind the consumed on-chain debit digest to the
-    // quote so ONE USDsui transfer can never back N NGN payouts. Partial
-    // UNIQUE index — legacy/quoted NULL rows don't collide; the first confirm
-    // to set a digest wins, any other quote reusing it fails the constraint.
-    `ALTER TABLE paga_offramps ADD COLUMN IF NOT EXISTS onchain_digest TEXT`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_paga_offramps_digest ON paga_offramps(onchain_digest) WHERE onchain_digest IS NOT NULL`,
-    // Refund path (P0): when Paga fails after the on-chain debit, the USDsui is
-    // returned to the user from the treasury. refund_state ∈ {refunding,
-    // refunded, refund_failed}; refund_digest is the on-chain return tx.
-    `ALTER TABLE paga_offramps ADD COLUMN IF NOT EXISTS refund_state TEXT`,
-    `ALTER TABLE paga_offramps ADD COLUMN IF NOT EXISTS refund_digest TEXT`,
-    `ALTER TABLE paga_offramps ADD COLUMN IF NOT EXISTS refunded_at BIGINT`,
-
-    // Idempotent audit log of inbound Paga settlement webhooks. One row per
-    // delivered callback; the dedup id = sha256(provider:rawBody), so a
-    // redelivery is a clean no-op (ON CONFLICT DO NOTHING). Records whether the
-    // HMAC signature verified and which payout it advanced. See the webhook
-    // receiver at app/api/offramp/paga/webhook.
-    `CREATE TABLE IF NOT EXISTS offramp_webhook_events (
-      id TEXT PRIMARY KEY,
-      provider TEXT NOT NULL DEFAULT 'paga',
-      reference TEXT,
-      offramp_id TEXT,
-      status_in TEXT,
-      signature_ok INTEGER NOT NULL DEFAULT 0,
-      payload TEXT NOT NULL,
-      received_at BIGINT NOT NULL
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_offramp_webhook_offramp ON offramp_webhook_events(offramp_id, received_at DESC)`,
-
-    // Paga bank registry, synced from the Business API `getBanks` (the real
-    // per-bank `destinationBankUUID` — NOT the NIBSS code). Populated by the
-    // sync cron; resolveBankAsync() reads this first and falls back to the
-    // static top-12 list when the table is empty (fresh env / no creds).
-    `CREATE TABLE IF NOT EXISTS paga_banks (
-      uuid TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      bank_code TEXT,
-      updated_at BIGINT NOT NULL
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_paga_banks_code ON paga_banks(bank_code)`,
-
     // ─── transfers (corridor-agnostic state machine) ─────────────────
     // One row per cross-border / on-ramp / off-ramp / internal transfer.
-    // Generalizes paga_offramps: a TTL-locked quote that walks
+    // A TTL-locked quote that walks
     //   quoted → debited → onchain_settling → onchain_settled →
     //   fiat_out_pending → settled  (+ failed/refunded)
     // with the on-chain leg as the commit point. A post-commit fiat-out
     // failure sets `parked_funds=TRUE` (funds parked, never lost) so a
-    // compensating action can reconcile later. See web/lib/transfers.ts;
-    // the legacy Paga rows in paga_offramps are untouched (PAGA_STATE_MAP
-    // documents the projection). `metadata` is a JSON blob of per-corridor
-    // coordinates (bank, handle, memo).
+    // compensating action can reconcile later. See web/lib/transfers.ts.
+    // `metadata` is a JSON blob of per-corridor coordinates (bank, handle,
+    // memo).
     `CREATE TABLE IF NOT EXISTS transfers (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -732,6 +665,58 @@ async function doEnsureSchema(): Promise<void> {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_kyc_intents_user
        ON kyc_upgrade_intents(user_id, created_at DESC)`,
+
+    // ─── onramp_kyc (provider-agnostic on-ramp KYC state) ────────────
+    // Per-user on-ramp KYC, layered ON TOP OF users.kyc_tier (the send-gate).
+    // Models the richer per-provider, per-country tier (none|lite|standard|
+    // enhanced) the on-ramp flow needs without disturbing the send/limit tier.
+    // Reconciled via the provider webhook (/api/onramp/v2/kyc-webhook). Mirror
+    // of the standalone migration at migrations/2026-06-05-onramp-kyc.sql.
+    `CREATE TABLE IF NOT EXISTS onramp_kyc (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id),
+      kyc_tier TEXT NOT NULL DEFAULT 'none'
+        CHECK (kyc_tier IN ('none', 'lite', 'standard', 'enhanced')),
+      provider TEXT,
+      provider_customer_id TEXT,
+      status TEXT NOT NULL DEFAULT 'unverified'
+        CHECK (status IN ('unverified', 'pending', 'approved', 'rejected', 'expired')),
+      country TEXT,
+      daily_limit_cents BIGINT,
+      monthly_limit_cents BIGINT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_onramp_kyc_provider_customer
+       ON onramp_kyc (provider_customer_id)
+       WHERE provider_customer_id IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_onramp_kyc_status
+       ON onramp_kyc (status)`,
+
+    // ─── linq_offramps (USDSUI → NGN bank payout via Linq) ───────────
+    // Replaces paga_offramps. Linq hands back a deposit wallet it watches and
+    // pays the bank itself, so there's no treasury/on-chain-verify/refund
+    // state here — just the order record + its mirrored status. `id` is our
+    // uuid (also the Linq idempotencyKey); `linq_order_id` is Linq's order id
+    // (used by the webhook + status poll).
+    `CREATE TABLE IF NOT EXISTS linq_offramps (
+      id TEXT PRIMARY KEY,
+      linq_order_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      amount_usdsui NUMERIC NOT NULL,
+      amount_ngn NUMERIC NOT NULL,
+      rate NUMERIC NOT NULL,
+      bank_code TEXT NOT NULL,
+      bank_account_number TEXT NOT NULL,
+      bank_account_name TEXT,
+      wallet_address TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'initiated',
+      status_reason TEXT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_linq_offramps_user
+       ON linq_offramps (user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_linq_offramps_order
+       ON linq_offramps (linq_order_id)`,
 
     // ─── travel_rule_records (FATF Travel Rule audit log) ────────────
     // Master plan §7: above the ~$1,000 Travel Rule threshold, external

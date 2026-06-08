@@ -10,26 +10,17 @@ import { Sheet, Field, PrimaryButton } from "@/components/app";
  *
  * Captures a payout request — amount + Nigerian bank coordinates — and posts it
  * to /api/offramp/request, which records it for manual fulfilment and pings the
- * team. The automated Paga flow (WithdrawToBankSheet) replaces this once it's
+ * team. The automated Linq flow (WithdrawToBankSheet) replaces this once it's
  * live. Deliberately simple: amount, bank, account, name → "request received".
  */
 
-// Inline so this client component never pulls server-only paga code. bankCode
-// is the 3-digit NIBSS code; the server resolves it via resolveBank().
-const BANKS: { code: string; name: string }[] = [
-  { code: "044", name: "Access Bank" },
-  { code: "023", name: "Citibank" },
-  { code: "050", name: "Ecobank" },
-  { code: "070", name: "Fidelity Bank" },
-  { code: "011", name: "First Bank of Nigeria" },
-  { code: "214", name: "First City Monument Bank" },
-  { code: "058", name: "Guaranty Trust Bank" },
-  { code: "221", name: "Stanbic IBTC Bank" },
-  { code: "232", name: "Sterling Bank" },
-  { code: "033", name: "United Bank For Africa" },
-  { code: "035", name: "Wema Bank" },
-  { code: "057", name: "Zenith Bank" },
-];
+import { LINQ_BANKS } from "@/lib/linq-banks";
+
+// bankCode is the NIBSS code; the server resolves it via resolveLinqBank().
+const BANKS: { code: string; name: string }[] = LINQ_BANKS.map((b) => ({
+  code: b.bankCode,
+  name: b.name,
+}));
 
 const inputCls =
   "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[15px] text-fg outline-none transition-colors focus:border-[color-mix(in_srgb,var(--color-accent-deep)_45%,var(--color-line))] focus:ring-0";

@@ -52,7 +52,7 @@ import {
  * --- Confirm pipeline (confirmCrossBorder) ---
  *   Loads the transfer (ownership-checked), then drives the state machine:
  *     quoted → (debit) → debited → (start_onchain) → onchain_settling.
- *   For the LIVE NG corridor the destination fiat-out is the existing Paga
+ *   For the LIVE NG corridor the destination fiat-out is the Linq off-ramp
  *   path; for partner corridors it advances to `fiat_out_pending` as a
  *   documented stub. The on-chain confirmation + fiat-out completion are
  *   driven later by the broadcast-confirm / PSP-webhook hooks (the commit
@@ -224,9 +224,9 @@ function checkTierCaps(
 
 /** The PSP/rail provider key for a corridor's fiat-out leg. */
 function payoutProvider(corridor: Corridor): string {
-  // The live NG corridor pays out via Paga; everything else is a documented
+  // The live NG corridor pays out via Linq; everything else is a documented
   // partner stub until its rail is wired.
-  return corridor.toCountry === "NG" ? "paga" : "partner";
+  return corridor.toCountry === "NG" ? "linq" : "partner";
 }
 
 // ─── Quote ──────────────────────────────────────────────────────────────
@@ -359,11 +359,10 @@ export async function quoteCrossBorder(
  *   quoted → debited → onchain_settling
  *
  * From there the destination fiat-out differs by corridor:
- *   • LIVE NG corridor — hands off to the existing Paga path. The actual
- *     Paga `moneyTransfer` call + the on-chain receipt verification live in
- *     the broadcast-confirm / Paga-confirm routes; here we mark the intent
- *     to route via Paga and advance toward `fiat_out_pending` once the
- *     on-chain leg is confirmed. See the clearly-marked integration point.
+ *   • LIVE NG corridor — routes via the Linq off-ramp. The actual Linq
+ *     payout fires from the broadcast-confirm hook after finality; here we
+ *     mark the intent to route via Linq and leave the transfer at
+ *     `onchain_settling`. See the clearly-marked integration point.
  *   • PARTNER corridors — advance to `fiat_out_pending` as a documented
  *     stub (no live PSP wired yet).
  *
@@ -424,25 +423,20 @@ export async function confirmCrossBorder(
   );
 
   // ── Destination fiat-out routing ────────────────────────────────────
-  if (transfer.provider === "paga" || corridor?.toCountry === "NG") {
-    // INTEGRATION POINT (LIVE NG corridor → Paga):
-    //   The real fiat-out is the existing off-ramp Paga path
-    //   (web/app/api/offramp/paga/confirm/route.ts → lib/paga.moneyTransfer),
-    //   which (a) verifies the on-chain USDsui receipt to the treasury and
-    //   (b) calls Paga `moneyTransfer` to push NGN to the recipient bank.
-    //   That on-chain verification IS this machine's commit point
-    //   (`confirm_onchain`), so the Paga payout is fired by the
-    //   broadcast-confirm hook AFTER finality — NOT here, where the chain
-    //   leg is still settling. We therefore leave the transfer at
-    //   `onchain_settling` and let the confirm hook advance it through
-    //   `confirm_onchain → start_fiat_out` (handing `providerReference` =
-    //   the Paga reference into ctx). Wiring the Paga call directly here
-    //   would pay out before finality and break the commit-point guarantee.
+  if (transfer.provider === "linq" || corridor?.toCountry === "NG") {
+    // INTEGRATION POINT (LIVE NG corridor → Linq):
+    //   The NGN fiat-out is the Linq off-ramp (web/lib/linq.ts +
+    //   web/app/api/offramp/linq/*). The route contract here is kept STABLE
+    //   for iOS — the swap is internal-only. We leave the transfer at
+    //   `onchain_settling` and let the on-chain-confirm hook advance it.
     //
-    //   TODO(xborder-paga): once the broadcast-confirm route is generalized
-    //   off `transfers` (it currently owns `paga_offramps`), call the shared
-    //   Paga payout from the `confirm_onchain` handler and fire
-    //   `start_fiat_out` with the returned reference.
+    //   TODO(linq): wire the Linq payout into the `confirm_onchain` handler.
+    //   Because Linq watches its OWN deposit wallet (no Talise treasury),
+    //   the on-chain leg for this corridor must send USDSUI to a Linq order's
+    //   `walletAddress` (lib/linq.createOrder) rather than to a treasury;
+    //   Linq then pays the bank and reports via webhook/status. Until that
+    //   leg is generalized off `transfers`, this branch is a no-op that keeps
+    //   the machine at `onchain_settling` and the route response unchanged.
     return { ok: true, state: settling.transfer.state, transferId: id };
   }
 

@@ -191,6 +191,14 @@ export interface OnrampProvider {
   readonly displayName: string;
   /** What this adapter delivers on-chain. */
   readonly deliverAsset: DeliverAsset;
+  /**
+   * True when the provider's HOSTED WIDGET performs KYC itself (e.g. Transak,
+   * MoonPay) — Talise collects no identity fields up front; the widget asks
+   * for whatever the amount/country requires. The session route then skips
+   * Talise-side profile collection and derives a stable partner reference from
+   * the authenticated user. Bridge (API-driven KYC) leaves this false/unset.
+   */
+  readonly widgetCollectsKyc?: boolean;
 
   /** Quote-gated KYC: which tier + fields does this purchase need? */
   getRequirements(input: RequirementsInput): Promise<RequirementsResult>;

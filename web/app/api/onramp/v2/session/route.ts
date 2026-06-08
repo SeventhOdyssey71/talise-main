@@ -76,7 +76,18 @@ export async function POST(req: Request) {
   let providerCustomerId = existing?.providerCustomerId ?? null;
 
   if (!providerCustomerId) {
-    const profile: KycProfile | undefined = body.profile;
+    let profile: KycProfile | undefined = body.profile;
+    // Widget-KYC providers (Transak) verify identity inside their hosted
+    // widget, so the client need not collect a profile — derive a minimal one
+    // from the authenticated user just to mint a stable partner reference.
+    if (!profile && provider.widgetCollectsKyc) {
+      profile = {
+        firstName: "",
+        lastName: "",
+        email: (user.email ?? "").toLowerCase(),
+        country: (user.country ?? "").toUpperCase(),
+      } as KycProfile;
+    }
     if (!profile) {
       return NextResponse.json(
         { error: "no provider customer yet — supply `profile` to create one" },

@@ -1,0 +1,102 @@
+import { NextResponse } from "next/server";
+
+import { userById } from "@/lib/db";
+import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
+import { rateLimitAsync } from "@/lib/rate-limit";
+import { getRate, verifyBank, linqConfigured } from "@/lib/linq";
+import { resolveLinqBank } from "@/lib/linq-banks";
+
+export const runtime = "nodejs";
+
+/**
+ * POST /api/offramp/linq/quote
+ *
+ * Display quote for a USDSUI → NGN Linq off-ramp. Verifies the bank account
+ * (name-enquiry) and prices the NGN the user will receive at the live rate.
+ * No order is created yet (the rate is only LOCKED at /create time) and no
+ * money moves — this just powers the review screen.
+ *
+ * Body: { amountUsdsui: number, bankCode: string, accountNumber: string }
+ */
+export async function POST(req: Request) {
+  if (!linqConfigured()) {
+    return NextResponse.json({ error: "off-ramp not configured" }, { status: 503 });
+  }
+
+  const userId = await readEntryIdFromRequest(req);
+  if (!userId) {
+    return NextResponse.json({ error: "not authenticated" }, { status: 401 });
+  }
+  // Throttle bank name-enquiry (each call hits Linq + the bank network).
+  const rl = await rateLimitAsync({ key: `offramp-linq-quote:user:${userId}`, limit: 12, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many attempts. Try again shortly." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } }
+    );
+  }
+  const user = await userById(userId);
+  if (!user) {
+    return NextResponse.json({ error: "user not found" }, { status: 404 });
+  }
+
+  let body: { amountUsdsui?: number; bankCode?: string; accountNumber?: string };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return NextResponse.json({ error: "bad json" }, { status: 400 });
+  }
+
+  const amountUsdsui = Number(body.amountUsdsui);
+  const bankCode = String(body.bankCode ?? "").trim();
+  const accountNumber = String(body.accountNumber ?? "").trim();
+  if (!Number.isFinite(amountUsdsui) || amountUsdsui <= 0) {
+    return NextResponse.json({ error: "amountUsdsui must be positive" }, { status: 400 });
+  }
+  if (!bankCode || !/^\d{10}$/.test(accountNumber)) {
+    return NextResponse.json(
+      { error: "bankCode and a 10-digit accountNumber are required" },
+      { status: 400 }
+    );
+  }
+  if (!resolveLinqBank(bankCode)) {
+    return NextResponse.json({ error: `unsupported bankCode "${bankCode}"` }, { status: 400 });
+  }
+
+  // Name-enquiry — surfaced inline next to the account field on a 422.
+  let accountName: string;
+  let bankName: string;
+  try {
+    const v = await verifyBank({ bankCode, accountNumber });
+    accountName = v.accountName;
+    bankName = v.bankName || resolveLinqBank(bankCode)?.name || "";
+  } catch (e) {
+    console.warn("[offramp/linq/quote] verifyBank failed:", (e as Error).message);
+    return NextResponse.json({ error: "Could not verify the bank account." }, { status: 422 });
+  }
+
+  let rate: number;
+  try {
+    rate = (await getRate()).rate;
+  } catch (e) {
+    console.warn("[offramp/linq/quote] getRate failed:", (e as Error).message);
+    return NextResponse.json({ error: "rate_unavailable" }, { status: 503 });
+  }
+  if (!Number.isFinite(rate) || rate <= 0) {
+    return NextResponse.json({ error: "rate_unavailable" }, { status: 503 });
+  }
+
+  const amountNgn = Math.round(amountUsdsui * rate * 100) / 100;
+
+  return NextResponse.json({
+    accountName,
+    bankName,
+    bankCode,
+    accountNumber,
+    rate,
+    amountUsdsui,
+    amountNgn,
+    // Display only — the order locks its own rate at /create time.
+    note: "Rate shown for display; locked when you confirm.",
+  });
+}

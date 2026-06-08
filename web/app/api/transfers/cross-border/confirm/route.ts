@@ -17,7 +17,7 @@ export const runtime = "nodejs";
  *
  *   quoted → debited → onchain_settling   (then per-corridor fiat-out)
  *
- * For the LIVE NG corridor the fiat-out is the existing Paga path (the
+ * For the LIVE NG corridor the fiat-out is the Linq off-ramp path (the
  * actual payout fires from the on-chain-confirm hook AFTER finality, per
  * the commit-point semantics). Partner corridors advance to
  * `fiat_out_pending` as a documented stub.

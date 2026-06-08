@@ -4,18 +4,18 @@
  * Talise is a settlement-and-FX orchestrator, not a ramp reseller
  * (master plan §4): it owns the on-chain leg and bolts local fiat legs
  * on via swappable BaaS/PSP partners behind ONE internal interface. The
- * live Paga NGN integration (`web/lib/paga.ts` + `web/app/api/offramp/paga/*`)
+ * live Linq NGN integration (`web/lib/linq.ts` + `web/app/api/offramp/linq/*`)
  * is the canonical reference — every adapter here mirrors its three-step
  * shape:
  *
- *   quote          → TTL-locked USDsui → local-currency price (Paga `quote`)
+ *   quote          → TTL-locked USDsui → local-currency price (Linq `quote`)
  *   initiatePayout → fire the fiat-out leg, get a provider reference
- *                    (Paga `moneyTransfer`)
+ *                    (Linq order create)
  *   status         → poll the provider for settlement
- *                    (Paga `transactionStatus`)
+ *                    (Linq status poll)
  *
  * Each adapter maps these onto a single corridor's destination currency.
- * The registry (`registry.ts`) resolves `toCcy → adapter`. The Paga route
+ * The registry (`registry.ts`) resolves `toCcy → adapter`. The Linq route
  * handlers are left untouched; this module is additive scaffolding for the
  * Asian/global corridors (master plan §4 per-corridor table).
  *
@@ -30,7 +30,7 @@
  * PHP/IDR/VND payouts that the display layer does not yet render.
  */
 export type PayoutCurrency =
-  | "NGN" // Nigeria      — Paga (live)
+  | "NGN" // Nigeria      — Linq (live)
   | "KES" // Kenya        — M-Pesa
   | "GHS" // Ghana        — generic bank
   | "ZAR" // South Africa — generic bank
@@ -42,7 +42,7 @@ export type PayoutCurrency =
   | "USD"; // United States — RTP/FedNow/ACH
 
 /**
- * The corridor-agnostic payout lifecycle. Generalizes the Paga
+ * The corridor-agnostic payout lifecycle. Generalizes the Linq
  * `quoted → debited → remitting → settled | failed` row state into the
  * provider-leg states the master plan §3 transfers machine describes
  * (`… → fiat_out_pending → settled`). An adapter only ever reports the
@@ -84,7 +84,7 @@ export type PayoutDestination =
 export interface QuoteRequest {
   /**
    * Amount of destination fiat the recipient should receive, in MAJOR
-   * units (e.g. 50000 = ¥50,000, 100 = S$100.00). Mirrors Paga's
+   * units (e.g. 50000 = ¥50,000, 100 = S$100.00). Mirrors Linq
    * `ngnAmount`. Adapters that settle in minor-unit-only currencies round
    * per their own convention.
    */
@@ -95,7 +95,7 @@ export interface QuoteRequest {
   destination?: PayoutDestination;
 }
 
-/** A TTL-locked quote. Mirrors the Paga `/quote` response. */
+/** A TTL-locked quote. Mirrors the Linq `/quote` response. */
 export interface Quote {
   /** Opaque provider/corridor quote id, echoed back on initiatePayout. */
   quoteId: string;
@@ -122,7 +122,7 @@ export interface PayoutRequest {
   destination: PayoutDestination;
   /**
    * Caller-owned idempotency key (Talise's transfer/row id). Re-initiating
-   * with the same reference MUST NOT double-pay — mirrors how Paga reuses
+   * with the same reference MUST NOT double-pay — mirrors how Linq reuses
    * `referenceNumber`.
    */
   reference: string;

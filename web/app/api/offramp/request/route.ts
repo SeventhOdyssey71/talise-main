@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db, ensureSchema, userById } from "@/lib/db";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { resolveBank } from "@/lib/paga-banks";
+import { resolveLinqBank } from "@/lib/linq-banks";
 import { getUsdsuiBalance } from "@/lib/sui";
 import { FX } from "@/lib/fx";
 
@@ -11,12 +11,11 @@ export const runtime = "nodejs";
 /**
  * POST /api/offramp/request — CONCIERGE cash-out (closed-alpha off-ramp).
  *
- * The automated Paga payout (quote → confirm → moneyTransfer) isn't live yet,
- * and the confirm route is App-Attest-gated (iOS only). For the web closed
- * alpha we capture a payout *request* here — bank coordinates + amount — record
- * it in `paga_offramps` with `status='manual_requested'`, and ping the founder,
- * who fulfils the NGN payout by hand (collecting the USDsui out-of-band). When
- * automated Paga goes live this is replaced by the quote/confirm flow.
+ * The automated Linq off-ramp (quote → create → send → poll) is the primary
+ * path; this concierge route is the manual fallback for the web closed alpha.
+ * We capture a payout *request* here — bank coordinates + amount — record it in
+ * `linq_offramps` with `status='manual_requested'`, and ping the founder, who
+ * fulfils the NGN payout by hand (collecting the USDsui out-of-band).
  *
  * Web session auth (no App Attest). Records a notional NGN at the reference
  * rate; the founder confirms the real rate at payout.
@@ -103,7 +102,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "amount exceeds the maximum" }, { status: 400 });
   }
 
-  const bank = resolveBank(String(body.bankCode ?? ""));
+  const bank = resolveLinqBank(String(body.bankCode ?? ""));
   if (!bank) {
     return NextResponse.json({ error: "unknown bank" }, { status: 400 });
   }
@@ -131,17 +130,23 @@ export async function POST(req: Request) {
   }
 
   // Notional NGN at the reference rate — the founder confirms the live rate at
-  // payout. fx_rate / ngn_amount are NOT NULL on the table, so we fill both.
+  // payout. amount_ngn / rate are NOT NULL on the table, so we fill both.
   const fxRate = FX.NGN;
   const ngn = Math.round(amountUsdsui * fxRate);
 
   await ensureSchema();
   const id = reqId();
+  // Concierge rows live in `linq_offramps` too, distinguished by status. There
+  // is no Linq order or deposit wallet for a manual request, so we store a
+  // sentinel for the NOT-NULL linq_order_id / wallet_address columns.
+  const now = Date.now();
   await db().execute({
-    sql: `INSERT INTO paga_offramps
-            (id, user_id, usdsui_amount, ngn_amount, fx_rate, bank_code,
-             bank_account_number, bank_account_name, status, status_reason, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual_requested', 'concierge: awaiting manual NGN payout', ?)`,
+    sql: `INSERT INTO linq_offramps
+            (id, linq_order_id, user_id, amount_usdsui, amount_ngn, rate, bank_code,
+             bank_account_number, bank_account_name, wallet_address, status, status_reason,
+             created_at, updated_at)
+          VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, 'manual', 'manual_requested',
+                  'concierge: awaiting manual NGN payout', ?, ?)`,
     args: [
       id,
       String(userId),
@@ -151,7 +156,8 @@ export async function POST(req: Request) {
       bank.bankCode,
       accountNumber,
       accountName,
-      Date.now(),
+      now,
+      now,
     ],
   });
 

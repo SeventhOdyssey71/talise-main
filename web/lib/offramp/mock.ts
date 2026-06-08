@@ -3,7 +3,7 @@
  *
  * These exist purely so each mock adapter (paynow-sg, zengin-jp, mpesa-ke,
  * generic-bank) prices and shapes its responses consistently with the live
- * Paga reference, WITHOUT making any partner call. When a corridor goes
+ * Linq reference, WITHOUT making any partner call. When a corridor goes
  * live its adapter swaps the mock body for real PSP requests + the shared
  * live FX feed; the interface and the route contract stay identical.
  */
@@ -17,10 +17,10 @@ import type {
   PayoutStatusResult,
 } from "./types";
 
-/** Quote TTL, mirroring the Paga 60s quote-lock. */
+/** Quote TTL, mirroring the Linq quote-lock. */
 export const QUOTE_TTL_MS = 60_000;
 
-/** Tight launch spread, matching the Paga route default (25bps). */
+/** Tight launch spread, matching the Linq route default (25bps). */
 export const DEFAULT_SPREAD_BPS = 25;
 
 /**
@@ -48,7 +48,7 @@ const USDSUI_DECIMALS = 6;
 
 /**
  * Read the configured spread, falling back to {@link DEFAULT_SPREAD_BPS}.
- * Same env var the Paga route uses so spread stays single-sourced.
+ * Same env var the Linq route uses so spread stays single-sourced.
  */
 export function spreadBps(): number {
   const v = Number(process.env.OFFRAMP_SPREAD_BPS ?? DEFAULT_SPREAD_BPS);
@@ -58,7 +58,7 @@ export function spreadBps(): number {
 /**
  * Price a `toAmount` of destination fiat into a TTL-locked {@link Quote},
  * applying the Talise spread to the mock mid-market rate exactly the way
- * the Paga `/quote` route does: the user is debited
+ * the Linq `/quote` route does: the user is debited
  * `toAmount / (mid * (1 - spread))` USDsui, ceil-rounded to 6dp.
  */
 export function buildMockQuote(req: QuoteRequest): Quote {
@@ -83,7 +83,7 @@ export function buildMockQuote(req: QuoteRequest): Quote {
 
 /**
  * Deterministic mock provider reference so a given Talise `reference`
- * always maps to the same provider id (idempotency parity with Paga's
+ * always maps to the same provider id (idempotency parity with Linq
  * `referenceNumber` reuse), without persistence.
  */
 export function mockProviderReference(prefix: string, reference: string): string {
@@ -93,7 +93,7 @@ export function mockProviderReference(prefix: string, reference: string): string
 /**
  * Mock status poll. With no real partner state to read, a stub reports
  * `pending` so the orchestrating route's poll loop behaves identically to
- * the Paga path until the real adapter lands. Overridable per adapter if a
+ * the Linq path until the real adapter lands. Overridable per adapter if a
  * corridor wants a different default.
  */
 export function mockStatus(message: string): PayoutStatusResult {

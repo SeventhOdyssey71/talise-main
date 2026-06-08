@@ -31,7 +31,7 @@ function isCountryCode(x: unknown): x is CountryCode {
 }
 
 export async function POST(req: Request) {
-  // App Attest (structural) — mirrors the offramp/Paga gate. No-op for web
+  // App Attest (structural) — mirrors the offramp gate. No-op for web
   // cookie sessions; enforced for mobile bearer traffic.
   const attestBlock = requireAppAttestStructural(req);
   if (attestBlock) return attestBlock;

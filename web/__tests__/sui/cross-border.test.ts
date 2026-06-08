@@ -122,7 +122,7 @@ function ngQuote(amountUsd: number) {
       toCountry: "NG" as const,
       toCcy: "NGN" as const,
       fiatInRail: "ACH",
-      fiatOutRail: "Paga",
+      fiatOutRail: "Linq",
       status: "live" as const,
       spreadBps: 150,
       minorUnits: 0,
@@ -280,7 +280,7 @@ describe("quoteCrossBorder — pricing passthrough + happy path", () => {
     expect(createTransferMock).toHaveBeenCalledOnce();
     const arg = createTransferMock.mock.calls[0][0];
     expect(arg.kind).toBe("cross_border");
-    expect(arg.provider).toBe("paga"); // NG payout → Paga
+    expect(arg.provider).toBe("linq"); // NG payout → Linq
     expect(arg.sourceCurrency).toBe("USD");
     expect(arg.destCurrency).toBe("NGN");
     expect(arg.usdsuiAmount).toBe(100);
@@ -316,7 +316,7 @@ describe("confirmCrossBorder — drives the state machine", () => {
     id: "tr_test_1",
     userId: String(USER_ID),
     kind: "cross_border" as const,
-    provider: "paga",
+    provider: "linq",
     state: "quoted" as const,
     sourceCurrency: "USD",
     destCurrency: "NGN",
@@ -337,7 +337,7 @@ describe("confirmCrossBorder — drives the state machine", () => {
     failedAt: null,
   };
 
-  it("NG corridor: advances quoted → debited → onchain_settling (Paga fiat-out deferred to commit hook)", async () => {
+  it("NG corridor: advances quoted → debited → onchain_settling (Linq fiat-out deferred to commit hook)", async () => {
     getTransferMock.mockResolvedValue(OWNED_TRANSFER);
     // debit → debited, then start_onchain → onchain_settling.
     advanceTransferMock
@@ -348,7 +348,7 @@ describe("confirmCrossBorder — drives the state machine", () => {
 
     expect(res.ok).toBe(true);
     if (!res.ok) throw new Error(res.message);
-    // NG leaves the transfer pre-commit; the Paga payout fires from the
+    // NG leaves the transfer pre-commit; the Linq payout fires from the
     // on-chain-confirm hook after finality.
     expect(res.state).toBe("onchain_settling");
     expect(advanceTransferMock).toHaveBeenCalledTimes(2);

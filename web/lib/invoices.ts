@@ -70,8 +70,7 @@ export function ensureWorkSchema(): Promise<void> {
     // Anti-double-settle: a single on-chain digest may close AT MOST one
     // invoice. The pre-check in workInvoiceDigestUsed is a fast path; THIS
     // partial-unique index is the authority that wins a concurrent race (the
-    // loser's UPDATE raises a unique violation). Mirrors the off-ramp
-    // single-use-payout guard (lib/db.ts idx_paga_offramps_digest).
+    // loser's UPDATE raises a unique violation).
     await c.execute(
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_work_invoices_pay_digest
          ON work_invoices (pay_digest) WHERE pay_digest IS NOT NULL`

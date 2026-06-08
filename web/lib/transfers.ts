@@ -7,10 +7,9 @@ import { db, ensureSchema } from "@/lib/db";
 /**
  * Corridor-agnostic transfers state machine.
  *
- * This generalizes the Paga USDsui → NGN off-ramp (web/app/api/offramp/paga/,
- * web/lib/paga.ts) into a single machine that drives ANY corridor — African
- * (NGN/KES/GHS/ZAR) and Asian/global (JPY/SGD/PHP/IDR/VND/USD) — through one
- * typed lifecycle. See the master plan §3 (line 62) and §11 item 5:
+ * A single machine that drives ANY corridor — African (NGN/KES/GHS/ZAR) and
+ * Asian/global (JPY/SGD/PHP/IDR/VND/USD) — through one typed lifecycle. See
+ * the master plan §3 (line 62) and §11 item 5:
  *
  *   quoted → debited → onchain_settling → onchain_settled
  *          → fiat_out_pending → settled   (+ failed / refunded)
@@ -24,9 +23,8 @@ import { db, ensureSchema } from "@/lib/db";
  * master plan calls for ("fiat-out failure parks funds in the recipient's
  * vault, never lost").
  *
- * This module is ADDITIVE. It does NOT replace Paga — the existing
- * `paga_offramps` table and its routes are untouched. See `PAGA_STATE_MAP`
- * below for how the legacy Paga states project onto this machine.
+ * The live NGN off-ramp is the Linq engine (web/lib/linq.ts +
+ * web/app/api/offramp/linq/*), tracked in its own `linq_offramps` table.
  *
  * No HTTP/provider I/O lives here — only the persisted state + the legal
  * transitions. Callers (corridor routes) drive the machine by firing events
@@ -158,7 +156,7 @@ export function allowedEvents(state: TransferState): TransferEvent[] {
 
 /**
  * A transfer direction.
- *  - `offramp`  : USDsui/USDC → destination fiat (e.g. the Paga NGN payout).
+ *  - `offramp`  : USDsui/USDC → destination fiat (e.g. the Linq NGN payout).
  *  - `onramp`   : source fiat → USDsui/USDC.
  *  - `cross_border` : source fiat → (on-chain net-settle) → destination fiat,
  *    the JP→US flow from §3.
@@ -170,7 +168,7 @@ export type TransferKind = "offramp" | "onramp" | "cross_border" | "internal";
 export interface CreateTransferInput {
   userId: string | number;
   kind: TransferKind;
-  /** PSP / rail provider key, e.g. "paga" | "stripe" | "circle" | "jpyc". */
+  /** PSP / rail provider key, e.g. "linq" | "stripe" | "circle" | "jpyc". */
   provider: string;
   /** Source corridor currency (what the sender funds in), e.g. "USD", "JPY". */
   sourceCurrency: string;
@@ -507,40 +505,25 @@ export async function advanceTransfer(
   return { ok: true, transfer: updated };
 }
 
-// ─── Paga mapping (documentation, not executed) ──────────────────────
+// ─── Linq off-ramp mapping (documentation, not executed) ─────────────
 
 /**
- * How the legacy Paga off-ramp states (web/app/api/offramp/paga/) project onto
- * this machine. The Paga routes still own `paga_offramps`; this is the mapping
- * to follow when/if a corridor route is re-pointed at `transfers`:
+ * How the Linq off-ramp order states (web/app/api/offramp/linq/) project onto
+ * this machine. The Linq routes own `linq_offramps` and Linq itself owns
+ * deposit detection / timeout / payout, so there's no treasury or refund leg.
+ * This is the mapping to follow when/if a corridor route is re-pointed at
+ * `transfers`:
  *
- *   Paga state   →  transfers state      notes
- *   ──────────────────────────────────────────────────────────────────────
- *   quoted       →  quoted               TTL-locked USDsui→NGN quote.
- *   debited      →  onchain_settled      Paga flips `debited` only AFTER it has
- *                                        verified the on-chain USDsui receipt to
- *                                        the treasury — that verification IS this
- *                                        machine's commit point. (Paga collapses
- *                                        debited/onchain_settling/onchain_settled
- *                                        into one step; the general machine splits
- *                                        them so the broadcast→finality window is
- *                                        observable for slower corridors.)
- *   remitting    →  fiat_out_pending     `moneyTransfer` (depositToBank) submitted;
- *                                        `paga_reference` ↔ `provider_reference`.
- *   settled      →  settled              `transactionStatus` SUCCESSFUL.
- *   failed       →  failed               If reached after `debited` (i.e. post
- *                                        on-chain receipt), this machine would set
- *                                        `parkedFunds=true` — exactly the
- *                                        TODO(P1-OFFRAMP-REFUND) the Paga confirm
- *                                        route leaves open (USDsui sits in the
- *                                        treasury awaiting a refund PTB). The
- *                                        general machine makes that parked state
- *                                        first-class instead of a comment.
+ *   Linq phase   →  transfers state
+ *   ──────────────────────────────────────────────
+ *   initiated    →  quoted / onchain_settling   (order created; awaiting deposit)
+ *   processing   →  fiat_out_pending            (deposit seen; paying the bank)
+ *   completed    →  settled                     (NGN disbursed)
+ *   failed       →  failed                      (timeout / reject)
  */
-export const PAGA_STATE_MAP: Readonly<Record<string, TransferState>> = {
-  quoted: "quoted",
-  debited: "onchain_settled",
-  remitting: "fiat_out_pending",
-  settled: "settled",
+export const LINQ_STATE_MAP: Readonly<Record<string, TransferState>> = {
+  initiated: "onchain_settling",
+  processing: "fiat_out_pending",
+  completed: "settled",
   failed: "failed",
 };
