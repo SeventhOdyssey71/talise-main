@@ -736,9 +736,15 @@ async function doEnsureSchema(): Promise<void> {
       account_number TEXT NOT NULL,
       account_name TEXT,
       attestation_digest TEXT,
+      is_primary BOOLEAN NOT NULL DEFAULT false,
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL
     )`,
+    // Off-ramp Phase 3: one account per user is the PRIMARY payout target —
+    // the bank a sender hits when they choose "pay to their bank" against a
+    // @handle. Additive ALTER for installs that pre-date the column; existing
+    // rows default to false (no primary) until one is explicitly set.
+    `ALTER TABLE user_bank_accounts ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT false`,
     `CREATE INDEX IF NOT EXISTS idx_user_bank_accounts_user
        ON user_bank_accounts (user_id)`,
     // One row per (user, bank, account) — re-linking the same account is

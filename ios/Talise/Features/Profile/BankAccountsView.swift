@@ -318,7 +318,12 @@ struct BankAccountsView: View {
 ///      the user to confirm, then "Link account" signs the attestation
 ///      (sponsored `bytes` OR a personal `attestMessage`) and POSTs
 ///      `/link/confirm` with the resulting digest/signature.
-private struct AddBankAccountView: View {
+/// `internal` (was `private`) so the onboarding bank-link step
+/// (`OnboardingBankLinkView`, Nigeria only) can present the exact same
+/// add-flow — bank picker → account → `/link/prepare` → sign consent →
+/// `/link/confirm` — rather than duplicating it. The first account a user
+/// links auto-becomes primary server-side.
+struct AddBankAccountView: View {
     /// Called with the stored record once `/link/confirm` succeeds.
     let onLinked: (BankAccountDTO) -> Void
 

@@ -4,7 +4,12 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { userById } from "@/lib/db";
 import { resolveLinqBank } from "@/lib/linq-banks";
-import { maskBankAccount, upsertBankAccount } from "@/lib/bank-accounts";
+import {
+  countBankAccounts,
+  markBankAccountPrimary,
+  maskBankAccount,
+  upsertBankAccount,
+} from "@/lib/bank-accounts";
 
 export const runtime = "nodejs";
 
@@ -103,6 +108,10 @@ export async function POST(req: Request) {
   }
 
   try {
+    // First account a user links becomes their PRIMARY payout target
+    // automatically. Count BEFORE the (idempotent) upsert so re-linking an
+    // existing account never silently flips the primary.
+    const hadNone = (await countBankAccounts(userId)) === 0;
     const row = await upsertBankAccount({
       userId,
       bankCode,
@@ -110,6 +119,10 @@ export async function POST(req: Request) {
       accountName,
       attestationDigest: digest,
     });
+    if (hadNone) {
+      await markBankAccountPrimary(userId, row.id);
+      row.is_primary = true;
+    }
     return NextResponse.json({ account: maskBankAccount(row) });
   } catch (e) {
     console.warn("[me/bank/link/confirm] upsert failed:", (e as Error).message);

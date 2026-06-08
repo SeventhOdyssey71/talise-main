@@ -93,9 +93,49 @@ struct RecipientResolution: Codable {
     let displayName: String?
     let display: String?
     let source: String?
+    /// Off-ramp Phase 3: present when the resolved recipient has a primary
+    /// Nigerian bank account linked to their @handle. Nil for recipients
+    /// with no primary bank (Send then works exactly as before — no toggle).
+    /// Optional so older endpoints and address-only resolutions decode
+    /// cleanly without this field.
+    let recipientBank: RecipientBank?
+
+    /// Explicit initializer so the call sites that build a resolution by
+    /// hand (contact picks, raw-address fast-paths) don't have to pass the
+    /// new `recipientBank` field — it defaults to nil there, which is
+    /// correct (those paths carry no bank info). The server-decoded path
+    /// still populates it via Codable.
+    init(address: String, displayName: String?, display: String?, source: String?, recipientBank: RecipientBank? = nil) {
+        self.address = address
+        self.displayName = displayName
+        self.display = display
+        self.source = source
+        self.recipientBank = recipientBank
+    }
 
     var displayString: String {
         displayName ?? display ?? address
+    }
+}
+
+/// Summary of the recipient's PRIMARY linked bank account. We surface only
+/// the bank name + last4 — never the full account number — so the sender
+/// can recognise the destination ("GTBank ••••1234") without seeing PII.
+struct RecipientBank: Codable, Hashable {
+    let hasPrimary: Bool
+    let bankName: String?
+    let last4: String?
+
+    /// "GTBank ••••1234" / "Their bank" fallback when the label is sparse.
+    var label: String {
+        let name = (bankName ?? "").trimmingCharacters(in: .whitespaces)
+        let tail = (last4 ?? "").trimmingCharacters(in: .whitespaces)
+        switch (name.isEmpty, tail.isEmpty) {
+        case (false, false): return "\(name) ••••\(tail)"
+        case (false, true):  return name
+        case (true, false):  return "••••\(tail)"
+        case (true, true):   return "their bank"
+        }
     }
 }
 

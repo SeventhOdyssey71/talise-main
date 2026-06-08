@@ -7,6 +7,10 @@ struct KYCView: View {
     @State private var accountType: AccountType = .personal
     @State private var submitting = false
     @State private var error: String?
+    /// Off-ramp Phase 3 — drives the optional "get paid in Naira" bank-link
+    /// step shown ONLY to Nigeria (country == "NG") after onboarding posts.
+    /// Non-Nigeria users never see it; we bootstrap straight through.
+    @State private var showBankLink = false
 
     private let countries: [(String, String)] = [
         ("NG", "Nigeria"),
@@ -100,6 +104,15 @@ struct KYCView: View {
                 .padding(24)
             }
         }
+        // Nigeria-only optional bank-link step. Presented after a successful
+        // /api/onboarding post for country == "NG"; on continue/skip we run
+        // the handle claim + bootstrap that the non-NG path runs inline.
+        .fullScreenCover(isPresented: $showBankLink) {
+            OnboardingBankLinkView(onContinue: {
+                showBankLink = false
+                Task { await finishOnboarding() }
+            })
+        }
     }
 
     private func row(code: String, name: String) -> some View {
@@ -170,17 +183,30 @@ struct KYCView: View {
                 body: OnboardBody(country: country, accountType: accountType.rawValue)
             )
 
-            // Sponsored SuiNS subname mint — the talise.sui operator wallet
-            // signs + pays gas, so the user is never asked to fund or sign
-            // this transaction. Best-effort: if the handle is taken or the
-            // operator is misconfigured, we still proceed to the dashboard
-            // (the user can claim later from /settings).
-            await claimTaliseHandle()
-
-            await session.bootstrap()
+            // Nigeria → offer the optional "get paid in Naira" bank-link
+            // step before finishing. Every other country bootstraps straight
+            // through, exactly as before.
+            if country == "NG" {
+                showBankLink = true
+                return
+            }
+            await finishOnboarding()
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// Claims the sponsored SuiNS handle then bootstraps the session into the
+    /// authenticated app. Shared by the non-NG inline path and the NG
+    /// bank-link continue/skip path so onboarding completes identically.
+    private func finishOnboarding() async {
+        // Sponsored SuiNS subname mint — the talise.sui operator wallet
+        // signs + pays gas, so the user is never asked to fund or sign
+        // this transaction. Best-effort: if the handle is taken or the
+        // operator is misconfigured, we still proceed to the dashboard
+        // (the user can claim later from /settings).
+        await claimTaliseHandle()
+        await session.bootstrap()
     }
 
     /// Derives a candidate handle from the user's Google name (falling back

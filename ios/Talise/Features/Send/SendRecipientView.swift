@@ -7,6 +7,10 @@ struct SendRecipientView: View {
     @Bindable var draft: SendDraft
     var onNext: () -> Void
     var onBack: () -> Void
+    /// Closes the entire Send flow. Used by the off-ramp "Their bank" payout
+    /// path, which settles in its own sheet and then dismisses Send wholesale
+    /// rather than continuing to the on-chain review/sending steps.
+    var onClose: () -> Void
 
     @State private var contacts: [ContactDTO] = []
     @State private var loadingContacts = true
@@ -19,6 +23,20 @@ struct SendRecipientView: View {
     @State private var suppressNextResolve = false
     @FocusState private var inputFocused: Bool
 
+    /// Off-ramp Phase 3: when the resolved recipient has a primary linked
+    /// bank, the user can choose to pay them in NGN instead of on-chain.
+    /// `.onchain` keeps the existing flow untouched; `.bank` presents the
+    /// `SendToBankView` payout sheet.
+    private enum PayMode { case onchain, bank }
+    @State private var payMode: PayMode = .onchain
+    @State private var showBankSheet = false
+
+    /// True only when the resolved recipient has a PRIMARY bank — gates the
+    /// segmented control. No bank → Send works exactly as today (no toggle).
+    private var recipientHasBank: Bool {
+        draft.resolved?.recipientBank?.hasPrimary == true
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -30,6 +48,12 @@ struct SendRecipientView: View {
             resolveStatus
                 .padding(.horizontal, 28)
                 .padding(.top, 8)
+
+            if recipientHasBank {
+                payModeToggle
+                    .padding(.horizontal, 24)
+                    .padding(.top, 14)
+            }
 
             Eyebrow(text: "Recent")
                 .padding(.horizontal, 28)
@@ -64,6 +88,35 @@ struct SendRecipientView: View {
             inputFocused = false
             resolveTask?.cancel()
         }
+        // A changed recipient resets the pay-mode back to on-chain so the
+        // toggle never carries a stale "Their bank" choice onto a different
+        // person (or one with no primary bank).
+        .onChange(of: draft.resolved?.address) { _, _ in
+            payMode = .onchain
+        }
+        .sheet(isPresented: $showBankSheet) {
+            if let r = draft.resolved, let bank = r.recipientBank, bank.hasPrimary {
+                SendToBankView(
+                    recipient: bankRecipientArg(r),
+                    recipientDisplay: r.displayName ?? shortAddress(r.address),
+                    bankLabel: bank.label,
+                    onDone: {
+                        // Bank payout completed (or cancelled) — close the
+                        // whole Send flow so the user lands back on Home.
+                        showBankSheet = false
+                        onClose()
+                    }
+                )
+            }
+        }
+    }
+
+    /// What to forward to `/api/offramp/linq/to-user` as `recipient`. Prefer
+    /// the typed @handle the user resolved against (so the server re-resolves
+    /// the primary bank by handle); fall back to the resolved address.
+    private func bankRecipientArg(_ r: RecipientResolution) -> String {
+        let typed = draft.recipientInput.trimmingCharacters(in: .whitespaces)
+        return typed.isEmpty ? r.address : typed
     }
 
     // MARK: - Header
@@ -160,6 +213,49 @@ struct SendRecipientView: View {
         } else {
             Color.clear.frame(height: 14)
         }
+    }
+
+    // MARK: - Pay mode toggle (off-ramp Phase 3)
+
+    /// Segmented control shown only when the resolved recipient has a primary
+    /// linked bank: [On-chain · instant] vs [Their bank · NGN].
+    private var payModeToggle: some View {
+        HStack(spacing: 4) {
+            payModeTab(.onchain, title: "On-chain", sub: "instant")
+            payModeTab(.bank, title: "Their bank", sub: "NGN")
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+    }
+
+    private func payModeTab(_ mode: PayMode, title: String, sub: String) -> some View {
+        let selected = payMode == mode
+        return Button {
+            withAnimation(.easeOut(duration: 0.18)) { payMode = mode }
+            #if canImport(UIKit)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            #endif
+        } label: {
+            VStack(spacing: 2) {
+                Text(title)
+                    .font(TaliseFont.heading(14, weight: .medium))
+                    .foregroundStyle(selected ? Color(hex: 0x0A140C) : TaliseColor.fg)
+                Text(sub)
+                    .font(TaliseFont.mono(10, weight: .light))
+                    .foregroundStyle(selected ? Color(hex: 0x0A140C).opacity(0.6) : TaliseColor.fgMuted)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(selected ? TaliseColor.greenMint : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Contacts
@@ -276,9 +372,17 @@ struct SendRecipientView: View {
         Button(action: {
             guard canAdvance else { return }
             inputFocused = false
-            onNext()
+            // "Their bank" branches into the NGN off-ramp payout sheet; it
+            // settles there and closes the whole flow. "On-chain" (the
+            // default, and the only option when there's no primary bank)
+            // continues to the existing review step — unchanged.
+            if recipientHasBank && payMode == .bank {
+                showBankSheet = true
+            } else {
+                onNext()
+            }
         }) {
-            Text("Next")
+            Text(recipientHasBank && payMode == .bank ? "Pay their bank" : "Next")
                 .font(TaliseFont.heading(16, weight: .medium))
                 .foregroundStyle(canAdvance ? Color(hex: 0x0A140C) : TaliseColor.fgDim)
                 .frame(maxWidth: .infinity)

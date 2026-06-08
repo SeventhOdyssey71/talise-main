@@ -40,7 +40,8 @@ struct SendFlowView: View {
                     SendRecipientView(
                         draft: draft,
                         onNext: { path.append(.review) },
-                        onBack: { pop() }
+                        onBack: { pop() },
+                        onClose: { close() }
                     )
                 case .review:
                     SendReviewView(

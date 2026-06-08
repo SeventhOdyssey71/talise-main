@@ -1,15 +1,51 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { resolveRecipient } from "@/lib/suins";
+import { userBySuiAddress } from "@/lib/db";
+import { getPrimaryBankAccount, last4 } from "@/lib/bank-accounts";
+import { resolveLinqBank } from "@/lib/linq-banks";
 
 export const runtime = "nodejs";
 
 /**
+ * Masked view of a resolved recipient's PRIMARY payout bank. Powers the Send
+ * flow's "pay to their bank" option. Only ever exposes the bank name + last
+ * 4 digits — NEVER the full account number. `null` when the recipient can't
+ * be mapped to a Talise user or has no primary bank on file.
+ */
+type RecipientBank = {
+  hasPrimary: boolean;
+  bankName: string | null;
+  last4: string | null;
+} | null;
+
+/**
+ * Resolve a recipient's primary payout bank from the address SuiNS gave us.
+ * Returns null on any miss (not a Talise user / no primary / lookup hiccup)
+ * — this is an additive, best-effort field and must never fail resolution.
+ */
+async function recipientBankFor(address: string): Promise<RecipientBank> {
+  try {
+    const user = await userBySuiAddress(address);
+    if (!user) return null;
+    const bank = await getPrimaryBankAccount(user.id);
+    if (!bank) return null;
+    const bankName = resolveLinqBank(bank.bank_code)?.name ?? bank.bank_code;
+    return { hasPrimary: true, bankName, last4: last4(bank.account_number) };
+  } catch (e) {
+    console.warn("[recipient/resolve] bank lookup failed:", (e as Error).message);
+    return null;
+  }
+}
+
+/**
  * GET /api/recipient/resolve?q=<input>
  *
- * Returns { address, displayName } on a match. Returns 404 when input is well
- * formed but unknown, and 400 when it's malformed. Authenticated only — we
- * don't want to leak the handle table to crawlers.
+ * Returns { address, displayName, recipientBank } on a match. `recipientBank`
+ * is the recipient's masked PRIMARY payout bank (bankName + last4 only) or
+ * null. Returns 404 when input is well formed but unknown, and 400 when it's
+ * malformed. Authenticated only — we don't want to leak the handle table to
+ * crawlers.
  */
 export async function GET(req: Request) {
   const userId = await readEntryIdFromRequest(req);
@@ -27,7 +63,8 @@ export async function GET(req: Request) {
     if (!resolved) {
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
-    return NextResponse.json(resolved);
+    const recipientBank = await recipientBankFor(resolved.address);
+    return NextResponse.json({ ...resolved, recipientBank });
   } catch (err) {
     // Resolution touches SuiNS RPC + DB; either can transiently flake.
     // 502 instead of 500 so callers can distinguish "I couldn't reach
