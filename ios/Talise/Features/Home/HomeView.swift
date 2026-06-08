@@ -166,10 +166,8 @@ struct HomeView: View {
             .accessibilityLabel("Scan to pay")
         }
         .frame(height: 38)
-        .sheet(isPresented: $scanToPaySheetVisible) {
+        .fullScreenCover(isPresented: $scanToPaySheetVisible) {
             ScanToPayView()
-                .presentationDetents([.large])
-                .presentationBackground(.black)
         }
     }
 

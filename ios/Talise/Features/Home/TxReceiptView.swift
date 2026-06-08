@@ -217,14 +217,17 @@ struct TxReceiptView: View {
 
     /// Friendly Linq status → user-facing copy.
     private func cashOutStatusLabel(_ status: String) -> String {
-        switch status.lowercased() {
-        case "disbursed", "settled", "completed", "complete", "success", "paid":
+        // Linq statuses are free text (e.g. "Settled in treasury") — substring-match.
+        let s = status.lowercased()
+        if s.contains("disburse") || s.contains("settled") || s.contains("complete")
+            || s.contains("success") || s.contains("paid") {
             return "Paid out"
-        case "timeout", "failed", "error", "cancelled", "canceled":
-            return "Failed"
-        default:
-            return "Pending"
         }
+        if s.contains("timeout") || s.contains("fail") || s.contains("error")
+            || s.contains("cancel") || s.contains("reject") || s.contains("declin") {
+            return "Failed"
+        }
+        return "Pending"
     }
 
     private var transferDetailsCard: some View {

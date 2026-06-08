@@ -231,14 +231,19 @@ struct HistoryRow: View {
     /// as a completed outflow). Only surfaces Pending / Failed.
     private var offrampStatusPill: (label: String, color: Color)? {
         guard let off = entry.offramp else { return nil }
-        switch off.status.lowercased() {
-        case "disbursed", "settled", "completed", "complete", "success", "paid":
-            return nil
-        case "timeout", "failed", "error", "cancelled", "canceled":
-            return ("Failed", Color(hex: 0xE5484D))
-        default:
-            return ("Pending", Color(hex: 0xD9A441))
+        // Linq statuses are free text ("Settled in treasury", "disbursed",
+        // "processing: in bank queue", "timeout: no deposit received"…), so
+        // substring-match rather than exact-match.
+        let s = off.status.lowercased()
+        if s.contains("disburse") || s.contains("settled") || s.contains("complete")
+            || s.contains("success") || s.contains("paid") {
+            return nil // done — the red naira amount already reads as a completed outflow
         }
+        if s.contains("timeout") || s.contains("fail") || s.contains("error")
+            || s.contains("cancel") || s.contains("reject") || s.contains("declin") {
+            return ("Failed", Color(hex: 0xE5484D))
+        }
+        return ("Pending", Color(hex: 0xD9A441))
     }
 
     private var title: String {

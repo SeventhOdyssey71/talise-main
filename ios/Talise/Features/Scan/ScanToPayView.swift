@@ -228,54 +228,96 @@ struct ScanToPayView: View {
                 scrim
             }
 
+            // Center: viewfinder corner brackets, floated over the full-bleed
+            // camera. Sits independently so it stays vertically centered
+            // regardless of the top/bottom overlay chrome.
+            ScanFrame(
+                size: viewfinderSize,
+                cornerRadius: 28,
+                bracketLength: 34,
+                lineWidth: 3
+            )
+            .frame(width: viewfinderSize, height: viewfinderSize)
+
+            // Top + bottom chrome float over the edge-to-edge camera. A
+            // subtle dark gradient behind each keeps the white controls
+            // legible over a bright viewfinder.
             VStack(spacing: 0) {
-                topStatusBar
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
-
-                // The "Scan to pay" title sits just below the status bar.
-                // Kerning ratio matches the design language (-size × 0.03).
-                Text("Scan to pay")
-                    .font(TaliseFont.heading(18, weight: .semibold))
-                    .kerning(-18 * 0.03)
-                    .foregroundStyle(.white)
-                    .padding(.top, 28)
-
-                modeToggle
-                    .padding(.top, 18)
-                    .padding(.horizontal, 40)
+                topChrome
+                    .background(topScrim)
 
                 Spacer(minLength: 0)
 
-                // Viewfinder frame — four rounded corner brackets tracing a
-                // softly-rounded window.
-                ScanFrame(
-                    size: viewfinderSize,
-                    cornerRadius: 28,
-                    bracketLength: 34,
-                    lineWidth: 3
-                )
-                .frame(width: viewfinderSize, height: viewfinderSize)
-
-                Spacer(minLength: 0)
-
-                // Swap the instruction caption for the "unrecognized code"
-                // pill when a scan didn't parse — keeps the same vertical
-                // slot so the layout doesn't jump.
-                if showUnrecognized {
-                    unrecognizedPill
-                        .padding(.bottom, 52)
-                        .transition(.opacity)
-                } else {
-                    Text("Point at a Talise QR code, or a bank account number, to pay.")
-                        .font(TaliseFont.body(13, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 56)
-                        .padding(.bottom, 52)
-                }
+                bottomChrome
+                    .background(bottomScrim)
             }
         }
+    }
+
+    /// Top overlay block: close button + balance + title + mode toggle,
+    /// sitting in the top safe area over a dark gradient scrim.
+    private var topChrome: some View {
+        VStack(spacing: 0) {
+            topStatusBar
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+
+            // The "Scan to pay" title sits just below the status bar.
+            // Kerning ratio matches the design language (-size × 0.03).
+            Text("Scan to pay")
+                .font(TaliseFont.heading(18, weight: .semibold))
+                .kerning(-18 * 0.03)
+                .foregroundStyle(.white)
+                .padding(.top, 28)
+
+            modeToggle
+                .padding(.top, 18)
+                .padding(.horizontal, 40)
+                .padding(.bottom, 24)
+        }
+    }
+
+    /// Bottom overlay block: the instruction caption (or "unrecognized" pill)
+    /// over a dark gradient scrim, anchored above the home indicator.
+    private var bottomChrome: some View {
+        VStack(spacing: 0) {
+            if showUnrecognized {
+                unrecognizedPill
+                    .transition(.opacity)
+            } else {
+                Text("Point at a Talise QR code, or a bank account number, to pay.")
+                    .font(TaliseFont.body(13, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 56)
+            }
+        }
+        .padding(.top, 40)
+        .padding(.bottom, 40)
+    }
+
+    /// Dark top→clear gradient behind the top chrome so white controls stay
+    /// legible over a bright camera frame. Extends up under the status bar.
+    private var topScrim: some View {
+        LinearGradient(
+            colors: [Color.black.opacity(0.55), Color.black.opacity(0.0)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea(edges: .top)
+        .allowsHitTesting(false)
+    }
+
+    /// Clear→dark gradient behind the bottom hint, extending below the home
+    /// indicator.
+    private var bottomScrim: some View {
+        LinearGradient(
+            colors: [Color.black.opacity(0.0), Color.black.opacity(0.55)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea(edges: .bottom)
+        .allowsHitTesting(false)
     }
 
     /// Dimming scrim with a rounded-rect cut-out over the viewfinder window.
