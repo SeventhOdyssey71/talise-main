@@ -150,16 +150,21 @@ struct HomeView: View {
                 .frame(width: 24, height: 22)
             Spacer()
             // Scan-to-Pay is the single top affordance now — History moved off
-            // the top into the on-page "Recent activity → View all". Flat solid
-            // circular chip — surface2 disc, no material/blur/gradient.
+            // the top into the on-page "Recent activity → View all". Glass chip
+            // (the one place we use glass): an ultra-thin material disc with a
+            // hairline white edge so it blends into the green header gradient
+            // instead of clashing as a solid surface2 puck.
             Button {
                 scanToPaySheetVisible = true
             } label: {
                 Image(systemName: "qrcode.viewfinder")
                     .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(TaliseColor.fg)
+                    .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(TaliseColor.surface2))
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(
+                        Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+                    )
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)

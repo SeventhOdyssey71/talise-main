@@ -688,9 +688,13 @@ struct ScanBankPayoutSheet: View {
         } catch APIError.status(let code, let msg) {
             error = friendlyOfframpError(code: code, message: msg)
             resetSlide = true
+        } catch APIError.unauthorized {
+            error = "Please sign in again."
+            resetSlide = true
         } catch {
             if APIError.isCancellation(error) { return }
-            self.error = "Couldn't complete the payment right now."
+            self.error = APIError.honestMoneyError(
+                error, fallback: "Couldn't complete the payment right now.")
             resetSlide = true
         }
     }

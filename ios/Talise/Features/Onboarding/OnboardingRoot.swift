@@ -86,27 +86,28 @@ struct OnboardingRoot: View {
                     )
                     .transition(.slide)
                 case .signIn:
-                    ZStack(alignment: .top) {
-                        SignInScreen(onSignedIn: { user in
-                            signedInUser = user
-                            // Returning users: the backend already knows
-                            // the account is set up (accountType != nil →
-                            // same signal AppSession uses everywhere). Sign
-                            // them STRAIGHT into the app instead of walking
-                            // the create-handle / PIN / permissions steps.
-                            // A genuinely new Google account has
-                            // accountType == nil, so it still falls into
-                            // the full onboarding flow below.
-                            if user.accountType != nil {
-                                UserDefaults.standard.removeObject(forKey: Self.stepKey)
-                                session.handleSignedIn(user: user)
-                            } else {
-                                advance(to: .handlePicker)
-                            }
-                        })
-                        OnboardingProgressBar(totalSteps: 4, currentStep: 1)
-                            .allowsHitTesting(false)
-                    }
+                    // The Welcome / sign-in step deliberately shows NO
+                    // progress bar — the segmented dashes belong only to the
+                    // real new-user onboarding (handle picker / PIN /
+                    // permissions), each of which renders its own bar. A
+                    // returning user signs straight in and never sees them.
+                    SignInScreen(onSignedIn: { user in
+                        signedInUser = user
+                        // Returning users: the backend already knows
+                        // the account is set up (accountType != nil →
+                        // same signal AppSession uses everywhere). Sign
+                        // them STRAIGHT into the app instead of walking
+                        // the create-handle / PIN / permissions steps.
+                        // A genuinely new Google account has
+                        // accountType == nil, so it still falls into
+                        // the full onboarding flow below.
+                        if user.accountType != nil {
+                            UserDefaults.standard.removeObject(forKey: Self.stepKey)
+                            session.handleSignedIn(user: user)
+                        } else {
+                            advance(to: .handlePicker)
+                        }
+                    })
                     .transition(.slide)
                 case .kycTier:
                     // Legacy — defensive jump to the new flow if hit.

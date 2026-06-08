@@ -13,6 +13,12 @@ struct SignInScreen: View {
     @State private var signingIn = false
     @State private var error: String?
 
+    /// True once the user has completed at least one successful sign-in on
+    /// this device. Drives the "Welcome back" copy for returning users; a
+    /// fresh install keeps the first-run "Welcome to Talise".
+    private static let hasSignedInBeforeKey = "talise.hasSignedInBefore"
+    private let returningUser = UserDefaults.standard.bool(forKey: hasSignedInBeforeKey)
+
     /// Letter-spacing helper — same `-size × 0.03` ratio used across
     /// the onboarding flow (matches the Figma "-0.705 ls @ 23.5pt"
     /// headline spec).
@@ -33,13 +39,15 @@ struct SignInScreen: View {
                 hero
                     .frame(width: 96, height: 96)
 
-                Text("Welcome to Talise")
+                Text(returningUser ? "Welcome back" : "Welcome to Talise")
                     .font(TaliseFont.heading(26, weight: .semibold))
                     .kerning(kern(26))
                     .foregroundStyle(TaliseColor.fg)
                     .padding(.top, 28)
 
-                Text("One Google account. One Sui address.\nNo seed phrase, no setup.")
+                Text(returningUser
+                     ? "Sign in to your Talise account."
+                     : "One Google account. One Sui address.\nNo seed phrase, no setup.")
                     .font(TaliseFont.body(14, weight: .light))
                     .kerning(kern(14))
                     .foregroundStyle(TaliseColor.fgMuted)
@@ -142,6 +150,9 @@ struct SignInScreen: View {
         defer { signingIn = false }
         do {
             let result = try await ZkLoginCoordinator.shared.signIn()
+            // Remember this device has signed in at least once so the next
+            // visit greets returning users with "Welcome back".
+            UserDefaults.standard.set(true, forKey: Self.hasSignedInBeforeKey)
             onSignedIn(result.user)
         } catch GoogleSignInService.SignInError.cancelled {
             // Quiet — the user explicitly backed out of the OAuth sheet.

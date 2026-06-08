@@ -873,9 +873,12 @@ private struct BankWithdrawView: View {
             await pollStatus(order.orderId)
         } catch APIError.status(let code, let msg) {
             error = friendlyOfframpError(code: code, message: msg)
+        } catch APIError.unauthorized {
+            error = "Please sign in again."
         } catch {
             if APIError.isCancellation(error) { return }
-            self.error = "Couldn't complete the withdrawal right now."
+            self.error = APIError.honestMoneyError(
+                error, fallback: "Couldn't complete the withdrawal right now.")
         }
     }
 
