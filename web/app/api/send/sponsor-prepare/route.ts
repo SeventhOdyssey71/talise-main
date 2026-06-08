@@ -83,7 +83,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
 
-  let body: { to?: string; amount?: number | string; asset?: string };
+  let body: {
+    to?: string;
+    amount?: number | string;
+    asset?: string;
+    /**
+     * Force the Onara-sponsored rail instead of the gasless rail.
+     *
+     * The gasless rail (`balance::send_funds`) can ONLY source from the
+     * user's Address-Balance accumulator — it is provably impossible for
+     * users whose USDsui sits in `Coin<USDSUI>` objects. Talise-facilitated
+     * money-out flows (off-ramp cash-out, pay-to-bank) already promise the
+     * user a sponsored, fee-free transfer ("No network fee — sponsored by
+     * Talise") and MUST land regardless of the user's coin/accumulator
+     * balance shape. They set this so we skip the gasless attempt and go
+     * straight to Payment Kit, which sources from Coin objects via
+     * `coinWithBalance({useGasCoin:false})`. Plain P2P sends leave it unset
+     * and stay gasless-first (free), per the 2026-05-29 directive.
+     */
+    sponsored?: boolean;
+  };
   try {
     body = await req.json();
   } catch {
@@ -103,6 +122,12 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+
+  // Talise-sponsored money-out flows (off-ramp, pay-to-bank) force the
+  // sponsored rail — see the `sponsored` body field above. A gasless attempt
+  // would fail for any user whose USDsui is in Coin objects, not the
+  // accumulator, which is the common case.
+  const forceSponsored = body.sponsored === true;
 
   const asset = body.asset ?? "USDsui";
   if (!SUPPORTED_ASSETS.has(asset)) {
@@ -132,8 +157,10 @@ export async function POST(req: Request) {
   // 0.01 USDsui = 10,000 µ. Reject upfront with a clear copy instead of
   // letting the validator reject the tx ~1s later under an opaque
   // "Invalid withdraw reservation" string.
+  // Sponsored sends (forceSponsored) go through Payment Kit, NOT the gasless
+  // rail, so the validator's gasless minimum does not apply to them.
   const MIN_GASLESS_MICROS = 10_000n;
-  if (asset === "USDsui" && onchain < MIN_GASLESS_MICROS) {
+  if (asset === "USDsui" && !forceSponsored && onchain < MIN_GASLESS_MICROS) {
     return NextResponse.json(
       {
         error:
@@ -262,7 +289,7 @@ export async function POST(req: Request) {
   // Plain USDsui send (Save OFF) → gasless rail. Save-ON sends skip this and
   // fall through to the sponsored branch below, which supplies the round-up
   // to NAVI atomically in the same user-signed tx (see the routing note above).
-  if (asset === "USDsui" && deferredRoundupUsd <= 0) {
+  if (asset === "USDsui" && deferredRoundupUsd <= 0 && !forceSponsored) {
     try {
       const t0 = Date.now();
       const client = sui();

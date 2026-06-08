@@ -308,13 +308,17 @@ struct SendToBankView: View {
             )
             paidLabel = order.recipientBankLabel
 
-            // 2. Send EXACTLY `amountUsdsui` to the Linq deposit wallet via
-            //    the sponsored send path (same rail as the Withdraw flow).
+            // 2. Send EXACTLY `amountUsdsui` to the Linq deposit wallet via the
+            //    SPONSORED rail (forceSponsored): a bank payout is a Talise-
+            //    sponsored transfer and must land whether the user's USDsui is
+            //    in the accumulator or in Coin objects (the gasless rail only
+            //    sources from the accumulator and fails for coin-only holders).
             let sent = try await ZkLoginCoordinator.shared.signAndSubmitSend(
                 to: order.walletAddress,
                 amountUsd: order.amountUsdsui,
                 asset: "USDsui",
-                intent: "Pay \(recipientDisplay) to bank"
+                intent: "Pay \(recipientDisplay) to bank",
+                forceSponsored: true
             )
             guard !sent.digest.isEmpty else {
                 error = "Payment didn't land on chain. No funds moved."

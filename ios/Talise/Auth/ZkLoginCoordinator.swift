@@ -377,11 +377,21 @@ final class ZkLoginCoordinator {
     /// this instead of `signAndSubmit(transactionKindB64:)` for any
     /// Send. The legacy method stays for Earn/Vault flows which still
     /// need the explicit prepare→sponsor split.
+    /// `forceSponsored` pins the Onara-sponsored rail instead of the
+    /// gasless rail. Talise-facilitated money-out flows (off-ramp cash-out,
+    /// pay-to-bank) set this: they promise the user a fee-free sponsored
+    /// transfer ("No network fee — sponsored by Talise") and MUST land
+    /// regardless of whether the user's USDsui sits in the Address-Balance
+    /// accumulator or in `Coin<USDSUI>` objects. The gasless rail can only
+    /// source from the accumulator, so a coin-only holder's cash-out would
+    /// otherwise fail with an opaque "couldn't complete" error. Plain P2P
+    /// sends leave it false and stay gasless-first (genuinely free).
     func signAndSubmitSend(
         to: String,
         amountUsd: Double,
         asset: String = "USDsui",
         intent: String,
+        forceSponsored: Bool = false,
         rewards: RewardsMeta? = nil
     ) async throws -> SignedSubmission {
         guard let maxEpoch = ProofCache.shared.maxEpoch,
@@ -410,13 +420,18 @@ final class ZkLoginCoordinator {
             Int(((CFAbsoluteTimeGetCurrent() - t) * 1000.0).rounded())
         }
         let t0 = CFAbsoluteTimeGetCurrent()
+        var prepareBody: [String: Any] = [
+            "to": to,
+            "amount": amountUsd,
+            "asset": asset,
+        ]
+        // Pin the sponsored rail for Talise-facilitated money-out flows so
+        // the send lands even when the user's USDsui is in Coin objects
+        // (the gasless rail can only source from the accumulator).
+        if forceSponsored { prepareBody["sponsored"] = true }
         let prep = try await postAuthenticated(
             path: "/api/send/sponsor-prepare",
-            body: [
-                "to": to,
-                "amount": amountUsd,
-                "asset": asset,
-            ]
+            body: prepareBody
         )
         let tPrepareMs = msSince(t0)
         let tAfterPrepare = CFAbsoluteTimeGetCurrent()
