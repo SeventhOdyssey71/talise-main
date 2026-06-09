@@ -605,8 +605,14 @@ struct HomeView: View {
             // older loads fresh from the snapshot-backed /api/activity so we
             // never show a days-old feed as Recent. (Bug: stale cache was
             // shown and the cold-launch revalidate didn't replace it.)
+            // History must never be blank on open. Prefer a <2min cache for a
+            // genuinely "recent" feel; otherwise fall back to the newest cache
+            // on disk regardless of age — a slightly stale feed beats an empty
+            // "Recent" card. The live /api/activity load right after this
+            // revalidates and replaces it (immutable history never downgrades).
             if activity.isEmpty,
-               let cached = LocalSnapshotStore.loadActivityIfFresh(userId: uid, maxAgeSec: 2 * 60),
+               let cached = LocalSnapshotStore.loadActivityIfFresh(userId: uid, maxAgeSec: 2 * 60)
+                            ?? LocalSnapshotStore.loadActivity(userId: uid),
                !cached.isEmpty {
                 activity = cached
                 activityHasLoadedOnce = true  // suppress skeleton; show cached rows
@@ -615,7 +621,11 @@ struct HomeView: View {
         }
 
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { await loadBalance() }
+            // Always an authoritative fresh read so a cold/stale display
+            // snapshot can't flash ₦0.00. On pull-to-refresh the native spinner
+            // covers it (silent); on cold open the skeleton shows only if we
+            // had nothing cached to seed above.
+            group.addTask { await loadBalance(fresh: true, silent: force) }
             group.addTask { await loadActivity() }
             // loadSweepPreview() removed: /api/sweep/prepare no longer
             // exists on the backend (404s on every open). The banner +
@@ -633,27 +643,47 @@ struct HomeView: View {
         vaultHasFunds = false
     }
 
-    private func loadBalance() async {
-        loadingBalance = true
-        defer { loadingBalance = false }
+    /// Load the headline balance.
+    ///
+    /// - `fresh`: append `?fresh=1` so the server does an authoritative live
+    ///   gRPC read instead of possibly serving a cold/stale display-only
+    ///   snapshot — that snapshot is exactly what flashed ₦0.00 on a cold open
+    ///   before the real number landed. Cold open, pull-to-refresh, and every
+    ///   post-tx reconcile use this.
+    /// - `silent`: never flip the loading skeleton. We only ever show the
+    ///   skeleton for the FIRST-ever load (nothing on screen yet); whenever we
+    ///   already have a value — a cached seed, an optimistic figure, a prior
+    ///   read — the refresh runs silently underneath the visible number.
+    private func loadBalance(fresh: Bool = false, silent: Bool = false) async {
+        // Loader only when there's genuinely nothing to show yet.
+        let showLoader = !silent && balance == nil
+        if showLoader { loadingBalance = true }
+        defer { if showLoader { loadingBalance = false } }
         do {
-            let fetched: BalancesDTO = try await APIClient.shared.get("/api/balances")
-            balance = fetched
-            // Persist for the next cold launch so the stale-while-
-            // revalidate path can paint real numbers immediately.
-            if let uid = session.currentUser?.id {
-                LocalSnapshotStore.saveBalances(fetched, userId: uid)
+            let path = fresh ? "/api/balances?fresh=1" : "/api/balances"
+            let fetched: BalancesDTO = try await APIClient.shared.get(path)
+            // Never let an all-zero read clobber a non-zero value already on
+            // screen UNLESS this was an authoritative `fresh` read. The
+            // display-only snapshot can momentarily report 0 before the chain
+            // read lands; a genuine zero arrives via the optimistic spend path
+            // or a confirmed fresh read. This kills the "₦0.00 on open" flash.
+            if fetched.totalUsd == 0, !fresh, let cur = balance, cur.totalUsd > 0 {
+                // Keep the current value; the next fresh read corrects it.
+            } else {
+                balance = fetched
+                // Persist for the next cold launch so the stale-while-
+                // revalidate path can paint real numbers immediately.
+                if let uid = session.currentUser?.id {
+                    LocalSnapshotStore.saveBalances(fetched, userId: uid)
+                }
             }
         } catch {
-            // A pull-to-refresh that lands while a prior .task load is
-            // still in flight cancels the older request (-999). Wiping
-            // `balance` on a cancellation would clobber the working
-            // value we already had on screen — the user sees ₦0.00
-            // flash in. Preserve last-known state on cancel; only nil
-            // out for genuine load failures.
-            if !APIError.isCancellation(error) {
-                balance = nil
-            }
+            // Keep the last-known number on screen no matter what — a slightly
+            // stale balance always beats a blank / ₦0.00 card. (Previously a
+            // non-cancellation error nil'd the balance, which IS the
+            // "no balance available on open" downtime we're eliminating.) On a
+            // true first-ever load with no cache, `balance` is already nil, so
+            // the skeleton stays until a read succeeds.
         }
     }
 
@@ -887,36 +917,42 @@ struct HomeView: View {
         // sometimes needs the extra beat. If both passes miss the
         // digest, the optimistic row simply stays on screen (the
         // dedupe filter prevents duplicates).
+        // The optimistic balance adjust above is the "immediate" update the
+        // user sees. We then reconcile against canonical chain state twice —
+        // right now, and again 5s after the tx — both SILENT (no loaders), per
+        // the "auto-refresh balance + history immediately, then again 5s
+        // later, with no spinner" ask.
         let pendingDigest = ev.digest
-        Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            await loadBalance()
-            await loadActivityFresh()
-            // If the server response doesn't yet contain the new tx,
-            // re-prepend the optimistic stub so the user keeps seeing
-            // their action at the top of History.
+        let stub = ActivityEntryDTO(
+            digest: ev.digest,
+            timestampMs: Date().timeIntervalSince1970 * 1000,
+            direction: ev.direction,
+            amountUsdsui: ev.amountUsdsui,
+            amountSui: nil,
+            counterparty: ev.counterparty,
+            counterpartyName: ev.counterpartyName,
+            venue: ev.venue,
+            otherCoin: nil
+        )
+        // Keep the user's just-made action pinned to the top of History until
+        // the fullnode's tx index surfaces the real digest.
+        func pinStubIfMissing() {
             if !activity.contains(where: { $0.digest == pendingDigest }) {
-                let stub = ActivityEntryDTO(
-                    digest: ev.digest,
-                    timestampMs: Date().timeIntervalSince1970 * 1000,
-                    direction: ev.direction,
-                    amountUsdsui: ev.amountUsdsui,
-                    amountSui: nil,
-                    counterparty: ev.counterparty,
-                    counterpartyName: ev.counterpartyName,
-                    venue: ev.venue,
-                    otherCoin: nil
-                )
                 activity = [stub] + activity.filter { $0.digest != ev.digest }
-                // Second reconcile pass — the fullnode index usually
-                // catches up within another 2-3s. After this we stop
-                // retrying so a wedged route can't loop forever.
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
-                await loadActivityFresh()
-                if !activity.contains(where: { $0.digest == pendingDigest }) {
-                    activity = [stub] + activity.filter { $0.digest != ev.digest }
-                }
             }
+        }
+        Task {
+            // 1) Immediate. Balance is current chain state, so a fresh read
+            //    reflects the new figure right away; history may lag the
+            //    fullnode index, so the stub holds the top meanwhile.
+            await loadBalance(fresh: true, silent: true)
+            await loadActivityFresh()
+            pinStubIfMissing()
+            // 2) Again 5s after the tx — the tx index has caught up by now.
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await loadBalance(fresh: true, silent: true)
+            await loadActivityFresh()
+            pinStubIfMissing()
         }
     }
 

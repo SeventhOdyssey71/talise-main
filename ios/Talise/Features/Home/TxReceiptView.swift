@@ -10,6 +10,7 @@ struct TxReceiptView: View {
     let entry: ActivityEntryDTO
     @Environment(\.dismiss) private var dismiss
     @State private var digestCopied = false
+    @State private var showShareableReceipt = false
 
     private let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -40,6 +41,20 @@ struct TxReceiptView: View {
             if CurrencySettings.shared.isStale() {
                 await CurrencySettings.shared.refresh()
             }
+        }
+        .sheet(isPresented: $showShareableReceipt) {
+            ShareableReceiptSheet(
+                headerLabel: headerLabel,
+                primaryAmount: primaryAmount,
+                usdsuiLine: usdsuiLine,
+                rows: receiptRows,
+                statusLabel: entry.offramp.map { cashOutStatusLabel($0.status) },
+                digest: entry.digest,
+                accent: badgeFg,
+                isCashout: category == .cashout
+            )
+            .presentationDetents([.large])
+            .presentationBackground(TaliseColor.bg)
         }
     }
 
@@ -292,13 +307,14 @@ struct TxReceiptView: View {
 
     private var actions: some View {
         VStack(spacing: 10) {
+            // PRIMARY — Talise receipt the user can save / share as an image.
             Button {
-                openSuiscan()
+                showShareableReceipt = true
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "arrow.up.right.square")
+                    Image(systemName: "doc.text")
                         .font(.system(size: 13, weight: .medium))
-                    Text("View on Suiscan")
+                    Text("View Receipt")
                         .font(TaliseFont.heading(15, weight: .medium))
                 }
                 .foregroundStyle(TaliseColor.bg)
@@ -309,6 +325,26 @@ struct TxReceiptView: View {
             }
             .buttonStyle(.plain)
 
+            // SECONDARY — the canonical on-chain record on SuiVision.
+            Button {
+                openSuiVision()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("View on SuiVision")
+                        .font(TaliseFont.heading(15, weight: .medium))
+                }
+                .foregroundStyle(TaliseColor.fg)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                // FLAT secondary action — a solid surface2 capsule.
+                .background(Capsule().fill(TaliseColor.surface2))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            // TERTIARY — quiet copy-digest text action.
             Button {
                 UIPasteboard.general.string = entry.digest
                 withAnimation(.easeInOut(duration: 0.15)) { digestCopied = true }
@@ -317,19 +353,14 @@ struct TxReceiptView: View {
                     await MainActor.run { digestCopied = false }
                 }
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: digestCopied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                     Text(digestCopied ? "Copied" : "Copy digest")
-                        .font(TaliseFont.heading(15, weight: .medium))
+                        .font(TaliseFont.body(13, weight: .light))
                 }
-                .foregroundStyle(TaliseColor.fg)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                // FLAT secondary action — a solid surface2 capsule. No
-                // material, gradient, or rim.
-                .background(Capsule().fill(TaliseColor.surface2))
-                .clipShape(Capsule())
+                .foregroundStyle(TaliseColor.fgMuted)
+                .frame(height: 36)
             }
             .buttonStyle(.plain)
         }
@@ -364,12 +395,60 @@ struct TxReceiptView: View {
         return String(a.prefix(8)) + "…" + String(a.suffix(6))
     }
 
-    private func openSuiscan() {
-        guard let url = URL(string: "https://suiscan.xyz/mainnet/tx/\(entry.digest)") else {
+    private func openSuiVision() {
+        guard let url = URL(string: "https://suivision.xyz/txblock/\(entry.digest)") else {
             return
         }
         UIApplication.shared.open(url)
     }
+
+    /// The "X USDsui" subtitle line, shared by the on-screen amount block and
+    /// the shareable receipt.
+    private var usdsuiLine: String? {
+        guard let usdsui = entry.amountUsdsui else { return nil }
+        return String(format: "%@ USDsui", TaliseFormat.usd2(Swift.abs(usdsui)))
+    }
+
+    /// The detail rows, derived once and reused by the on-screen card and the
+    /// shareable receipt so the two never drift.
+    private var receiptRows: [ReceiptRowData] {
+        if let off = entry.offramp {
+            var rows: [ReceiptRowData] = [
+                ReceiptRowData(label: "To", value: cashOutDestination(off), mono: false),
+            ]
+            if let usd = entry.amountUsdsui {
+                rows.append(ReceiptRowData(
+                    label: "You sent",
+                    value: String(format: "%@ USDsui", TaliseFormat.usd2(Swift.abs(usd))),
+                    mono: false))
+            }
+            rows.append(ReceiptRowData(label: "Rate", value: "$1 = \(TaliseFormat.ngn(off.rate))", mono: false))
+            rows.append(ReceiptRowData(label: "Status", value: cashOutStatusLabel(off.status), mono: false))
+            rows.append(ReceiptRowData(label: "Date", value: dateFormatter.string(from: timestamp), mono: false))
+            rows.append(ReceiptRowData(label: "Network", value: "Sui Mainnet", mono: false))
+            return rows
+        }
+        var rows: [ReceiptRowData] = []
+        switch category {
+        case .received:
+            rows.append(ReceiptRowData(label: "From", value: counterpartyOrAddress, mono: !hasCounterpartyName))
+        case .invest, .withdraw:
+            rows.append(ReceiptRowData(label: "Venue", value: entry.venue.map(displayVenueName) ?? "—", mono: false))
+        case .sent, .cashout:
+            rows.append(ReceiptRowData(label: "To", value: counterpartyOrAddress, mono: !hasCounterpartyName))
+        }
+        rows.append(ReceiptRowData(label: "Date", value: dateFormatter.string(from: timestamp), mono: false))
+        rows.append(ReceiptRowData(label: "Network", value: "Sui Mainnet", mono: false))
+        return rows
+    }
+}
+
+/// One label/value pair on a receipt.
+struct ReceiptRowData: Identifiable {
+    let id = UUID()
+    let label: String
+    let value: String
+    let mono: Bool
 }
 
 /// FLAT card for the receipt's details block — a single solid
@@ -389,5 +468,224 @@ private struct ReceiptFlatCard: ViewModifier {
 private extension View {
     func receiptFlatCard(cornerRadius: CGFloat = 22) -> some View {
         modifier(ReceiptFlatCard(cornerRadius: cornerRadius))
+    }
+}
+
+// MARK: - Shareable receipt
+
+/// A branded, downloadable/shareable receipt. Renders the card to an image and
+/// offers it through the system share sheet (Save to Photos, WhatsApp, etc.).
+/// This is the Talise receipt; the on-chain record is "View on SuiVision".
+struct ShareableReceiptSheet: View {
+    let headerLabel: String
+    let primaryAmount: String
+    let usdsuiLine: String?
+    let rows: [ReceiptRowData]
+    let statusLabel: String?
+    let digest: String
+    let accent: Color
+    let isCashout: Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var rendered: UIImage?
+
+    private let cardWidth: CGFloat = 340
+
+    private var card: ShareableReceiptCard {
+        ShareableReceiptCard(
+            headerLabel: headerLabel,
+            primaryAmount: primaryAmount,
+            usdsuiLine: usdsuiLine,
+            rows: rows,
+            digest: digest,
+            isCashout: isCashout
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Receipt")
+                    .font(TaliseFont.heading(17, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 18)
+            .padding(.bottom, 6)
+
+            ScrollView {
+                card
+                    .frame(width: cardWidth)
+                    .padding(.vertical, 18)
+            }
+
+            shareButton
+                .padding(.horizontal, 22)
+                .padding(.bottom, 22)
+        }
+        .background(TaliseColor.bg.ignoresSafeArea())
+        .presentationDragIndicator(.visible)
+        .onAppear(perform: renderImage)
+    }
+
+    @ViewBuilder
+    private var shareButton: some View {
+        if let img = rendered {
+            ShareLink(
+                item: Image(uiImage: img),
+                preview: SharePreview("Talise receipt", image: Image(uiImage: img))
+            ) {
+                shareLabel(enabled: true)
+            }
+            .buttonStyle(.plain)
+        } else {
+            shareLabel(enabled: false)
+        }
+    }
+
+    private func shareLabel(enabled: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 14, weight: .medium))
+            Text("Save / Share receipt")
+                .font(TaliseFont.heading(15, weight: .medium))
+        }
+        .foregroundStyle(TaliseColor.bg)
+        .frame(maxWidth: .infinity)
+        .frame(height: 52)
+        .background(TaliseColor.fg)
+        .clipShape(Capsule())
+        .opacity(enabled ? 1 : 0.5)
+    }
+
+    @MainActor private func renderImage() {
+        let renderer = ImageRenderer(content: card.frame(width: cardWidth))
+        renderer.scale = max(UIScreen.main.scale, 3)
+        rendered = renderer.uiImage
+    }
+}
+
+/// The visual receipt itself — also used standalone by the renderer.
+struct ShareableReceiptCard: View {
+    let headerLabel: String
+    let primaryAmount: String
+    let usdsuiLine: String?
+    let rows: [ReceiptRowData]
+    let digest: String
+    let isCashout: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Brand header + amount
+            VStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    Circle().fill(TaliseColor.greenMint).frame(width: 9, height: 9)
+                    Text("talise")
+                        .font(TaliseFont.heading(20, weight: .semibold))
+                        .kerning(-0.5)
+                        .foregroundStyle(TaliseColor.fg)
+                }
+                Text(headerLabel.uppercased())
+                    .font(TaliseFont.mono(11, weight: .regular))
+                    .kerning(2)
+                    .foregroundStyle(TaliseColor.fgDim)
+                Text(primaryAmount)
+                    .font(TaliseFont.display(34, weight: .medium))
+                    .kerning(-1.2)
+                    .foregroundStyle(isCashout ? Color(hex: 0xE5484D) : TaliseColor.fg)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                if let line = usdsuiLine {
+                    Text(line)
+                        .font(TaliseFont.mono(12, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                }
+            }
+            .padding(.top, 30)
+            .padding(.bottom, 22)
+            .padding(.horizontal, 24)
+            .frame(maxWidth: .infinity)
+
+            DashedLine()
+                .stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                .foregroundStyle(Color.white.opacity(0.10))
+                .frame(height: 1)
+                .padding(.horizontal, 20)
+
+            // Detail rows
+            VStack(spacing: 0) {
+                ForEach(rows) { r in
+                    HStack {
+                        Text(r.label)
+                            .font(TaliseFont.body(13, weight: .light))
+                            .foregroundStyle(TaliseColor.fgMuted)
+                        Spacer()
+                        Text(r.value)
+                            .font(r.mono
+                                  ? TaliseFont.mono(12, weight: .light)
+                                  : TaliseFont.body(13, weight: .light))
+                            .foregroundStyle(TaliseColor.fg)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .padding(.vertical, 12)
+                    if r.id != rows.last?.id {
+                        Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
+                    }
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 6)
+
+            // Digest
+            VStack(spacing: 6) {
+                Text("TRANSACTION DIGEST")
+                    .font(TaliseFont.mono(9, weight: .regular))
+                    .kerning(1.5)
+                    .foregroundStyle(TaliseColor.fgDim)
+                Text(digest)
+                    .font(TaliseFont.mono(10, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.top, 10)
+            .padding(.bottom, 18)
+
+            // Footer
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(TaliseColor.greenMint)
+                Text("Verified on Sui Mainnet · talise.io")
+                    .font(TaliseFont.body(11, weight: .light))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
+            .padding(.bottom, 24)
+        }
+        .background(RoundedRectangle(cornerRadius: 28, style: .continuous).fill(TaliseColor.surface))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
+    }
+}
+
+/// A single horizontal dashed rule used as the receipt's perforation line.
+private struct DashedLine: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: 0, y: rect.midY))
+        p.addLine(to: CGPoint(x: rect.width, y: rect.midY))
+        return p
     }
 }
