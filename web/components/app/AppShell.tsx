@@ -382,7 +382,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
                     only while this section is active, so the sidebar stays
                     calm elsewhere but those routes are reachable here. */}
                 {item.children && active && (
-                  <div className="mb-1 ml-[26px] mt-0.5 flex flex-col gap-0.5 border-l border-line pl-3">
+                  <div className="mb-1.5 ml-[26px] mt-1 flex flex-col gap-0.5 border-l border-line/70 pl-2">
                     {item.children.map((child) => {
                       const childActive =
                         child.href === item.href
@@ -394,10 +394,10 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
                           key={child.href}
                           href={child.href}
                           aria-current={childActive ? "page" : undefined}
-                          className={`rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
+                          className={`rounded-lg px-2.5 py-1.5 text-[13px] transition-colors ${
                             childActive
-                              ? "text-accent"
-                              : "text-fg-muted hover:text-fg"
+                              ? "bg-accent-soft font-semibold text-accent"
+                              : "font-medium text-fg-muted hover:bg-accent-soft/60 hover:text-fg"
                           }`}
                         >
                           {child.label}
