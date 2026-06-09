@@ -47,7 +47,12 @@ export function useYieldComparison() {
   const mounted = useRef(true);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    // Only show the skeleton on the FIRST load. Background revalidations (fired
+    // by every `talise:tx`) must not flash the spinner over live cards.
+    setData((cur) => {
+      if (cur === null) setLoading(true);
+      return cur;
+    });
     try {
       const res = await api<YieldComparison>("/api/yield/comparison", { fresh: true });
       if (!mounted.current) return;

@@ -172,7 +172,9 @@ body {
   --color-fg: #14250e;          /* deep ink-green — big numbers, headings */
   --color-fg-muted: #586b50;    /* secondary text (AA on white) */
   --color-fg-dim: #7e8c75;      /* tertiary / labels */
-  --color-line: #e9ede6;        /* thin hairline divider */
+  /* Whisper-soft translucent hairline — reads as a gentle edge on white, never
+     a hard grey box. One token re-skins every border/ring/divide in the app. */
+  --color-line: rgba(20, 37, 14, 0.07);
   --color-accent: #2f7d31;      /* forest — links / accent text */
   --color-accent-light: #caffb8;
   --color-accent-deep: #2f7d31; /* solid CTA fill (white text, AA) */

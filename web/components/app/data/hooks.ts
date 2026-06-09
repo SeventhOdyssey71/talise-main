@@ -208,7 +208,11 @@ export function useMe() {
   const { data, error, loading, refresh } = useResource<Me>("/api/me", (fresh) =>
     api<Me>("/api/me", { fresh })
   );
-  return { me: data ?? null, loading, error, refresh: () => refresh(true) };
+  // Stable identity so consumers can safely put `refresh` in an effect dep
+  // array without triggering a refetch loop (the inline arrow used to be new
+  // every render).
+  const refreshMe = useCallback(() => refresh(true), [refresh]);
+  return { me: data ?? null, loading, error, refresh: refreshMe };
 }
 
 // ── useBalances ────────────────────────────────────────────────────────────
@@ -217,13 +221,9 @@ export function useBalances() {
   const { data, error, loading, refresh } = useResource<Balances>("/api/balances", (fresh) =>
     api<Balances>("/api/balances", { fresh })
   );
-  return {
-    data: data ?? null,
-    loading,
-    error,
-    refresh: () => refresh(false),
-    refreshFresh: () => refresh(true),
-  };
+  const refreshCached = useCallback(() => refresh(false), [refresh]);
+  const refreshFresh = useCallback(() => refresh(true), [refresh]);
+  return { data: data ?? null, loading, error, refresh: refreshCached, refreshFresh };
 }
 
 // ── useActivity ────────────────────────────────────────────────────────────
@@ -233,7 +233,8 @@ export function useActivity(limit = 25) {
     `/api/activity?limit=${limit}`,
     (fresh) => api<{ entries: ActivityEntry[] }>("/api/activity", { query: { limit }, fresh })
   );
-  return { entries: data?.entries ?? [], loading, error, refresh: () => refresh(true) };
+  const refreshActivity = useCallback(() => refresh(true), [refresh]);
+  return { entries: data?.entries ?? [], loading, error, refresh: refreshActivity };
 }
 
 // ── useContacts ────────────────────────────────────────────────────────────
