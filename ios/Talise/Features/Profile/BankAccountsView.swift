@@ -711,6 +711,8 @@ enum BankBranding {
     static let logoCodes: Set<String> = [
         "011", "033", "035", "039", "044", "050", "057", "058",
         "070", "214", "215", "232", "301",
+        // Fintechs / MFBs (raster brand marks)
+        "100004", "100033", "090405", "090267", // OPay, PalmPay, Moniepoint, Kuda
     ]
     static func assetName(for bankCode: String) -> String? {
         logoCodes.contains(bankCode) ? "bank-\(bankCode)" : nil
