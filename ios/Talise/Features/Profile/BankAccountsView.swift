@@ -209,7 +209,7 @@ struct BankAccountsView: View {
 
     private func accountRow(_ acct: BankAccountDTO) -> some View {
         HStack(spacing: 12) {
-            bankAvatar(acct.bankName)
+            BankAvatar(bankCode: acct.bankCode, bankName: acct.bankName, size: 38, cornerRadius: 11)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(acct.accountName)
@@ -264,17 +264,6 @@ struct BankAccountsView: View {
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-    }
-
-    private func bankAvatar(_ name: String) -> some View {
-        Text(String(name.prefix(1)).uppercased())
-            .font(TaliseFont.heading(15, weight: .semibold))
-            .foregroundStyle(TaliseColor.accent)
-            .frame(width: 38, height: 38)
-            .background(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(TaliseColor.accentSoft)
-            )
     }
 
     // MARK: Networking
@@ -417,14 +406,7 @@ struct AddBankAccountView: View {
         Button { showBankPicker = true } label: {
             HStack(spacing: 12) {
                 if let bank = selectedBank {
-                    Text(String(bank.name.prefix(1)).uppercased())
-                        .font(TaliseFont.heading(15, weight: .semibold))
-                        .foregroundStyle(TaliseColor.accent)
-                        .frame(width: 34, height: 34)
-                        .background(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .fill(TaliseColor.accentSoft)
-                        )
+                    BankAvatar(bankCode: bank.bankCode, bankName: bank.name, size: 34, cornerRadius: 9)
                 }
                 Text(selectedBank?.name ?? "Select bank")
                     .font(TaliseFont.body(15))
@@ -672,14 +654,7 @@ private struct LinkBankPickerSheet: View {
                             dismiss()
                         } label: {
                             HStack(spacing: 12) {
-                                Text(String(bank.name.prefix(1)).uppercased())
-                                    .font(TaliseFont.heading(15, weight: .semibold))
-                                    .foregroundStyle(TaliseColor.accent)
-                                    .frame(width: 36, height: 36)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .fill(TaliseColor.accentSoft)
-                                    )
+                                BankAvatar(bankCode: bank.bankCode, bankName: bank.name, size: 36, cornerRadius: 10)
                                 Text(bank.name)
                                     .font(TaliseFont.body(15))
                                     .foregroundStyle(TaliseColor.fg)
@@ -725,5 +700,56 @@ private struct BankFieldSurface: ViewModifier {
 private extension View {
     func fieldSurfaceBank(cornerRadius: CGFloat = 16) -> some View {
         modifier(BankFieldSurface(cornerRadius: cornerRadius))
+    }
+}
+
+// MARK: - Bank branding (logos + avatar)
+
+/// Bank codes we ship a brand logo for (BankLogos asset catalog, from the
+/// vendored Nigerian-Bank-Logos set). Everything else falls back to a letter.
+enum BankBranding {
+    static let logoCodes: Set<String> = [
+        "011", "033", "035", "039", "044", "050", "057", "058",
+        "070", "214", "215", "232", "301",
+    ]
+    static func assetName(for bankCode: String) -> String? {
+        logoCodes.contains(bankCode) ? "bank-\(bankCode)" : nil
+    }
+}
+
+/// A bank's brand logo when we have one, else a letter-circle fallback.
+/// Square rounded tile — used by every bank row (linked accounts, pickers,
+/// withdraw, scan, send-to-bank) so they all look consistent.
+struct BankAvatar: View {
+    let bankCode: String
+    let bankName: String
+    var size: CGFloat = 40
+    var cornerRadius: CGFloat = 11
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return Group {
+            if let asset = BankBranding.assetName(for: bankCode) {
+                // Brand marks are designed for light backgrounds — set them on a
+                // clean white tile (Apple-Wallet style) so they read on any surface.
+                shape.fill(.white)
+                    .overlay(
+                        Image(asset)
+                            .resizable()
+                            .renderingMode(.original)
+                            .scaledToFit()
+                            .padding(size * 0.16)
+                    )
+                    .overlay(shape.strokeBorder(TaliseColor.line, lineWidth: 1))
+            } else {
+                Text(String(bankName.prefix(1)).uppercased())
+                    .font(TaliseFont.heading(size * 0.4, weight: .medium))
+                    .foregroundStyle(TaliseColor.accent)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(shape.fill(TaliseColor.accentSoft))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(shape)
     }
 }

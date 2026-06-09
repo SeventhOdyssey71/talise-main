@@ -285,7 +285,7 @@ struct ScanBankPayoutSheet: View {
     /// To {name} {acct} • {bank} — the destination, with inline name-enquiry.
     private var recipientCard: some View {
         HStack(spacing: 14) {
-            bankAvatar
+            BankAvatar(bankCode: bank.code, bankName: bank.name, size: 46, cornerRadius: 13)
             VStack(alignment: .leading, spacing: 4) {
                 if resolving {
                     HStack(spacing: 7) {
@@ -320,17 +320,6 @@ struct ScanBankPayoutSheet: View {
                 .fill(TaliseColor.surface)
         )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    private var bankAvatar: some View {
-        Text(String(bank.name.prefix(1)).uppercased())
-            .font(TaliseFont.heading(17, weight: .semibold))
-            .foregroundStyle(TaliseColor.accent)
-            .frame(width: 46, height: 46)
-            .background(
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(TaliseColor.accentSoft)
-            )
     }
 
     private var amountBlock: some View {
@@ -824,14 +813,7 @@ struct ScanBankPickerSheet: View {
                             dismiss()
                         } label: {
                             HStack(spacing: 12) {
-                                Text(String(bank.name.prefix(1)).uppercased())
-                                    .font(TaliseFont.heading(15, weight: .semibold))
-                                    .foregroundStyle(TaliseColor.accent)
-                                    .frame(width: 36, height: 36)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .fill(TaliseColor.accentSoft)
-                                    )
+                                BankAvatar(bankCode: bank.code, bankName: bank.name, size: 36, cornerRadius: 10)
                                 Text(bank.name)
                                     .font(TaliseFont.body(15))
                                     .foregroundStyle(TaliseColor.fg)

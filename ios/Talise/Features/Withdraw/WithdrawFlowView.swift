@@ -496,7 +496,7 @@ private struct BankWithdrawView: View {
         Button { showBankPicker = true } label: {
             HStack(spacing: 12) {
                 if let bank = selectedBank {
-                    bankAvatar(bank.name)
+                    BankAvatar(bankCode: bank.bankCode, bankName: bank.name, size: 34, cornerRadius: 9)
                 }
                 Text(selectedBank?.name ?? "Select bank")
                     .font(TaliseFont.body(15))
@@ -527,19 +527,6 @@ private struct BankWithdrawView: View {
             .clipShape(Capsule())
         }
         .disabled(!canContinue || quoting)
-    }
-
-    /// Letter-avatar for a bank: first initial in a rounded square.
-    /// TODO: brand logos — render the NIBSS brand SVGs once bundled.
-    private func bankAvatar(_ name: String) -> some View {
-        Text(String(name.prefix(1)).uppercased())
-            .font(TaliseFont.heading(15, weight: .semibold))
-            .foregroundStyle(TaliseColor.accent)
-            .frame(width: 34, height: 34)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(TaliseColor.accentSoft)
-            )
     }
 
     // MARK: Review (quote)
@@ -1028,15 +1015,7 @@ private struct BankPickerSheet: View {
                             dismiss()
                         } label: {
                             HStack(spacing: 12) {
-                                // TODO: brand logos — letter-avatar for now.
-                                Text(String(bank.name.prefix(1)).uppercased())
-                                    .font(TaliseFont.heading(15, weight: .semibold))
-                                    .foregroundStyle(TaliseColor.accent)
-                                    .frame(width: 36, height: 36)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .fill(TaliseColor.accentSoft)
-                                    )
+                                BankAvatar(bankCode: bank.bankCode, bankName: bank.name, size: 36, cornerRadius: 10)
                                 Text(bank.name)
                                     .font(TaliseFont.body(15))
                                     .foregroundStyle(TaliseColor.fg)
