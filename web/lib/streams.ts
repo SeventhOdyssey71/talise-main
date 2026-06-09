@@ -765,6 +765,55 @@ export async function buildStreamCreateSponsored(input: {
 }
 
 /**
+ * Build the Onara-SPONSORED `talise::stream::claim_accrued<USDSUI>` PTB.
+ *
+ * THIS is the cron-less release path. `claim_accrued` is permissionless on
+ * chain: it walks the schedule, releases EVERY tranche whose Clock due-time has
+ * passed, and transfers it to the stream's hardwired `recipient` — so there is
+ * no extraction surface (a caller can only push DUE funds to the recipient,
+ * never to themselves, never more than the schedule allows). The recipient
+ * signs (zkLogin) and Onara sponsors the gas, so claiming is free and needs no
+ * worker key and no scheduler. Returns sponsor-ready bytes the client signs and
+ * POSTs to /api/zk/sponsor-execute.
+ *
+ * Requires streamOnchainEnabled() upstream (caller gates).
+ */
+export async function buildClaimAccruedSponsored(input: {
+  /** The on-chain `Stream<USDSUI>` object id (== the stream's DB id). */
+  streamObjectId: string;
+  /** The signer (the recipient, in practice). Funds always go to the
+   *  contract-hardwired recipient regardless of who signs. */
+  signerAddress: string;
+}): Promise<{ bytes: string; sponsor: string }> {
+  const pkg = streamPackageId();
+  if (!pkg) {
+    throw new Error("STREAM_PACKAGE_ID unset — on-chain stream claim disabled");
+  }
+
+  const onaraClient = onara();
+  const client = sui();
+
+  const [{ address: sponsor }, gasPrice] = await Promise.all([
+    onaraClient.status(),
+    client.getReferenceGasPrice().then((r) => r.referenceGasPrice),
+  ]);
+
+  const tx = new Transaction();
+  tx.setSender(input.signerAddress);
+  tx.moveCall({
+    target: `${pkg}::stream::claim_accrued`,
+    typeArguments: [USDSUI_TYPE],
+    arguments: [tx.object(input.streamObjectId), tx.object(SUI_CLOCK_ID)],
+  });
+  // SPONSORED: Onara owns the gas; the recipient signs the sender slot.
+  tx.setGasOwner(sponsor);
+  tx.setGasPrice(BigInt(gasPrice));
+
+  const bytes = await tx.build({ client: client as never });
+  return { bytes: toBase64(bytes), sponsor };
+}
+
+/**
  * Parse the CREATED `Stream<...>` object id out of a confirmed funding tx.
  * The create PTB shares exactly one `${PKG}::stream::Stream<USDSUI>` object;
  * its objectId IS the on-chain stream id we persist as `streams.id`.

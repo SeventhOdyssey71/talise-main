@@ -80,13 +80,17 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!streamEscrowEnabled()) {
-    // Degrade cleanly when the escrow keypair isn't configured.
+  // Streaming is now the ON-CHAIN, Clock-based rail only — the escrow +
+  // scheduler (cron) rail is retired. A stream is a real Stream<USDSUI> Move
+  // object; the recipient pulls accrued tranches via stream::claim_accrued.
+  // So availability is gated on STREAM_PACKAGE_ID/REGISTRY_ID, not the (now
+  // unused) escrow keypair.
+  if (!streamOnchainEnabled()) {
     return NextResponse.json(
       {
         error:
           "Streaming payments aren't available right now. Please try again later.",
-        code: "STREAM_ESCROW_DISABLED",
+        code: "STREAM_ONCHAIN_REQUIRED",
       },
       { status: 503 }
     );
@@ -278,7 +282,11 @@ export async function POST(req: Request) {
   // gasless failure (Coin-only balance / accumulator underfunded / withdraw
   // reservation / InsufficientGas) we fall through to the SPONSORED rail
   // below, which sources from Coin<USDSUI> objects via Onara sponsorship.
-  const escrowAddress = streamEscrowAddress();
+  // On-chain streaming doesn't use the escrow address (funds live in the
+  // Stream object). Only derive it if the legacy escrow key is configured;
+  // otherwise leave it blank so a missing key never throws. The on-chain
+  // funding branch below returns before the escrow build that would use it.
+  const escrowAddress = streamEscrowEnabled() ? streamEscrowAddress() : "";
   const startMs = Date.now();
   const planPayload = {
     escrowAddress,
