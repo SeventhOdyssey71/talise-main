@@ -5,7 +5,7 @@ import { userById } from "@/lib/db";
 import {
   workInvoiceById,
   voidWorkInvoice,
-  markWorkInvoicePaid,
+  settleInvoiceByDigest,
   type WorkInvoice,
 } from "@/lib/invoices";
 
@@ -24,9 +24,14 @@ export const runtime = "nodejs";
  *
  * POST /api/invoices/[id] — owner-only mutations.
  *   • { action: 'void' }              → mark an open invoice void.
- *   • { action: 'mark-paid', digest } → mark an open invoice paid (records the
- *                                        on-chain digest for the audit trail).
+ *   • { action: 'mark-paid', digest } → mark an open invoice paid. The digest is
+ *                                        VERIFIED on-chain via the shared settle
+ *                                        helper (must succeed + credit the
+ *                                        issuer), not merely recorded.
  */
+
+/** A plausible base58 Sui transaction digest (same shape the settle route uses). */
+const DIGEST_RE = /^[1-9A-HJ-NP-Za-km-z]{40,60}$/;
 
 /** The issuer's public-facing display handle (talise handle, else short addr). */
 function issuerHandle(u: {
@@ -149,9 +154,9 @@ export async function POST(
 
   if (body.action === "mark-paid") {
     const digest = (body.digest ?? "").trim();
-    if (!digest) {
+    if (!DIGEST_RE.test(digest)) {
       return NextResponse.json(
-        { error: "A transaction digest is required to mark paid." },
+        { error: "A valid transaction digest is required to mark paid." },
         { status: 400 }
       );
     }
@@ -161,8 +166,16 @@ export async function POST(
         { status: 409 }
       );
     }
-    await markWorkInvoicePaid({ id, digest });
-    return NextResponse.json({ ok: true, status: "paid" });
+    // Even though this is an owner-asserted "mark paid", the digest is verified
+    // on-chain via the shared settle helper: it must exist, have succeeded, and
+    // have credited the issuer's address with USDsui (rejecting bogus digests),
+    // and it's replay-guarded just like the public settle path. `trustOwner`
+    // only relaxes the lower amount bound, never the verification itself.
+    const result = await settleInvoiceByDigest(id, digest, { trustOwner: true });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
+    }
+    return NextResponse.json({ ok: true, status: "paid", digest: result.digest });
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });

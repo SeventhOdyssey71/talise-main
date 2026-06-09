@@ -1,6 +1,8 @@
 import "server-only";
 
-import { db, ensureSchema } from "@/lib/db";
+import { db, ensureSchema, userById } from "@/lib/db";
+import { getNormalizedTransaction } from "@/lib/sui-shapes";
+import { isUsdsui } from "@/lib/usdsui";
 
 /**
  * Invoices v2 — the Work hub's "get paid for work" backend.
@@ -331,6 +333,148 @@ export async function workInvoiceDigestUsed(
     args: [digest, exceptId],
   });
   return r.rows.length > 0;
+}
+
+// ── Trustless settle (shared verify-and-close core) ─────────────────────────
+
+const USDSUI_MICRO = 1_000_000;
+
+/**
+ * The outcome of a settle attempt. `ok` carries the recorded digest; a failure
+ * carries an HTTP-shaped status + a human message so every caller (the public
+ * settle route AND the owner mark-paid route) reports the same thing.
+ */
+export type SettleInvoiceResult =
+  | { ok: true; status: "paid"; digest: string }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Verify a payment on-chain and authoritatively close the invoice — the single
+ * source of truth shared by the public settle route and the owner's "mark paid"
+ * action.
+ *
+ * The flow (lifted verbatim from the old settle route so behavior is unchanged):
+ *   1. Load invoice + issuer authoritatively (never trust the caller's claim).
+ *   2. Idempotent short-circuit if already paid; reject non-open invoices.
+ *   3. Replay guard: a digest may close AT MOST one invoice.
+ *   4. Fetch the tx by digest via the canonical verifier; require success.
+ *   5. Sum USDsui credited to the issuer; capture the payer for the audit trail.
+ *   6. Amount-bind: reject underpayment AND >0.5% overpayment (so a larger
+ *      payment meant for another invoice can't close a smaller one).
+ *   7. Authoritative close via markWorkInvoicePaid (the partial-unique index on
+ *      pay_digest wins any concurrent race).
+ *
+ * `trustOwner` does NOT skip on-chain verification — the digest is ALWAYS
+ * verified to exist, succeed, and credit the issuer. It only relaxes the
+ * amount-binding's lower bound: an owner asserting "this got paid" may record a
+ * payment that credited the issuer at least 1 micro-unit of USDsui (e.g. paid
+ * partially, or off a rounded figure) without it being silently rejected, while
+ * still rejecting an obviously-bogus digest that never paid the issuer at all.
+ */
+export async function settleInvoiceByDigest(
+  id: string,
+  digest: string,
+  opts: { trustOwner?: boolean } = {}
+): Promise<SettleInvoiceResult> {
+  await ensureWorkSchema();
+
+  const invoice = await workInvoiceById(id);
+  if (!invoice) {
+    return { ok: false, status: 404, error: "invoice not found" };
+  }
+  // Idempotent: already closed.
+  if (invoice.status === "paid") {
+    return { ok: true, status: "paid", digest: invoice.payDigest ?? digest };
+  }
+  if (invoice.status !== "open") {
+    return { ok: false, status: 409, error: `this invoice is ${invoice.status}` };
+  }
+
+  const issuer = await userById(invoice.userId);
+  if (!issuer) {
+    return { ok: false, status: 404, error: "invoice issuer not found" };
+  }
+  const issuerAddress = issuer.sui_address.toLowerCase();
+
+  // Replay guard: a digest can settle at most one invoice.
+  if (await workInvoiceDigestUsed(digest, id)) {
+    return {
+      ok: false,
+      status: 409,
+      error: "this transaction already settled another invoice",
+    };
+  }
+
+  // Tolerance for u64<->float rounding (1 micro-unit = 1e-6 USDsui).
+  const expectedMicro = BigInt(Math.round(invoice.amountUsd * USDSUI_MICRO));
+
+  let tx;
+  try {
+    tx = await getNormalizedTransaction(digest);
+  } catch (e) {
+    // RPC indexing lag is common right after broadcast — the caller retries.
+    return {
+      ok: false,
+      status: 400,
+      error: `could not verify payment yet: ${(e as Error).message}`,
+    };
+  }
+
+  if (tx.status !== "success") {
+    return {
+      ok: false,
+      status: 400,
+      error: `payment transaction did not succeed (${tx.status})`,
+    };
+  }
+
+  // Sum USDsui credited to the issuer; capture the payer (matching negative
+  // USDsui delta) for the audit trail.
+  let receivedMicro = 0n;
+  let payerAddress: string | null = null;
+  for (const c of tx.balanceChanges) {
+    if (!isUsdsui(c.coinType)) continue;
+    if (c.ownerAddress === issuerAddress) {
+      if (c.amount > 0n) receivedMicro += c.amount;
+    } else if (c.amount < 0n && c.ownerAddress && !payerAddress) {
+      payerAddress = c.ownerAddress;
+    }
+  }
+
+  // Bind the payment to THIS invoice by amount. The public path rejects
+  // underpayment AND gross overpayment; an owner-asserted close keeps the same
+  // upper bound (no double-close of a bigger invoice) but only requires that
+  // the issuer was credited SOMETHING (a verified, non-bogus digest).
+  const maxMicro = expectedMicro + (expectedMicro * 50n) / 10_000n;
+  const lowerBound = opts.trustOwner ? 1n : expectedMicro;
+  if (receivedMicro < lowerBound || receivedMicro > maxMicro) {
+    return {
+      ok: false,
+      status: 400,
+      error: `payment of ${Number(receivedMicro) / USDSUI_MICRO} USDsui does not match the ${invoice.amountUsd} USDsui due`,
+    };
+  }
+
+  // Authoritative close: the partial-unique index on pay_digest wins any race
+  // (a digest that already settled another invoice raises a unique violation).
+  let claimed = false;
+  try {
+    claimed = await markWorkInvoicePaid({ id, digest, payerAddress });
+  } catch (e) {
+    if (/duplicate key|unique/i.test((e as Error).message)) {
+      return {
+        ok: false,
+        status: 409,
+        error: "this transaction already settled another invoice",
+      };
+    }
+    throw e;
+  }
+  if (!claimed) {
+    return { ok: false, status: 409, error: "this invoice is no longer open" };
+  }
+
+  return { ok: true, status: "paid", digest };
 }
 
 /**

@@ -555,6 +555,39 @@ async function doEnsureSchema(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_transfers_state ON transfers(state, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_transfers_parked ON transfers(parked_funds, created_at DESC) WHERE parked_funds = TRUE`,
 
+    // ─── team / batch payouts ────────────────────────────────────────
+    // One row per batch payout — paying many recipients USDsui in ONE
+    // atomic Onara-sponsored PTB ("pay your whole team in one signature").
+    // `status` walks 'prepared' (bytes built, awaiting client sign) →
+    // 'broadcast' (digest landed). `total_usd` is the summed USDsui across
+    // all legs; `recipient_count` mirrors the child-row count. The PTB is
+    // all-or-nothing on chain, so a batch is never partially paid.
+    `CREATE TABLE IF NOT EXISTS payout_batches (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      kind TEXT,
+      total_usd DOUBLE PRECISION,
+      recipient_count INT,
+      status TEXT,
+      digest TEXT,
+      created_at BIGINT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_payout_batches_user ON payout_batches(user_id, created_at DESC)`,
+    // Per-recipient legs of a batch. `resolved_address` is the SuiNS-resolved
+    // 0x address the PTB actually pays; `input_handle` preserves what the user
+    // typed (@alice / alice.talise.sui / 0x…) for audit. `idx` is the leg's
+    // position within the batch (matches the PTB leg order).
+    `CREATE TABLE IF NOT EXISTS payout_batch_recipients (
+      id TEXT PRIMARY KEY,
+      batch_id TEXT,
+      resolved_address TEXT,
+      input_handle TEXT,
+      amount_usd DOUBLE PRECISION,
+      label TEXT,
+      idx INT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_payout_batch_recipients_batch ON payout_batch_recipients(batch_id)`,
+
     // ─── roundup_queue (deferred spend-and-save) ─────────────────────
     // When a USDsui send takes the gasless rail (the only USDsui rail
     // now — see sponsor-prepare/route.ts), the round-up NAVI supply

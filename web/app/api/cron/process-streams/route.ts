@@ -16,6 +16,11 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// This is a money-moving loop that signs + broadcasts up to BATCH_LIMIT (25)
+// on-chain tranche releases per tick, each waiting on RPC build/sign/execute
+// round-trips. Give it headroom past the platform's 10s default so a backlog
+// drains in one invocation instead of being cut off mid-release.
+export const maxDuration = 60;
 
 /**
  * GET /api/cron/process-streams — THE STREAM SCHEDULER.

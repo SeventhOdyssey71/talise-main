@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -10,6 +11,7 @@ import {
   CheckmarkCircle02Icon,
   Cancel01Icon,
   PlusSignIcon,
+  ArrowRight02Icon,
 } from "@hugeicons/core-free-icons";
 import {
   GlassCard,
@@ -18,7 +20,6 @@ import {
   Sheet,
   Field,
   Eyebrow,
-  MicroLabel,
   EmptyState,
   Spinner,
   api,
@@ -46,11 +47,15 @@ const ORIGIN =
   typeof window !== "undefined" ? window.location.origin : "";
 
 export function InvoicesTab() {
+  const router = useRouter();
   const { toast } = useToast();
   const { formatUsd } = useCurrency();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  // The invoice currently targeted by the mark-paid / void confirmation sheets.
+  const [markPaidFor, setMarkPaidFor] = useState<Invoice | null>(null);
+  const [voidFor, setVoidFor] = useState<Invoice | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -76,28 +81,7 @@ export function InvoicesTab() {
     }
   };
 
-  const mutate = async (id: string, action: "void" | "mark-paid") => {
-    try {
-      if (action === "mark-paid") {
-        const digest = window.prompt(
-          "Paste the transaction digest you received off-platform to mark this paid:"
-        );
-        if (!digest || !digest.trim()) return;
-        await api(`/api/invoices/${id}`, {
-          method: "POST",
-          body: { action: "mark-paid", digest: digest.trim() },
-        });
-        toast("Invoice marked paid", "success");
-      } else {
-        if (!window.confirm("Void this invoice? The pay link will stop working.")) return;
-        await api(`/api/invoices/${id}`, { method: "POST", body: { action: "void" } });
-        toast("Invoice voided", "neutral");
-      }
-      await load();
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Something went wrong", "danger");
-    }
-  };
+  const open = (id: string) => router.push(`/app/work/invoices/${id}`);
 
   return (
     <div className="space-y-4">
@@ -137,9 +121,10 @@ export function InvoicesTab() {
               key={inv.id}
               inv={inv}
               formatUsd={formatUsd}
+              onOpen={() => open(inv.id)}
               onCopy={() => copyLink(inv.id)}
-              onMarkPaid={() => mutate(inv.id, "mark-paid")}
-              onVoid={() => mutate(inv.id, "void")}
+              onMarkPaid={() => setMarkPaidFor(inv)}
+              onVoid={() => setVoidFor(inv)}
               divider={i < invoices.length - 1}
             />
           ))}
@@ -154,7 +139,144 @@ export function InvoicesTab() {
           void load();
         }}
       />
+
+      <MarkPaidSheet
+        invoice={markPaidFor}
+        onClose={() => setMarkPaidFor(null)}
+        onDone={() => {
+          setMarkPaidFor(null);
+          void load();
+        }}
+      />
+
+      <VoidSheet
+        invoice={voidFor}
+        onClose={() => setVoidFor(null)}
+        onDone={() => {
+          setVoidFor(null);
+          void load();
+        }}
+      />
     </div>
+  );
+}
+
+// ── Mark-paid sheet (replaces window.prompt) ───────────────────────────────
+
+function MarkPaidSheet({
+  invoice,
+  onClose,
+  onDone,
+}: {
+  invoice: Invoice | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const [digest, setDigest] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // Reset the field whenever a fresh invoice is targeted.
+  useEffect(() => {
+    if (invoice) setDigest("");
+  }, [invoice]);
+
+  const submit = async () => {
+    if (!invoice) return;
+    const d = digest.trim();
+    if (!d) {
+      toast("Paste the transaction digest", "danger");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api(`/api/invoices/${invoice.id}`, {
+        method: "POST",
+        body: { action: "mark-paid", digest: d },
+      });
+      toast("Invoice marked paid", "success");
+      onDone();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Couldn't mark paid", "danger");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Sheet open={!!invoice} onClose={onClose} title="Mark paid">
+      <div className="space-y-4">
+        <p className="text-[14px] text-fg-muted">
+          Paste the on-chain transaction digest of a payment you received off-platform.
+          It&apos;s verified on Sui — it must have credited your address — before the
+          invoice is marked paid.
+        </p>
+        <Field label="Transaction digest" hint="The base58 digest from the Sui explorer">
+          <input
+            value={digest}
+            onChange={(e) => setDigest(e.target.value)}
+            placeholder="9xR…"
+            autoComplete="off"
+            spellCheck={false}
+            className="talise-glass w-full rounded-xl px-3.5 py-2.5 font-mono text-[13px] text-fg outline-none placeholder:text-fg-dim"
+          />
+        </Field>
+        <PrimaryButton onClick={submit} loading={submitting} disabled={!digest.trim()} full>
+          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} strokeWidth={2} />
+          Verify &amp; mark paid
+        </PrimaryButton>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Void sheet (replaces window.confirm) ───────────────────────────────────
+
+function VoidSheet({
+  invoice,
+  onClose,
+  onDone,
+}: {
+  invoice: Invoice | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!invoice) return;
+    setSubmitting(true);
+    try {
+      await api(`/api/invoices/${invoice.id}`, {
+        method: "POST",
+        body: { action: "void" },
+      });
+      toast("Invoice voided", "neutral");
+      onDone();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Couldn't void invoice", "danger");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Sheet open={!!invoice} onClose={onClose} title="Void invoice">
+      <div className="space-y-4">
+        <p className="text-[14px] text-fg-muted">
+          Voiding this invoice stops its pay link from working. This can&apos;t be undone.
+        </p>
+        <div className="flex items-center gap-2">
+          <PrimaryButton onClick={onClose} variant="ghost" full>
+            Keep it
+          </PrimaryButton>
+          <PrimaryButton onClick={submit} variant="danger" loading={submitting} full>
+            Void invoice
+          </PrimaryButton>
+        </div>
+      </div>
+    </Sheet>
   );
 }
 
@@ -163,6 +285,7 @@ export function InvoicesTab() {
 function InvoiceRow({
   inv,
   formatUsd,
+  onOpen,
   onCopy,
   onMarkPaid,
   onVoid,
@@ -170,6 +293,7 @@ function InvoiceRow({
 }: {
   inv: Invoice;
   formatUsd: (usd: number, o?: { fixed?: boolean }) => string;
+  onOpen: () => void;
   onCopy: () => void;
   onMarkPaid: () => void;
   onVoid: () => void;
@@ -187,9 +311,20 @@ function InvoiceRow({
     day: "numeric",
   });
 
+  // Stop a button click from also triggering the row's navigate.
+  const guard = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn();
+  };
+
   return (
     <div>
-      <div className="talise-history-row flex items-center gap-3.5 px-4 py-3.5">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="talise-history-row flex w-full items-center gap-3.5 px-4 py-3.5 text-left"
+        aria-label={`Open invoice ${title}`}
+      >
         {/* Circular icon chip */}
         <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
           <HugeiconsIcon icon={Invoice01Icon} size={17} strokeWidth={1.8} />
@@ -213,14 +348,21 @@ function InvoiceRow({
           </span>
           <StatusPill label={label} tone={tone} />
         </span>
-      </div>
+
+        <HugeiconsIcon
+          icon={ArrowRight02Icon}
+          size={15}
+          strokeWidth={2}
+          className="shrink-0 text-fg-dim"
+        />
+      </button>
 
       {/* Inline actions for open invoices */}
       {inv.status === "open" && (
         <div className="flex items-center gap-1 px-4 pb-3 pt-0">
           <button
             type="button"
-            onClick={onCopy}
+            onClick={guard(onCopy)}
             className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-accent"
           >
             <HugeiconsIcon icon={Copy01Icon} size={12} strokeWidth={2} />
@@ -228,7 +370,7 @@ function InvoiceRow({
           </button>
           <button
             type="button"
-            onClick={onMarkPaid}
+            onClick={guard(onMarkPaid)}
             className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-accent transition-colors hover:bg-accent-soft"
           >
             <HugeiconsIcon icon={CheckmarkCircle02Icon} size={12} strokeWidth={2} />
@@ -236,7 +378,7 @@ function InvoiceRow({
           </button>
           <button
             type="button"
-            onClick={onVoid}
+            onClick={guard(onVoid)}
             className="ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-fg-dim transition-colors hover:text-[var(--color-danger)]"
           >
             <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
@@ -250,7 +392,7 @@ function InvoiceRow({
         <div className="flex items-center gap-1 px-4 pb-3 pt-0">
           <button
             type="button"
-            onClick={onCopy}
+            onClick={guard(onCopy)}
             className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-accent"
           >
             <HugeiconsIcon icon={Copy01Icon} size={12} strokeWidth={2} />
@@ -280,6 +422,7 @@ function CreateInvoiceSheet({
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [memo, setMemo] = useState("");
+  const [dueDate, setDueDate] = useState(""); // yyyy-mm-dd from <input type="date">
   const [currency, setCurrency] = useState(displayCurrency || "USD");
   const [items, setItems] = useState<LineItem[]>([
     { description: "", qty: "1", unitUsd: "" },
@@ -325,6 +468,7 @@ function CreateInvoiceSheet({
     setCustomerName("");
     setCustomerEmail("");
     setMemo("");
+    setDueDate("");
     setItems([{ description: "", qty: "1", unitUsd: "" }]);
   };
 
@@ -347,6 +491,14 @@ function CreateInvoiceSheet({
       toast("Add at least one line item", "danger");
       return;
     }
+    // Turn the picked calendar day into an epoch-ms due date. Use UTC end-of-day
+    // so "due May 5" reads as May 5 everywhere regardless of the viewer's tz.
+    let dueMs: number | undefined;
+    if (dueDate) {
+      const t = Date.parse(`${dueDate}T23:59:59Z`);
+      if (Number.isFinite(t)) dueMs = t;
+    }
+
     setSubmitting(true);
     try {
       const r = await api<{ payUrl: string }>("/api/invoices", {
@@ -356,6 +508,7 @@ function CreateInvoiceSheet({
           customerName: customerName.trim() || undefined,
           customerEmail: customerEmail.trim() || undefined,
           memo: memo.trim() || undefined,
+          dueMs,
           lineItems: cleaned,
         },
       });
@@ -398,19 +551,29 @@ function CreateInvoiceSheet({
           </Field>
         </div>
 
-        <Field label="Currency" hint="Display only — money settles 1:1 as USDsui">
-          <select
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
-            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none"
-          >
-            {currencies.map((c) => (
-              <option key={c.code} value={c.code} className="bg-surface text-fg">
-                {c.code} — {c.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Currency" hint="Display only — settles 1:1 as USDsui">
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none"
+            >
+              {currencies.map((c) => (
+                <option key={c.code} value={c.code} className="bg-surface text-fg">
+                  {c.code} — {c.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Due date" hint="When payment is expected (optional)">
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none"
+            />
+          </Field>
+        </div>
 
         {/* Line items */}
         <div>

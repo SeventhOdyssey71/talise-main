@@ -48,11 +48,31 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { IconSvgElement } from "@hugeicons/react";
 
-type NavItem = { label: string; href: string; icon: IconSvgElement };
+type NavItem = {
+  label: string;
+  href: string;
+  icon: IconSvgElement;
+  /**
+   * Optional sub-entries revealed in the desktop sidebar when this item (or
+   * one of its children) is the active section. Used to surface Pay's sibling
+   * routes (Cheques, Stream, Request) that otherwise have no nav entry point.
+   */
+  children?: Array<{ label: string; href: string }>;
+};
 
 const PRIMARY: NavItem[] = [
   { label: "Home", href: "/app", icon: Home09Icon as IconSvgElement },
-  { label: "Pay", href: "/app/pay", icon: ArrowDataTransferHorizontalIcon as IconSvgElement },
+  {
+    label: "Pay",
+    href: "/app/pay",
+    icon: ArrowDataTransferHorizontalIcon as IconSvgElement,
+    children: [
+      { label: "Send", href: "/app/pay" },
+      { label: "Request", href: "/app/pay/request" },
+      { label: "Cheques", href: "/app/pay/cheques" },
+      { label: "Stream", href: "/app/pay/stream" },
+    ],
+  },
   { label: "Earn", href: "/app/earn", icon: Plant02Icon as IconSvgElement },
   { label: "Work", href: "/app/work", icon: Briefcase01Icon as IconSvgElement },
   { label: "Activity", href: "/app/activity", icon: Analytics01Icon as IconSvgElement },
@@ -61,6 +81,9 @@ const PRIMARY: NavItem[] = [
 const PAGE_TITLES: Record<string, string> = {
   "/app": "Home",
   "/app/pay": "Pay",
+  "/app/pay/request": "Request",
+  "/app/pay/cheques": "Cheques",
+  "/app/pay/stream": "Stream",
   "/app/earn": "Earn",
   "/app/work": "Work",
   "/app/activity": "Activity",
@@ -350,9 +373,42 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
           <Logo homeHref={nav.brandHref} />
         </div>
         <nav className="mt-7 flex flex-1 flex-col gap-1">
-          {nav.primary.map((item) => (
-            <SidebarItem key={item.href} item={item} active={isActive(pathname, item.href, nav.brandHref)} />
-          ))}
+          {nav.primary.map((item) => {
+            const active = isActive(pathname, item.href, nav.brandHref);
+            return (
+              <div key={item.href}>
+                <SidebarItem item={item} active={active} />
+                {/* Reveal sub-entries (e.g. Pay → Cheques/Stream/Request)
+                    only while this section is active, so the sidebar stays
+                    calm elsewhere but those routes are reachable here. */}
+                {item.children && active && (
+                  <div className="mb-1 ml-[26px] mt-0.5 flex flex-col gap-0.5 border-l border-line pl-3">
+                    {item.children.map((child) => {
+                      const childActive =
+                        child.href === item.href
+                          ? pathname === child.href
+                          : pathname === child.href ||
+                            pathname.startsWith(child.href + "/");
+                      return (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          aria-current={childActive ? "page" : undefined}
+                          className={`rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
+                            childActive
+                              ? "text-accent"
+                              : "text-fg-muted hover:text-fg"
+                          }`}
+                        >
+                          {child.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
           <div className="my-3 h-px bg-line" />
           <SidebarItem
             item={{ label: "Ramps", href: nav.rampsHref, icon: CreditCardIcon as IconSvgElement }}
