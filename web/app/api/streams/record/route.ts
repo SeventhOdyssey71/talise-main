@@ -6,7 +6,6 @@ import { userById } from "@/lib/db";
 import {
   createStreamRecord,
   newStreamId,
-  streamEscrowEnabled,
   streamOnchainEnabled,
   parseCreatedStreamObjectId,
 } from "@/lib/streams";
@@ -61,9 +60,12 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!streamEscrowEnabled()) {
+  // Streaming is on-chain only now (escrow rail retired) — gate on the same
+  // condition as create-prepare so funding + record agree. Requiring the escrow
+  // key here would 503 every on-chain stream right after a successful funding.
+  if (!streamOnchainEnabled()) {
     return NextResponse.json(
-      { error: "Streaming payments aren't available.", code: "STREAM_ESCROW_DISABLED" },
+      { error: "Streaming payments aren't available.", code: "STREAM_ONCHAIN_REQUIRED" },
       { status: 503 }
     );
   }

@@ -269,7 +269,10 @@ export function SendFlow() {
   const setMax = useCallback(() => {
     if (available <= 0) return;
     userTouchedAmount.current = true;
-    const local = toLocal(available);
+    // Floor to 2dp (never round UP) — rounding the FX-converted local value up
+    // would push the implied USD a fraction over `available` and trip the
+    // "over balance" guard, blocking Continue on non-USD currencies.
+    const local = Math.floor(toLocal(available) * 100) / 100;
     setRaw(local.toFixed(2));
   }, [available, toLocal]);
 

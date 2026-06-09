@@ -1,8 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fromBase64 } from "@mysten/sui/utils";
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -13,7 +11,6 @@ import {
 import {
   triggerOauthSignIn,
   readEphemeralForT2000,
-  writeCachedProof,
 } from "@/lib/zkclient";
 import {
   GlassCard,
@@ -32,6 +29,7 @@ import {
   useCurrency,
   resolveRecipient,
 } from "@/components/app";
+import { signSponsorReadyBytes, friendlyError } from "@/components/app/cheques/signBytes";
 
 type Cadence = "hourly" | "daily" | "weekly" | "monthly";
 
@@ -67,6 +65,8 @@ export function ContractsTab() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [cancelFor, setCancelFor] = useState<Contract | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -83,32 +83,69 @@ export function ContractsTab() {
     void load();
   }, [load]);
 
-  const cancel = async (c: Contract) => {
-    if (
-      !window.confirm(
-        `Cancel "${c.title}"? Future pay stops and the unsent ${formatUsd(
-          c.remainingUsd,
-          { fixed: true }
-        )} is returned to you.`
-      )
-    )
-      return;
-    try {
-      const r = await api<{ refundUsd?: number; refunded?: boolean }>(
-        `/api/contracts/${c.id}`,
-        { method: "POST", body: { action: "cancel" } }
-      );
-      toast(
-        r.refunded && r.refundUsd
-          ? `Contract cancelled — ${formatUsd(r.refundUsd, { fixed: true })} returned`
-          : "Contract cancelled",
-        "neutral"
-      );
-      await load();
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Couldn't cancel", "danger");
-    }
-  };
+  // Cancel a contract: the server flips status + returns Onara-SPONSORED on-chain
+  // `cancel_and_withdraw` bytes (mode:'onchain') that the SENDER must sign to pull
+  // the unsent remainder back. Streaming is on-chain only — there's no gasless
+  // refund path, so we sign the returned bytes when present.
+  const cancel = useCallback(
+    async (c: Contract) => {
+      setCancelling(true);
+      try {
+        const r = await api<{
+          status: string;
+          mode?: string;
+          bytes?: string;
+          refundUsd?: number;
+          refunded?: boolean;
+          detail?: string;
+        }>(`/api/contracts/${c.id}`, {
+          method: "POST",
+          body: { action: "cancel" },
+        });
+
+        // On-chain refund: sign + broadcast the withdraw bytes the server built.
+        if (r.mode === "onchain" && r.bytes) {
+          try {
+            await signSponsorReadyBytes(r.bytes, { kind: "stream-cancel" });
+            toast(
+              r.refundUsd
+                ? `Contract cancelled — ${formatUsd(r.refundUsd, { fixed: true })} returned`
+                : "Contract cancelled",
+              "neutral"
+            );
+          } catch (signErr) {
+            // The contract is already cancelled server-side; only the on-chain
+            // withdraw didn't complete. Funds stay safe in the Stream object.
+            if (signErr instanceof ApiError && signErr.code === "NOT_SIGNED_IN") {
+              toast("Sign in to claim the unsent balance.", "danger");
+            } else {
+              toast(
+                "Contract cancelled, but the refund withdraw didn't go through. Try again.",
+                "danger"
+              );
+            }
+          }
+        } else {
+          toast(
+            r.refunded && r.refundUsd
+              ? `Contract cancelled — ${formatUsd(r.refundUsd, { fixed: true })} returned`
+              : "Contract cancelled",
+            "neutral"
+          );
+        }
+        setCancelFor(null);
+        await load();
+      } catch (err) {
+        toast(
+          err instanceof ApiError ? friendlyError(err, "Couldn't cancel") : "Couldn't cancel",
+          "danger"
+        );
+      } finally {
+        setCancelling(false);
+      }
+    },
+    [toast, formatUsd, load]
+  );
 
   return (
     <div className="space-y-4">
@@ -148,7 +185,7 @@ export function ContractsTab() {
               key={c.id}
               c={c}
               formatUsd={formatUsd}
-              onCancel={() => cancel(c)}
+              onCancel={() => setCancelFor(c)}
               divider={i < contracts.length - 1}
             />
           ))}
@@ -163,6 +200,48 @@ export function ContractsTab() {
           void load();
         }}
       />
+
+      {/* Cancel confirmation */}
+      <Sheet
+        open={!!cancelFor}
+        onClose={() => {
+          if (!cancelling) setCancelFor(null);
+        }}
+        title="Cancel contract"
+      >
+        <div className="space-y-4">
+          <p className="text-[14px] text-fg-muted">
+            {cancelFor ? (
+              <>
+                Cancel <span className="font-medium text-fg">{cancelFor.title}</span>? Future
+                pay stops and the unsent{" "}
+                <span className="font-medium text-fg">
+                  {formatUsd(cancelFor.remainingUsd, { fixed: true })}
+                </span>{" "}
+                is returned to you. You&apos;ll sign once to release the refund.
+              </>
+            ) : null}
+          </p>
+          <div className="flex items-center gap-2">
+            <PrimaryButton
+              onClick={() => setCancelFor(null)}
+              variant="ghost"
+              disabled={cancelling}
+              full
+            >
+              Keep it
+            </PrimaryButton>
+            <PrimaryButton
+              onClick={() => cancelFor && cancel(cancelFor)}
+              variant="danger"
+              loading={cancelling}
+              full
+            >
+              Cancel contract
+            </PrimaryButton>
+          </div>
+        </div>
+      </Sheet>
     </div>
   );
 }
@@ -358,20 +437,22 @@ function CreateContractSheet({
       throw new Error("no recipient");
     }
 
-    const eph = readEphemeralForT2000();
-    if (!eph) {
+    // Bail to sign-in early if there's no ephemeral key in this tab (so we don't
+    // burn a prepare/build before kicking the OAuth flow).
+    if (!readEphemeralForT2000()) {
       triggerOauthSignIn({
         returnTo: typeof location !== "undefined" ? location.pathname : "/app/work",
       });
       throw new Error("not signed in");
     }
 
-    // 1) Prepare the stream funding tx (full amount → escrow / on-chain create).
+    // 1) Prepare the stream funding tx. Streaming is ON-CHAIN only now: this
+    //    returns mode:'onchain' Onara-sponsored `stream::create<USDSUI>` bytes
+    //    that the sender signs (no gasless rail for a custom Move call).
     const prep = await api<{
       bytes: string;
       mode: string;
-      escrowAddress?: string;
-      recipient?: { address: string };
+      recipient?: { address: string; displayName: string };
       plan: {
         totalMicros: string;
         trancheMicros: string;
@@ -389,45 +470,18 @@ function CreateContractSheet({
       },
     });
 
-    // 2) Sign the funding bytes with the ephemeral key.
-    const keypair = Ed25519Keypair.fromSecretKey(eph.ephemeralPrivateKey);
-    const { signature: userSignature } = await keypair.signTransaction(
-      fromBase64(prep.bytes)
-    );
-
-    // 3) Execute — gasless rail vs sponsor-execute, same split as useSignAndSend.
-    const executePath =
-      prep.mode === "gasless"
-        ? "/api/send/gasless-submit"
-        : "/api/zk/sponsor-execute";
-    const exec = await api<{
-      digest: string;
-      freshProof?: Parameters<typeof writeCachedProof>[0];
-    }>(executePath, {
-      method: "POST",
-      body: {
-        bytesB64: prep.bytes,
-        ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
-        maxEpoch: eph.maxEpoch,
-        randomness: eph.randomness,
-        userSignature,
-        cachedProof: eph.cachedProof,
-        meta: { kind: "stream-fund" },
-      },
+    // 2) Sign the sponsor-ready bytes with the zkLogin ephemeral key and
+    //    broadcast via /api/zk/sponsor-execute → confirmed funding digest.
+    const { digest: fundingDigest } = await signSponsorReadyBytes(prep.bytes, {
+      kind: "stream-fund",
     });
-    if (exec.freshProof) {
-      try {
-        writeCachedProof(exec.freshProof);
-      } catch {
-        /* non-fatal */
-      }
-    }
 
-    // 4) Record the stream (server inserts the row + returns the stream id).
+    // 3) Record the stream — the server parses the created on-chain Stream
+    //    object id from the funding digest and returns it as the stream id.
     const rec = await api<{ id: string }>("/api/streams/record", {
       method: "POST",
       body: {
-        fundingDigest: exec.digest,
+        fundingDigest,
         recipientAddress: resolved.address,
         recipientHandle: resolved.displayName || null,
         totalMicros: prep.plan.totalMicros,
@@ -438,7 +492,7 @@ function CreateContractSheet({
       },
     });
 
-    // 5) Persist the contract metadata wrapping that stream.
+    // 4) Persist the contract metadata wrapping that stream.
     await api("/api/contracts", {
       method: "POST",
       body: {
@@ -449,13 +503,10 @@ function CreateContractSheet({
         cadence,
         periods: periodsNum,
         streamId: rec.id,
-        fundingDigest: exec.digest,
+        fundingDigest,
       },
     });
 
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("talise:tx", { detail: { digest: exec.digest } }));
-    }
     toast("Contract funded — pay starts now", "success");
     reset();
     onCreated();
@@ -589,8 +640,8 @@ function CreateContractSheet({
                 </span>
               </div>
               <p className="mt-1.5 text-[12px] text-fg-dim">
-                Funded once, gasless. Each {cad.period}&apos;s pay releases automatically —
-                cancel anytime to get the unsent balance back.
+                Funded once — gas is on us. Each {cad.period}&apos;s pay releases
+                automatically; cancel anytime to get the unsent balance back.
               </p>
             </>
           ) : (
