@@ -196,18 +196,22 @@ struct RoundupCard: View {
 
     // MARK: - Footer (how-it-works)
 
+    @ViewBuilder
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Only show the one-line explainer in the OFF (opt-in) state — once
+        // enabled, the slider + "saved via round-up" total already carry the
+        // meaning, so the line is redundant. Keeps the active card spare.
+        if !enabled {
             Text("Funds stay in your wallet and earn 5 pts per $1 saved.")
                 .font(TaliseFont.body(12, weight: .light))
                 .foregroundStyle(TaliseColor.fgDim)
                 .fixedSize(horizontal: false, vertical: true)
-            if let error {
-                Text(error)
-                    .font(TaliseFont.mono(10, weight: .regular))
-                    .foregroundStyle(TaliseColor.danger)
-                    .padding(.top, 2)
-            }
+        }
+        if let error {
+            Text(error)
+                .font(TaliseFont.mono(10, weight: .regular))
+                .foregroundStyle(TaliseColor.danger)
+                .padding(.top, 2)
         }
     }
 

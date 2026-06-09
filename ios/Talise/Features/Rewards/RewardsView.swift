@@ -6,13 +6,12 @@ import UIKit
 /// Rewards = points + perks. The money-management surfaces (Round-up,
 /// Goals, Insights) moved to the Invest tab where they semantically
 /// belong — Round-up auto-supplies to NAVI, Goals are savings buckets,
-/// Insights are spend/save analytics. Rewards stays focused on: tier
-/// progression, the redemption catalogue, how-you-earn rules, and referrals.
-/// (Lifetime sent/saved tiles were removed — wallet analytics, not points.)
+/// Insights are spend/save analytics. Rewards stays deliberately spare:
+/// tier progression, how-you-earn rules, and referrals. Nothing else.
 ///
-/// Section ordering (ACTION-FIRST — lead with what you DO with points):
-///   Hero (tier + points + progress) → Redeem points → How you earn
-///   → Your referral code → inline error.
+/// Section ordering:
+///   Hero (tier + points + progress) → How you earn → Your referral code
+///   → inline error.
 struct RewardsView: View {
     @State private var summary: RewardsSummary?
     @State private var loading = true
@@ -22,10 +21,6 @@ struct RewardsView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 28) {
                 heroCard
-                // ANCHOR: redeem-section
-                // Action-first: what you DO with points sits right under the
-                // hero, before the how-you-earn explainer.
-                redeemSection
                 earnRulesSection
                 referralCard
                 if let error {
@@ -137,18 +132,6 @@ struct RewardsView: View {
                     .foregroundStyle(TaliseColor.fgDim)
             }
         }
-    }
-
-    // MARK: - Redeem
-
-    /// Redemption catalogue. Owns its own struct (RedemptionsSection)
-    /// and the exact call site below — the section header + grouped
-    /// list styling lives inside that component now.
-    private var redeemSection: some View {
-        RedemptionsSection(
-            pointsTotal: summary?.pointsTotal ?? 0,
-            onRedeemed: { Task { await load() } }
-        )
     }
 
     // MARK: - Referral card
