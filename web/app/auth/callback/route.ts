@@ -1,45 +1,27 @@
-import { NextResponse, after } from "next/server";
-import {
-  exchangeCodeForTokens,
-  googleRedirectUri,
-  redirectUriFromRequest,
-} from "@/lib/auth";
-import { decodeJwt, deriveSuiAddress, generateSalt } from "@/lib/zklogin";
-import {
-  upsertUser,
-  userByGoogleSub,
-  markNotified,
-  realignAddress,
-  attributeReferral,
-  REFERRAL_CODE_RE,
-} from "@/lib/db";
-import { POINTS } from "@/lib/rewards";
-import { shinamiEnabled, shinamiGetWallet } from "@/lib/shinami";
-import {
-  clearStateCookie,
-  consumeReturnTo,
-  readStateCookie,
-  setSessionCookie,
-  readReferralCookie,
-  clearReferralCookie,
-} from "@/lib/session";
-import { sendWelcomeWithAddress } from "@/lib/email";
-import { setSigningCookie } from "@/lib/zksigner";
+import { NextResponse } from "next/server";
+import { redirectUriFromRequest } from "@/lib/auth";
+import { clearStateCookie, readStateCookie } from "@/lib/session";
+import { completeSignIn } from "@/lib/auth-exchange";
 import { issueMobileBearer } from "@/lib/mobile-sessions";
 
 export const runtime = "nodejs";
 
 /**
- * Build the right "something went wrong" redirect for this leg of the auth
- * flow. The web flow sends users back to `/?err=...`; the mobile flow has
- * to bounce them through the `talise://` custom scheme so that
- * `ASWebAuthenticationSession` on iOS resolves and surfaces the error
- * inside the app — otherwise the in-app browser just lands on the public
- * web home page and the iOS continuation never fires.
+ * GET /auth/callback — Google's OAuth redirect target.
  *
- * Mobile state strings are minted by `/api/auth/mobile/start` with an
- * `m1.` prefix; presence of that prefix is the unambiguous signal that
- * we owe the caller a `talise://` redirect instead of a web one.
+ * Two flows split here:
+ *
+ *   • WEB: we do NO work on this request. The user is bounced instantly to
+ *     /auth/finish (a client page with a staged loader) which POSTs the
+ *     code+state to /api/auth/exchange — so the "Verifying with Google →
+ *     Securing your wallet → …" steps animate WHILE the real exchange runs,
+ *     instead of the user staring at a blank tab for the whole round trip.
+ *     The state cookie is validated + consumed by the exchange API.
+ *
+ *   • MOBILE (state minted by /api/auth/mobile/start with an `m1.` prefix):
+ *     unchanged single-request flow — ASWebAuthenticationSession needs a
+ *     plain HTTP redirect to the talise:// scheme, so we run the full
+ *     exchange here and bounce with the bearer.
  */
 function redirectAuthError(
   req: Request,
@@ -74,6 +56,17 @@ export async function GET(req: Request) {
     return redirectAuthError(req, state, "missing_code");
   }
 
+  // ── WEB: hand off to the staged-loader page WITHOUT consuming the state
+  // cookie — /api/auth/exchange validates + clears it. No work happens on
+  // this request, so the bounce is instant.
+  if (!state.startsWith("m1.")) {
+    const finish = new URL("/auth/finish", req.url);
+    finish.searchParams.set("code", code);
+    finish.searchParams.set("state", state);
+    return NextResponse.redirect(finish);
+  }
+
+  // ── MOBILE: unchanged single-request flow.
   const expected = await readStateCookie();
   if (!expected || expected !== state) {
     return redirectAuthError(req, state, "bad_state");
@@ -81,201 +74,59 @@ export async function GET(req: Request) {
   await clearStateCookie();
 
   try {
-    // Pick the redirect URI based on whether this is the mobile flow
-    // (state.startsWith("m1.")) or the web flow. Mobile derives from the
-    // request host (app.talise.io ↔ app.talise.io). Web uses the static
-    // GOOGLE_REDIRECT_URI env — has to be a single fixed string because
-    // Vercel may 307 the apex to www (or vice versa), changing
-    // req.host between authorize and callback. The env is the only
-    // thing guaranteed to match what the client used at authorize-time.
-    const isMobileCallback = state.startsWith("m1.");
-    const redirectUriForExchange = isMobileCallback
-      ? redirectUriFromRequest(req)
-      : googleRedirectUri();
-    const { id_token } = await exchangeCodeForTokens(
+    const result = await completeSignIn({
       code,
-      redirectUriForExchange
-    );
-    const claims = decodeJwt(id_token);
-
-    if (claims.email_verified === false) {
-      return redirectAuthError(req, state, "unverified_email");
-    }
-    if (claims.aud !== process.env.GOOGLE_CLIENT_ID) {
-      return redirectAuthError(req, state, "bad_audience");
-    }
-
-    const country = req.headers.get("x-vercel-ip-country");
-
-    // Pick the salt source. Shinami manages salt server-side on mainnet
-    // (their prover requires the address they assign), so we always resolve
-    // through them when the key is configured. Otherwise fall back to a
-    // locally-derived salt — fine for testnet, broken for mainnet.
-    const existing = await userByGoogleSub(claims.sub);
-
-    let salt: string;
-    let suiAddress: string;
-    if (shinamiEnabled()) {
-      const wallet = await shinamiGetWallet(id_token);
-      salt = wallet.salt;
-      suiAddress = wallet.address;
-    } else {
-      salt = existing?.salt ?? generateSalt();
-      suiAddress = existing?.sui_address ?? deriveSuiAddress(id_token, salt);
-    }
-
-    const { user, isNew } = await upsertUser({
-      googleSub: claims.sub,
-      email: claims.email,
-      name: claims.name ?? null,
-      picture: claims.picture ?? null,
-      suiAddress,
-      salt,
-      country,
+      // Mobile derives the redirect URI from the request host.
+      redirectUri: redirectUriFromRequest(req),
+      country: req.headers.get("x-vercel-ip-country"),
     });
-
-    // Migrate rows that carry a pre-Shinami salt/address pair. A stale pair
-    // makes the account unusable because the proof won't anchor to it.
-    if (!isNew && (user.sui_address !== suiAddress || user.salt !== salt)) {
-      await realignAddress(user.id, suiAddress, salt);
-      user.sui_address = suiAddress;
-      user.salt = salt;
+    if (!result.ok) {
+      return redirectAuthError(req, state, result.err);
     }
+    const { user, idToken } = result;
 
-    // Attribute a waitlist referral on the user's FIRST sign-in. The
-    // `talise_ref` cookie is set by <ReferralCapture> when a visitor lands via
-    // an invite link (?ref=CODE, e.g. from /u/<handle>). This is what lets the
-    // waitlist referral ranking actually move — credit the inviter the moment
-    // their friend creates an account. `attributeReferral` is idempotent (it
-    // guards on `referred_by_user_id IS NULL`), so it's safe even if onboarding
-    // later re-checks the same cookie. Best-effort — never wedge sign-in.
-    if (isNew) {
-      try {
-        const refCode = ((await readReferralCookie()) ?? "")
-          .trim()
-          .toUpperCase();
-        if (REFERRAL_CODE_RE.test(refCode)) {
-          await attributeReferral(user.id, refCode, {
-            referrer: POINTS.REFERRAL_SIGNUP_REFERRER,
-            referee: POINTS.REFERRAL_SIGNUP_REFEREE,
-          });
-        }
-      } catch (e) {
-        console.warn(
-          `[callback/referral] ${user.email}: ${(e as Error).message}`
-        );
-      } finally {
-        await clearReferralCookie();
-      }
-    }
-
-    // Waitlist handle bind. The zkLogin wallet is the same address on
-    // web and iOS (deterministic from googleSub + salt), so a user can
-    // claim on the waitlist and complete sign-in on EITHER surface to
-    // trigger the on-chain mint. This mirrors the hook in
-    // /api/auth/mobile/exchange. Wrapped + the helper internally
-    // swallows errors so sign-in cannot wedge.
-    try {
-      const { bindWaitlistHandleIfAny } = await import("@/lib/handle-claim");
-      await bindWaitlistHandleIfAny({
-        userId: user.id,
-        userEmail: user.email,
-        suiAddress: user.sui_address,
-      });
-    } catch (e) {
-      console.warn(
-        `[callback/handle-bind] ${user.email}: ${(e as Error).message}`
-      );
-    }
-
-    await setSessionCookie(user.id);
-    // Stash the JWT + salt server-side so /api/sign can call the prover
-    // without ever exposing them to client JS.
-    await setSigningCookie(id_token, user.salt);
-
-    if (isNew && !user.notified_at) {
-      after(async () => {
-        const firstName = (user.name ?? "").split(/\s+/)[0] || null;
-        const result = await sendWelcomeWithAddress(user.email, {
-          firstName,
-          suiAddress: user.sui_address,
-          position: user.id,
-        });
-        if (result.ok) {
-          await markNotified(user.id);
-        } else {
-          console.error(`[welcome-email] ${user.email}: ${result.reason}`);
-        }
-      });
-    }
-
-    // Mobile flow: state was prefixed with "m1." by /api/auth/mobile/start.
-    // Mint a bearer token and bounce back to the app via custom scheme.
-    if (state.startsWith("m1.")) {
-      // Read the (ephPubKey, maxEpoch, randomness) triple stashed by
-      // /api/auth/mobile/start. These are the EXACT values that bound
-      // the JWT's nonce; we must persist them so future proof mints
-      // recompute the same Poseidon hash the Shinami prover sees in
-      // jwt.nonce. Without this every send fails -32602 Invalid params.
-      const { cookies: cookieJar } = await import("next/headers");
-      const { verify } = await import("@/lib/auth");
-      const jar = await cookieJar();
-      const bindingRaw = jar.get("talise_m1_binding")?.value;
-      let bindingPubKey: string | null = null;
-      let bindingMaxEpoch: number | null = null;
-      let bindingRandomness: string | null = null;
-      if (bindingRaw) {
-        const verified = verify(bindingRaw);
-        if (verified) {
-          try {
-            const decoded = JSON.parse(
-              Buffer.from(verified, "base64url").toString("utf8")
-            );
-            bindingPubKey = decoded.ephemeralPubKey ?? null;
-            bindingMaxEpoch =
-              typeof decoded.maxEpoch === "number" ? decoded.maxEpoch : null;
-            bindingRandomness = decoded.randomness ?? null;
-          } catch {
-            // Malformed — fall through; signing still works but a
-            // future send will need its own randomness generation.
-          }
+    // Read the (ephPubKey, maxEpoch, randomness) triple stashed by
+    // /api/auth/mobile/start. These are the EXACT values that bound
+    // the JWT's nonce; we must persist them so future proof mints
+    // recompute the same Poseidon hash the Shinami prover sees in
+    // jwt.nonce. Without this every send fails -32602 Invalid params.
+    const { cookies: cookieJar } = await import("next/headers");
+    const { verify } = await import("@/lib/auth");
+    const jar = await cookieJar();
+    const bindingRaw = jar.get("talise_m1_binding")?.value;
+    let bindingPubKey: string | null = null;
+    let bindingMaxEpoch: number | null = null;
+    let bindingRandomness: string | null = null;
+    if (bindingRaw) {
+      const verified = verify(bindingRaw);
+      if (verified) {
+        try {
+          const decoded = JSON.parse(
+            Buffer.from(verified, "base64url").toString("utf8")
+          );
+          bindingPubKey = decoded.ephemeralPubKey ?? null;
+          bindingMaxEpoch =
+            typeof decoded.maxEpoch === "number" ? decoded.maxEpoch : null;
+          bindingRandomness = decoded.randomness ?? null;
+        } catch {
+          // Malformed — fall through; signing still works but a
+          // future send will need its own randomness generation.
         }
       }
-      jar.delete("talise_m1_binding");
-
-      const bearer = await issueMobileBearer(user.id, {
-        jwt: id_token,
-        salt: user.salt,
-        ephemeralPubKeyB64: bindingPubKey ?? undefined,
-        maxEpoch: bindingMaxEpoch ?? undefined,
-        randomness: bindingRandomness ?? undefined,
-      });
-      const callback = new URL("talise://auth/callback");
-      callback.searchParams.set("token", bearer);
-      callback.searchParams.set("userId", String(user.id));
-      return NextResponse.redirect(callback.toString());
     }
+    jar.delete("talise_m1_binding");
 
-    // Destination priority:
-    //   1. Explicit returnTo cookie set by the caller (payment link, /waitlist
-    //      sign-in CTA, etc.) — ALWAYS honored, regardless of account_type.
-    //      A user who deliberately landed at /waitlist to claim a handle
-    //      should bounce straight back there, not to a non-existent
-    //      /onboarding page.
-    //   2. account_type → /business or /home for fully-set-up users.
-    //   3. Fallback for brand-new users with no returnTo and no
-    //      account_type: send to /waitlist (the canonical first-step
-    //      surface for a Google-signed-in but unprovisioned user).
-    //      `/onboarding` was the historical default and is now a 404 —
-    //      do NOT regress to it.
-    const returnTo = await consumeReturnTo();
-    const dest = returnTo
-      ?? (user.account_type === "business"
-            ? "/business/dashboard"
-            : user.account_type === "personal"
-              ? "/app"
-              : "/waitlist");
-    return NextResponse.redirect(new URL(dest, req.url));
+    const bearer = await issueMobileBearer(user.id, {
+      jwt: idToken,
+      salt: user.salt,
+      ephemeralPubKeyB64: bindingPubKey ?? undefined,
+      maxEpoch: bindingMaxEpoch ?? undefined,
+      randomness: bindingRandomness ?? undefined,
+    });
+    const callback = new URL("talise://auth/callback");
+    callback.searchParams.set("token", bearer);
+    callback.searchParams.set("userId", String(user.id));
+    return NextResponse.redirect(callback.toString());
   } catch (err) {
     // Log the real cause server-side; never reflect raw exception text (it can
     // echo provider token-endpoint detail) into the client-facing ?err=.
