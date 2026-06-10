@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { getRecentActivity } from "@/lib/activity";
+import { memoTtl } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,9 +27,14 @@ export async function GET(req: Request) {
   }
 
   try {
-    const activity = await getRecentActivity(user.sui_address, 50, {
-      includeNonTalise: true,
-    });
+    // Contacts derive from the tx-history walk (the slow GraphQL leg, often
+    // 4-6s). They change only when the user transacts, so cache per-address
+    // for 120s — the first call pays the walk, everything after is instant.
+    const activity = await memoTtl(
+      `contacts:${user.sui_address}`,
+      120_000,
+      () => getRecentActivity(user.sui_address, 50, { includeNonTalise: true })
+    );
     const seen = new Map<
       string,
       {
