@@ -29,25 +29,73 @@ const BASE =
 
 export function ActionPills({ me }: { me: Me | null }) {
   const [receiveOpen, setReceiveOpen] = useState(false);
+
+  const actions: {
+    label: string;
+    icon: IconSvgElement;
+    primary?: boolean;
+    href?: string;
+    onClick?: () => void;
+  }[] = [
+    { label: "Send", icon: SentIcon as IconSvgElement, primary: true, href: "/app/pay" },
+    { label: "Receive", icon: QrCode01Icon as IconSvgElement, onClick: () => setReceiveOpen(true) },
+    { label: "Add money", icon: CreditCardIcon as IconSvgElement, href: "/app/ramps" },
+    { label: "Request", icon: MoneyReceive02Icon as IconSvgElement, href: "/app/pay/request" },
+  ];
+
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2.5">
-        <Link href="/app/pay" className={`${BASE} ${PRIMARY}`}>
-          <HugeiconsIcon icon={SentIcon as IconSvgElement} size={17} strokeWidth={2} color="currentColor" />
-          Send
-        </Link>
-        <button type="button" onClick={() => setReceiveOpen(true)} className={`${BASE} ${SECONDARY}`}>
-          <HugeiconsIcon icon={QrCode01Icon as IconSvgElement} size={17} strokeWidth={2} color="currentColor" />
-          Receive
-        </button>
-        <Link href="/app/ramps" className={`${BASE} ${SECONDARY}`}>
-          <HugeiconsIcon icon={CreditCardIcon as IconSvgElement} size={17} strokeWidth={2} color="currentColor" />
-          Add money
-        </Link>
-        <Link href="/app/pay/request" className={`${BASE} ${SECONDARY}`}>
-          <HugeiconsIcon icon={MoneyReceive02Icon as IconSvgElement} size={17} strokeWidth={2} color="currentColor" />
-          Request
-        </Link>
+      {/* MOBILE — app-style 4-up icon tiles (icon disc + small label). The
+          wrapping pill row read as 3 + 1 orphan on narrow screens. */}
+      <div className="grid grid-cols-4 gap-2 sm:hidden">
+        {actions.map((a) => {
+          const inner = (
+            <>
+              <span
+                className={`flex size-12 items-center justify-center rounded-full transition-transform active:scale-95 ${
+                  a.primary
+                    ? "bg-accent-deep text-white shadow-[0_6px_18px_-8px_rgba(35,78,20,0.45)]"
+                    : "bg-accent-soft text-accent"
+                }`}
+              >
+                <HugeiconsIcon icon={a.icon} size={19} strokeWidth={2} color="currentColor" />
+              </span>
+              <span className="text-[12px] font-medium text-fg">{a.label}</span>
+            </>
+          );
+          const cls = "flex flex-col items-center gap-1.5";
+          return a.href ? (
+            <Link key={a.label} href={a.href} className={cls}>
+              {inner}
+            </Link>
+          ) : (
+            <button key={a.label} type="button" onClick={a.onClick} className={cls}>
+              {inner}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* DESKTOP/TABLET — the Wise-style pill row. */}
+      <div className="hidden flex-wrap items-center gap-2.5 sm:flex">
+        {actions.map((a) => {
+          const cls = `${BASE} ${a.primary ? PRIMARY : SECONDARY}`;
+          const inner = (
+            <>
+              <HugeiconsIcon icon={a.icon} size={17} strokeWidth={2} color="currentColor" />
+              {a.label}
+            </>
+          );
+          return a.href ? (
+            <Link key={a.label} href={a.href} className={cls}>
+              {inner}
+            </Link>
+          ) : (
+            <button key={a.label} type="button" onClick={a.onClick} className={cls}>
+              {inner}
+            </button>
+          );
+        })}
       </div>
       <ReceiveSheet open={receiveOpen} onClose={() => setReceiveOpen(false)} me={me} />
     </>
