@@ -13,6 +13,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { Diamond } from "@/components/Diamond";
 
 const STEPS = [
   "Verifying with Google",
@@ -87,10 +88,10 @@ function FinishInner() {
 
   return (
     <main className="landing-mint flex min-h-dvh flex-col items-center justify-center px-6">
-      {/* Wordmark */}
-      <div className="mb-10 flex items-center gap-2">
-        <span className="size-2.5 rounded-full bg-accent-deep" aria-hidden />
-        <span className="text-[20px] font-semibold tracking-[-0.02em] text-fg">
+      {/* Wordmark — the real brand mark, light weight */}
+      <div className="mb-10 flex items-center gap-2.5">
+        <Diamond />
+        <span className="text-[20px] font-medium lowercase tracking-[-0.02em] text-fg">
           talise
         </span>
       </div>
@@ -111,7 +112,7 @@ function FinishInner() {
                 />
               </svg>
             </span>
-            <p className="mt-5 text-[17px] font-semibold tracking-[-0.01em] text-fg">
+            <p className="mt-5 text-[17px] font-medium tracking-[-0.01em] text-fg">
               You&rsquo;re all set
             </p>
           </>
@@ -124,7 +125,7 @@ function FinishInner() {
             </span>
             <p
               key={step}
-              className="mt-5 animate-[fadeIn_300ms_ease] text-[15px] font-medium text-fg"
+              className="mt-5 animate-[fadeIn_300ms_ease] text-[15px] font-normal text-fg-muted"
               aria-live="polite"
             >
               {failed ? "Something went wrong…" : STEPS[Math.min(step, STEPS.length - 1)]}
