@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     memo?: string;
     signatureName?: string;
     /** Optional ISO-3166 alpha-2 country allowlist. Empty/absent = any country.
-     *  Captcha + VPN-block are always enforced at claim regardless. */
+     *  The captcha is always enforced at web claims regardless. */
     allowedCountries?: string[];
   };
   try {

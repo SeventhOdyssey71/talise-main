@@ -37,7 +37,7 @@ import { verifyTurnstile, turnstileConfigured } from "@/lib/turnstile";
  *      lib/suins-operator.ts) signs the escrow→claimer release; double-claim
  *      is locked by an atomic `UPDATE ... WHERE status='funded' RETURNING`.
  *
- * Both rails share the SAME off-chain gates (captcha + VPN block + optional
+ * Both rails share the SAME off-chain gates (captcha + optional
  * country allowlist) and the SAME `cheques` table. The on-chain path is
  * purely additive, behind the env flag — an unset `CHEQUE_PACKAGE_ID` leaves
  * the escrow path 100% unchanged.
@@ -62,8 +62,8 @@ export type ChequeStatus =
   | "expired";
 
 /**
- * Claim gating (simplified per product). A captcha (Cloudflare Turnstile) and a
- * VPN/proxy/datacenter block are ALWAYS enforced at claim. The only
+ * Claim gating (simplified per product). A captcha (Cloudflare Turnstile) is
+ * ALWAYS enforced at claim on the web (native claims are App-Attested). The only
  * configurable gate is an optional IP-geolocated country allowlist
  * (empty = claimable from any country). All checks are off-chain, evaluated at
  * release — the claim API is the sole authority that can release the funds.
@@ -620,7 +620,7 @@ async function verifyEscrowDeposit(input: {
   }
 }
 
-// ─── Claim eligibility: captcha + VPN block + optional country gate ──────────
+// ─── Claim eligibility: captcha + optional country gate ─────────────────────
 
 export type ClaimGateReason = "captcha" | "vpn" | "country" | "geo_unavailable";
 export type ClaimEligibility = {
@@ -669,9 +669,14 @@ async function lookupIp(ip: string | null): Promise<IpInfo | null> {
  * Gate a claim, evaluated server-side at release (the API is the sole authority
  * that releases funds):
  *   1) CAPTCHA — a valid Turnstile token (when Turnstile is configured).
- *   2) VPN BLOCK — reject proxy / VPN / Tor / datacenter IPs (ip-api flags).
- *   3) COUNTRY — if the cheque has a country allowlist, the IP must geolocate
+ *   2) COUNTRY — if the cheque has a country allowlist, the IP must geolocate
  *      into it. No allowlist → any country.
+ *
+ * NOTE (2026-06-10): the VPN/proxy/datacenter block was REMOVED by request —
+ * Turnstile (Cloudflare) is the anti-bot line, and a VPN is a normal part of
+ * many legitimate users' setups. The ip-api lookup now only runs when a
+ * cheque actually carries a country allowlist, which also drops an external
+ * 4s-budget call from the common claim path.
  */
 export async function checkClaimEligibility(input: {
   chequeId: string;
@@ -687,22 +692,18 @@ export async function checkClaimEligibility(input: {
     if (!ok) return { ok: false, reason: "captcha" };
   }
   const allowed = await countryAllowlist(input.chequeId);
-  // 2 + 3) IP intelligence.
+  // 2) Country gate — only cheques with an allowlist need IP intelligence.
+  if (allowed.length === 0) return { ok: true, country: null };
   const geo = await lookupIp(input.ip);
   if (!geo) {
-    // No geo signal (localhost/dev or lookup down): can't verify VPN/country.
-    // Allow only when there's no country gate; fail closed otherwise.
-    return allowed.length === 0
-      ? { ok: true, country: null }
-      : { ok: false, reason: "geo_unavailable", country: null };
+    // No geo signal (localhost/dev or lookup down): can't verify the country
+    // gate the sender asked for — fail closed.
+    return { ok: false, reason: "geo_unavailable", country: null };
   }
-  if (geo.proxy || geo.hosting) {
-    return { ok: false, reason: "vpn", isVpn: true, country: geo.country };
+  if (!allowed.includes(geo.country)) {
+    return { ok: false, reason: "country", country: geo.country, isVpn: geo.proxy || geo.hosting };
   }
-  if (allowed.length > 0 && !allowed.includes(geo.country)) {
-    return { ok: false, reason: "country", country: geo.country, isVpn: false };
-  }
-  return { ok: true, country: geo.country, isVpn: false };
+  return { ok: true, country: geo.country, isVpn: geo.proxy || geo.hosting };
 }
 
 export async function recordClaimAttempt(input: {

@@ -243,7 +243,7 @@ function ClaimInner() {
                   </button>
                   <div className="flex items-center justify-center gap-1.5 font-mono text-[10px] text-fg-dim">
                     <HugeiconsIcon icon={SecurityCheckIcon} size={12} className="text-accent" />
-                    Protected by a human check + no-VPN policy
+                    Protected by a Cloudflare human check
                   </div>
                 </div>
               )}
@@ -374,8 +374,8 @@ function gateError(e: unknown): string {
       return "Please sign in to claim this cheque.";
     }
     if (e.code === "GATE_FAILED" || e.status === 403) {
-      // Server returns reason-specific copy (captcha / vpn / country) in message.
-      return e.message || "Claim blocked — turn off any VPN and try again.";
+      // Server returns reason-specific copy (captcha / country) in message.
+      return e.message || "Claim blocked — please try again.";
     }
     if (e.status === 409) {
       return "This cheque has already been claimed or has expired.";

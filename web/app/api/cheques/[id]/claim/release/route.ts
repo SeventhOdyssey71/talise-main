@@ -17,7 +17,7 @@ export const runtime = "nodejs";
  * POST /api/cheques/:id/claim/release  { secret, turnstileToken }
  *
  * The choke point. Re-validates the secret, runs the claim gates SERVER-SIDE
- * (captcha + VPN/proxy block + optional IP-country allowlist — never trusts the
+ * (captcha + optional IP-country allowlist — never trusts the
  * client), atomically claims the row (double-claim lock), then releases
  * escrow→claimer.
  */
@@ -48,7 +48,7 @@ export async function POST(
   const user = await userById(userId);
   if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });
 
-  // Gates, server-side: captcha + VPN block + optional IP-country allowlist.
+  // Gates, server-side: captcha + optional IP-country allowlist.
   const ip = ipFromRequest(req);
   const elig = await checkClaimEligibility({
     chequeId: id,
@@ -70,16 +70,14 @@ export async function POST(
     const msg =
       elig.reason === "captcha"
         ? "Captcha check failed — please try again."
-        : elig.reason === "vpn"
-          ? "Claims aren't allowed over a VPN or proxy. Turn it off and try again."
-          : elig.reason === "country"
-            ? "This cheque can't be claimed from your country."
-            : "We couldn't verify your location — try again without a VPN.";
+        : elig.reason === "country"
+          ? "This cheque can't be claimed from your country."
+          : "We couldn't verify your location for this cheque's country rule — please try again.";
     return NextResponse.json({ error: msg, code: "GATE_FAILED", reason: elig.reason }, { status: 403 });
   }
 
   // On-chain rail: releaseCheque has the worker sign `cheque::claim(recipient
-  // = claimer address)` AFTER these captcha + VPN + country gates pass. Escrow
+  // = claimer address)` AFTER these captcha + country gates pass. Escrow
   // rail: it signs the gasless escrow→claimer transfer. Either way the
   // claimer's geolocated country is recorded for audit.
   const result = await releaseCheque({
