@@ -43,7 +43,9 @@ function isAddress(s: string): boolean {
 
 function displayName(slug: string): string {
   if (isAddress(slug)) return `${slug.slice(0, 8)}…${slug.slice(-6)}`;
-  return `@${slug.replace(/^@/, "")}`;
+  // Talise handles read as "name@talise" so they can't be confused with a
+  // SuiNS ".sui" name. (The pay-link slug/URL itself stays /pay/<handle>.)
+  return `${slug.replace(/^@/, "")}@talise`;
 }
 
 export function PublicPay({ slug, amountUsd, memo }: PublicPayProps) {

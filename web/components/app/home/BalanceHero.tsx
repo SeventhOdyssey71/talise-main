@@ -17,19 +17,36 @@
 import { useState } from "react";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Copy01Icon, Tick02Icon, SentIcon, MoneyReceive02Icon } from "@hugeicons/core-free-icons";
+import {
+  Copy01Icon,
+  Tick02Icon,
+  SentIcon,
+  MoneyReceive02Icon,
+  ViewIcon,
+  ViewOffSlashIcon,
+} from "@hugeicons/core-free-icons";
 import {
   useBalances,
   useCurrency,
   useToast,
+  useHiddenAmounts,
+  MASK_BALANCE,
   GlassCard,
   Eyebrow,
+  Flag,
   type Me,
 } from "@/components/app";
+import { CC } from "@/lib/fx";
 
 export function BalanceHero({ inline = false, me = null }: { inline?: boolean; me?: Me | null }) {
   const { data, loading, error, refreshFresh } = useBalances();
-  const { formatLocal } = useCurrency();
+  const { formatLocal, currency } = useCurrency();
+  const { hidden, toggle } = useHiddenAmounts();
+
+  // Country flag + code chip for the active display currency. Only currencies
+  // we have a mapped ISO country code for get a flag (safe: <Flag> renders
+  // nothing for an unknown code).
+  const flagCode = CC[currency] ?? null;
 
   // NOTE: no forced fresh=1 read on mount. The balance loads instantly from the
   // display-only snapshot (useBalances → useResource revalidates in the
@@ -44,6 +61,12 @@ export function BalanceHero({ inline = false, me = null }: { inline?: boolean; m
   const total = data?.totalUsd ?? 0;
   const usdsuiLine =
     usdsui < 0.01 ? `${usdsui.toFixed(4)} USDsui` : `${usdsui.toFixed(2)} USDsui`;
+
+  // When hidden, keep the leading currency symbol from the formatted figure
+  // visible (e.g. "$") and mask only the digits — so the chip still reads as money.
+  const formattedTotal = formatLocal(total);
+  const symbolPrefix = formattedTotal.match(/^[^\d]*/)?.[0] ?? "";
+  const maskedBalance = `${symbolPrefix}${MASK_BALANCE}`;
 
   const numberSize = inline ? 44 : 40;
 
@@ -64,11 +87,35 @@ export function BalanceHero({ inline = false, me = null }: { inline?: boolean; m
       —
     </button>
   ) : (
-    <div
-      className="font-display font-semibold tabular-nums text-fg"
-      style={{ fontSize: numberSize, lineHeight: 1.02, letterSpacing: "-0.035em" }}
-    >
-      {formatLocal(total)}
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+      <button
+        type="button"
+        onClick={toggle}
+        className="group inline-flex items-baseline gap-2 text-left"
+        aria-label={hidden ? "Show balance" : "Hide balance"}
+        aria-pressed={hidden}
+      >
+        <span
+          className="font-display font-semibold tabular-nums text-fg"
+          style={{ fontSize: numberSize, lineHeight: 1.02, letterSpacing: "-0.035em" }}
+        >
+          {hidden ? maskedBalance : formatLocal(total)}
+        </span>
+        <HugeiconsIcon
+          icon={hidden ? ViewOffSlashIcon : ViewIcon}
+          size={18}
+          strokeWidth={2}
+          className="self-center text-fg-dim transition-colors group-hover:text-fg-muted"
+        />
+      </button>
+      {flagCode && (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2 py-0.5">
+          <Flag code={flagCode} size={18} />
+          <span className="font-mono text-[11px] font-medium tracking-[0.02em] text-fg-muted">
+            {currency}
+          </span>
+        </span>
+      )}
     </div>
   );
 
@@ -160,7 +207,7 @@ function BalanceCard({
       {/* Quiet identity row — @handle + short address with copy. */}
       <div className="mt-5 flex items-center gap-2 border-t border-line/70 pt-4 text-[12px]">
         {handle ? (
-          <span className="shrink-0 font-medium text-fg">@{handle}</span>
+          <span className="shrink-0 font-medium text-fg">{handle}@talise</span>
         ) : (
           <Link href="/app/settings#username" className="shrink-0 font-medium text-accent hover:underline">
             Claim your @name

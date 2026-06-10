@@ -240,7 +240,7 @@ function Avatar({ me, size = 28 }: { me: Me; size?: number }) {
 }
 
 function accountLabel(me: Me): string {
-  if (me.taliseHandle) return `@${me.taliseHandle}`;
+  if (me.taliseHandle) return `${me.taliseHandle}@talise`;
   return me.name ?? me.email;
 }
 

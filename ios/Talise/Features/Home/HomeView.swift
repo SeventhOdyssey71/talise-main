@@ -236,16 +236,35 @@ struct HomeView: View {
 
     // MARK: - Balance + actions
 
+    /// Privacy eye — hides the balance figure + every transaction amount
+    /// (HistoryRow reads the same key). UserDefaults-backed so it sticks
+    /// across launches and applies app-wide.
+    @AppStorage("talise.amountsHidden") private var amountsHidden = false
+
     private var balanceBlock: some View {
         HStack(alignment: .bottom, spacing: 8) {
             VStack(alignment: .leading, spacing: 6) {
                 // Quiet mono eyebrow — moves the "Balance" label into the
                 // same micro-label register as the rest of the app so the
                 // big figure underneath carries the weight on its own.
-                Text("BALANCE")
-                    .font(TaliseFont.mono(10, weight: .regular))
-                    .tracking(2.0)
-                    .foregroundStyle(TaliseColor.fgMuted)
+                HStack(spacing: 8) {
+                    Text("BALANCE")
+                        .font(TaliseFont.mono(10, weight: .regular))
+                        .tracking(2.0)
+                        .foregroundStyle(TaliseColor.fgMuted)
+                    // Privacy eye — masks the figure + all tx amounts.
+                    Button {
+                        withAnimation(.snappy(duration: 0.18)) { amountsHidden.toggle() }
+                        #if canImport(UIKit)
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        #endif
+                    } label: {
+                        Image(systemName: amountsHidden ? "eye.slash" : "eye")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(TaliseColor.fgDim)
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 // USDsui is the primary unit. We render it as `$X.XX`
                 // since it's pegged 1:1 to USD on chain. SUI balance
@@ -337,6 +356,9 @@ struct HomeView: View {
     /// fraction reads in `fgMuted` while the integer + currency symbol stay
     /// in solid `fg`. Falls back to the plain string if there's no decimal.
     private var balanceHero: Text {
+        if amountsHidden {
+            return Text("\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}").foregroundColor(TaliseColor.fgMuted)
+        }
         let s = usdsuiFormatted
         guard let dot = s.lastIndex(of: ".") else {
             return Text(s).foregroundColor(TaliseColor.fg)
@@ -351,6 +373,7 @@ struct HomeView: View {
     /// Always shows the on-chain unit so the user can sanity-check
     /// the FX conversion against the asset that's actually moving.
     private var suiusdFormatted: String {
+        if amountsHidden { return "\u{2022}\u{2022}\u{2022}\u{2022} USDsui" }
         let v = balance?.usdsui ?? 0
         if v < 0.01 {
             return String(format: "%.4f USDsui", v)

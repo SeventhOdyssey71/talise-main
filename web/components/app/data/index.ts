@@ -30,6 +30,12 @@ export type { Me, Balances, ActivityEntry, Contact } from "./hooks";
 export { useSignAndSend } from "./send";
 export type { SendArgs } from "./send";
 
+export {
+  useHiddenAmounts,
+  MASK_BALANCE,
+  MASK_AMOUNT,
+} from "./useHiddenAmounts";
+
 // Re-export the Google sign-in trigger so pages can start OAuth without
 // reaching into web/lib/zkclient directly.
 export { triggerOauthSignIn } from "@/lib/zkclient";

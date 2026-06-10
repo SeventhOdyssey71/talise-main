@@ -499,7 +499,7 @@ export function SendFlow() {
       {step === "review" && resolved && (
         <ReviewStep
           amountUsd={amountUsd}
-          fromHandle={me?.taliseHandle ? `@${me.taliseHandle}` : "your wallet"}
+          fromHandle={me?.taliseHandle ? `${me.taliseHandle}@talise` : "your wallet"}
           fromAddress={me?.suiAddress ?? ""}
           to={resolved}
           sending={sending}

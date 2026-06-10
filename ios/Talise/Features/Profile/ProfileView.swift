@@ -114,10 +114,7 @@ struct ProfileView: View {
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(TaliseColor.fgMuted)
                         .frame(width: 22)
-                    rowLabel(
-                        title: "Bank accounts",
-                        subtitle: "Link a bank account to your @handle to cash out."
-                    )
+                    rowLabel(title: "Bank accounts")
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.system(size: 11, weight: .semibold))
@@ -133,22 +130,44 @@ struct ProfileView: View {
 
     // MARK: - Hero
 
-    /// Personal block — no "Profile" eyebrow, no generic "Account"
-    /// title. The user's photo + name IS the header.
+    /// Hero CARD (2026-06-10 restyle, reference profile-header layout in
+    /// Talise greens): one solid forest card with the avatar centered, the
+    /// name, the handle chip, and the account email — identity at a glance.
     private var hero: some View {
-        VStack(alignment: .center, spacing: 14) {
+        VStack(alignment: .center, spacing: 12) {
             avatar
-            VStack(spacing: 4) {
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.25), lineWidth: 2))
+            VStack(spacing: 5) {
                 Text(currentUser?.name ?? "—")
-                    .font(TaliseFont.heading(22, weight: .medium))
-                    .kerning(-0.6)
-                    .foregroundStyle(TaliseColor.fg)
+                    .font(TaliseFont.heading(21, weight: .semibold))
+                    .kerning(-0.5)
+                    .foregroundStyle(.white)
                     .lineLimit(1)
                 handleLine
+                Text(currentUser?.email ?? "")
+                    .font(TaliseFont.mono(11, weight: .light))
+                    .foregroundStyle(Color.white.opacity(0.6))
+                    .lineLimit(1)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 8)
+        .padding(.vertical, 26)
+        .padding(.horizontal, 20)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: 0x3A6E2A), Color(hex: 0x224417)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .padding(.top, 4)
     }
 
     /// 88pt avatar — preferentially loads Google's profile picture
@@ -192,14 +211,19 @@ struct ProfileView: View {
     @ViewBuilder
     private var handleLine: some View {
         if let handle = currentUser?.taliseHandle, !handle.isEmpty {
+            // Talise names are `name@talise` — distinct from bare SuiNS
+            // `.sui` names (caleb@talise ≠ caleb.sui), so the chip says so.
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(TaliseColor.accent)
-                Text("@\(handle).talise.sui")
-                    .font(TaliseFont.mono(12, weight: .light))
-                    .foregroundStyle(TaliseColor.fgMuted)
+                    .foregroundStyle(TaliseColor.greenMint)
+                Text("\(handle)@talise")
+                    .font(TaliseFont.mono(12, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.9))
             }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(Color.white.opacity(0.12)))
         } else {
             Button {
                 NotificationCenter.default.post(
@@ -212,7 +236,7 @@ struct ProfileView: View {
                     Image(systemName: "arrow.up.right")
                         .font(.system(size: 10, weight: .semibold))
                 }
-                .foregroundStyle(TaliseColor.accent)
+                .foregroundStyle(TaliseColor.greenMint)
             }
             .buttonStyle(.plain)
         }
@@ -386,10 +410,7 @@ struct ProfileView: View {
             }
         } label: {
             HStack {
-                rowLabel(
-                    title: "Display currency",
-                    subtitle: "Changes display only — wallet settles in USDsui."
-                )
+                rowLabel(title: "Display currency", icon: "dollarsign.circle")
                 Spacer()
                 // Glass capsule — same recipe as `LiquidGlassPill` so the
                 // inline currency chooser doesn't read as a flat chip
@@ -424,10 +445,7 @@ struct ProfileView: View {
             showPockets = true
         } label: {
             HStack {
-                rowLabel(
-                    title: "Currency pockets",
-                    subtitle: "See your balance in every currency you use."
-                )
+                rowLabel(title: "Currency pockets", icon: "tray.2")
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .semibold))
@@ -466,10 +484,7 @@ struct ProfileView: View {
 
     private var notifyRow: some View {
         HStack {
-            rowLabel(
-                title: "Email me when I receive",
-                subtitle: "One short email per incoming transfer."
-            )
+            rowLabel(title: "Email me when I receive", icon: "bell")
             Spacer()
             if savingNotify {
                 ProgressView().controlSize(.small).tint(TaliseColor.fg)
@@ -495,19 +510,11 @@ struct ProfileView: View {
             showRetarget = true
         } label: {
             HStack {
-                rowLabel(
-                    title: "Update handle target",
-                    subtitle: "Point your @handle.talise.sui at this wallet."
-                )
+                rowLabel(title: "Update handle target", icon: "arrow.uturn.right")
                 Spacer()
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.uturn.right")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(TaliseColor.fgDim)
-                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgDim)
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
@@ -525,10 +532,7 @@ struct ProfileView: View {
     private var securitySection: some View {
         section(title: "Security") {
             HStack {
-                rowLabel(
-                    title: "Require PIN for transactions",
-                    subtitle: "Enter your 4-digit PIN before every send, supply, or withdraw."
-                )
+                rowLabel(title: "Require PIN for transactions", icon: "lock.shield")
                 Spacer()
                 Toggle("", isOn: $requireBiometric)
                     .labelsHidden()
@@ -645,17 +649,28 @@ struct ProfileView: View {
         LiquidGlassDivider(inset: 18)
     }
 
-    /// Standard two-line row label used by every preferences row so
-    /// the title + subtitle rhythm is identical across all three rows.
-    private func rowLabel(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(TaliseFont.body(14, weight: .light))
-                .foregroundStyle(TaliseColor.fg)
-            Text(subtitle)
-                .font(TaliseFont.mono(10, weight: .light))
-                .foregroundStyle(TaliseColor.fgDim)
-                .lineLimit(1)
+    /// Row label — single line (the subtitle clutter was dropped in the
+    /// 2026-06-10 restyle; pass one only where it genuinely informs), with
+    /// an optional leading icon so rows read like the reference design.
+    private func rowLabel(title: String, subtitle: String? = nil, icon: String? = nil) -> some View {
+        HStack(spacing: 12) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .frame(width: 22)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(TaliseFont.body(14, weight: .light))
+                    .foregroundStyle(TaliseColor.fg)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                        .lineLimit(1)
+                }
+            }
         }
     }
 

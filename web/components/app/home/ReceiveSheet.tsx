@@ -67,7 +67,7 @@ export function ReceiveSheet({
           {me?.taliseHandle ? (
             <>
               Friends can send you USDsui at{" "}
-              <span className="font-medium text-fg">@{me.taliseHandle}</span> — or scan this code.
+              <span className="font-medium text-fg">{me.taliseHandle}@talise</span> — or scan this code.
             </>
           ) : (
             "Show this code or share your address to get paid in USDsui. $0.00 fee, lands instantly."

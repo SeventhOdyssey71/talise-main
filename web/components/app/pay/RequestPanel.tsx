@@ -115,7 +115,7 @@ export function RequestPanel() {
     await copy(text, mode === "receive" ? "addr" : "link");
   };
 
-  const identity = handle ? `@${handle}` : address ? shortAddr(address) : "your wallet";
+  const identity = handle ? `${handle}@talise` : address ? shortAddr(address) : "your wallet";
 
   return (
     <div className="mx-auto w-full max-w-md space-y-5">

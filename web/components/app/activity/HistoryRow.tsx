@@ -2,7 +2,7 @@
 
 import { HugeiconsIcon } from "@hugeicons/react";
 import { BankIcon } from "@hugeicons/core-free-icons";
-import { useCurrency } from "@/components/app";
+import { useCurrency, useHiddenAmounts, MASK_AMOUNT } from "@/components/app";
 import { DirectionBadge } from "./DirectionBadge";
 import {
   type ActivityRow,
@@ -37,6 +37,7 @@ export function HistoryRow({
   onOpen: () => void;
 }) {
   const { formatLocal } = useCurrency();
+  const { hidden } = useHiddenAmounts();
   const category = categoryOf(row);
   const time = relativeTime(row.timestampMs);
   const offramp = offrampOf(row);
@@ -81,7 +82,7 @@ export function HistoryRow({
             className="whitespace-nowrap text-[15px] font-semibold tabular-nums"
             style={{ color: "var(--color-danger)", letterSpacing: "-0.02em" }}
           >
-            −{formatNgn(offramp.amountNgn)}
+            −{hidden ? MASK_AMOUNT : formatNgn(offramp.amountNgn)}
           </span>
           {chip && (
             <span
@@ -133,7 +134,7 @@ export function HistoryRow({
 
       {/* Amount — tabular, semibold for inflow (forest), medium for outflow (ink) */}
       <span className="relative shrink-0 pl-2">
-        <Amount row={row} formatLocal={formatLocal} />
+        <Amount row={row} formatLocal={formatLocal} hidden={hidden} />
       </span>
     </button>
   );
@@ -165,12 +166,34 @@ function directionAttr(
 function Amount({
   row,
   formatLocal,
+  hidden,
 }: {
   row: ActivityRow;
   formatLocal: (usd: number, o?: { fixed?: boolean }) => string;
+  hidden: boolean;
 }) {
   const category = categoryOf(row);
   const coin = otherCoinOf(row);
+
+  if (hidden) {
+    if (category === "swap") {
+      return (
+        <span className="whitespace-nowrap text-[13px] tabular-nums text-fg-muted">
+          {MASK_AMOUNT}
+        </span>
+      );
+    }
+    const inflow = isInflow(row);
+    return (
+      <span
+        className={`whitespace-nowrap text-[15px] font-semibold tabular-nums ${inflow ? "text-accent" : "text-fg"}`}
+        style={{ letterSpacing: "-0.02em" }}
+      >
+        {inflow ? "+" : "−"}
+        {MASK_AMOUNT}
+      </span>
+    );
+  }
 
   if (category === "swap") {
     const legs: string[] = [];

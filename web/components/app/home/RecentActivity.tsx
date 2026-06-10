@@ -23,6 +23,8 @@ import {
 import {
   useActivity,
   useCurrency,
+  useHiddenAmounts,
+  MASK_AMOUNT,
   GlassCard,
   Eyebrow,
   EmptyState,
@@ -51,6 +53,7 @@ function titleFor(e: ActivityEntry): string {
 
 function ActivityRow({ entry }: { entry: ActivityEntry }) {
   const { formatLocal } = useCurrency();
+  const { hidden } = useHiddenAmounts();
 
   // Cash-out (USDsui→NGN bank off-ramp) renders distinctly: bank glyph, NGN
   // payout in the danger tone, and a status chip while it's settling.
@@ -80,7 +83,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
             className="text-[14px] font-semibold tabular-nums"
             style={{ color: "var(--color-danger)" }}
           >
-            −{formatNgn(o.amountNgn)}
+            −{hidden ? MASK_AMOUNT : formatNgn(o.amountNgn)}
           </span>
           {chip ? (
             <span
@@ -108,7 +111,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
 
   const received = entry.direction === "received";
   const amt = formatLocal(entry.amountUsdsui, { fixed: true });
-  const signed = `${received ? "+" : "−"}${amt}`;
+  const signed = `${received ? "+" : "−"}${hidden ? MASK_AMOUNT : amt}`;
 
   return (
     <div

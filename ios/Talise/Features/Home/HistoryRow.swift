@@ -11,6 +11,9 @@ import SwiftUI
 ///
 /// No material, blur, or gradient — clean Apple-system list row.
 struct HistoryRow: View {
+    /// Mirrors the Home privacy eye — when on, amounts render as dots.
+    @AppStorage("talise.amountsHidden") private var amountsHidden = false
+
     let entry: ActivityEntryDTO
     let onTap: () -> Void
     /// Optional callback fired when the user taps the "Swap to USDsui"
@@ -95,10 +98,10 @@ struct HistoryRow: View {
                 // "Details ↗" eyebrow was visual filler. Subtitle
                 // already carries the "tap me" affordance via the
                 // row-press tint.
-                Text(amountFormatted)
+                Text(amountsHidden ? "\u{2022}\u{2022}\u{2022}\u{2022}" : amountFormatted)
                     .font(TaliseFont.body(14, weight: .light))
                     .kerning(-0.56)
-                    .foregroundStyle(amountColor)
+                    .foregroundStyle(amountsHidden ? TaliseColor.fgMuted : amountColor)
                     .contentTransition(.numericText())
             }
             .padding(.horizontal, 16)

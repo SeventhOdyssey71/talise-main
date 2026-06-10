@@ -39,14 +39,20 @@ struct DepositFlowView: View {
                             Eyebrow(text: "Deposit with")
                                 .padding(.leading, 4)
 
-                            // Card on-ramp (Stripe). Live.
-                            NavigationLink {
-                                DepositOnrampView(onClose: onClose)
+                            // Card on-ramp — LOCKED (2026-06-10): the Stripe
+                            // hosted onramp doesn't work in production, so the
+                            // path is honest about it ("Soon") instead of
+                            // dead-ending the user in a broken Stripe flow.
+                            // Re-wire to DepositOnrampView when the onramp is
+                            // actually live.
+                            Button {
+                                showComingSoon("Card top-ups are coming soon.")
                             } label: {
                                 FundingPathCard(
                                     icon: "hi.card",
                                     title: "Cash",
-                                    subtitle: "Buy USDsui with your bank card"
+                                    subtitle: "Buy USDsui with your bank card",
+                                    soon: true
                                 )
                             }
                             .buttonStyle(TilePress())

@@ -54,7 +54,7 @@ export function IdentityCard({ me }: { me: Me | null }) {
             className="font-display font-semibold text-fg"
             style={{ fontSize: 26, letterSpacing: "-0.03em", lineHeight: 1.1 }}
           >
-            @{handle}
+            {handle}@talise
           </div>
           <p className="mt-1.5 text-[13px] text-fg-muted">
             Friends can send you USDsui by name.
