@@ -13,7 +13,7 @@
  * Mounts <CurrencyProvider> + <ToastProvider> for everything beneath it.
  */
 
-import { useMemo, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -32,7 +32,7 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { CurrencyProvider, useCurrency } from "./data/currency";
-import { FLAG, type Currency } from "@/lib/fx";
+import { Flag } from "./ui";
 import { ToastProvider } from "./data/toast";
 import { useBalances, seedResource, type Me, type Balances } from "./data";
 import { triggerOauthSignIn } from "@/lib/zkclient";
@@ -48,11 +48,31 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { IconSvgElement } from "@hugeicons/react";
 
-type NavItem = { label: string; href: string; icon: IconSvgElement };
+type NavItem = {
+  label: string;
+  href: string;
+  icon: IconSvgElement;
+  /**
+   * Optional sub-entries revealed in the desktop sidebar when this item (or
+   * one of its children) is the active section. Used to surface Pay's sibling
+   * routes (Cheques, Stream, Request) that otherwise have no nav entry point.
+   */
+  children?: Array<{ label: string; href: string }>;
+};
 
 const PRIMARY: NavItem[] = [
   { label: "Home", href: "/app", icon: Home09Icon as IconSvgElement },
-  { label: "Pay", href: "/app/pay", icon: ArrowDataTransferHorizontalIcon as IconSvgElement },
+  {
+    label: "Pay",
+    href: "/app/pay",
+    icon: ArrowDataTransferHorizontalIcon as IconSvgElement,
+    children: [
+      { label: "Send", href: "/app/pay" },
+      { label: "Request", href: "/app/pay/request" },
+      { label: "Cheques", href: "/app/pay/cheques" },
+      { label: "Stream", href: "/app/pay/stream" },
+    ],
+  },
   { label: "Earn", href: "/app/earn", icon: Plant02Icon as IconSvgElement },
   { label: "Work", href: "/app/work", icon: Briefcase01Icon as IconSvgElement },
   { label: "Activity", href: "/app/activity", icon: Analytics01Icon as IconSvgElement },
@@ -61,6 +81,9 @@ const PRIMARY: NavItem[] = [
 const PAGE_TITLES: Record<string, string> = {
   "/app": "Home",
   "/app/pay": "Pay",
+  "/app/pay/request": "Request",
+  "/app/pay/cheques": "Cheques",
+  "/app/pay/stream": "Stream",
   "/app/earn": "Earn",
   "/app/work": "Work",
   "/app/activity": "Activity",
@@ -93,9 +116,9 @@ export const CONSUMER_NAV: NavConfig = {
 };
 
 export const BUSINESS_NAV: NavConfig = {
-  brandHref: "/business",
+  brandHref: "/business/dashboard",
   primary: [
-    { label: "Dashboard", href: "/business", icon: Home09Icon as IconSvgElement },
+    { label: "Dashboard", href: "/business/dashboard", icon: Home09Icon as IconSvgElement },
     { label: "Invoices", href: "/business/invoices", icon: Invoice01Icon as IconSvgElement },
     { label: "Team", href: "/business/team", icon: UserGroupIcon as IconSvgElement },
     { label: "Pay", href: "/business/pay", icon: ArrowDataTransferHorizontalIcon as IconSvgElement },
@@ -104,7 +127,7 @@ export const BUSINESS_NAV: NavConfig = {
   rampsHref: "/business/ramps",
   settingsHref: "/business/settings",
   titles: {
-    "/business": "Dashboard",
+    "/business/dashboard": "Dashboard",
     "/business/invoices": "Invoices",
     "/business/team": "Team",
     "/business/pay": "Pay",
@@ -112,7 +135,7 @@ export const BUSINESS_NAV: NavConfig = {
     "/business/ramps": "Ramps",
     "/business/settings": "Settings",
   },
-  signInReturnTo: "/business",
+  signInReturnTo: "/business/dashboard",
 };
 
 function isActive(pathname: string, href: string, brandHref: string): boolean {
@@ -140,7 +163,7 @@ function Logo({ compact = false, homeHref = "/app" }: { compact?: boolean; homeH
 // ── Balance chip ─────────────────────────────────────────────────────────────
 
 function BalanceChip({ homeHref = "/app" }: { homeHref?: string }) {
-  const { data, loading } = useBalances();
+  const { data, loading, error } = useBalances();
   const { formatUsd } = useCurrency();
   return (
     <Link
@@ -149,7 +172,7 @@ function BalanceChip({ homeHref = "/app" }: { homeHref?: string }) {
     >
       <span className="size-1.5 rounded-full" style={{ background: "var(--color-accent-deep)" }} />
       <span className="text-[13px] font-semibold tabular-nums text-fg" style={{ letterSpacing: "-0.01em" }}>
-        {loading && !data ? "—" : formatUsd(data?.totalUsd ?? 0)}
+        {!data && (loading || error) ? "—" : formatUsd(data?.totalUsd ?? 0)}
       </span>
     </Link>
   );
@@ -167,14 +190,14 @@ function CurrencySelect() {
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent className="talise-glass max-h-72 rounded-2xl">
+      <SelectContent className="talise-glass max-h-72 rounded-xl">
         {currencies.map((c) => (
           <SelectItem
             key={c.code}
             value={c.code}
             className="font-mono text-[12px] uppercase tracking-wide"
           >
-            {FLAG[c.code as Currency] ?? ""} {c.code} · {c.symbol}
+            <Flag code={c.code} size={15} className="mr-1.5 align-middle" /> {c.code} · {c.symbol}
           </SelectItem>
         ))}
       </SelectContent>
@@ -236,7 +259,7 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
       )}
     </>
   );
-  const cls = `flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors ${
+  const cls = `flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors ${
     active ? "bg-accent-soft" : "hover:bg-accent-soft"
   } ${dimmed ? "opacity-55" : ""}`;
   if (dimmed) {
@@ -257,10 +280,10 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
 
 function SignInScreen({ returnTo = "/app" }: { returnTo?: string }) {
   return (
-    <div className="landing-mint talise-appshell relative min-h-screen overflow-hidden text-fg">
+    <div className="app-clean talise-appshell relative min-h-screen overflow-hidden text-fg">
       <div className="talise-top-glow" />
       <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6">
-        <div className="talise-glass w-full max-w-sm rounded-[28px] px-7 py-9 text-center">
+        <div className="talise-glass w-full max-w-sm rounded-xl px-7 py-9 text-center">
           <div className="mx-auto mb-6 flex scale-[1.4] justify-center">
             <Logo compact />
           </div>
@@ -305,7 +328,7 @@ function AccountMenu({
       >
         <Avatar me={me} size={size} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={8} className="talise-glass w-56 rounded-2xl">
+      <DropdownMenuContent align="end" sideOffset={8} className="talise-glass w-56 rounded-xl">
         <DropdownMenuLabel className="flex items-center gap-3 px-2 py-1.5">
           <Avatar me={me} size={34} />
           <div className="min-w-0">
@@ -339,15 +362,9 @@ function AccountMenu({
 
 function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: ReactNode }) {
   const pathname = usePathname() ?? nav.brandHref;
-  const title = useMemo(() => {
-    const matched = Object.keys(nav.titles)
-      .filter((k) => isActive(pathname, k, nav.brandHref))
-      .sort((a, b) => b.length - a.length)[0];
-    return matched ? nav.titles[matched] : "Talise";
-  }, [pathname, nav]);
 
   return (
-    <div className="landing-mint talise-appshell relative min-h-screen text-fg">
+    <div className="app-clean talise-appshell relative min-h-screen text-fg">
       <div className="talise-top-glow" />
 
       {/* ── Desktop sidebar (lg+) ── */}
@@ -356,9 +373,42 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
           <Logo homeHref={nav.brandHref} />
         </div>
         <nav className="mt-7 flex flex-1 flex-col gap-1">
-          {nav.primary.map((item) => (
-            <SidebarItem key={item.href} item={item} active={isActive(pathname, item.href, nav.brandHref)} />
-          ))}
+          {nav.primary.map((item) => {
+            const active = isActive(pathname, item.href, nav.brandHref);
+            return (
+              <div key={item.href}>
+                <SidebarItem item={item} active={active} />
+                {/* Reveal sub-entries (e.g. Pay → Cheques/Stream/Request)
+                    only while this section is active, so the sidebar stays
+                    calm elsewhere but those routes are reachable here. */}
+                {item.children && active && (
+                  <div className="mb-1.5 ml-[26px] mt-1 flex flex-col gap-0.5 border-l border-line/70 pl-2">
+                    {item.children.map((child) => {
+                      const childActive =
+                        child.href === item.href
+                          ? pathname === child.href
+                          : pathname === child.href ||
+                            pathname.startsWith(child.href + "/");
+                      return (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          aria-current={childActive ? "page" : undefined}
+                          className={`rounded-lg px-2.5 py-1.5 text-[13px] transition-colors ${
+                            childActive
+                              ? "bg-accent-soft font-semibold text-accent"
+                              : "font-medium text-fg-muted hover:bg-accent-soft/60 hover:text-fg"
+                          }`}
+                        >
+                          {child.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
           <div className="my-3 h-px bg-line" />
           <SidebarItem
             item={{ label: "Ramps", href: nav.rampsHref, icon: CreditCardIcon as IconSvgElement }}
@@ -373,7 +423,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
           <CurrencySelect />
           <Link
             href={nav.settingsHref}
-            className="talise-glass flex items-center gap-2.5 rounded-2xl px-3 py-2.5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+            className="talise-glass flex items-center gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
           >
             <Avatar me={me} size={30} />
             <div className="min-w-0 flex-1">
@@ -386,16 +436,9 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
         </div>
       </aside>
 
-      {/* ── Main area ── */}
+      {/* ── Main area ── (no desktop topbar — the sidebar shows the active
+          page; content leads, Wise-style) */}
       <div className="relative z-10 lg:pl-60">
-        {/* Desktop topbar */}
-        <header className="sticky top-0 z-20 hidden items-center justify-between border-b border-line bg-[color-mix(in_srgb,var(--color-bg)_82%,transparent)] px-8 py-3 backdrop-blur-xl lg:flex">
-          <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-fg">{title}</h1>
-          <div className="flex items-center gap-3">
-            <BalanceChip homeHref={nav.brandHref} />
-          </div>
-        </header>
-
         {/* Mobile mini-bar — transparent, sits on the mint gradient and scrolls
             away with the content (no bar background / border). */}
         <header className="relative z-30 flex items-center justify-between px-4 pb-1 pt-3 lg:hidden">
@@ -407,7 +450,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
         </header>
 
         {/* Content column */}
-        <main className="mx-auto w-full max-w-[1040px] px-4 pb-32 pt-4 sm:px-6 lg:px-8 lg:pb-12 lg:pt-6">
+        <main className="mx-auto w-full max-w-[1040px] px-4 pb-32 pt-4 sm:px-6 lg:px-8 lg:pb-12 lg:pt-16">
           {children}
         </main>
       </div>

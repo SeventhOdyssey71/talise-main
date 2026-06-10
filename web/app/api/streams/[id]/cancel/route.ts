@@ -5,8 +5,6 @@ import { rateLimitAsync } from "@/lib/rate-limit";
 import {
   streamById,
   setStreamState,
-  refundRemainder,
-  streamEscrowEnabled,
   streamOnchainEnabled,
   isOnchainStreamId,
   buildStreamCancelSponsored,
@@ -22,19 +20,13 @@ export const runtime = "nodejs";
  * stay with the recipient. Idempotent: cancelling an already-cancelled stream
  * no-ops.
  *
- *   • ESCROW path: the server refunds the remainder itself via a gasless
- *     escrow→sender USDsui transfer signed by the escrow keypair. A failed
- *     refund leaves the row cancelled with the remainder still in escrow —
- *     surfaced as `{ refunded:false }`; funds are never lost (the escrow key
- *     can re-send).
- *   • ON-CHAIN path: the refund is a SENDER-signed `stream::cancel_and_withdraw`
- *     — only the user's zkLogin can sign it. The server flips the row to
- *     cancelled (stops the scheduler) and returns Onara-SPONSORED cancel bytes
- *     with `mode:'onchain'` for iOS to sign and POST to /api/zk/sponsor-execute;
- *     that tx withdraws the remainder Coin<USDSUI> back to the sender.
+ * Streaming is ON-CHAIN only: the refund is a SENDER-signed
+ * `stream::cancel_and_withdraw` — only the user's zkLogin can sign it. The
+ * server flips the row to cancelled and returns Onara-SPONSORED cancel bytes
+ * with `mode:'onchain'` for iOS to sign and POST to /api/zk/sponsor-execute;
+ * that tx withdraws the remainder Coin<USDSUI> back to the sender.
  *
- * Order: flip state FIRST so the scheduler can't release a tranche while the
- * refund is in flight, then refund / return cancel bytes.
+ * Order: flip state FIRST, then return cancel bytes.
  */
 export async function POST(
   req: Request,
@@ -119,29 +111,12 @@ export async function POST(
     }
   }
 
-  if (!streamEscrowEnabled() || remainderMicros <= 0n) {
-    return NextResponse.json({
-      ok: true,
-      state: "cancelled",
-      refunded: remainderMicros <= 0n,
-      refundUsd: Math.max(0, refundUsd),
-    });
-  }
-
-  const res = await refundRemainder({
-    senderAddress: row.sender_address,
-    remainderMicros,
-  });
-  if (!res.ok) {
-    console.warn(
-      `[streams/cancel] refund failed stream=${id} remainder=${remainderMicros}: ${res.error}`
-    );
-  }
+  // Non-on-chain streams no longer exist (escrow + scheduler rail retired). The
+  // row is already flipped to cancelled above; return a clean terminal state.
   return NextResponse.json({
     ok: true,
     state: "cancelled",
-    refunded: res.ok,
+    refunded: remainderMicros <= 0n,
     refundUsd: Math.max(0, refundUsd),
-    refundDigest: res.digest ?? null,
   });
 }

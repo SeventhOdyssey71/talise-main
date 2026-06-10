@@ -68,30 +68,10 @@ extension View {
     }
 }
 
-/// Shared backdrop for the dark-theme success popups (Figma 141:2 /
-/// 141:18): pure black with a soft green glow blob at the top that
-/// fades to black before mid-screen. Approximates the design's blurred
-/// conic-gradient blob with a radial wash + blur.
+/// Backdrop for the dark-theme success popups. Flat clean canvas — the glow
+/// blob was removed to match the flat, Apple-system look (no radial wash/blur).
 struct SuccessGlowBackground: View {
     var body: some View {
-        GeometryReader { proxy in
-            let h = proxy.size.height
-            ZStack {
-                Color.black.ignoresSafeArea()
-                RadialGradient(
-                    colors: [
-                        Color(hex: 0x80C06B).opacity(0.95),
-                        Color(hex: 0x4B8A37).opacity(0.45),
-                        Color.black.opacity(0.0),
-                    ],
-                    center: UnitPoint(x: 0.42, y: 0.10),
-                    startRadius: 0,
-                    endRadius: h * 0.46
-                )
-                .blur(radius: 24)
-                .ignoresSafeArea()
-            }
-        }
-        .ignoresSafeArea()
+        TaliseColor.bg.ignoresSafeArea()
     }
 }

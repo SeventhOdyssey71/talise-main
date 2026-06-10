@@ -299,7 +299,11 @@ struct ChequeWriteView: View {
             }
         }
         .padding(18)
-        .taliseGlass(cornerRadius: 20)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func labeled<V: View>(_ label: String, @ViewBuilder _ content: () -> V) -> some View {
@@ -424,33 +428,22 @@ private struct ChequeIssuedView: View {
             Spacer()
             VStack(spacing: 10) {
                 if reclaimed {
-                    Button(action: onDone) {
-                        Text("Done").font(TaliseFont.heading(16, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x0A130D))
-                            .frame(maxWidth: .infinity).frame(height: 54)
-                            .background(Capsule().fill(TaliseColor.greenMint))
-                    }.buttonStyle(.plain)
+                    LiquidGlassButton(title: "Done", tint: TaliseColor.greenMint, action: onDone)
                 } else {
-                    Button { sharing = true } label: {
-                        HStack { Image(systemName: "square.and.arrow.up"); Text("Share cheque link") }
-                            .font(TaliseFont.heading(16, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x0A130D))
-                            .frame(maxWidth: .infinity).frame(height: 54)
-                            .background(Capsule().fill(TaliseColor.greenMint))
-                    }.buttonStyle(.plain)
+                    LiquidGlassButton(
+                        title: "Share cheque link",
+                        icon: "square.and.arrow.up",
+                        tint: TaliseColor.greenMint
+                    ) { sharing = true }
                     // Claim back: pull an unclaimed cheque the user created
                     // back to their own balance before anyone cashes it.
-                    Button { Task { await reclaim() } } label: {
-                        HStack(spacing: 6) {
-                            if reclaiming { ProgressView().controlSize(.small).tint(TaliseColor.fg) }
-                            else { Image(systemName: "arrow.uturn.backward") }
-                            Text(reclaiming ? "Claiming back…" : "Claim it back")
-                        }
-                        .font(TaliseFont.heading(15, weight: .medium))
-                        .foregroundStyle(TaliseColor.fg)
-                        .frame(maxWidth: .infinity).frame(height: 50)
-                        .background(Capsule().stroke(TaliseColor.line, lineWidth: 1))
-                    }.buttonStyle(.plain).disabled(reclaiming)
+                    LiquidGlassButton(
+                        title: reclaiming ? "Claiming back…" : "Claim it back",
+                        icon: reclaiming ? nil : "arrow.uturn.backward",
+                        tint: nil,
+                        loading: reclaiming
+                    ) { Task { await reclaim() } }
+                        .disabled(reclaiming)
                     Button(action: onDone) {
                         Text("Done").font(TaliseFont.body(15)).foregroundStyle(TaliseColor.fgMuted)
                             .frame(maxWidth: .infinity).frame(height: 44)
@@ -563,7 +556,8 @@ struct MyChequesView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(TaliseColor.fg)
                     .frame(width: 32, height: 32)
-                    .background(Circle().fill(TaliseColor.surfaceGlass))
+                    .background(Circle().fill(TaliseColor.surface2))
+                    .clipShape(Circle())
             }.buttonStyle(.plain)
         }
     }
@@ -571,8 +565,8 @@ struct MyChequesView: View {
     private var loadingState: some View {
         VStack(spacing: 12) {
             ForEach(0..<3, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(TaliseColor.surfaceGlass)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(TaliseColor.surface)
                     .frame(height: 84)
                     .redacted(reason: .placeholder)
             }
@@ -585,12 +579,9 @@ struct MyChequesView: View {
             Text(msg)
                 .font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted)
                 .multilineTextAlignment(.center)
-            Button { Task { await load() } } label: {
-                Text("Try again").font(TaliseFont.heading(14, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                    .padding(.horizontal, 20).frame(height: 44)
-                    .background(Capsule().stroke(TaliseColor.line, lineWidth: 1))
-            }.buttonStyle(.plain)
+            LiquidGlassButton(title: "Try again", tint: nil, size: .md, fullWidth: false) {
+                Task { await load() }
+            }
         }
         .frame(maxWidth: .infinity).padding(.top, 60)
     }
@@ -633,26 +624,22 @@ struct MyChequesView: View {
                 Spacer()
             }
             if row.reclaimable {
-                Button { Task { await reclaim(row) } } label: {
-                    HStack(spacing: 6) {
-                        if reclaiming.contains(row.id) {
-                            ProgressView().controlSize(.small).tint(TaliseColor.fg)
-                        } else {
-                            Image(systemName: "arrow.uturn.backward")
-                        }
-                        Text(reclaiming.contains(row.id) ? "Claiming back…" : "Claim it back")
-                    }
-                    .font(TaliseFont.heading(14, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                    .frame(maxWidth: .infinity).frame(height: 46)
-                    .background(Capsule().stroke(TaliseColor.line, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .disabled(reclaiming.contains(row.id))
+                LiquidGlassButton(
+                    title: reclaiming.contains(row.id) ? "Claiming back…" : "Claim it back",
+                    icon: reclaiming.contains(row.id) ? nil : "arrow.uturn.backward",
+                    tint: nil,
+                    size: .md,
+                    loading: reclaiming.contains(row.id)
+                ) { Task { await reclaim(row) } }
+                    .disabled(reclaiming.contains(row.id))
             }
         }
         .padding(16)
-        .taliseGlass(cornerRadius: 18)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     /// Color-code: funded = mint (live/reclaimable), claimed = muted,
@@ -791,13 +778,19 @@ struct ChequeClaimView: View {
             Text("Paste a cheque link").font(TaliseFont.heading(20, weight: .medium)).foregroundStyle(TaliseColor.fg)
             TextField("https://talise.io/c/…", text: $linkText, axis: .vertical)
                 .font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fg)
-                .padding(14).taliseGlass(cornerRadius: 14)
-            Button { Task { await load() } } label: {
-                Text(loading ? "Loading…" : "Open cheque")
-                    .font(TaliseFont.heading(16, weight: .medium)).foregroundStyle(Color(hex: 0x0A130D))
-                    .frame(maxWidth: .infinity).frame(height: 52)
-                    .background(Capsule().fill(TaliseColor.greenMint))
-            }.buttonStyle(.plain).disabled(loading || linkText.isEmpty)
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(TaliseColor.surface)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            LiquidGlassButton(
+                title: loading ? "Loading…" : "Open cheque",
+                tint: TaliseColor.greenMint,
+                loading: loading
+            ) { Task { await load() } }
+                .disabled(loading || linkText.isEmpty)
+                .opacity(loading || linkText.isEmpty ? 0.55 : 1)
         }
     }
 
@@ -827,13 +820,14 @@ struct ChequeClaimView: View {
     private func cashed(_ amt: Double) -> some View {
         VStack(spacing: 16) {
             Spacer(minLength: 30)
-            Image(systemName: "checkmark.seal.fill").font(.system(size: 56)).foregroundStyle(TaliseColor.accent)
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 56)).foregroundStyle(TaliseColor.accent)
+                .frame(width: 96, height: 96)
+                .background(Circle().fill(TaliseColor.accent.opacity(0.16)))
             Text("\(TaliseFormat.local2(amt)) cashed").font(TaliseFont.heading(22, weight: .medium)).foregroundStyle(TaliseColor.fg)
             Text("It's in your Talise balance.").font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted)
-            Button(action: onDone) {
-                Text("Done").font(TaliseFont.heading(16, weight: .medium)).foregroundStyle(Color(hex: 0x0A130D))
-                    .frame(maxWidth: .infinity).frame(height: 52).background(Capsule().fill(TaliseColor.greenMint))
-            }.buttonStyle(.plain).padding(.top, 10)
+            LiquidGlassButton(title: "Done", tint: TaliseColor.greenMint, action: onDone)
+                .padding(.top, 10)
         }
     }
 

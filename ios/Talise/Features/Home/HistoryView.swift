@@ -69,13 +69,23 @@ struct HistoryView: View {
                 } else if filtered.isEmpty {
                     emptyState
                 } else {
-                    VStack(spacing: 10) {
-                        ForEach(filtered) { entry in
-                            HistoryRow(entry: entry) {
-                                receiptEntry = entry
+                    // One translucent glass plate holding every row, split by
+                    // inset hairlines — the clean Apple-system grouped list.
+                    let rows = filtered
+                    VStack(spacing: 0) {
+                        ForEach(rows.indices, id: \.self) { i in
+                            HistoryRow(entry: rows[i]) {
+                                receiptEntry = rows[i]
+                            }
+                            if i < rows.count - 1 {
+                                Rectangle()
+                                    .fill(TaliseColor.line)
+                                    .frame(height: 0.75)
+                                    .padding(.leading, 64)
                             }
                         }
                     }
+                    .historyFlatCard(cornerRadius: 22)
                 }
                 Color.clear.frame(height: 40)
             }
@@ -116,9 +126,14 @@ struct HistoryView: View {
                         Text(f.label)
                             .font(TaliseFont.heading(12, weight: .medium))
                             .foregroundStyle(filter == f ? TaliseColor.bg : TaliseColor.fg)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(filter == f ? TaliseColor.fg : TaliseColor.surface2)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(
+                                // FLAT segmented control: selected = solid
+                                // white pill; unselected = flat surface2 pill.
+                                // No material, gradient, or rim.
+                                Capsule().fill(filter == f ? TaliseColor.fg : TaliseColor.surface2)
+                            )
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -175,5 +190,25 @@ struct HistoryView: View {
             // either. Keep whatever we already have — never blank to [].
             if APIError.isCancellation(error) { return }
         }
+    }
+}
+
+/// FLAT card for the full-history list — a single solid
+/// `TaliseColor.surface` fill on a continuous rounded rectangle. No
+/// material, blur, gradient sheen, gradient stroke, or shadow.
+private struct HistoryFlatCard: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(shape.fill(TaliseColor.surface))
+            .clipShape(shape)
+    }
+}
+
+private extension View {
+    func historyFlatCard(cornerRadius: CGFloat = 22) -> some View {
+        modifier(HistoryFlatCard(cornerRadius: cornerRadius))
     }
 }

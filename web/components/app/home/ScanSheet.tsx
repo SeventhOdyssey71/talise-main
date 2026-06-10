@@ -111,7 +111,7 @@ export function ScanSheet({ open, onClose }: { open: boolean; onClose: () => voi
   return (
     <Sheet open={open} onClose={onClose} title="Scan to pay" size="md">
       <div className="space-y-4">
-        <div className="relative mx-auto aspect-square w-full max-w-[280px] overflow-hidden rounded-3xl bg-black">
+        <div className="relative mx-auto aspect-square w-full max-w-[280px] overflow-hidden rounded-xl bg-black">
           <video
             ref={videoRef}
             playsInline
@@ -119,7 +119,7 @@ export function ScanSheet({ open, onClose }: { open: boolean; onClose: () => voi
             className="h-full w-full object-cover"
           />
           {state === "scanning" && (
-            <div className="pointer-events-none absolute inset-7 rounded-2xl border-2 border-white/80" />
+            <div className="pointer-events-none absolute inset-7 rounded-xl border-2 border-white/80" />
           )}
           {state !== "scanning" && (
             <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-[13px] leading-relaxed text-white">

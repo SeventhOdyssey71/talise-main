@@ -1,64 +1,77 @@
 "use client";
 
 /**
- * WithdrawToBankSheet — the live USDsui → NGN bank cash-out flow (web).
+ * WithdrawToBankSheet — the live USDSUI → NGN bank cash-out flow (web).
  *
- * Steps: form → review (locked quote) → send + remit → result.
- *   1. form    user enters NGN amount, bank, 10-digit account → POST /quote
- *              (Paga name-enquiry + locked USDsui price, 60s TTL).
+ * Backed by the Linq off-ramp engine. Unlike the old treasury model, Linq
+ * hands back a deposit wallet it watches: the user sends USDSUI there and Linq
+ * pays the bank itself — so there's NO Talise treasury, NO on-chain receipt
+ * verification, and NO refund path here.
+ *
+ * Steps: form → review (display quote) → send + poll → result.
+ *   1. form    user enters USDSUI amount, bank, 10-digit account → POST /quote
+ *              (Linq name-enquiry + display NGN at the live rate).
  *   2. review  shows the resolved account holder + what they send vs receive;
- *              SlideToConfirm signs a USDsui transfer to the offramp treasury
- *              (useSignAndSend), then POST /confirm with the on-chain digest.
- *   3. result  polls /status a few times to surface settled, otherwise shows
- *              "on its way" (NIBSS settles async; the webhook/status finalize).
+ *              SlideToConfirm creates a Linq order (POST /create → deposit
+ *              walletAddress + locked NGN), then sends exactly that USDSUI to
+ *              the deposit address via the normal sponsored-send rail
+ *              (useSignAndSend).
+ *   3. result  polls /status until the order reaches phase completed/failed,
+ *              otherwise shows "on its way" (Linq settles the bank leg async).
  *
  * The off-ramp API routes resolve the web cookie session, so no extra auth
  * wiring is needed here.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  CheckmarkCircle02Icon,
+  Alert02Icon,
+  Clock01Icon,
+} from "@hugeicons/core-free-icons";
 import {
   Sheet,
   Field,
   PrimaryButton,
   SlideToConfirm,
-  Spinner,
   Eyebrow,
-  StatusPill,
   useToast,
   useSignAndSend,
   api,
   ApiError,
 } from "@/components/app";
-
-// Top NIBSS banks (codes match the server static fallback; the quote route
-// validates against the synced Paga registry and accepts either code or UUID).
-const BANKS: ReadonlyArray<{ code: string; name: string }> = [
-  { code: "044", name: "Access Bank" },
-  { code: "023", name: "Citibank" },
-  { code: "050", name: "Ecobank" },
-  { code: "070", name: "Fidelity Bank" },
-  { code: "011", name: "First Bank of Nigeria" },
-  { code: "214", name: "First City Monument Bank" },
-  { code: "058", name: "Guaranty Trust Bank" },
-  { code: "221", name: "Stanbic IBTC Bank" },
-  { code: "232", name: "Sterling Bank" },
-  { code: "033", name: "United Bank For Africa" },
-  { code: "035", name: "Wema Bank" },
-  { code: "057", name: "Zenith Bank" },
-];
+import { LINQ_BANKS } from "@/lib/linq-banks";
+import { BankSelect } from "@/components/app/ui/BankSelect";
 
 type Quote = {
-  quoteId: string;
-  usdsuiAmount: number;
-  ngnAmount: number;
-  fxRate: number;
   accountName: string;
-  expiresAt: number;
-  treasury: string | null;
+  bankName: string;
+  bankCode: string;
+  accountNumber: string;
+  rate: number;
+  amountUsdsui: number;
+  amountNgn: number;
 };
 
-type StatusResp = { id: string; status: string; ngnAmount: number };
+type CreateResp = {
+  orderId: string;
+  linqOrderId: string;
+  walletAddress: string;
+  coinType: string;
+  amountUsdsui: number;
+  amountNgn: number;
+  rate: number;
+  depositWindowMinutes: number;
+};
+
+type StatusResp = {
+  orderId: string;
+  status: string;
+  phase: "initiated" | "processing" | "completed" | "failed";
+  amountUsdsui: number;
+  amountNgn: number;
+};
 
 const ngn = (n: number) => "₦" + n.toLocaleString("en-NG", { maximumFractionDigits: 0 });
 const usd = (n: number) =>
@@ -70,13 +83,17 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
 
   const [step, setStep] = useState<"form" | "review" | "result">("form");
   const [amount, setAmount] = useState("");
-  const [bankCode, setBankCode] = useState("058");
+  const [bankCode, setBankCode] = useState("");
   const [account, setAccount] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [finalStatus, setFinalStatus] = useState<"settled" | "remitting" | "failed" | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
+  // Auto-detected account holder (name-enquiry) — no manual entry.
+  const [resolvedName, setResolvedName] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveErr, setResolveErr] = useState<string | null>(null);
 
   const reset = useCallback(() => {
     setStep("form");
@@ -91,19 +108,59 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
   const close = useCallback(() => {
     onClose();
     // Defer reset so the closing animation doesn't flash the form.
-    setTimeout(reset, 250);
+    setTimeout(() => {
+      reset();
+      setResolvedName(null);
+      setResolveErr(null);
+      setResolving(false);
+    }, 250);
   }, [onClose, reset]);
 
-  const ngnAmount = Math.floor(Number(amount) || 0);
-  const formValid = ngnAmount >= 100 && /^\d{10}$/.test(account) && !!bankCode;
+  // Detect the account holder name as soon as a bank + full 10-digit account
+  // are present (debounced) — the user never types their own name.
+  useEffect(() => {
+    if (step !== "form") return;
+    if (!bankCode || !/^\d{10}$/.test(account)) {
+      setResolvedName(null);
+      setResolveErr(null);
+      setResolving(false);
+      return;
+    }
+    let cancelled = false;
+    setResolving(true);
+    setResolveErr(null);
+    setResolvedName(null);
+    const t = setTimeout(async () => {
+      try {
+        const r = await api<{ accountName: string }>("/api/offramp/linq/resolve", {
+          method: "POST",
+          body: { bankCode, accountNumber: account },
+        });
+        if (!cancelled) setResolvedName(r.accountName);
+      } catch (e) {
+        if (!cancelled)
+          setResolveErr(e instanceof ApiError ? e.message : "Couldn't verify that account.");
+      } finally {
+        if (!cancelled) setResolving(false);
+      }
+    }, 450);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [bankCode, account, step]);
+
+  const amountUsdsui = Number(amount) || 0;
+  const formValid =
+    amountUsdsui > 0 && /^\d{10}$/.test(account) && !!bankCode && !!resolvedName && !resolveErr;
 
   async function getQuote() {
     setError(null);
     setBusy(true);
     try {
-      const q = await api<Quote>("/api/offramp/paga/quote", {
+      const q = await api<Quote>("/api/offramp/linq/quote", {
         method: "POST",
-        body: { ngnAmount, bankCode, accountNumber: account },
+        body: { amountUsdsui, bankCode, accountNumber: account },
       });
       setQuote(q);
       setStep("review");
@@ -116,38 +173,36 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
 
   async function confirmWithdraw() {
     if (!quote) return;
-    if (!quote.treasury) {
-      setError("Cash-out is not configured yet. Please try again later.");
-      setStep("result");
-      setFinalStatus("failed");
-      return;
-    }
-    if (Date.now() > quote.expiresAt) {
-      setError("That quote expired. Please get a fresh one.");
-      setResetSignal((n) => n + 1);
-      setStep("form");
-      return;
-    }
     try {
-      // 1) Move USDsui to the offramp treasury (gasless/sponsored send pipeline).
-      const { digest } = await send({
-        to: quote.treasury,
-        amountUsd: quote.usdsuiAmount,
+      // 1) Create the Linq order — returns the deposit wallet + locked NGN.
+      const order = await api<CreateResp>("/api/offramp/linq/create", {
+        method: "POST",
+        body: {
+          amountUsdsui: quote.amountUsdsui,
+          bankCode: quote.bankCode,
+          accountNumber: quote.accountNumber,
+          accountName: quote.accountName,
+          bankName: quote.bankName,
+        },
+      });
+
+      // 2) Send exactly `amountUsdsui` USDSUI to Linq's deposit wallet using
+      //    the normal sponsored-send rail. Linq detects the deposit and pays
+      //    the bank — no treasury, no on-chain verification on our side.
+      await send({
+        to: order.walletAddress,
+        amountUsd: order.amountUsdsui,
         asset: "USDsui",
       });
-      // 2) Hand the on-chain digest to the offramp confirm → Paga payout.
-      await api<{ status: string }>("/api/offramp/paga/confirm", {
-        method: "POST",
-        body: { quoteId: quote.quoteId, txDigest: digest },
-      });
-      // 3) Poll a few times for NIBSS settlement; otherwise it's "on its way".
+
+      // 3) Poll Linq for the payout phase; otherwise it's "on its way".
       let settled: "settled" | "remitting" | "failed" = "remitting";
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 5; i++) {
         await new Promise((r) => setTimeout(r, 2500));
         try {
-          const s = await api<StatusResp>(`/api/offramp/paga/status/${quote.quoteId}`);
-          if (s.status === "settled") { settled = "settled"; break; }
-          if (s.status === "failed") { settled = "failed"; break; }
+          const s = await api<StatusResp>(`/api/offramp/linq/status/${order.orderId}`);
+          if (s.phase === "completed") { settled = "settled"; break; }
+          if (s.phase === "failed") { settled = "failed"; break; }
         } catch {
           /* transient poll error — keep trying */
         }
@@ -156,80 +211,91 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
       setStep("result");
       if (settled !== "failed") toast("Withdrawal submitted.", "success");
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Withdrawal failed. Your funds are safe.";
+      const msg = e instanceof ApiError ? e.message : "Withdrawal failed.";
       setError(msg);
       setFinalStatus("failed");
       setStep("result");
     }
   }
 
-  const bankName = BANKS.find((b) => b.code === bankCode)?.name ?? bankCode;
+  const bankName = LINQ_BANKS.find((b) => b.bankCode === bankCode)?.name ?? bankCode;
 
   return (
     <Sheet open={open} onClose={close} title="Cash out to your bank" size="md">
       {step === "form" && (
         <div className="space-y-5">
-          <Field label="Amount (NGN)" hint="They receive this amount in naira.">
+          <Field label="Amount (USDsui)" hint="The amount you send from your wallet.">
             <input
-              inputMode="numeric"
+              inputMode="decimal"
               value={amount}
-              onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))}
-              placeholder="0"
-              className="w-full rounded-2xl bg-surface px-4 py-3 text-[18px] text-fg outline-none ring-1 ring-line focus:ring-accent"
+              onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
+              placeholder="0.00"
+              className="w-full rounded-xl bg-surface px-4 py-3 text-[18px] text-fg outline-none ring-1 ring-line focus:ring-accent"
             />
           </Field>
           <Field label="Bank">
-            <select
-              value={bankCode}
-              onChange={(e) => setBankCode(e.target.value)}
-              className="w-full rounded-2xl bg-surface px-4 py-3 text-[15px] text-fg outline-none ring-1 ring-line focus:ring-accent"
-            >
-              {BANKS.map((b) => (
-                <option key={b.code} value={b.code}>{b.name}</option>
-              ))}
-            </select>
+            <BankSelect banks={LINQ_BANKS} value={bankCode} onChange={setBankCode} />
           </Field>
-          <Field label="Account number" hint="10-digit NUBAN.">
+          <Field label="Account number">
             <input
               inputMode="numeric"
               value={account}
               onChange={(e) => setAccount(e.target.value.replace(/[^\d]/g, "").slice(0, 10))}
               placeholder="0123456789"
-              className="w-full rounded-2xl bg-surface px-4 py-3 text-[16px] tracking-wide text-fg outline-none ring-1 ring-line focus:ring-accent"
+              className="w-full rounded-xl bg-surface px-4 py-3 text-[16px] tracking-wide text-fg outline-none ring-1 ring-line focus:ring-accent"
             />
           </Field>
+
+          {/* Auto-detected account holder — replaces manual name entry. */}
+          {resolving && (
+            <p className="-mt-2 text-[13px] text-fg-dim">Checking account…</p>
+          )}
+          {resolvedName && !resolving && (
+            <p className="-mt-2 flex items-center gap-1.5 text-[13px] font-medium text-accent">
+              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={15} strokeWidth={2} />
+              {resolvedName}
+            </p>
+          )}
+          {resolveErr && !resolving && (
+            <p className="-mt-2 text-[13px] text-red-500">{resolveErr}</p>
+          )}
+
           {error && <p className="text-[13px] text-red-500">{error}</p>}
           <PrimaryButton full onClick={getQuote} disabled={!formValid || busy} loading={busy}>
-            {busy ? "Getting quote…" : "Get quote"}
+            {busy ? "Getting quote…" : "Continue"}
           </PrimaryButton>
         </div>
       )}
 
       {step === "review" && quote && (
         <div className="space-y-5">
-          <div className="rounded-2xl bg-surface p-5 ring-1 ring-line">
+          {/* Quote summary card */}
+          <div className="rounded-xl border border-line bg-surface p-5">
             <Eyebrow>They receive</Eyebrow>
-            <div className="mt-1 text-[30px] font-medium tracking-[-0.03em] text-fg">
-              {ngn(quote.ngnAmount)}
+            <div className="mt-1 text-[28px] font-semibold tabular-nums tracking-[-0.03em] text-fg">
+              {ngn(quote.amountNgn)}
             </div>
-            <div className="mt-3 space-y-1.5 text-[14px] text-fg-muted">
+            <div className="mt-4 divide-y divide-line text-[13px]">
               <Row k="To" v={quote.accountName} />
               <Row k="Bank" v={bankName} />
               <Row k="Account" v={`••••${account.slice(-4)}`} />
-              <Row k="You send" v={usd(quote.usdsuiAmount) + " USDsui"} />
-              <Row k="Rate" v={`$1 = ${ngn(quote.fxRate)}`} />
+              <Row k="You send" v={usd(quote.amountUsdsui) + " USDsui"} />
+              <Row k="Rate" v={`$1 = ${ngn(quote.rate)}`} />
             </div>
           </div>
+
           <p className="text-center text-[12px] text-fg-dim">
-            Quote locked for 60s. Slide to send {usd(quote.usdsuiAmount)} USDsui and pay out{" "}
-            {ngn(quote.ngnAmount)}.
+            Rate locks when you confirm — slide to withdraw.
           </p>
+
           {error && <p className="text-center text-[13px] text-red-500">{error}</p>}
+
           <SlideToConfirm
             label="Slide to withdraw"
             onConfirm={confirmWithdraw}
             resetSignal={resetSignal}
           />
+
           <button
             type="button"
             onClick={() => { setStep("form"); setError(null); }}
@@ -241,26 +307,46 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
       )}
 
       {step === "result" && (
-        <div className="space-y-5 py-2 text-center">
+        <div className="flex flex-col items-center gap-4 py-4 text-center">
           {finalStatus === "failed" ? (
             <>
-              <StatusPill label="Failed" tone="pending" />
-              <p className="text-[15px] text-fg">{error ?? "The payout could not be completed."}</p>
-              <p className="text-[12px] text-fg-dim">
-                If your USDsui left your wallet, it will be returned automatically.
-              </p>
+              <span className="flex size-12 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--color-danger)_14%,white)] text-[var(--color-danger)]">
+                <HugeiconsIcon icon={Alert02Icon} size={24} strokeWidth={2} />
+              </span>
+              <div>
+                <h3 className="text-[18px] font-medium tracking-[-0.02em] text-fg">Payout failed</h3>
+                <p className="mt-1 text-[14px] leading-relaxed text-fg-muted">
+                  {error ?? "The payout could not be completed."}
+                </p>
+              </div>
               <PrimaryButton full onClick={reset}>Try again</PrimaryButton>
             </>
           ) : (
             <>
-              <div className="text-[40px]">{finalStatus === "settled" ? "✅" : "🚀"}</div>
-              <h3 className="text-[20px] font-medium tracking-[-0.02em] text-fg">
-                {finalStatus === "settled" ? "Paid out" : "On its way"}
-              </h3>
-              <p className="text-[15px] text-fg-muted">
-                {quote ? ngn(quote.ngnAmount) : ""} to {quote?.accountName ?? "your bank"}
-                {finalStatus === "settled" ? " has landed." : " — banks usually settle in seconds."}
-              </p>
+              <span
+                className={`flex size-12 items-center justify-center rounded-full ${
+                  finalStatus === "settled"
+                    ? "bg-accent-soft text-accent"
+                    : "bg-[color-mix(in_srgb,var(--color-accent-soft)_60%,white)] text-accent"
+                }`}
+              >
+                <HugeiconsIcon
+                  icon={finalStatus === "settled" ? CheckmarkCircle02Icon : Clock01Icon}
+                  size={24}
+                  strokeWidth={2}
+                />
+              </span>
+              <div>
+                <h3 className="text-[18px] font-medium tracking-[-0.02em] text-fg">
+                  {finalStatus === "settled" ? "Paid out" : "On its way"}
+                </h3>
+                <p className="mt-1 text-[14px] leading-relaxed text-fg-muted">
+                  {quote ? ngn(quote.amountNgn) : ""} to {quote?.accountName ?? "your bank"}
+                  {finalStatus === "settled"
+                    ? " has landed."
+                    : " — banks usually settle in seconds."}
+                </p>
+              </div>
               <PrimaryButton full onClick={close}>Done</PrimaryButton>
             </>
           )}
@@ -272,9 +358,9 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
 
 function Row({ k, v }: { k: string; v: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex items-center justify-between gap-3 py-2">
       <span className="text-fg-dim">{k}</span>
-      <span className="text-right text-fg">{v}</span>
+      <span className="text-right font-medium text-fg">{v}</span>
     </div>
   );
 }

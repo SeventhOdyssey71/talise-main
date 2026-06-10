@@ -13,6 +13,12 @@ struct SignInScreen: View {
     @State private var signingIn = false
     @State private var error: String?
 
+    /// True once the user has completed at least one successful sign-in on
+    /// this device. Drives the "Welcome back" copy for returning users; a
+    /// fresh install keeps the first-run "Welcome to Talise".
+    private static let hasSignedInBeforeKey = "talise.hasSignedInBefore"
+    private let returningUser = UserDefaults.standard.bool(forKey: hasSignedInBeforeKey)
+
     /// Letter-spacing helper — same `-size × 0.03` ratio used across
     /// the onboarding flow (matches the Figma "-0.705 ls @ 23.5pt"
     /// headline spec).
@@ -33,13 +39,15 @@ struct SignInScreen: View {
                 hero
                     .frame(width: 96, height: 96)
 
-                Text("Welcome to Talise")
+                Text(returningUser ? "Welcome back" : "Welcome to Talise")
                     .font(TaliseFont.heading(26, weight: .semibold))
                     .kerning(kern(26))
                     .foregroundStyle(TaliseColor.fg)
                     .padding(.top, 28)
 
-                Text("One Google account. One Sui address.\nNo seed phrase, no setup.")
+                Text(returningUser
+                     ? "Sign in to your Talise account."
+                     : "One Google account. One Sui address.\nNo seed phrase, no setup.")
                     .font(TaliseFont.body(14, weight: .light))
                     .kerning(kern(14))
                     .foregroundStyle(TaliseColor.fgMuted)
@@ -89,7 +97,9 @@ struct SignInScreen: View {
                         .tint(TaliseColor.bg)
                         .frame(width: 20, height: 20)
                 } else {
-                    GoogleGLogo()
+                    Image("GoogleG")
+                        .resizable()
+                        .scaledToFit()
                         .frame(width: 20, height: 20)
                 }
                 Text("Continue with Google")
@@ -140,6 +150,9 @@ struct SignInScreen: View {
         defer { signingIn = false }
         do {
             let result = try await ZkLoginCoordinator.shared.signIn()
+            // Remember this device has signed in at least once so the next
+            // visit greets returning users with "Welcome back".
+            UserDefaults.standard.set(true, forKey: Self.hasSignedInBeforeKey)
             onSignedIn(result.user)
         } catch GoogleSignInService.SignInError.cancelled {
             // Quiet — the user explicitly backed out of the OAuth sheet.
@@ -149,79 +162,6 @@ struct SignInScreen: View {
     }
 }
 
-// ── Google G logo ──────────────────────────────────────────────────
-
-/// SwiftUI-drawn approximation of Google's 4-colour "G" mark — drawn
-/// as a stroked arc that segments into the four Google brand colours
-/// plus an inner horizontal bar tip. Recognizable at button-icon
-/// sizes (20–28pt) without requiring an external trademark asset.
-///
-/// Trademark note: this is a stylised reproduction for in-app sign-in
-/// affordance; before a public release the asset should be replaced
-/// with the official Google sign-in mark per Google's branding
-/// guidelines (https://developers.google.com/identity/branding-guidelines).
-private struct GoogleGLogo: View {
-    /// Brand hex from the Google identity guidelines.
-    private let blue   = Color(red: 0x42 / 255, green: 0x85 / 255, blue: 0xF4 / 255)
-    private let red    = Color(red: 0xEA / 255, green: 0x43 / 255, blue: 0x35 / 255)
-    private let yellow = Color(red: 0xFB / 255, green: 0xBC / 255, blue: 0x05 / 255)
-    private let green  = Color(red: 0x34 / 255, green: 0xA8 / 255, blue: 0x53 / 255)
-
-    var body: some View {
-        GeometryReader { proxy in
-            let s = min(proxy.size.width, proxy.size.height)
-            let lw = s * 0.22                 // stroke width
-            let r  = (s - lw) / 2             // arc radius
-            let cx = proxy.size.width / 2
-            let cy = proxy.size.height / 2
-
-            ZStack {
-                // Four arcs around a centre point, each a quarter of
-                // the circle, in the order red (top-left) → blue
-                // (top-right) → green (bottom-right) → yellow
-                // (bottom-left).
-                arc(center: CGPoint(x: cx, y: cy), radius: r,
-                    from: .degrees(180), to: .degrees(270))
-                    .stroke(red, style: .init(lineWidth: lw, lineCap: .butt))
-                arc(center: CGPoint(x: cx, y: cy), radius: r,
-                    from: .degrees(270), to: .degrees(360))
-                    .stroke(blue, style: .init(lineWidth: lw, lineCap: .butt))
-                arc(center: CGPoint(x: cx, y: cy), radius: r,
-                    from: .degrees(0), to: .degrees(90))
-                    .stroke(green, style: .init(lineWidth: lw, lineCap: .butt))
-                arc(center: CGPoint(x: cx, y: cy), radius: r,
-                    from: .degrees(90), to: .degrees(180))
-                    .stroke(yellow, style: .init(lineWidth: lw, lineCap: .butt))
-
-                // Inner horizontal bar — the G's tongue — drawn in
-                // blue (matches the original mark's interior). Starts
-                // at the centre and extends right to meet the inner
-                // edge of the blue arc.
-                Rectangle()
-                    .fill(blue)
-                    .frame(width: r * 0.85, height: lw * 0.85)
-                    .position(x: cx + r * 0.4, y: cy)
-
-                // Small notch where the red arc meets the horizontal
-                // bar — punches a transparent wedge so the G's mouth
-                // reads correctly. Painted as a black rectangle that
-                // gets composited away by the parent's white
-                // background (works because the Sign-In button is
-                // white).
-                Rectangle()
-                    .fill(Color.white)
-                    .frame(width: lw * 0.6, height: lw * 0.55)
-                    .position(x: cx + r * 0.05, y: cy - lw * 0.05)
-            }
-        }
-        .aspectRatio(1, contentMode: .fit)
-    }
-
-    private func arc(center: CGPoint, radius: CGFloat,
-                     from start: Angle, to end: Angle) -> Path {
-        var p = Path()
-        p.addArc(center: center, radius: radius,
-                 startAngle: start, endAngle: end, clockwise: false)
-        return p
-    }
-}
+// The leading icon on the "Continue with Google" CTA uses the real
+// Google "G" mark from the asset catalog (`Image("GoogleG")`), per
+// Google's sign-in branding guidelines.

@@ -67,19 +67,20 @@ export function ReferralCard({
   }
 
   return (
-    <GlassCard className="space-y-4 p-6">
+    <GlassCard className="space-y-4 p-5" radius={14}>
       <MicroLabel>Your referral code</MicroLabel>
 
+      {/* Code pill — clean rounded-xl with copy action */}
       <button
         type="button"
         onClick={copy}
-        className="talise-glass flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3.5 text-left transition-[border-color] hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 text-left transition-[border-color] hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
       >
-        <span className="truncate font-mono text-[16px] tracking-wide text-fg">{code}</span>
+        <span className="truncate font-mono text-[15px] tracking-wide text-fg">{code}</span>
         <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] text-accent">
           <HugeiconsIcon
             icon={copied ? CheckmarkCircle02Icon : Copy01Icon}
-            size={15}
+            size={14}
             strokeWidth={1.8}
           />
           {copied ? "Copied" : "Copy"}
@@ -87,8 +88,8 @@ export function ReferralCard({
       </button>
 
       {referralCount > 0 && (
-        <div className="flex items-center gap-2 text-[13px] text-accent">
-          <HugeiconsIcon icon={UserMultiple02Icon} size={15} strokeWidth={1.8} />
+        <div className="flex items-center gap-2 text-[12px] text-accent">
+          <HugeiconsIcon icon={UserMultiple02Icon} size={14} strokeWidth={1.8} />
           <span>
             {referralCount} {referralCount === 1 ? "friend" : "friends"} joined with your code
           </span>
@@ -96,11 +97,11 @@ export function ReferralCard({
       )}
 
       <PrimaryButton onClick={share} full>
-        <HugeiconsIcon icon={Share08Icon} size={17} strokeWidth={1.9} />
+        <HugeiconsIcon icon={Share08Icon} size={16} strokeWidth={1.9} />
         Share Talise
       </PrimaryButton>
 
-      <p className="text-[12px] leading-snug text-fg-dim">
+      <p className="text-[11px] leading-snug text-fg-dim">
         Earn points when friends join and start sending with Talise.
       </p>
     </GlassCard>

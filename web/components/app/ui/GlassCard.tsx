@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 export type GlassCardProps = {
   children: ReactNode;
   className?: string;
-  /** Corner radius in px (continuous-feel rounded). Default 24. */
+  /** Corner radius in px (continuous-feel rounded). Default 14. */
   radius?: number;
   /** Optional tint colour layered faintly over the glass fill. */
   tint?: string;
@@ -21,7 +21,7 @@ export type GlassCardProps = {
 export function GlassCard({
   children,
   className = "",
-  radius = 24,
+  radius = 14,
   tint,
   interactive = false,
   onClick,

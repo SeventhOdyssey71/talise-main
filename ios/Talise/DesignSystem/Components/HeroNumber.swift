@@ -9,19 +9,20 @@ struct HeroNumber: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var fontSize: CGFloat {
-        sizeClass == .compact ? 64 : 88
+        sizeClass == .compact ? 66 : 92
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             if let eyebrow {
                 Eyebrow(text: eyebrow)
             }
             Text(value)
-                .font(TaliseFont.display(fontSize, weight: .medium))
-                .kerning(-2)
+                .font(TaliseFont.display(fontSize, weight: .semibold))
+                .kerning(-fontSize * 0.03)
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
+                // Flat solid figure — no vertical sheen gradient.
                 .foregroundStyle(TaliseColor.fg)
                 .contentTransition(.numericText())
             if let sub {
@@ -55,12 +56,7 @@ struct StatCard: View {
         }
         .padding(TaliseSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(TaliseColor.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: TaliseRadius.lg)
-                .stroke(TaliseColor.line, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.lg))
+        .taliseGlass(cornerRadius: TaliseRadius.lg)
     }
 }
 

@@ -20,7 +20,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowRight01Icon, CheckmarkBadge01Icon, Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowRight01Icon,
+  CheckmarkBadge01Icon,
+  Copy01Icon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import { Diamond } from "@/components/Diamond";
 
 export type PublicPayProps = {
@@ -86,16 +91,18 @@ export function PublicPay({ slug, amountUsd, memo }: PublicPayProps) {
           </Link>
         </div>
 
-        {/* Pay card */}
-        <div className="talise-glass rounded-[28px] px-6 py-8 text-center">
-          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-dim">
+        {/* Pay card — clean white, hairline border */}
+        <div className="rounded-xl border border-line bg-surface px-6 py-7 text-center shadow-[0_2px_16px_-4px_rgba(0,0,0,0.08)]">
+          {/* Label chip */}
+          <span className="inline-block rounded-full bg-surface-2 px-3 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-fg-dim">
             {amountLabel ? "Payment request" : "Pay"}
-          </p>
+          </span>
 
+          {/* Amount or handle */}
           {amountLabel ? (
             <div
               className="mt-4 font-display font-semibold tabular-nums text-fg"
-              style={{ fontSize: 52, letterSpacing: "-0.04em", lineHeight: 1 }}
+              style={{ fontSize: 44, letterSpacing: "-0.04em", lineHeight: 1 }}
             >
               {amountLabel}
             </div>
@@ -108,33 +115,38 @@ export function PublicPay({ slug, amountUsd, memo }: PublicPayProps) {
             </div>
           )}
 
+          {/* Recipient sublabel when amount is shown */}
           {amountLabel && (
-            <p className="mt-3 text-[14px] text-fg-muted">
-              to <span className="text-fg">{displayName(slug)}</span>
+            <p className="mt-2 text-[14px] text-fg-muted">
+              to <span className="font-medium text-fg">{displayName(slug)}</span>
             </p>
           )}
 
+          {/* Memo */}
           {memo && (
             <p className="mx-auto mt-2 max-w-[15rem] text-[13px] text-fg-dim">
               &ldquo;{memo}&rdquo;
             </p>
           )}
 
+          {/* Token sublabel */}
           {amountLabel && (
-            <p className="mt-2 font-mono text-[11px] text-fg-dim">
+            <p className="mt-1.5 font-mono text-[11px] text-fg-dim">
               {amountUsd!.toFixed(2)} USDsui · digital dollars, 1:1
             </p>
           )}
 
-          <div className="mt-8">
-            <Link
-              href={target}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-accent-deep px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-[transform,background-color] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
-            >
-              Pay with Talise
-              <HugeiconsIcon icon={ArrowRight01Icon} size={18} strokeWidth={2.4} color="#fff" />
-            </Link>
-          </div>
+          {/* Divider */}
+          <div className="my-5 border-t border-line" />
+
+          {/* Primary CTA */}
+          <Link
+            href={target}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-accent-deep px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_4px_14px_-4px_rgba(35,78,20,0.4)] transition-[transform,background-color] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
+          >
+            Pay with Talise
+            <HugeiconsIcon icon={ArrowRight01Icon} size={18} strokeWidth={2.4} color="#fff" />
+          </Link>
 
           <button
             type="button"
@@ -152,19 +164,19 @@ export function PublicPay({ slug, amountUsd, memo }: PublicPayProps) {
         </div>
 
         {/* Trust footnote */}
-        <div className="mt-6 flex items-center justify-center gap-1.5">
+        <div className="mt-5 flex items-center justify-center gap-1.5">
           <HugeiconsIcon
             icon={CheckmarkBadge01Icon}
             size={13}
             color="var(--color-accent)"
             strokeWidth={2}
           />
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-dim">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-fg-dim">
             Gasless · settles on Sui in seconds
           </span>
         </div>
 
-        <p className="mt-5 text-center text-[12px] text-fg-dim">
+        <p className="mt-4 text-center text-[12px] text-fg-dim">
           New to Talise?{" "}
           <Link href="/" className="text-fg-muted underline-offset-2 hover:underline">
             See how it works

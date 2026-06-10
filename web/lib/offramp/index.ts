@@ -6,8 +6,8 @@
  *   - registry    — `adapterForCurrency(toCcy)` corridor resolution
  *   - adapters    — paynow-sg, zengin-jp, mpesa-ke, generic-bank (stubs)
  *
- * Paga (NGN) remains the canonical live reference behind
- * `web/app/api/offramp/paga/*` and is deliberately not routed through this
+ * The live NGN off-ramp is the Linq engine behind
+ * `web/app/api/offramp/linq/*` and is deliberately not routed through this
  * registry. Everything here is additive scaffolding; nothing imports it
  * into the live NGN path yet.
  */

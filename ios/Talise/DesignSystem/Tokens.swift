@@ -69,3 +69,47 @@ extension Color {
         self.init(red: r, green: g, blue: b)
     }
 }
+
+// MARK: - Flat surface helpers (glassmorphism retired)
+//
+// Glassmorphism is retired. This enum kept ONLY so the 100+ existing call
+// sites (`TaliseGlass.edge`, `.topSheen`, `.wash(...)`, etc.) keep compiling —
+// every member now returns a FLAT, calm value: a hairline color, a clear
+// (no-op) fill, or a quiet solid tint. No more specular gradients, no white
+// sheens, no diagonal washes. The Apple-system flat look.
+enum TaliseGlass {
+    /// Was a bright specular edge stroke; now a single flat hairline color.
+    /// Used as a `strokeBorder` so a `LinearGradient`-shaped API still works
+    /// — but it's a uniform `TaliseColor.line` (no top-to-bottom highlight).
+    static let edge = LinearGradient(colors: [TaliseColor.line, TaliseColor.line], startPoint: .top, endPoint: .bottom)
+
+    /// Was a quieter specular edge; now the same flat hairline.
+    static let edgeSoft = LinearGradient(colors: [TaliseColor.line, TaliseColor.line], startPoint: .top, endPoint: .bottom)
+
+    /// Was an interior white "crown" sheen; now a clear (no-op) fill so any
+    /// `.fill(TaliseGlass.topSheen)` paints nothing.
+    static let topSheen = LinearGradient(colors: [Color.clear, Color.clear], startPoint: .top, endPoint: .bottom)
+
+    /// Was a soft ambient float shadow; now fully transparent so any
+    /// `.shadow(color: TaliseGlass.shadow, …)` renders nothing.
+    static let shadow = Color.clear
+
+    /// Was a diagonal brand wash; now a quiet FLAT solid tint at a low
+    /// opacity — same call signature, but a single uniform color (no
+    /// gradient, no fade).
+    static func wash(_ color: Color, strength: Double = 0.16) -> LinearGradient {
+        let c = color.opacity(min(strength, 0.14))
+        return LinearGradient(colors: [c, c], startPoint: .top, endPoint: .bottom)
+    }
+}
+
+extension TaliseColor {
+    /// Was a dimensional CTA gradient; now a FLAT solid forest fill. Kept as
+    /// a `LinearGradient` (two identical stops) so `.fill(TaliseColor.greenCTA)`
+    /// call sites compile unchanged while rendering a clean solid pill.
+    static let greenCTA = LinearGradient(colors: [greenDeep, greenDeep], startPoint: .top, endPoint: .bottom)
+
+    /// Was a mint→deep sweep; now a FLAT solid accent fill (uniform two-stop
+    /// gradient) for progress fills — calm, no neon sweep.
+    static let greenSweep = LinearGradient(colors: [accent, accent], startPoint: .leading, endPoint: .trailing)
+}

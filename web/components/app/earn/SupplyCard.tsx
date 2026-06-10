@@ -144,9 +144,9 @@ export function SupplyCard() {
 
   return (
     <div className="space-y-4">
-      {/* Headline */}
-      <div className="space-y-1">
-        <h1 className="text-[26px] font-medium leading-tight tracking-[-0.03em] text-fg sm:text-[30px]">
+      {/* Headline — big ink number style, APY is the hero stat */}
+      <div className="space-y-0.5">
+        <h1 className="text-[24px] font-medium leading-tight tracking-[-0.03em] text-fg sm:text-[28px]">
           {best
             ? `Earn up to ${(best.apy * 100).toFixed(2)}% on your ${moneyWord}`
             : `Earn on your ${moneyWord}`}
@@ -157,7 +157,7 @@ export function SupplyCard() {
       </div>
 
       {/* Venue cards */}
-      <div className="space-y-2.5">
+      <div className="space-y-2">
         {loading && !data ? (
           <>
             <VenueSkeleton />
@@ -174,7 +174,7 @@ export function SupplyCard() {
             />
           ))
         ) : (
-          <GlassCard className="px-5 py-6 text-center" radius={20}>
+          <GlassCard className="px-5 py-5 text-center" radius={14}>
             <p className="text-[13px] text-fg-muted">No live venues right now.</p>
             <button
               type="button"
@@ -189,13 +189,13 @@ export function SupplyCard() {
 
       {/* Supply card / success state */}
       {successDigest ? (
-        <GlassCard className="px-5 py-8 text-center" radius={24} tint="#caffb8">
+        <GlassCard className="px-5 py-7 text-center" radius={14} tint="#caffb8">
           {/* Piggy drops in + a coin falls into the slot with a little gulp —
               the web port of the iOS savings-success piggy. Plays once. */}
           <div className="mx-auto mb-1 grid place-items-center">
-            <PiggySave size={132} />
+            <PiggySave size={120} />
           </div>
-          <p className="text-[18px] font-medium tracking-[-0.02em] text-fg">Now earning</p>
+          <p className="text-[17px] font-medium tracking-[-0.02em] text-fg">Now earning</p>
           <p className="mt-1 font-mono text-[11px] text-fg-dim">
             {successDigest.slice(0, 18)}…
           </p>
@@ -208,14 +208,12 @@ export function SupplyCard() {
           </button>
         </GlassCard>
       ) : (
-        <GlassCard className="space-y-4 p-5" radius={24}>
+        <GlassCard className="space-y-4 p-5" radius={14}>
           <div className="space-y-2">
             <Eyebrow>Amount</Eyebrow>
-            <div
-              className="talise-glass flex items-center gap-2 px-4 py-3.5"
-              style={{ borderRadius: 16 }}
-            >
-              <span className="text-[28px] font-medium text-fg-muted">{symbol}</span>
+            {/* Amount input — rounded-xl border, not talise-glass */}
+            <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3">
+              <span className="text-[26px] font-medium text-fg-muted">{symbol}</span>
               <input
                 inputMode="decimal"
                 value={amount}
@@ -225,16 +223,16 @@ export function SupplyCard() {
                   setError(null);
                 }}
                 placeholder="0.00"
-                className="w-full bg-transparent text-[28px] font-medium tracking-[-0.02em] tabular-nums text-fg outline-none placeholder:text-fg-dim"
+                className="w-full bg-transparent text-[26px] font-medium tracking-[-0.02em] tabular-nums text-fg outline-none placeholder:text-fg-dim"
               />
-              <span className="text-[14px] font-medium text-fg-muted">{currency}</span>
+              <span className="text-[13px] font-medium text-fg-muted">{currency}</span>
             </div>
           </div>
 
           {projection && (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <MicroLabel>You&apos;ll earn</MicroLabel>
-              <div className="talise-glass overflow-hidden" style={{ borderRadius: 16 }}>
+              <GlassCard className="overflow-hidden !p-0" radius={12}>
                 <ProjectionRow label="Day" value={formatUsd(projection.day)} />
                 <Divider />
                 <ProjectionRow label="Week" value={formatUsd(projection.week)} />
@@ -242,7 +240,7 @@ export function SupplyCard() {
                 <ProjectionRow label="Month" value={formatUsd(projection.month)} />
                 <Divider />
                 <ProjectionRow label="Year" value={formatUsd(projection.year)} accent />
-              </div>
+              </GlassCard>
             </div>
           )}
 
@@ -294,19 +292,15 @@ function VenueRow({
 }) {
   const hasPosition = venue.supplied > 0;
   const body = (
-    <div className="flex items-center gap-3.5 px-4 py-3.5">
-      <span
-        className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-        style={{ background: "var(--color-accent-soft)" }}
-      >
-        <HugeiconsIcon icon={Plant02Icon} size={19} strokeWidth={1.8} />
+    <div className="flex items-center gap-3 px-4 py-3">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+        <HugeiconsIcon icon={Plant02Icon} size={17} strokeWidth={1.8} />
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-[15px] font-medium text-fg">{venueLabel(venue.venue)}</span>
+          <span className="text-[14px] font-medium text-fg">{venueLabel(venue.venue)}</span>
           {best && (
-            <span className="rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-accent"
-              style={{ background: "var(--color-accent-soft)" }}>
+            <span className="rounded-full bg-accent-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-accent">
               Best
             </span>
           )}
@@ -315,9 +309,9 @@ function VenueRow({
           {hasPosition ? `Supplied ${formatUsd(venue.supplied, { fixed: true })}` : "Idle"}
         </span>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <span
-          className={`text-[22px] font-medium tracking-[-0.02em] tabular-nums ${
+          className={`text-[20px] font-medium tracking-[-0.02em] tabular-nums ${
             venue.apy >= 0.0001 ? "text-fg" : "text-fg-dim"
           }`}
         >
@@ -326,7 +320,7 @@ function VenueRow({
         {hasPosition && (
           <HugeiconsIcon
             icon={ArrowRight02Icon}
-            size={16}
+            size={14}
             className="text-fg-dim"
             strokeWidth={2}
           />
@@ -337,13 +331,13 @@ function VenueRow({
 
   if (onWithdraw) {
     return (
-      <GlassCard as="button" onClick={onWithdraw} interactive radius={20} className="!p-0">
+      <GlassCard as="button" onClick={onWithdraw} interactive radius={14} className="!p-0">
         {body}
       </GlassCard>
     );
   }
   return (
-    <GlassCard radius={20} className="!p-0">
+    <GlassCard radius={14} className="!p-0">
       {body}
     </GlassCard>
   );
@@ -351,13 +345,16 @@ function VenueRow({
 
 function VenueSkeleton() {
   return (
-    <div className="talise-glass flex items-center justify-between px-4 py-4 opacity-70" style={{ borderRadius: 20 }}>
-      <div className="space-y-2">
-        <div className="h-2.5 w-16 rounded-full bg-surface-2" />
-        <div className="h-2 w-24 rounded-full bg-surface-2" />
+    <GlassCard radius={14} className="flex items-center justify-between px-4 py-3.5 opacity-70 !p-0">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="size-9 shrink-0 rounded-full bg-surface-2" />
+        <div className="space-y-2">
+          <div className="h-2.5 w-16 rounded-full bg-surface-2" />
+          <div className="h-2 w-24 rounded-full bg-surface-2" />
+        </div>
       </div>
-      <div className="h-4 w-14 rounded-full bg-surface-2" />
-    </div>
+      <div className="pr-4 h-4 w-12 rounded-full bg-surface-2" />
+    </GlassCard>
   );
 }
 
@@ -374,7 +371,7 @@ function ProjectionRow({
     <div className="flex items-center justify-between px-4 py-2.5">
       <span className="text-[13px] text-fg-muted">{label}</span>
       <span
-        className={`text-[15px] font-medium tracking-[-0.01em] tabular-nums ${
+        className={`text-[14px] font-medium tracking-[-0.01em] tabular-nums ${
           accent ? "text-accent" : "text-fg"
         }`}
       >
@@ -385,5 +382,5 @@ function ProjectionRow({
 }
 
 function Divider() {
-  return <div className="mx-3 h-px bg-line" />;
+  return <div className="mx-4 h-px bg-line" />;
 }

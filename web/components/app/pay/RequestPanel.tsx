@@ -31,7 +31,6 @@ import {
   Eyebrow,
   MicroLabel,
   QrImage,
-  Field,
   PrimaryButton,
   useMe,
   useToast,
@@ -102,9 +101,10 @@ export function RequestPanel() {
       try {
         await navigator.share({
           title: "Pay me on Talise",
-          text: mode === "request" && amountUsd != null
-            ? `Pay ${symbol}${amountUsd.toFixed(2)} on Talise`
-            : "Pay me on Talise",
+          text:
+            mode === "request" && amountUsd != null
+              ? `Pay ${symbol}${amountUsd.toFixed(2)} on Talise`
+              : "Pay me on Talise",
           url: mode === "receive" ? undefined : paymentLink,
         });
         return;
@@ -118,12 +118,12 @@ export function RequestPanel() {
   const identity = handle ? `@${handle}` : address ? shortAddr(address) : "your wallet";
 
   return (
-    <div className="mx-auto w-full max-w-md">
+    <div className="mx-auto w-full max-w-md space-y-5">
       {/* Heading */}
-      <div className="mb-6">
+      <div>
         <Eyebrow>Receive</Eyebrow>
         <h1
-          className="mt-1.5 font-display text-[28px] font-semibold text-fg"
+          className="mt-1 font-display text-[26px] font-medium text-fg"
           style={{ letterSpacing: "-0.03em" }}
         >
           Get paid
@@ -131,7 +131,7 @@ export function RequestPanel() {
       </div>
 
       {/* Mode segmented control */}
-      <div className="talise-glass mb-6 flex gap-1 rounded-full p-1">
+      <div className="flex gap-1 rounded-full border border-line bg-surface p-1">
         <SegButton active={mode === "receive"} onClick={() => setMode("receive")} icon={QrCode01Icon}>
           Receive
         </SegButton>
@@ -142,10 +142,15 @@ export function RequestPanel() {
 
       {/* Request inputs */}
       {mode === "request" && (
-        <div className="mb-6 space-y-4">
-          <Field label="Amount (optional)" hint="Leave blank for an open request.">
-            <div className="talise-glass flex items-center gap-2 rounded-2xl px-4 py-3">
-              <span className="font-display text-[18px] text-fg-muted">$</span>
+        <GlassCard className="divide-y divide-line p-0" radius={14}>
+          {/* Amount */}
+          <div className="px-5 py-4">
+            <label className="block font-mono text-[10px] font-medium uppercase text-fg-dim" style={{ letterSpacing: "0.2em" }}>
+              Amount (optional)
+            </label>
+            <p className="mt-0.5 font-mono text-[10px] text-fg-dim">Leave blank for an open request.</p>
+            <div className="mt-2 flex items-center gap-1.5">
+              <span className="font-display text-[22px] text-fg-muted">$</span>
               <input
                 value={amount}
                 onChange={(e) => {
@@ -154,45 +159,48 @@ export function RequestPanel() {
                 }}
                 inputMode="decimal"
                 placeholder="0.00"
-                className="w-full bg-transparent text-[18px] tabular-nums text-fg outline-none placeholder:text-fg-dim"
+                className="w-full bg-transparent font-display text-[28px] font-semibold text-fg tabular-nums outline-none placeholder:text-fg-dim"
+                style={{ letterSpacing: "-0.03em" }}
               />
               {amount && (
                 <button
                   type="button"
                   onClick={() => setAmount("")}
                   aria-label="Clear amount"
-                  className="flex size-6 items-center justify-center rounded-full text-fg-dim hover:text-fg"
+                  className="flex size-7 items-center justify-center rounded-full bg-surface-2 text-fg-dim hover:text-fg"
                 >
-                  <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
+                  <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
                 </button>
               )}
             </div>
-          </Field>
+          </div>
 
-          <Field label="Memo (optional)">
-            <div className="talise-glass rounded-2xl px-4 py-3">
-              <input
-                value={memo}
-                onChange={(e) => setMemo(e.target.value.slice(0, 80))}
-                placeholder="What's it for?"
-                className="w-full bg-transparent text-[15px] text-fg outline-none placeholder:text-fg-dim"
-              />
-            </div>
-          </Field>
-        </div>
+          {/* Memo */}
+          <div className="px-5 py-4">
+            <label className="block font-mono text-[10px] font-medium uppercase text-fg-dim" style={{ letterSpacing: "0.2em" }}>
+              Memo (optional)
+            </label>
+            <input
+              value={memo}
+              onChange={(e) => setMemo(e.target.value.slice(0, 80))}
+              placeholder="What's it for?"
+              className="mt-2 w-full bg-transparent text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            />
+          </div>
+        </GlassCard>
       )}
 
       {/* QR card */}
-      <GlassCard radius={26} className="flex flex-col items-center px-6 py-8 text-center">
+      <GlassCard radius={14} className="flex flex-col items-center px-6 py-6 text-center">
         <span
-          className="font-display text-[18px] font-semibold text-fg"
+          className="font-display text-[17px] font-semibold text-fg"
           style={{ letterSpacing: "-0.02em" }}
         >
           {loading ? "—" : identity}
         </span>
 
         {mode === "request" && amountUsd != null && (
-          <span className="mt-1.5 font-display text-[15px] font-medium text-accent">
+          <span className="mt-2 font-display text-[15px] font-semibold tabular-nums text-accent" style={{ letterSpacing: "-0.02em" }}>
             Requesting {symbol}
             {toLocal(amountUsd).toLocaleString("en-US", {
               minimumFractionDigits: 2,
@@ -206,25 +214,25 @@ export function RequestPanel() {
           </span>
         )}
 
-        <div className="mt-6">
+        <div className="mt-5">
           {qrValue ? (
-            <QrImage value={qrValue} size={216} />
+            <QrImage value={qrValue} size={200} />
           ) : (
-            <div className="size-[240px] animate-pulse rounded-[20px] bg-surface-2" />
+            <div className="size-[200px] animate-pulse rounded-xl bg-surface-2" />
           )}
         </div>
 
-        <MicroLabel className="mt-5 block max-w-full truncate">{shortAddr(address)}</MicroLabel>
+        <MicroLabel className="mt-4 block max-w-full truncate">{shortAddr(address)}</MicroLabel>
       </GlassCard>
 
       {/* Actions */}
-      <div className="mt-5 flex gap-2.5">
+      <div className="flex gap-2.5">
         <button
           type="button"
           onClick={() =>
             mode === "receive" ? copy(address, "addr") : copy(paymentLink, "link")
           }
-          className="talise-glass inline-flex flex-1 items-center justify-center gap-2 rounded-full px-5 py-3 text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-line bg-surface px-5 py-3 text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
         >
           <HugeiconsIcon
             icon={copied ? Tick02Icon : Copy01Icon}
@@ -232,11 +240,7 @@ export function RequestPanel() {
             strokeWidth={2}
             color={copied ? "var(--color-accent)" : undefined}
           />
-          {copied
-            ? "Copied"
-            : mode === "receive"
-              ? "Copy address"
-              : "Copy link"}
+          {copied ? "Copied" : mode === "receive" ? "Copy address" : "Copy link"}
         </button>
         <div className="flex-1">
           <PrimaryButton full onClick={share}>
@@ -247,7 +251,7 @@ export function RequestPanel() {
       </div>
 
       {!handle && mode === "request" && (
-        <p className="mt-4 text-center text-[12px] text-fg-dim">
+        <p className="text-center text-[12px] text-fg-dim">
           Claim a Talise handle in Settings for a cleaner link like{" "}
           <span className="text-fg-muted">talise.io/pay/you</span>.
         </p>

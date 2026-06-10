@@ -44,7 +44,7 @@ struct ClaimHandleSheet: View {
                 form
             }
         }
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .liquidGlassSheet()
         .presentationDragIndicator(.visible)
         .onAppear {
             if input.isEmpty, case .ready(let user) = session.phase {
@@ -109,9 +109,14 @@ struct ClaimHandleSheet: View {
                 .foregroundStyle(TaliseColor.fgMuted)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(TaliseColor.usernameCard)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(availability == .available
+                      ? TaliseColor.accent.opacity(0.12)
+                      : TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var statusRow: some View {
@@ -165,29 +170,16 @@ struct ClaimHandleSheet: View {
     }
 
     private var claimButton: some View {
-        Button {
+        LiquidGlassButton(
+            title: claiming ? "Claiming…" : "Claim \(input)@talise.sui",
+            icon: claiming ? nil : "checkmark.seal.fill",
+            tint: canClaim ? TaliseColor.greenMint : nil,
+            loading: claiming
+        ) {
             Task { await claim() }
-        } label: {
-            HStack(spacing: 8) {
-                if claiming {
-                    ProgressView().controlSize(.small).tint(TaliseColor.bg)
-                } else {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                Text(claiming ? "Claiming…" : "Claim \(input)@talise.sui")
-                    .font(TaliseFont.heading(15, weight: .medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .foregroundStyle(TaliseColor.bg)
-            .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(canClaim ? TaliseColor.fg : TaliseColor.fg.opacity(0.35))
-            .clipShape(Capsule())
         }
         .disabled(!canClaim)
-        .buttonStyle(.plain)
+        .opacity(canClaim ? 1 : 0.55)
     }
 
     private var canClaim: Bool {
@@ -200,7 +192,7 @@ struct ClaimHandleSheet: View {
         VStack(spacing: 16) {
             Spacer(minLength: 24)
             ZStack {
-                Circle().fill(TaliseColor.accent.opacity(0.15)).frame(width: 84, height: 84)
+                Circle().fill(TaliseColor.accent.opacity(0.16)).frame(width: 84, height: 84)
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 32, weight: .semibold))
                     .foregroundStyle(TaliseColor.accent)
@@ -223,17 +215,9 @@ struct ClaimHandleSheet: View {
             // autoSwapCTA removed 2026-05-29 alongside the autoswap archive.
 
             Spacer()
-            Button {
+            LiquidGlassButton(title: "Done", tint: TaliseColor.greenMint) {
                 dismiss()
                 Task { await session.bootstrap() }
-            } label: {
-                Text("Done")
-                    .font(TaliseFont.heading(15, weight: .medium))
-                    .foregroundStyle(TaliseColor.bg)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(TaliseColor.fg)
-                    .clipShape(Capsule())
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
@@ -275,7 +259,11 @@ struct ClaimHandleSheet: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .taliseGlass(cornerRadius: 18)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(TaliseColor.surface)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

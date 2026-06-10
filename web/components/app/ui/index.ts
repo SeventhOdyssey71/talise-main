@@ -41,3 +41,6 @@ export type { EmptyStateProps } from "./EmptyState";
 
 export { Field } from "./Field";
 export type { FieldProps } from "./Field";
+
+export { Flag } from "./Flag";
+export type { FlagProps } from "./Flag";

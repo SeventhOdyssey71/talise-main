@@ -34,7 +34,7 @@ export function QrImage({ value, size = 220, className = "" }: QrImageProps) {
   return (
     <div
       className={`inline-flex items-center justify-center border border-line bg-white p-3 shadow-[0_14px_34px_-18px_rgba(35,78,20,0.18)] ${className}`}
-      style={{ borderRadius: 20, width: size + 24, height: size + 24 }}
+      style={{ borderRadius: 14, width: size + 24, height: size + 24 }}
     >
       {dataUrl ? (
         // eslint-disable-next-line @next/next/no-img-element

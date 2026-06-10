@@ -127,7 +127,8 @@ private struct NumpadKeyStyle: ButtonStyle {
         configuration.label
             .background(
                 Circle()
-                    .fill(Color.white.opacity(configuration.isPressed ? 0.08 : 0))
+                    .fill(TaliseColor.surface2)
+                    .opacity(configuration.isPressed ? 1 : 0)
                     .frame(width: 64, height: 64)
             )
             .scaleEffect(configuration.isPressed ? 0.94 : 1)

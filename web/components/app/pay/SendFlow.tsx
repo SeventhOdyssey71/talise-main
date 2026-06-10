@@ -28,10 +28,9 @@ import {
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Alert02Icon,
-  ArrowDown01Icon,
-  ArrowUpRight01Icon,
   CheckmarkBadge01Icon,
   PlusSignIcon,
+  ArrowUpRight01Icon,
 } from "@hugeicons/core-free-icons";
 import {
   GlassCard,
@@ -96,6 +95,59 @@ function groupDigits(intPart: string): string {
   return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
+// ── Stepper ───────────────────────────────────────────────────────────────────
+
+const FLOW_STEPS: { key: Step; label: string }[] = [
+  { key: "amount", label: "Amount" },
+  { key: "recipient", label: "Recipient" },
+  { key: "review", label: "Review" },
+  { key: "success", label: "Pay" },
+];
+
+function stepIndex(step: Step): number {
+  if (step === "failure") return 3; // treat failure same as the Pay step position
+  return FLOW_STEPS.findIndex((s) => s.key === step);
+}
+
+function FlowStepper({ step }: { step: Step }) {
+  const active = stepIndex(step);
+  // success/failure → all 4 filled
+  const filled = step === "success" || step === "failure" ? 4 : active;
+
+  return (
+    <div className="mb-6" aria-label="Send progress">
+      {/* Progress bar */}
+      <div className="relative h-0.5 w-full overflow-hidden rounded-full bg-surface-2">
+        <div
+          className="absolute inset-y-0 left-0 rounded-full bg-accent-deep transition-all duration-300"
+          style={{ width: `${(filled / (FLOW_STEPS.length - 1)) * 100}%` }}
+        />
+      </div>
+      {/* Step labels */}
+      <div className="mt-2.5 flex items-center justify-between">
+        {FLOW_STEPS.map((s, i) => {
+          const done = i < filled;
+          const current = i === active && step !== "success" && step !== "failure";
+          return (
+            <span
+              key={s.key}
+              className={`font-mono text-[10px] tracking-[0.08em] transition-colors ${
+                current
+                  ? "text-fg font-medium"
+                  : done
+                    ? "text-accent"
+                    : "text-fg-dim"
+              }`}
+            >
+              {s.label}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SendFlow() {
@@ -118,6 +170,13 @@ export function SendFlow() {
   const [digest, setDigest] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
+
+  // When this send is paying a public invoice (?invoice=<id>), close it after
+  // the on-chain payment lands — verified server-side at /api/invoices/<id>/settle.
+  const invoiceId = params.get("invoice");
+  const [invoiceSettle, setInvoiceSettle] =
+    useState<"idle" | "pending" | "paid" | "error" | "unmatched">("idle");
+  const [unmatchedMsg, setUnmatchedMsg] = useState<string | null>(null);
 
   const { contacts } = useContacts();
 
@@ -210,7 +269,10 @@ export function SendFlow() {
   const setMax = useCallback(() => {
     if (available <= 0) return;
     userTouchedAmount.current = true;
-    const local = toLocal(available);
+    // Floor to 2dp (never round UP) — rounding the FX-converted local value up
+    // would push the implied USD a fraction over `available` and trip the
+    // "over balance" guard, blocking Continue on non-USD currencies.
+    const local = Math.floor(toLocal(available) * 100) / 100;
     setRaw(local.toFixed(2));
   }, [available, toLocal]);
 
@@ -280,14 +342,66 @@ export function SendFlow() {
     []
   );
 
+  // Close the invoice once payment lands. Settlement is verified on-chain
+  // server-side, so we just hand over the digest; retry a few times to ride out
+  // RPC indexing lag right after broadcast.
+  const settleInvoice = useCallback(async (id: string, d: string) => {
+    setInvoiceSettle("pending");
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(`/api/invoices/${encodeURIComponent(id)}/settle`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ digest: d }),
+        });
+        if (res.ok) {
+          setInvoiceSettle("paid");
+          return;
+        }
+        // Distinguish a PERMANENT mismatch (wrong amount/recipient, already
+        // settled, void) from transient RPC indexing lag. Only the latter is
+        // worth retrying — a permanent failure must not masquerade as lag.
+        let payload: { error?: string } = {};
+        try {
+          payload = await res.json();
+        } catch {
+          /* ignore */
+        }
+        const transient =
+          res.status === 429 ||
+          (res.status === 400 &&
+            /^could not verify payment yet/i.test(payload.error ?? ""));
+        if (!transient) {
+          setUnmatchedMsg(payload.error ?? null);
+          setInvoiceSettle("unmatched");
+          return;
+        }
+      } catch {
+        /* network blip — retry */
+      }
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+    // Exhausted transient retries — the payment landed; settlement just lagged.
+    setInvoiceSettle("error");
+  }, []);
+
   // ── Confirm ────────────────────────────────────────────────────────────────
   const onConfirm = useCallback(async () => {
     if (!resolved) return;
     setErrorMsg(null);
     try {
-      const { digest: d } = await send({ to: resolved.address, amountUsd });
+      // When paying an invoice the user hasn't manually edited, send the exact
+      // canonical USD from the pay link — not the value round-tripped through
+      // the payer's display-currency FX, which lands a few micro-units short
+      // and makes on-chain settlement reject (the invoice would never close).
+      const amountToSend =
+        invoiceId && !userTouchedAmount.current && linkAmountUsd != null
+          ? linkAmountUsd
+          : amountUsd;
+      const { digest: d } = await send({ to: resolved.address, amountUsd: amountToSend });
       setDigest(d);
       setStep("success");
+      if (invoiceId) void settleInvoice(invoiceId, d);
     } catch (e) {
       // NOT_SIGNED_IN bounces to OAuth inside useSignAndSend — don't show a
       // failure screen for that, just let the redirect happen.
@@ -296,7 +410,7 @@ export function SendFlow() {
       setStep("failure");
       throw e; // let SlideToConfirm spring back
     }
-  }, [resolved, amountUsd, send]);
+  }, [resolved, amountUsd, send, invoiceId, settleInvoice, linkAmountUsd]);
 
   const resetAll = useCallback(() => {
     setStep("amount");
@@ -311,9 +425,50 @@ export function SendFlow() {
 
   // ── Render ───────────────────────────────────────────────────────────────
   const recentContacts = contacts.slice(0, 8);
+  const showStepper = step !== "success" && step !== "failure";
 
   return (
     <div className="mx-auto w-full max-w-md">
+      {/* Back / Cancel nav row — sits above the stepper */}
+      {showStepper && (
+        <div className="mb-4 flex items-center justify-between">
+          {step !== "amount" ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (step === "recipient") setStep("amount");
+                else if (step === "review") setStep("recipient");
+              }}
+              aria-label="Back"
+              className="flex size-9 items-center justify-center rounded-full border border-line bg-surface text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+            >
+              <HugeiconsIcon icon={ArrowLeft01Icon} size={18} strokeWidth={2} />
+            </button>
+          ) : (
+            <span className="size-9" />
+          )}
+
+          <span className="font-mono text-[11px] font-medium tracking-[0.06em] text-fg-muted">
+            {step === "amount" ? "Send" : step === "recipient" ? "Send to" : "Review"}
+          </span>
+
+          {step === "amount" ? (
+            <button
+              type="button"
+              onClick={() => router.push("/app")}
+              aria-label="Cancel"
+              className="flex size-9 items-center justify-center rounded-full border border-line bg-surface text-fg-muted transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2} />
+            </button>
+          ) : (
+            <span className="size-9" />
+          )}
+        </div>
+      )}
+
+      {showStepper && <FlowStepper step={step} />}
+
       {step === "amount" && (
         <AmountStep
           raw={raw}
@@ -327,7 +482,6 @@ export function SendFlow() {
           onBackspace={onBackspace}
           onMax={setMax}
           onNext={() => setStep("recipient")}
-          onCancel={() => router.push("/app")}
         />
       )}
 
@@ -341,7 +495,6 @@ export function SendFlow() {
           onChange={onRecipientChange}
           onClear={() => onRecipientChange("")}
           onPickContact={pickContact}
-          onBack={() => setStep("amount")}
           onNext={() => setStep("review")}
         />
       )}
@@ -355,19 +508,42 @@ export function SendFlow() {
           sending={sending}
           resetSignal={resetSignal}
           onConfirm={onConfirm}
-          onBack={() => setStep("recipient")}
         />
       )}
 
       {step === "success" && digest && (
-        <SuccessStep
-          amountUsd={amountUsd}
-          to={resolved}
-          digest={digest}
-          onShareCopied={() => toast("Receipt link copied", "success")}
-          onDone={() => router.push("/app")}
-          onAgain={resetAll}
-        />
+        <>
+          <SuccessStep
+            amountUsd={amountUsd}
+            to={resolved}
+            digest={digest}
+            onShareCopied={() => toast("Receipt link copied", "success")}
+            onDone={() => router.push("/app")}
+            onAgain={resetAll}
+          />
+          {invoiceId && (
+            <div className="mx-auto mt-4 flex max-w-md items-center justify-center gap-2 text-[13px]">
+              {invoiceSettle === "paid" ? (
+                <span className="text-accent">✓ Invoice marked paid</span>
+              ) : invoiceSettle === "pending" ? (
+                <span className="text-fg-dim">Confirming invoice…</span>
+              ) : invoiceSettle === "unmatched" ? (
+                <span className="text-[var(--color-danger)]">
+                  Payment sent, but it didn&apos;t match this invoice
+                  {unmatchedMsg ? ` (${unmatchedMsg})` : ""}.
+                </span>
+              ) : invoiceSettle === "error" ? (
+                <span className="text-fg-dim">Payment sent — invoice will update shortly</span>
+              ) : null}
+              <a
+                href={`/i/${invoiceId}`}
+                className="text-fg-muted underline underline-offset-2 hover:text-fg"
+              >
+                View invoice
+              </a>
+            </div>
+          )}
+        </>
       )}
 
       {step === "failure" && (
@@ -380,48 +556,6 @@ export function SendFlow() {
           }}
           onDone={() => router.push("/app")}
         />
-      )}
-    </div>
-  );
-}
-
-// ── Step header ───────────────────────────────────────────────────────────────
-
-function StepHeader({
-  eyebrow,
-  onBack,
-  onCancel,
-}: {
-  eyebrow: string;
-  onBack?: () => void;
-  onCancel?: () => void;
-}) {
-  return (
-    <div className="mb-6 flex items-center justify-between">
-      {onBack ? (
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="Back"
-          className="talise-glass flex size-9 items-center justify-center rounded-full text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
-        >
-          <HugeiconsIcon icon={ArrowLeft01Icon} size={18} strokeWidth={2} />
-        </button>
-      ) : (
-        <span className="size-9" />
-      )}
-      <Eyebrow>{eyebrow}</Eyebrow>
-      {onCancel ? (
-        <button
-          type="button"
-          onClick={onCancel}
-          aria-label="Cancel"
-          className="talise-glass flex size-9 items-center justify-center rounded-full text-fg-muted transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
-        >
-          <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2} />
-        </button>
-      ) : (
-        <span className="size-9" />
       )}
     </div>
   );
@@ -441,7 +575,6 @@ function AmountStep({
   onBackspace,
   onMax,
   onNext,
-  onCancel,
 }: {
   raw: string;
   symbol: string;
@@ -454,7 +587,6 @@ function AmountStep({
   onBackspace: () => void;
   onMax: () => void;
   onNext: () => void;
-  onCancel: () => void;
 }) {
   const display = useMemo(() => {
     if (!raw) return "0";
@@ -470,39 +602,39 @@ function AmountStep({
 
   return (
     <div>
-      <StepHeader eyebrow="Send" onCancel={onCancel} />
-
-      {/* Amount headline */}
-      <div className="flex flex-col items-center pb-2 pt-4 text-center">
-        <div className="flex items-baseline justify-center gap-1.5">
-          <span
-            className="font-display font-light text-fg-muted"
-            style={{ fontSize: 40, letterSpacing: "-0.02em" }}
-          >
+      {/* Big ink amount — Wise layout: currency chip inline with the number */}
+      <div className="flex flex-col items-center py-6 text-center">
+        <div className="flex items-baseline justify-center gap-2">
+          {/* Currency chip */}
+          <span className="mb-1 self-end rounded-full bg-surface-2 px-2.5 py-1 font-mono text-[13px] font-medium text-fg-muted">
             {symbol}
           </span>
+          {/* Big ink number */}
           <span
             className={`font-display font-semibold tabular-nums ${
               overBalance ? "text-[var(--color-danger)]" : "text-fg"
             }`}
-            style={{ fontSize: 64, lineHeight: 1.02, letterSpacing: "-0.04em" }}
+            style={{ fontSize: 48, lineHeight: 1.02, letterSpacing: "-0.04em" }}
           >
             {display}
           </span>
         </div>
-        <span className="mt-3 font-mono text-[12px] tabular-nums text-fg-dim">{usdsuiLine}</span>
+
+        {/* USDsui sublabel */}
+        <span className="mt-2 font-mono text-[12px] tabular-nums text-fg-dim">{usdsuiLine}</span>
+
         {overBalance && (
-          <span className="mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-danger)]">
+          <span className="mt-1.5 rounded-full bg-[color-mix(in_srgb,var(--color-danger)_12%,transparent)] px-3 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-danger)]">
             Over available balance
           </span>
         )}
       </div>
 
       {/* Wallet pill + MAX */}
-      <div className="mt-4 mb-6 flex items-center justify-center gap-2">
-        <span className="talise-glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5">
-          <span className="size-1.5 rounded-full" style={{ background: "var(--color-accent)" }} />
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg">
+      <div className="mb-5 flex items-center justify-center gap-2">
+        <span className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-1.5">
+          <span className="size-1.5 rounded-full bg-accent" />
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-fg">
             Main wallet
           </span>
           <span className="font-mono text-[10px] text-fg-dim">· {availableLabel}</span>
@@ -511,7 +643,7 @@ function AmountStep({
           type="button"
           onClick={onMax}
           disabled={available <= 0}
-          className="talise-glass rounded-full px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] disabled:opacity-40"
+          className="rounded-full border border-line bg-surface px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-accent transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] disabled:opacity-40"
         >
           Max
         </button>
@@ -525,7 +657,7 @@ function AmountStep({
 
       <div className="mt-6">
         <PrimaryButton full disabled={!canReview} onClick={onNext}>
-          Review
+          Continue
         </PrimaryButton>
       </div>
     </div>
@@ -553,7 +685,6 @@ function RecipientStep({
   onChange,
   onClear,
   onPickContact,
-  onBack,
   onNext,
 }: {
   value: string;
@@ -564,7 +695,6 @@ function RecipientStep({
   onChange: (v: string) => void;
   onClear: () => void;
   onPickContact: (c: Contact) => void;
-  onBack: () => void;
   onNext: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -574,10 +704,8 @@ function RecipientStep({
 
   return (
     <div>
-      <StepHeader eyebrow="Send to" onBack={onBack} />
-
       {/* Input */}
-      <GlassCard radius={20} className="px-4 py-3.5">
+      <GlassCard radius={14} className="px-4 py-3.5">
         <Eyebrow className="mb-1.5 block">To</Eyebrow>
         <div className="flex items-center gap-2">
           <input
@@ -643,20 +771,22 @@ function RecipientStep({
       </div>
 
       {/* Recent contacts */}
-      <div className="mt-7">
+      <div className="mt-6">
         <Eyebrow className="mb-3 block">Recent</Eyebrow>
         {contacts.length === 0 ? (
           <p className="text-[13px] text-fg-dim">
             No recent recipients yet — your first send will appear here.
           </p>
         ) : (
-          <div className="flex flex-col">
-            {contacts.map((c) => (
+          <div className="overflow-hidden rounded-xl border border-line bg-surface">
+            {contacts.map((c, i) => (
               <button
                 key={c.address}
                 type="button"
                 onClick={() => onPickContact(c)}
-                className="flex items-center gap-3 rounded-2xl px-2 py-2.5 text-left transition-colors hover:bg-accent-soft"
+                className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent-soft ${
+                  i < contacts.length - 1 ? "border-b border-line" : ""
+                }`}
               >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-[12px] font-semibold text-fg">
                   {contactInitials(c)}
@@ -665,13 +795,13 @@ function RecipientStep({
                   <span className="block truncate text-[14px] font-medium text-fg">
                     {c.name ?? `${c.address.slice(0, 8)}…${c.address.slice(-6)}`}
                   </span>
-                  <span className="block truncate font-mono text-[10px] text-fg-dim">
+                  <span className="block truncate font-mono text-[11px] text-fg-dim">
                     {c.address.slice(0, 10)}…{c.address.slice(-6)}
                   </span>
                 </span>
                 {c.sentCount > 0 && (
                   <span className="shrink-0 font-mono text-[10px] text-fg-dim">
-                    {c.sentCount} sent
+                    {c.sentCount}×
                   </span>
                 )}
               </button>
@@ -680,7 +810,7 @@ function RecipientStep({
         )}
       </div>
 
-      <div className="mt-8">
+      <div className="mt-6">
         <PrimaryButton full disabled={!resolved} onClick={onNext}>
           Continue
         </PrimaryButton>
@@ -691,6 +821,55 @@ function RecipientStep({
 
 // ── Step 3: Review ──────────────────────────────────────────────────────────────
 
+/** Single detail row in the review list — circular chip + title + sublabel + trailing value. */
+function ReviewRow({
+  chip,
+  title,
+  sub,
+  value,
+  valueSub,
+  last = false,
+}: {
+  chip: React.ReactNode;
+  title: string;
+  sub: string;
+  value: string;
+  valueSub?: string;
+  last?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3.5 px-5 py-4 ${
+        !last ? "border-b border-line" : ""
+      }`}
+    >
+      {chip}
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-medium text-fg">{title}</span>
+        <span className="block truncate font-mono text-[11px] text-fg-dim">{sub}</span>
+      </span>
+      <span className="flex shrink-0 flex-col items-end">
+        <span className="text-[14px] font-semibold tabular-nums text-fg">{value}</span>
+        {valueSub && (
+          <span className="mt-0.5 font-mono text-[10px] text-fg-dim">{valueSub}</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function ReviewChip({ letter, accent = false }: { letter: string; accent?: boolean }) {
+  return (
+    <span
+      className={`flex size-10 shrink-0 items-center justify-center rounded-full font-display text-[13px] font-semibold ${
+        accent ? "bg-accent-soft text-accent" : "bg-surface-2 text-fg"
+      }`}
+    >
+      {letter}
+    </span>
+  );
+}
+
 function ReviewStep({
   amountUsd,
   fromHandle,
@@ -699,7 +878,6 @@ function ReviewStep({
   sending,
   resetSignal,
   onConfirm,
-  onBack,
 }: {
   amountUsd: number;
   fromHandle: string;
@@ -708,81 +886,84 @@ function ReviewStep({
   sending: boolean;
   resetSignal: number;
   onConfirm: () => Promise<void>;
-  onBack: () => void;
 }) {
   const { formatUsd } = useCurrency();
+
   const usdsuiLine = `${amountUsd.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })} USDsui`;
 
   return (
-    <div>
-      <StepHeader eyebrow="Review" onBack={onBack} />
-
-      <h2
-        className="mb-6 text-center font-display text-[24px] font-semibold text-fg"
-        style={{ letterSpacing: "-0.03em" }}
-      >
-        Review send
-      </h2>
-
-      <div className="space-y-2">
-        {/* From card */}
-        <GlassCard radius={22} className="px-5 py-5">
-          <Eyebrow className="mb-2 block">From {fromHandle}</Eyebrow>
-          <div
-            className="font-display font-semibold tabular-nums text-fg"
-            style={{ fontSize: 36, letterSpacing: "-0.03em", lineHeight: 1.05 }}
-          >
-            {formatUsd(amountUsd)}
-          </div>
-          <div className="mt-1 font-mono text-[12px] text-fg-dim">{usdsuiLine}</div>
-        </GlassCard>
-
-        {/* Arrow */}
-        <div className="flex justify-center">
-          <span className="talise-glass flex size-8 items-center justify-center rounded-full text-fg-muted">
-            <HugeiconsIcon icon={ArrowDown01Icon} size={16} strokeWidth={2} />
-          </span>
+    <div className="space-y-5">
+      {/* Big amount summary */}
+      <div className="py-2 text-center">
+        <div
+          className="font-display font-semibold tabular-nums text-fg"
+          style={{ fontSize: 40, letterSpacing: "-0.04em", lineHeight: 1.02 }}
+        >
+          {formatUsd(amountUsd)}
         </div>
-
-        {/* To card */}
-        <GlassCard radius={22} className="px-5 py-5">
-          <Eyebrow className="mb-2 block">To</Eyebrow>
-          <div
-            className="truncate font-display text-[20px] font-semibold text-fg"
-            style={{ letterSpacing: "-0.02em" }}
-          >
-            {to.displayName}
-          </div>
-          <div className="mt-1 font-mono text-[11px] text-fg-dim">
-            {to.address.slice(0, 10)}…{to.address.slice(-8)}
-          </div>
-        </GlassCard>
+        <div className="mt-1.5 font-mono text-[12px] text-fg-dim">{usdsuiLine}</div>
       </div>
 
-      {/* Fee line */}
-      <div className="mt-5 flex items-center justify-center gap-1.5">
-        <HugeiconsIcon
-          icon={CheckmarkBadge01Icon}
-          size={14}
-          color="var(--color-accent)"
-          strokeWidth={2}
+      {/* Detail rows — Wise-style list card */}
+      <GlassCard radius={14} className="overflow-hidden p-0">
+        <ReviewRow
+          chip={<ReviewChip letter="F" />}
+          title="From"
+          sub={fromAddress ? `${fromAddress.slice(0, 10)}…${fromAddress.slice(-6)}` : "your wallet"}
+          value={fromHandle}
+          last={false}
         />
-        <span className="font-mono text-[11px] text-fg-muted">
-          No network fee — sponsored by Talise.
-        </span>
-      </div>
-
-      <div className="mt-7">
-        <SlideToConfirm
-          label="Slide to send"
-          onConfirm={onConfirm}
-          disabled={sending}
-          resetSignal={resetSignal}
+        <ReviewRow
+          chip={<ReviewChip letter={to.displayName[0]?.toUpperCase() ?? "?"} accent />}
+          title="To"
+          sub={`${to.address.slice(0, 10)}…${to.address.slice(-8)}`}
+          value={to.displayName}
+          last={false}
         />
-      </div>
+        <ReviewRow
+          chip={
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface-2">
+              <HugeiconsIcon
+                icon={CheckmarkBadge01Icon}
+                size={18}
+                color="var(--color-accent)"
+                strokeWidth={2}
+              />
+            </span>
+          }
+          title="Fees"
+          sub="Sponsored by Talise"
+          value="Free"
+          last={false}
+        />
+        <ReviewRow
+          chip={
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface-2">
+              <HugeiconsIcon
+                icon={CheckmarkCircle02Icon}
+                size={18}
+                color="var(--color-fg-muted)"
+                strokeWidth={2}
+              />
+            </span>
+          }
+          title="Arrives"
+          sub="Settled on Sui"
+          value="< 1 second"
+          last
+        />
+      </GlassCard>
+
+      {/* Slide to send */}
+      <SlideToConfirm
+        label="Slide to send"
+        onConfirm={onConfirm}
+        disabled={sending}
+        resetSignal={resetSignal}
+      />
     </div>
   );
 }
@@ -817,12 +998,12 @@ function SuccessStep({
   };
 
   return (
-    <div className="flex flex-col items-center pt-6 text-center">
+    <div className="flex flex-col items-center pt-4 text-center">
       {/* Coins drop + scatter + settle over the amount — the web port of the
           iOS send-success coin drop. Plays once on mount. */}
-      <CoinBurst size={148} />
+      <CoinBurst size={140} />
 
-      <Eyebrow>Sent</Eyebrow>
+      <Eyebrow className="mt-1">Sent</Eyebrow>
       <div
         className="mt-3 font-display font-semibold tabular-nums text-fg"
         style={{ fontSize: 44, letterSpacing: "-0.04em" }}
@@ -836,12 +1017,12 @@ function SuccessStep({
       )}
       <p className="mt-1 font-mono text-[11px] text-accent">Arrives in &lt;1s</p>
 
-      <div className="mt-8 flex w-full flex-col gap-2.5">
+      <div className="mt-7 flex w-full flex-col gap-2.5">
         <a
           href={explorerUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="talise-glass inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface px-6 py-3 text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
         >
           View on Suiscan
           <HugeiconsIcon icon={ArrowUpRight01Icon} size={15} strokeWidth={2} />
@@ -855,7 +1036,7 @@ function SuccessStep({
         </button>
       </div>
 
-      <div className="mt-8 flex w-full flex-col gap-2.5">
+      <div className="mt-5 flex w-full flex-col gap-2.5">
         <PrimaryButton full onClick={onDone}>
           Done
         </PrimaryButton>
@@ -882,25 +1063,27 @@ function FailureStep({
   return (
     <div className="flex flex-col items-center pt-6 text-center">
       <span
-        className="mb-6 flex size-20 items-center justify-center rounded-full"
-        style={{ background: "color-mix(in srgb, var(--color-danger) 16%, transparent)" }}
+        className="mb-5 flex size-16 items-center justify-center rounded-full"
+        style={{ background: "color-mix(in srgb, var(--color-danger) 14%, transparent)" }}
       >
         <HugeiconsIcon
           icon={Alert02Icon}
-          size={42}
+          size={36}
           color="var(--color-danger)"
           strokeWidth={2}
         />
       </span>
 
       <h2
-        className="font-display text-[28px] font-semibold text-fg"
+        className="font-display text-[26px] font-medium text-fg"
         style={{ letterSpacing: "-0.03em" }}
       >
         Send failed
       </h2>
-      <p className="mt-2 max-w-xs text-[14px] text-fg-muted">No funds moved.</p>
-      {message && <p className="mt-2 max-w-xs text-[13px] text-fg-dim">{message}</p>}
+      <p className="mt-1.5 text-[14px] text-fg-muted">No funds moved.</p>
+      {message && (
+        <p className="mt-2 max-w-xs text-[13px] text-fg-dim">{message}</p>
+      )}
 
       <div className="mt-8 flex w-full flex-col gap-2.5">
         <PrimaryButton full onClick={onTryAgain}>

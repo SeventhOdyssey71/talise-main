@@ -113,7 +113,7 @@ struct EarnView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 4)
-        .taliseGlass(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     private var venueSkeletonRow: some View {
@@ -437,6 +437,7 @@ private struct EarnManageSheet: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(TaliseColor.surface2)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func segmentButton(_ title: String, _ m: Mode) -> some View {
@@ -449,8 +450,13 @@ private struct EarnManageSheet: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 38)
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(mode == m ? TaliseColor.accent : Color.clear)
+                    Group {
+                        if mode == m {
+                            // Selected pill: FLAT solid accent fill, no specular.
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(TaliseColor.accent)
+                        }
+                    }
                 )
         }
         .buttonStyle(.plain)
@@ -458,30 +464,38 @@ private struct EarnManageSheet: View {
 
     @ViewBuilder
     private var header: some View {
-        if mode == .add && supplied <= 0 {
-            // First deposit: lead with the rate you'll earn. (Not a
-            // duplicate of the main-screen venue row — that's out of view
-            // behind this sheet.)
-            HeroAmount(
-                eyebrow: "Earn rate",
-                value: String(format: "%.2f%%", apy * 100),
-                caption: "On your \(moneyWord) · withdraw anytime"
-            )
-        } else {
-            // Existing position: show what they hold / have earned. Symbol
-            // rides the figure; the localized formatter is applied to the
-            // pre-symbol value via a stripped local2.
-            let symbol = CurrencySettings.shared.current.symbol
-            let heroUsd = earnedSoFar ?? supplied
-            HeroAmount(
-                eyebrow: earnedSoFar != nil ? "Your earnings" : "Your position",
-                value: localAmount(heroUsd),
-                symbol: symbol,
-                caption: earnedSoFar != nil
-                    ? "Interest accrued on \(TaliseFormat.local2(supplied))"
-                    : "Supplied and earning"
-            )
+        // The one hero figure per sheet, set on a premium Liquid Glass
+        // plate (material + green wash + specular stroke) so it reads as
+        // the iOS-26 hero rather than a flat label.
+        Group {
+            if mode == .add && supplied <= 0 {
+                // First deposit: lead with the rate you'll earn. (Not a
+                // duplicate of the main-screen venue row — that's out of view
+                // behind this sheet.)
+                HeroAmount(
+                    eyebrow: "Earn rate",
+                    value: String(format: "%.2f%%", apy * 100),
+                    caption: "On your \(moneyWord) · withdraw anytime"
+                )
+            } else {
+                // Existing position: show what they hold / have earned. Symbol
+                // rides the figure; the localized formatter is applied to the
+                // pre-symbol value via a stripped local2.
+                let symbol = CurrencySettings.shared.current.symbol
+                let heroUsd = earnedSoFar ?? supplied
+                HeroAmount(
+                    eyebrow: earnedSoFar != nil ? "Your earnings" : "Your position",
+                    value: localAmount(heroUsd),
+                    symbol: symbol,
+                    caption: earnedSoFar != nil
+                        ? "Interest accrued on \(TaliseFormat.local2(supplied))"
+                        : "Supplied and earning"
+                )
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(22)
+        .earnHeroGlass()
     }
 
     /// Add-money amount field + a one-year earnings projection. Mirrors the
@@ -506,10 +520,7 @@ private struct EarnManageSheet: View {
                     .foregroundStyle(TaliseColor.fgDim)
             }
             .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(TaliseColor.surface2)
-            )
+            .earnFieldGlass()
             if let annual = depositAnnual {
                 projectionBand(annual)
             }
@@ -541,10 +552,7 @@ private struct EarnManageSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(TaliseColor.surface2)
-        )
+        .earnHeroGlass(cornerRadius: 16)
         .transition(.opacity.combined(with: .move(edge: .top)))
         .animation(.easeInOut(duration: 0.18), value: depositText)
     }
@@ -601,7 +609,7 @@ private struct EarnManageSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 4)
-        .taliseGlass(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     private func row(label: String, value: String, accent: Bool = false) -> some View {
@@ -661,10 +669,7 @@ private struct EarnManageSheet: View {
                 }
             }
             .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(TaliseColor.surface2)
-            )
+            .earnFieldGlass()
         }
     }
 
@@ -762,7 +767,7 @@ private struct EarnManageSheet: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .taliseGlass(cornerRadius: 20, tint: TaliseColor.accent)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     // MARK: Deposit action
@@ -1052,7 +1057,7 @@ private struct EarnDisclosureSheet: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 4)
-        .taliseGlass(cornerRadius: 20)
+        .earnHeroGlass(cornerRadius: 20)
     }
 
     private func point(icon: String, title: String, body: String) -> some View {
@@ -1105,5 +1110,69 @@ private struct EarnDisclosureSheet: View {
         .padding(.horizontal, 22)
         .padding(.top, 12)
         .padding(.bottom, 32)
+    }
+}
+
+// MARK: - Earn + Rewards FLAT surface kit
+// Defined here (not a standalone file) so it's part of the compiled target.
+// Used across Earn + Rewards; purely visual modifiers, no state.
+//
+// Glassmorphism retired. These were translucent material + specular-gradient
+// plates; they're now FLAT solid surfaces (Cash App / Robinhood energy) —
+// no .ultraThinMaterial, no blur, no specular stroke, no gradient wash.
+// The modifier names + call sites are kept so nothing churns.
+
+/// FLAT hero plate for the one big figure per screen — a solid `surface`
+/// panel, no material, no tint wash, no specular edge.
+struct EarnHeroGlass: ViewModifier {
+    var cornerRadius: CGFloat = 24
+    var tint: Color = TaliseColor.accent
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(shape.fill(TaliseColor.surface))
+            .clipShape(shape)
+    }
+}
+
+/// FLAT input-field chrome for amount / text fields — a solid raised
+/// `surface2` fill with no material and no specular stroke.
+struct EarnFieldGlass: ViewModifier {
+    var cornerRadius: CGFloat = 16
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(shape.fill(TaliseColor.surface2))
+            .clipShape(shape)
+    }
+}
+
+/// No-op flat pass-through. Was a specular liquid-glass highlight layered
+/// over a card; flat surfaces need no lift, so this just clips to the card
+/// shape and adds nothing. Kept so the `.earnGlassLift()` call sites compile.
+struct EarnGlassLift: ViewModifier {
+    var cornerRadius: CGFloat = 20
+
+    func body(content: Content) -> some View {
+        content
+    }
+}
+
+extension View {
+    /// FLAT solid hero plate for the one big figure per Earn/Rewards screen.
+    func earnHeroGlass(cornerRadius: CGFloat = 24, tint: Color = TaliseColor.accent) -> some View {
+        modifier(EarnHeroGlass(cornerRadius: cornerRadius, tint: tint))
+    }
+
+    /// No-op flat pass-through (retired specular lift).
+    func earnGlassLift(cornerRadius: CGFloat = 20) -> some View {
+        modifier(EarnGlassLift(cornerRadius: cornerRadius))
+    }
+
+    /// FLAT solid input-field chrome for amount / text fields.
+    func earnFieldGlass(cornerRadius: CGFloat = 16) -> some View {
+        modifier(EarnFieldGlass(cornerRadius: cornerRadius))
     }
 }

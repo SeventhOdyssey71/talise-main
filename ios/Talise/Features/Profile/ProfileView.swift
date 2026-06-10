@@ -35,6 +35,9 @@ struct ProfileView: View {
     /// Drives the `CurrencyPocketsView` presentation — a non-invasive
     /// entry into the multi-currency pockets surface (master plan §8).
     @State private var showPockets = false
+    /// Drives the `BankAccountsView` presentation — off-ramp Phase 2
+    /// "link a bank account to your @handle" management screen.
+    @State private var showBankAccounts = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -42,6 +45,7 @@ struct ProfileView: View {
                 hero
                 statsStrip
                 walletSection
+                bankAccountsSection
                 preferencesSection
                 securitySection
                 helpSection
@@ -79,6 +83,51 @@ struct ProfileView: View {
                     }
             }
             .environment(session)
+        }
+        .sheet(isPresented: $showBankAccounts) {
+            NavigationStack {
+                BankAccountsView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showBankAccounts = false }
+                                .foregroundStyle(TaliseColor.accent)
+                        }
+                    }
+            }
+            .environment(session)
+        }
+    }
+
+    // MARK: - Bank accounts section
+    //
+    // Off-ramp Phase 2 entry — a single row that opens the bank-account
+    // management screen (link / list / remove). Sits between Wallet and
+    // Preferences so it reads as a money-rails affordance, not a setting.
+
+    private var bankAccountsSection: some View {
+        section(title: "Cash out") {
+            Button {
+                showBankAccounts = true
+            } label: {
+                HStack {
+                    Image(systemName: "building.columns")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .frame(width: 22)
+                    rowLabel(
+                        title: "Bank accounts",
+                        subtitle: "Link a bank account to your @handle to cash out."
+                    )
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -120,20 +169,13 @@ struct ProfileView: View {
                 }
                 .frame(width: 88, height: 88)
                 .clipShape(Circle())
-                .overlay(
-                    Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.4), radius: 14, x: 0, y: 6)
             } else {
                 initialsDisc
             }
         }
     }
 
-    /// Avatar fallback — a frosted disc that sits *over* the page
-    /// background, not on it. Simple material + tint + single shadow;
-    /// the old gradient stroke + dual shadow added more chrome than
-    /// the rest of the screen earned.
+    /// Avatar fallback — a flat solid disc carrying the user's initials.
     private var initialsDisc: some View {
         ZStack {
             Circle().fill(TaliseColor.surface2)
@@ -142,7 +184,6 @@ struct ProfileView: View {
                 .foregroundStyle(TaliseColor.fg)
         }
         .frame(width: 88, height: 88)
-        .overlay(Circle().strokeBorder(TaliseColor.line, lineWidth: 1))
         .clipShape(Circle())
     }
 
@@ -194,10 +235,12 @@ struct ProfileView: View {
             statCell(label: "Since", value: memberSinceMonth, accent: false)
         }
         .frame(maxWidth: .infinity)
-        // Liquid glass — same recipe as the BottomNavPill. A whisper of
-        // accent tint (0.06) makes the strip feel "alive" without going
-        // loud: it carries the user's KYC + Rewards standing.
-        .taliseGlass(cornerRadius: 18, tint: TaliseColor.accent.opacity(0.06))
+        // Flat solid card carrying the user's KYC + Rewards standing.
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     /// One column of the stats strip. `maxWidth: .infinity` gives all
@@ -364,8 +407,7 @@ struct ProfileView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Capsule().fill(TaliseColor.surfaceGlass))
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+                .background(Capsule().fill(TaliseColor.surface2))
                 .clipShape(Capsule())
             }
             .padding(.horizontal, 18)
@@ -557,11 +599,7 @@ struct ProfileView: View {
             .foregroundStyle(Color(hex: 0xE08D8A))
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(Color(hex: 0xE08D8A).opacity(0.10))
-            .overlay(
-                Capsule()
-                    .stroke(Color(hex: 0xE08D8A).opacity(0.25), lineWidth: 1)
-            )
+            .background(Capsule().fill(TaliseColor.surface2))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -590,11 +628,12 @@ struct ProfileView: View {
             Eyebrow(text: title)
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // Same Liquid Glass treatment used everywhere else in the
-                // app (BottomNavPill, activity card). Without this, the
-                // section reads as a flat slab instead of frosted glass
-                // over the page bg.
-                .taliseGlass(cornerRadius: 18)
+                // Flat solid section card — clean opaque panel, no material.
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(TaliseColor.surface)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
     }
 

@@ -146,7 +146,12 @@ struct StreamSetupView: View {
             picker("OVER", value: $durationMin, options: durations)
             picker("EVERY", value: $intervalMin, options: intervals)
         }
-        .padding(18).taliseGlass(cornerRadius: 20)
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func picker(_ label: String, value: Binding<Int>, options: [(String, Int)]) -> some View {
@@ -160,7 +165,10 @@ struct StreamSetupView: View {
                             Text(opt.0).font(TaliseFont.body(13, weight: on ? .medium : .light))
                                 .foregroundStyle(on ? Color(hex: 0x0A130D) : TaliseColor.fg)
                                 .padding(.horizontal, 14).padding(.vertical, 8)
-                                .background(Capsule().fill(on ? TaliseColor.greenMint : TaliseColor.surfaceGlass))
+                                .background(
+                                    Capsule().fill(on ? TaliseColor.greenMint : TaliseColor.surface2)
+                                )
+                                .clipShape(Capsule())
                         }.buttonStyle(.plain)
                     }
                 }
@@ -207,7 +215,11 @@ struct StreamSetupView: View {
             Spacer(minLength: 0)
         }
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var previewCard: some View {
@@ -224,8 +236,12 @@ struct StreamSetupView: View {
                 .font(TaliseFont.mono(9)).foregroundStyle(TaliseColor.accent)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 18)
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(TaliseColor.accent.opacity(0.2), lineWidth: 1))
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(TaliseColor.accent.opacity(0.10))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(TaliseColor.accent.opacity(0.22), lineWidth: 1))
     }
 
     private var startBar: some View {
@@ -241,16 +257,18 @@ struct StreamSetupView: View {
     private var startedView: some View {
         VStack(spacing: 16) {
             Spacer()
-            Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 52)).foregroundStyle(TaliseColor.accent)
+            Image(systemName: "dot.radiowaves.left.and.right")
+                .font(.system(size: 52)).foregroundStyle(TaliseColor.accent)
+                .frame(width: 96, height: 96)
+                .background(Circle().fill(TaliseColor.accent.opacity(0.16)))
             Text("Streaming started").font(TaliseFont.heading(22, weight: .medium)).foregroundStyle(TaliseColor.fg)
             Text("\(TaliseFormat.usd2(totalUsd)) to \(resolved?.displayString ?? "recipient") · \(numTranches) payments")
                 .font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted).multilineTextAlignment(.center).padding(.horizontal, 30)
             Spacer()
-            Button(action: onDone) {
-                Text("Done").font(TaliseFont.heading(16, weight: .medium)).foregroundStyle(Color(hex: 0x0A130D))
-                    .frame(maxWidth: .infinity).frame(height: 52).background(Capsule().fill(TaliseColor.greenMint))
-            }.buttonStyle(.plain).padding(.horizontal, 22).padding(.bottom, 24)
+            LiquidGlassButton(title: "Done", tint: TaliseColor.greenMint, action: onDone)
+                .padding(.horizontal, 22).padding(.bottom, 24)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TaliseColor.bg.ignoresSafeArea())
     }
 
@@ -431,11 +449,12 @@ struct StreamsListView: View {
                 Text(s.state.capitalized).font(TaliseFont.mono(9))
                     .foregroundStyle(s.state == "active" ? TaliseColor.accent : TaliseColor.fgMuted)
                     .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Capsule().fill(TaliseColor.surfaceGlass))
+                    .background(Capsule().fill(TaliseColor.surface2))
+                    .clipShape(Capsule())
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(TaliseColor.surfaceGlass).frame(height: 6)
+                    Capsule().fill(Color.white.opacity(0.06)).frame(height: 6)
                     Capsule().fill(TaliseColor.greenMint).frame(width: geo.size.width * progress, height: 6)
                 }
             }.frame(height: 6)
@@ -449,23 +468,23 @@ struct StreamsListView: View {
             // Sender-only cancel on a live stream. Stops further releases and
             // returns the undistributed remainder to the sender.
             if s.role != "recipient", s.state == "active" || s.state == "paused" {
-                Button { Task { await cancel(s) } } label: {
-                    HStack(spacing: 6) {
-                        if cancellingId == s.id { ProgressView().controlSize(.small).tint(TaliseColor.fg) }
-                        else { Image(systemName: "stop.circle") }
-                        Text(cancellingId == s.id ? "Cancelling…" : "Cancel & refund remainder")
-                    }
-                    .font(TaliseFont.mono(11))
-                    .foregroundStyle(TaliseColor.fg)
-                    .frame(maxWidth: .infinity).frame(height: 40)
-                    .background(Capsule().stroke(TaliseColor.line, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .disabled(cancellingId != nil)
-                .padding(.top, 4)
+                LiquidGlassButton(
+                    title: cancellingId == s.id ? "Cancelling…" : "Cancel & refund remainder",
+                    icon: cancellingId == s.id ? nil : "stop.circle",
+                    tint: nil,
+                    size: .md,
+                    loading: cancellingId == s.id
+                ) { Task { await cancel(s) } }
+                    .disabled(cancellingId != nil)
+                    .padding(.top, 4)
             }
         }
-        .padding(16).taliseGlass(cornerRadius: 18)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     /// Cancel a stream (sender-only). The server flips the row to cancelled,

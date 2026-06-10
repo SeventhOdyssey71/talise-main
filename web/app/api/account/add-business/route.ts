@@ -55,5 +55,5 @@ export async function POST(req: Request) {
     businessIndustry: body.businessIndustry?.trim() || null,
   });
 
-  return NextResponse.json({ ok: true, redirect: "/business" });
+  return NextResponse.json({ ok: true, redirect: "/business/dashboard" });
 }

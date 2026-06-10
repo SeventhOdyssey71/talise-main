@@ -8,10 +8,11 @@ struct PageHeader: View {
 
     var body: some View {
         HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 Eyebrow(text: eyebrow)
                 Text(title)
-                    .font(TaliseFont.heading(24))
+                    .font(TaliseFont.heading(26, weight: .semibold))
+                    .kerning(-0.5)
                     .foregroundStyle(TaliseColor.fg)
             }
             Spacer()
@@ -21,7 +22,7 @@ struct PageHeader: View {
         }
         .padding(.horizontal, TaliseSpacing.xl)
         .padding(.top, TaliseSpacing.xl)
-        .padding(.bottom, TaliseSpacing.md)
+        .padding(.bottom, TaliseSpacing.lg)
     }
 }
 

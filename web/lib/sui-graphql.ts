@@ -88,8 +88,11 @@ export class SuiGraphQLError extends Error {
 
 /** 10s TTL — same horizon as the existing per-user vault-state cache. */
 const CACHE_TTL_MS = 10_000;
-/** Hard cap on entries to keep memory bounded between request bursts. */
-const CACHE_MAX_ENTRIES = 256;
+// 512 (was 256): write-once coin-metadata entries and time-windowed
+// tx-history entries share this LRU, so under concurrent users a small cap
+// evicts still-valid metadata and forces extra GraphQL round-trips. 512
+// keeps the working set resident without meaningful memory cost.
+const CACHE_MAX_ENTRIES = 512;
 
 type CacheEntry = { at: number; data: unknown };
 const cache = new Map<string, CacheEntry>();

@@ -65,7 +65,8 @@ struct RetargetHandleSheet: View {
         .padding(.horizontal, 24)
         .padding(.top, 18)
         .padding(.bottom, 32)
-        .background(TaliseColor.bg.ignoresSafeArea())
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .liquidGlassSheet()
         .presentationDragIndicator(.visible)
         .task { await loadDiff(initial: true) }
     }
@@ -160,9 +161,13 @@ struct RetargetHandleSheet: View {
             badge(for: row)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 14)
+        .glassSection(
+            cornerRadius: 16,
+            tint: row.aligned ? TaliseColor.accent : TaliseColor.danger,
+            tintOpacity: 0.06
+        )
     }
 
     @ViewBuilder
@@ -200,31 +205,17 @@ struct RetargetHandleSheet: View {
     }
 
     private var ctaButton: some View {
-        Button {
+        LiquidGlassButton(
+            title: submitting
+                ? "Updating…"
+                : "Update target(s) — free, sponsored by Talise",
+            icon: submitting ? nil : "arrow.uturn.right.circle.fill",
+            tint: TaliseColor.greenMint,
+            loading: submitting
+        ) {
             Task { await submit() }
-        } label: {
-            HStack(spacing: 8) {
-                if submitting {
-                    ProgressView().controlSize(.small).tint(TaliseColor.bg)
-                } else {
-                    Image(systemName: "arrow.uturn.right.circle.fill")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                Text(submitting
-                     ? "Updating…"
-                     : "Update target(s) — free, sponsored by Talise")
-                    .font(TaliseFont.heading(14, weight: .medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .foregroundStyle(TaliseColor.bg)
-            .frame(maxWidth: .infinity)
-            .frame(height: 50)
-            .background(submitting ? TaliseColor.fg.opacity(0.5) : TaliseColor.fg)
-            .clipShape(Capsule())
         }
         .disabled(submitting)
-        .buttonStyle(.plain)
         .padding(.top, 4)
     }
 

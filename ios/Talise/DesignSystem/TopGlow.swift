@@ -10,22 +10,23 @@ import SwiftUI
 /// continue without a perceptible jump.
 struct TopGlow: View {
     var body: some View {
+        // Light-green top glow → black, matching the onboarding palette
+        // (`WelcomeView` / `OnboardingBackground`) so the authenticated
+        // tabs read as a continuation of the same surface. A subtle
+        // mossy-green wash fills the top band then falls into pure black
+        // well before the content area, keeping cards + text legible.
+        // The 380pt height clips the wash to the top of the screen.
         LinearGradient(
             stops: [
-                // A QUIET deep-forest halo at the very top — a whisper of
-                // brand green, not the old loud olive wash. Fades to pure
-                // black fast so cards read crisp, not murky.
-                .init(color: Color(hex: 0x1C3D24), location: 0.0),
-                .init(color: Color(hex: 0x0C1A10), location: 0.16),
-                .init(color: Color.black,           location: 0.42),
-                .init(color: Color.black,           location: 1.0),
+                .init(color: Color(hex: 0x6BA85A).opacity(0.55), location: 0.0),
+                .init(color: Color(hex: 0x355626).opacity(0.40), location: 0.30),
+                .init(color: Color.black, location: 0.78),
+                .init(color: Color.black, location: 1.0),
             ],
             startPoint: .top,
             endPoint: .bottom
         )
-        // Shorter band — the green only kisses the very top now; the rest
-        // of the screen is clean black so content + cards read sharply.
-        .frame(height: 360)
+        .frame(height: 380)
         .frame(maxWidth: .infinity, alignment: .top)
         .allowsHitTesting(false)
     }
@@ -89,19 +90,18 @@ struct TaliseGlassCard: ViewModifier {
         return content
             .background(
                 ZStack {
-                    // 1. Flat solid surface — NO blur material. Clean opaque
-                    //    panel on the black page, in the Apple-system idiom.
+                    // 1. Solid flat surface — a clean opaque panel on the
+                    //    black page. No material, no blur.
                     shape.fill(TaliseColor.surface)
-                    // 2. Optional directional tint — Sent / Received / Earn
-                    //    cards get a quiet flat wash of their green over the
-                    //    surface (no gradient, no glass).
+                    // 2. Optional quiet flat brand tint (Sent / Received /
+                    //    Earn) — a single low-opacity solid color, no gradient.
                     if let tint {
-                        shape.fill(tint.opacity(0.13))
+                        shape.fill(tint.opacity(0.10))
                     }
                 }
             )
             .overlay(
-                // 3. One faint hairline to define the card edge on black.
+                // 3. One faint hairline edge — flat, no specular highlight.
                 shape.strokeBorder(TaliseColor.line, lineWidth: 1)
             )
             .clipShape(shape)
@@ -252,7 +252,7 @@ struct HeroAmount: View {
                     Text(symbol).font(TaliseFont.mono(15)).foregroundStyle(TaliseColor.fgDim)
                 }
                 Text(value)
-                    .font(TaliseFont.display(40, weight: .medium)).kerning(-1.6)
+                    .font(TaliseFont.display(42, weight: .semibold)).kerning(-1.6)
                     .foregroundStyle(TaliseColor.fg)
                     .lineLimit(1).minimumScaleFactor(0.5)
                     .contentTransition(.numericText())
@@ -426,7 +426,7 @@ struct QuietProgressBar: View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.06))
-                Capsule().fill(TaliseColor.accent)
+                Capsule().fill(TaliseColor.greenSweep)
                     .frame(width: geo.size.width * min(max(progress, 0), 1))
             }
         }

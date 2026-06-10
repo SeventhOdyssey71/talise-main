@@ -19,7 +19,7 @@ const TIER_ICON: Record<string, typeof Award01Icon> = {
 };
 
 /**
- * The hero of the Rewards screen: tier eyebrow, a big mint points number,
+ * The hero of the Rewards screen: tier eyebrow, a big ink points number,
  * and a progress bar to the next tier. At the top tier the bar is replaced
  * by a "Top tier" line. Mirrors the iOS `tierCard` — number is the hero,
  * no competing rosette.
@@ -41,44 +41,42 @@ export function TierCard({
   const pct = hasNext && total > 0 ? Math.max(4, (points / total) * 100) : 0;
 
   return (
-    <GlassCard className="p-6">
+    <GlassCard className="p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <Eyebrow className="!text-accent">{label}</Eyebrow>
-          <div className="mt-2 flex items-baseline gap-2">
+          {/* Big ink number — hero stat */}
+          <div className="mt-1.5 flex items-baseline gap-1.5">
             <span
-              className="text-accent tabular-nums"
+              className="tabular-nums text-fg"
               style={{
-                fontSize: 52,
-                fontWeight: 500,
+                fontSize: 46,
+                fontWeight: 600,
                 letterSpacing: "-0.04em",
                 lineHeight: 1,
               }}
             >
               {points.toLocaleString()}
             </span>
-            <span className="text-[13px] text-fg-dim">points</span>
+            <span className="text-[13px] text-fg-dim">pts</span>
           </div>
         </div>
-        <span
-          className="flex size-11 shrink-0 items-center justify-center rounded-full text-accent"
-          style={{ background: "var(--color-accent-soft)" }}
-        >
-          <HugeiconsIcon icon={icon} size={22} strokeWidth={1.8} />
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <HugeiconsIcon icon={icon} size={20} strokeWidth={1.8} />
         </span>
       </div>
 
       {hasNext ? (
-        <div className="mt-6 space-y-2.5">
+        <div className="mt-5 space-y-2">
           <div className="flex items-center justify-between">
             <span className="font-mono text-[11px] text-fg-muted">
               {(toNext as number).toLocaleString()} to {nextLabel}
             </span>
-            <span className="font-mono text-[10px] text-fg-dim tabular-nums">
+            <span className="font-mono text-[10px] tabular-nums text-fg-dim">
               {points.toLocaleString()} / {total.toLocaleString()}
             </span>
           </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
             <div
               className="h-full rounded-full bg-accent-deep transition-[width] duration-500 ease-out"
               style={{ width: `${pct}%` }}
@@ -86,7 +84,7 @@ export function TierCard({
           </div>
         </div>
       ) : tier ? (
-        <p className="mt-5 font-mono text-[11px] text-accent">
+        <p className="mt-4 font-mono text-[11px] text-accent">
           Top tier — every point still counts toward perks
         </p>
       ) : null}

@@ -508,9 +508,22 @@ export async function markFunded(input: {
 
   // ── On-chain rail: parse the created Cheque object id from the digest ──
   if (chequeOnchainEnabled()) {
-    const parsed = await parseCreatedChequeObjectId(input.digest, {
+    // The client confirms the instant sponsor-execute returns the digest —
+    // usually BEFORE the fullnode has indexed the tx's objectChanges. Retry the
+    // parse with backoff so indexing lag (the dominant cause of a 409 here)
+    // resolves instead of failing a perfectly-good funding tx. Terminal reasons
+    // (sender mismatch, misconfig) don't change on retry, so we stop early.
+    const TERMINAL = /sender_mismatch|onchain_disabled|missing_digest/i;
+    let parsed = await parseCreatedChequeObjectId(input.digest, {
       expectedSender: input.creatorAddress,
     });
+    for (let attempt = 0; !parsed.ok && attempt < 6; attempt++) {
+      if (parsed.reason && TERMINAL.test(parsed.reason)) break;
+      await new Promise((r) => setTimeout(r, 1200));
+      parsed = await parseCreatedChequeObjectId(input.digest, {
+        expectedSender: input.creatorAddress,
+      });
+    }
     if (!parsed.ok || !parsed.chequeObjectId) {
       return { ok: false, reason: parsed.reason ?? "cheque_object_not_found" };
     }
@@ -784,16 +797,49 @@ export async function releaseCheque(input: {
   }
 }
 
-/** Creator reclaim of an unclaimed cheque: escrow→creator, funded→voided. */
+/**
+ * Creator reclaim of an unclaimed cheque. RAIL-AWARE:
+ *
+ *   • ESCROW rail (no on-chain Cheque object): the funds sit in the server
+ *     escrow address, so we pull them back with an escrow→creator transfer
+ *     and flip funded→voided. This is the only rail the worker key can settle
+ *     on its own.
+ *
+ *   • ON-CHAIN rail (a `cheque_object_id` exists): the escrow holds NO funds
+ *     for this cheque — the money lives in the per-cheque on-chain
+ *     `Cheque<USDSUI>` object. Calling `escrowTransfer` here would either
+ *     fail (empty accumulator) or, worse, mis-pay from another cheque's
+ *     escrow balance. The Move `cheque::reclaim` is CREATOR-ONLY (it asserts
+ *     `ctx.sender() == cheque.creator`) and has NO expiry requirement, so the
+ *     server worker key CANNOT auto-reclaim on the creator's behalf. We
+ *     therefore do NOT touch the escrow: we leave the cheque `funded` so the
+ *     creator can reclaim it themselves via the sponsored `cheque::reclaim`
+ *     PTB (buildChequeCreateSponsored's sibling `reclaimChequeBuilder` →
+ *     /api/zk/sponsor-execute → recordReclaim). Returns a clear reason so the
+ *     caller surfaces "reclaim it from your wallet" rather than silently
+ *     failing an escrow transfer.
+ */
 export async function voidCheque(input: {
   chequeId: string;
   creatorUserId: number;
   creatorAddress: string;
 }): Promise<{ ok: boolean; digest?: string; reason?: string }> {
   await ensureChequesSchema();
+  // Peek the rail BEFORE locking: an on-chain cheque must be reclaimed by the
+  // creator's own signed tx, not an escrow transfer, so we refuse here cleanly
+  // (no state change) instead of grabbing the 'voiding' lock and failing.
+  const cq = await getCheque(input.chequeId);
+  if (!cq) return { ok: false, reason: "not_found" };
+  if (cq.creatorUserId !== input.creatorUserId) return { ok: false, reason: "not_voidable" };
+  if (cq.chequeObjectId) {
+    // On-chain rail — creator-only reclaim, no escrow funds to move.
+    return { ok: false, reason: "onchain_creator_reclaim_required" };
+  }
+
   const lock = await db().execute({
     sql: `UPDATE cheques SET status='voiding'
-          WHERE id=? AND creator_user_id=? AND status='funded' RETURNING amount_micros`,
+          WHERE id=? AND creator_user_id=? AND status='funded'
+            AND cheque_object_id IS NULL RETURNING amount_micros`,
     args: [input.chequeId, input.creatorUserId],
   });
   if (lock.rows.length === 0) return { ok: false, reason: "not_voidable" };
@@ -814,21 +860,43 @@ export async function voidCheque(input: {
   }
 }
 
-/** Cron: reclaim funded cheques past expiry back to their creators. */
+/**
+ * Cron: reclaim funded ESCROW-rail cheques past expiry back to their creators.
+ *
+ * RAIL-AWARE — this only sweeps ESCROW-rail cheques (`cheque_object_id IS
+ * NULL`), where the funds sit in the server escrow address and the worker key
+ * can settle them with an escrow→creator transfer.
+ *
+ * ON-CHAIN cheques (`cheque_object_id` set) are DELIBERATELY excluded by the
+ * `cheque_object_id IS NULL` filter below: the escrow holds no funds for them
+ * (the money lives in the on-chain `Cheque<USDSUI>` object), and the Move
+ * `cheque::reclaim` is CREATOR-ONLY with NO expiry requirement — there is no
+ * way for this server-side worker to auto-reclaim an expired on-chain cheque.
+ * Calling `escrowTransfer` for one would fail or mis-pay another cheque's
+ * escrow balance. So an expired on-chain cheque is intentionally LEFT in its
+ * `funded` (creator-reclaimable) state; the creator reclaims it any time from
+ * their wallet via the sponsored `cheque::reclaim` PTB (the contract's
+ * `!claimed` assert is the guard). The off-chain `expiresAt` is purely a UI
+ * hint for on-chain cheques — the contract has no expiry gate on reclaim.
+ */
 export async function sweepExpiredCheques(limit = 50): Promise<number> {
   await ensureChequesSchema();
   const now = Date.now();
   const due = await db().execute({
     sql: `SELECT c.id, c.amount_micros, u.sui_address AS creator_address
           FROM cheques c JOIN users u ON u.id = c.creator_user_id
-          WHERE c.status='funded' AND c.expires_at < ? LIMIT ?`,
+          WHERE c.status='funded' AND c.expires_at < ?
+            AND c.cheque_object_id IS NULL LIMIT ?`,
     args: [now, limit],
   });
   let swept = 0;
   for (const row of due.rows) {
     const id = String(row.id);
+    // Guard the lock with `cheque_object_id IS NULL` too, so a cheque that
+    // was concurrently funded on-chain can never be escrow-swept.
     const lock = await db().execute({
-      sql: `UPDATE cheques SET status='voiding' WHERE id=? AND status='funded' RETURNING id`,
+      sql: `UPDATE cheques SET status='voiding'
+            WHERE id=? AND status='funded' AND cheque_object_id IS NULL RETURNING id`,
       args: [id],
     });
     if (lock.rows.length === 0) continue;

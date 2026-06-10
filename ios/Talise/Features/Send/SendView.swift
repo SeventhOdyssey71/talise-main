@@ -148,13 +148,13 @@ struct LegacySendView: View {
 
     var body: some View {
         ZStack {
-            TaliseColor.bg.ignoresSafeArea()
             if let success {
                 successView(success)
             } else {
                 form
             }
         }
+        .taliseScreenBackground()
         .presentationDragIndicator(.visible)
         .onAppear {
             // ContactsSheet writes the tapped address here when the user
@@ -245,7 +245,10 @@ struct LegacySendView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .taliseGlass(cornerRadius: 20)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(TaliseColor.surface)
+            )
         }
     }
 
@@ -267,13 +270,13 @@ struct LegacySendView: View {
         HStack(spacing: 6) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(TaliseColor.accent)
+                .foregroundStyle(TaliseColor.greenMint)
             VStack(alignment: .leading, spacing: 2) {
                 if let displayName = r.displayName, !displayName.isEmpty,
                    displayName != r.address {
                     Text(displayName)
                         .font(TaliseFont.mono(11, weight: .light))
-                        .foregroundStyle(TaliseColor.accent)
+                        .foregroundStyle(TaliseColor.greenMint)
                         .lineLimit(1)
                 }
                 Text(short(r.address))
@@ -380,7 +383,7 @@ struct LegacySendView: View {
                 if sending {
                     ProgressView()
                         .progressViewStyle(.circular)
-                        .tint(TaliseColor.bg)
+                        .tint(Color(hex: 0x0A140C))
                 } else {
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: 14, weight: .medium))
@@ -389,11 +392,13 @@ struct LegacySendView: View {
                 Text(sending ? "Sending…" : sendLabel)
                     .font(TaliseFont.heading(15, weight: .medium))
             }
-            .foregroundStyle(TaliseColor.bg)
+            .foregroundStyle(canSend ? Color(hex: 0x0A140C) : TaliseColor.fgDim)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .background(canSend ? TaliseColor.fg : TaliseColor.fg.opacity(0.35))
-            .clipShape(Capsule())
+            .background(
+                Capsule()
+                    .fill(canSend ? TaliseColor.greenMint : TaliseColor.surface2)
+            )
         }
         .disabled(!canSend)
     }
@@ -418,11 +423,11 @@ struct LegacySendView: View {
             Spacer()
             ZStack {
                 Circle()
-                    .fill(TaliseColor.accent.opacity(0.15))
+                    .fill(TaliseColor.surface2)
                     .frame(width: 84, height: 84)
                 Image(systemName: "checkmark")
                     .font(.system(size: 32, weight: .semibold))
-                    .foregroundStyle(TaliseColor.accent)
+                    .foregroundStyle(TaliseColor.greenMint)
             }
             Text("Sent")
                 .font(TaliseFont.heading(28, weight: .medium))
@@ -437,11 +442,10 @@ struct LegacySendView: View {
             Button(action: { onDone?(); dismiss() }) {
                 Text("Done")
                     .font(TaliseFont.heading(15, weight: .medium))
-                    .foregroundStyle(TaliseColor.bg)
+                    .foregroundStyle(Color(hex: 0x0A140C))
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(TaliseColor.fg)
-                    .clipShape(Capsule())
+                    .background(Capsule().fill(TaliseColor.greenMint))
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
@@ -547,5 +551,43 @@ struct LegacySendView: View {
         } catch {
             balance = nil
         }
+    }
+}
+
+// MARK: - Flat chrome building blocks (shared across the Send flow)
+// Defined here (not a standalone file) so they're part of the compiled target.
+// Purely visual modifiers — no state, no logic. Glassmorphism retired:
+// these are now SOLID flat fills (surface2 disc / capsule), no material,
+// no blur, no specular gradient stroke.
+
+/// A flat solid disc for circular chrome buttons (close / back / arrow).
+struct GlassCircle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(Circle().fill(TaliseColor.surface2))
+            .clipShape(Circle())
+    }
+}
+
+extension View {
+    /// Wrap a circular chrome glyph in a flat solid disc.
+    func glassCircle() -> some View { modifier(GlassCircle()) }
+}
+
+/// A flat solid capsule for status pills (wallet pill, locked-rate chip).
+struct GlassCapsuleBackground: ViewModifier {
+    var tint: Color? = nil
+
+    func body(content: Content) -> some View {
+        content
+            .background(Capsule().fill(TaliseColor.surface2))
+            .clipShape(Capsule())
+    }
+}
+
+extension View {
+    /// Wrap a pill's contents in a flat solid capsule.
+    func glassCapsule(tint: Color? = nil) -> some View {
+        modifier(GlassCapsuleBackground(tint: tint))
     }
 }

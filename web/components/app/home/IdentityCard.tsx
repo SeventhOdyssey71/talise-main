@@ -34,7 +34,7 @@ export function IdentityCard({ me }: { me: Me | null }) {
   }
 
   return (
-    <GlassCard className="flex min-h-[180px] flex-col p-6 sm:p-7" radius={26}>
+    <GlassCard className="flex min-h-[180px] flex-col p-6 sm:p-7" radius={14}>
       <div className="flex items-start justify-between gap-3">
         <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-dim">
           Your money lands here

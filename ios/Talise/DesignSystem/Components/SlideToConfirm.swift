@@ -43,12 +43,13 @@ struct SlideToConfirm: View {
             let progress = min(max(dragX / maxTravel, 0), 1)
 
             ZStack(alignment: .leading) {
-                // Base track
+                // Base track — flat dark surface capsule with a faint hairline.
                 Capsule()
-                    .fill(TaliseColor.surfaceGlass)
-                    .overlay(Capsule().stroke(TaliseColor.line, lineWidth: 1))
+                    .fill(TaliseColor.surface2)
+                    .overlay(Capsule().strokeBorder(TaliseColor.line, lineWidth: 1))
 
-                // Trailing fill that follows the knob.
+                // Trailing fill that follows the knob — a quiet flat brand
+                // tint so progress reads as it advances. No gradient.
                 Capsule()
                     .fill(tint.opacity(0.22))
                     .frame(width: dragX + knobSize + knobInset * 2)

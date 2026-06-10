@@ -13,19 +13,11 @@ struct SendSuccessAnimation: View {
     @State private var drawProgress: CGFloat = 0
     @State private var float = false
 
-    private var strokeGradient: LinearGradient {
-        LinearGradient(
-            colors: [color.opacity(0.9), color],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
     var body: some View {
         Check3DShape()
             .trim(from: 0, to: drawProgress)
             .stroke(
-                strokeGradient,
+                color,
                 style: StrokeStyle(
                     lineWidth: 2.4,
                     lineCap: .round,
@@ -35,7 +27,6 @@ struct SendSuccessAnimation: View {
             .frame(width: size, height: size)
             .rotationEffect(.degrees(float ? -3 : 3))
             .offset(y: float ? -3 : 3)
-            .shadow(color: color.opacity(0.35), radius: 14, x: 0, y: 6)
             .onAppear { runIn() }
     }
 

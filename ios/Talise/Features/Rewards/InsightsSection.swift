@@ -73,7 +73,7 @@ struct InsightsSection: View {
                 }
             }
             .padding(.horizontal, 18)
-            .taliseGlass(cornerRadius: 20)
+            .earnHeroGlass(cornerRadius: 20)
         } else if loading {
             VStack(spacing: 0) {
                 skeletonRow
@@ -81,7 +81,7 @@ struct InsightsSection: View {
                 skeletonRow
             }
             .padding(.horizontal, 18)
-            .taliseGlass(cornerRadius: 20)
+            .earnHeroGlass(cornerRadius: 20)
             .redacted(reason: .placeholder)
             .opacity(0.6)
         } else {
@@ -93,7 +93,7 @@ struct InsightsSection: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 16)
             .padding(.vertical, 22)
-            .taliseGlass(cornerRadius: 20)
+            .earnHeroGlass(cornerRadius: 20)
         }
     }
 

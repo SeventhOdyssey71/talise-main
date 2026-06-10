@@ -30,6 +30,8 @@ function normCoinType(t: string | undefined | null): string {
 }
 import { findTaliseSubnameForOwner } from "./suins-lookup";
 import { formatHandle } from "./handle";
+import { escrowAddress as chequeEscrowAddress, chequesEnabled } from "./cheques";
+import { streamEscrowAddress, streamEscrowEnabled } from "./streams";
 import { db } from "./db";
 import { globalRegistryId, namespaceObjectId } from "./payment-kit";
 import { parsePaymentKitNonce, type ParsedTaliseMemo } from "./intents/wrap-payment-kit";
@@ -107,6 +109,21 @@ export type ActivityEntry = {
    * instead of just "Invested". Null for plain send/receive rows.
    */
   venue: string | null;
+  /**
+   * Semantic feature label for Talise's claimable-link (cheque) and streamed-
+   * payment (stream) rails, derived purely from the COUNTERPARTY matching a
+   * known escrow address (see `featureLabelFor`). When set, iOS/web can render
+   * "Cheque issued" / "Stream funding" etc. instead of a generic Sent/Received.
+   * Null for every ordinary transfer, and ALWAYS null when the cheque/stream
+   * env (and therefore the escrow address) is unconfigured — labeling is
+   * strictly additive and fail-open.
+   */
+  featureLabel:
+    | "cheque_issued"
+    | "cheque_claimed"
+    | "stream_funding"
+    | "stream_payment"
+    | null;
   /**
    * Compound spend+save flag. When a Send PTB included a round-up
    * NAVI supply leg (Phase 2 v2), the tx digest has BOTH a `send`
@@ -248,6 +265,59 @@ function classifyVenue(tx: RawTx): { venue: string; kind: "invest" | "withdraw" 
 const SPONSOR_ADDRESSES = new Set<string>([
   "0x8a319488de2a8043a7b503d4a906ce5feedb793787bdb9a63bc6327d46310cdb",
 ]);
+
+/**
+ * Lazily-resolved, lowercased Talise escrow addresses for the cheque + stream
+ * rails. FAIL-OPEN: if the env that gates either feature is unset (or the key
+ * fails to decode), the corresponding address is null and labeling is simply
+ * skipped — the feed still renders every row normally. Memoized per-process so
+ * we don't re-derive the address on every activity request.
+ */
+let _escrowAddrs: { cheque: string | null; stream: string | null } | null = null;
+function escrowAddresses(): { cheque: string | null; stream: string | null } {
+  if (_escrowAddrs) return _escrowAddrs;
+  let cheque: string | null = null;
+  let stream: string | null = null;
+  // `chequesEnabled()` / `streamEscrowEnabled()` only check the env flag; the
+  // address derivation can still throw if the key is malformed, so guard both.
+  try {
+    if (chequesEnabled()) cheque = chequeEscrowAddress().toLowerCase();
+  } catch {
+    cheque = null;
+  }
+  try {
+    if (streamEscrowEnabled()) stream = streamEscrowAddress().toLowerCase();
+  } catch {
+    stream = null;
+  }
+  _escrowAddrs = { cheque, stream };
+  return _escrowAddrs;
+}
+
+/**
+ * Map a transfer's counterparty + direction to a Talise feature label using
+ * the escrow-address heuristic. Money LEAVING the user to the cheque escrow is
+ * a cheque they ISSUED; money ARRIVING from it is a cheque CLAIM landing.
+ * Same for the stream escrow (funding vs a tranche payment). Returns null for
+ * any non-escrow counterparty, or whenever the addresses are unconfigured —
+ * so this never changes behaviour for ordinary transfers.
+ */
+function featureLabelFor(
+  counterparty: string | null,
+  direction: ActivityEntry["direction"]
+): ActivityEntry["featureLabel"] {
+  if (!counterparty) return null;
+  if (direction !== "sent" && direction !== "received") return null;
+  const cp = counterparty.toLowerCase();
+  const { cheque, stream } = escrowAddresses();
+  if (cheque && cp === cheque) {
+    return direction === "received" ? "cheque_claimed" : "cheque_issued";
+  }
+  if (stream && cp === stream) {
+    return direction === "received" ? "stream_payment" : "stream_funding";
+  }
+  return null;
+}
 
 /**
  * Per-leg timeout helper. The activity feed has four independent legs
@@ -1299,6 +1369,7 @@ async function getVaultEventActivity(
       // inbound transfer — HistoryRow already special-cases this so
       // the title reads "Received via @handle" instead of "Received".
       venue: "@handle",
+      featureLabel: null,
       roundupUsdsui: null,
       otherCoin,
     });
@@ -1370,6 +1441,7 @@ async function getVaultEventActivity(
       counterparty: null,
       counterpartyName: null,
       venue,
+      featureLabel: null,
       roundupUsdsui: null,
       otherCoin,
     });
@@ -1660,6 +1732,10 @@ export async function getRecentActivity(
       };
     }
 
+    // Cheque / stream escrow-address heuristic (fail-open: null when the
+    // feature env is unset or the counterparty isn't an escrow address).
+    const featureLabel = featureLabelFor(cpForRow, direction);
+
     entries.push({
       digest: tx.digest!,
       timestampMs: Number(tx.timestampMs ?? 0),
@@ -1669,6 +1745,7 @@ export async function getRecentActivity(
       counterparty: cpForRow,
       counterpartyName: null,
       venue,
+      featureLabel,
       roundupUsdsui: compoundRoundupUsdsui,
       otherCoin,
     });

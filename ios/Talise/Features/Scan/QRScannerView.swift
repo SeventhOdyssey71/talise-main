@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import Vision
 
 /// `UIViewControllerRepresentable` that owns the live `AVCaptureSession`,
 /// renders the preview full-bleed (`.resizeAspectFill`), and reports the
@@ -27,6 +28,15 @@ struct QRScannerView: UIViewControllerRepresentable {
     /// exactly once per scanned code; the parent decides whether to keep
     /// scanning (unrecognized code → resume) or tear down (valid → route).
     var onCode: (String) -> Void
+    /// Continuous OCR callback. When `ocrEnabled` is true the controller runs
+    /// Vision text recognition on the live frames and hands the parent the
+    /// recognized strings (one array per processed frame, throttled). The
+    /// parent extracts the bank + 10-digit account and debounces the lock.
+    /// `nil` (the default) leaves the bank-scan path off — QR only.
+    var onText: (([String]) -> Void)? = nil
+    /// Master switch for the OCR video-data path. When false the controller
+    /// never attaches the video output (QR-only — the original behaviour).
+    var ocrEnabled: Bool = false
     /// Reports whether a usable capture device + input exists. False on the
     /// simulator (no camera) and on any device where `AVCaptureDevice`
     /// returns nil or the input can't be added. `ScanToPayView` renders the
@@ -39,6 +49,8 @@ struct QRScannerView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ScannerViewController {
         let vc = ScannerViewController()
         vc.onCode = onCode
+        vc.onText = onText
+        vc.ocrEnabled = ocrEnabled
         vc.onCameraAvailability = onCameraAvailability
         vc.onTorchAvailability = onTorchAvailability
         return vc
@@ -48,6 +60,8 @@ struct QRScannerView: UIViewControllerRepresentable {
         // Re-apply the latest closures (SwiftUI rebuilds them each pass)
         // and push the torch state down.
         vc.onCode = onCode
+        vc.onText = onText
+        vc.ocrEnabled = ocrEnabled
         vc.onCameraAvailability = onCameraAvailability
         vc.onTorchAvailability = onTorchAvailability
         vc.setTorch(torchOn)
@@ -69,8 +83,15 @@ struct QRScannerView: UIViewControllerRepresentable {
 /// The imperative half. Owns the session, the preview layer, and the
 /// metadata delegate. All session mutation runs on a dedicated serial
 /// queue because `startRunning()` blocks.
-final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+final class ScannerViewController: UIViewController,
+    AVCaptureMetadataOutputObjectsDelegate,
+    AVCaptureVideoDataOutputSampleBufferDelegate {
     var onCode: ((String) -> Void)?
+    var onText: (([String]) -> Void)?
+    /// When true the controller attaches a video-data output and runs Vision
+    /// text recognition on the frames. Set before the view loads so we know
+    /// whether to add the output during `configureSession`.
+    var ocrEnabled = false
     var onCameraAvailability: ((Bool) -> Void)?
     var onTorchAvailability: ((Bool) -> Void)?
 
@@ -83,6 +104,18 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     /// Off-main serial queue for session start/stop (both block).
     private let sessionQueue = DispatchQueue(label: "io.talise.scan.session")
     private var configuredOK = false
+
+    // MARK: OCR plumbing
+    /// Dedicated queue for the video-data sample-buffer callback so Vision
+    /// work never blocks the metadata (.main) delegate or the session queue.
+    private let videoQueue = DispatchQueue(label: "io.talise.scan.video")
+    private let videoOutput = AVCaptureVideoDataOutput()
+    /// Guards against piling up Vision requests: we only run a new one once
+    /// the previous frame finished. Vision OCR is ~hundreds of ms/frame.
+    private var ocrInFlight = false
+    /// Throttle OCR to a couple of frames per second — plenty for reading a
+    /// static placard, and keeps the camera buttery + the battery sane.
+    private var lastOCRTime = Date.distantPast
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -157,6 +190,18 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
         // Only QR — restrict the output so we don't waste cycles decoding
         // barcode types we'll never route.
         metadataOutput.metadataObjectTypes = [.qr]
+
+        // OCR path: attach a video-data output so we can run Vision text
+        // recognition on the live frames (bank-placard → off-ramp). Added
+        // only when the parent opted in; QR-only mode never pays the cost.
+        if ocrEnabled {
+            videoOutput.alwaysDiscardsLateVideoFrames = true
+            videoOutput.setSampleBufferDelegate(self, queue: videoQueue)
+            if session.canAddOutput(videoOutput) {
+                session.addOutput(videoOutput)
+            }
+        }
+
         session.commitConfiguration()
 
         let preview = AVCaptureVideoPreviewLayer(session: session)
@@ -208,5 +253,44 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     /// scanner keeps reading instead of latching on the bad value.
     func resumeDetection() {
         didEmit = false
+    }
+
+    // MARK: - Video data delegate (Vision OCR)
+
+    func captureOutput(
+        _ output: AVCaptureOutput,
+        didOutput sampleBuffer: CMSampleBuffer,
+        from connection: AVCaptureConnection
+    ) {
+        guard ocrEnabled, onText != nil, !ocrInFlight else { return }
+        // Throttle to ~3 fps — reading a static placard doesn't need more,
+        // and Vision OCR is expensive.
+        let now = Date()
+        guard now.timeIntervalSince(lastOCRTime) > 0.33 else { return }
+        lastOCRTime = now
+
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        ocrInFlight = true
+
+        let request = VNRecognizeTextRequest { [weak self] req, _ in
+            guard let self else { return }
+            defer { self.ocrInFlight = false }
+            guard let results = req.results as? [VNRecognizedTextObservation] else { return }
+            let strings = results.compactMap { $0.topCandidates(1).first?.string }
+            guard !strings.isEmpty else { return }
+            DispatchQueue.main.async { self.onText?(strings) }
+        }
+        // Accurate recognition — placards are small, dense, and we want the
+        // 10-digit account read reliably. usesLanguageCorrection off so a
+        // digit string isn't "corrected" into words.
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            ocrInFlight = false
+        }
     }
 }

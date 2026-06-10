@@ -150,26 +150,29 @@ struct HomeView: View {
                 .frame(width: 24, height: 22)
             Spacer()
             // Scan-to-Pay is the single top affordance now — History moved off
-            // the top into the on-page "Recent activity → View all". Styled as a
-            // soft circular glass chip to match the redesigned surface.
+            // the top into the on-page "Recent activity → View all". Glass chip
+            // (the one place we use glass): an ultra-thin material disc with a
+            // hairline white edge so it blends into the green header gradient
+            // instead of clashing as a solid surface2 puck.
             Button {
                 scanToPaySheetVisible = true
             } label: {
                 Image(systemName: "qrcode.viewfinder")
                     .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(TaliseColor.fg)
-                    .frame(width: 38, height: 38)
-                    .background(Circle().fill(TaliseColor.surface2))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(
+                        Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+                    )
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Scan to pay")
         }
         .frame(height: 38)
-        .sheet(isPresented: $scanToPaySheetVisible) {
+        .fullScreenCover(isPresented: $scanToPaySheetVisible) {
             ScanToPayView()
-                .presentationDetents([.large])
-                .presentationBackground(.black)
         }
     }
 
@@ -209,14 +212,11 @@ struct HomeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 22)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(TaliseColor.surface)
-                    )
+                    .flatCard(cornerRadius: 20)
             } else {
-                // One flat surface card holding the rows, separated by hairline
-                // dividers indented past the badge — the clean Apple-system list
-                // look. No per-row glass; the card is the only chrome.
+                // One flat solid card holding the rows, separated by hairline
+                // dividers indented past the badge — the clean Apple-system
+                // list look on a single flat surface plate.
                 let rows = Array(activity.prefix(4))
                 VStack(spacing: 0) {
                     ForEach(rows.indices, id: \.self) { i in
@@ -229,10 +229,7 @@ struct HomeView: View {
                         }
                     }
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(TaliseColor.surface)
-                )
+                .flatCard(cornerRadius: 20)
             }
         }
     }
@@ -254,11 +251,11 @@ struct HomeView: View {
                 // since it's pegged 1:1 to USD on chain. SUI balance
                 // gets its own sub-line so the user still sees gas
                 // headroom without a "total USD" rollup that can drift
-                // with SUI price.
-                Text(usdsuiFormatted)
-                    .font(TaliseFont.display(34, weight: .medium))
-                    .kerning(-1.2)
-                    .foregroundStyle(TaliseColor.fg)
+                // with SUI price. Big, bold, FLAT hero figure — solid white
+                // dollars with the cents dimmed for the Cash App look.
+                balanceHero
+                    .font(TaliseFont.display(40, weight: .semibold))
+                    .kerning(-1.6)
                     .contentTransition(.numericText())
                     .redacted(reason: loadingBalance ? .placeholder : [])
 
@@ -334,6 +331,21 @@ struct HomeView: View {
     private var usdsuiFormatted: String {
         TaliseFormat.local2(balance?.usdsui ?? 0)
     }
+
+    /// Big bold hero balance with the cents dimmed (Cash App / Robinhood
+    /// look). Splits the formatted figure on the LAST "." so the whole
+    /// fraction reads in `fgMuted` while the integer + currency symbol stay
+    /// in solid `fg`. Falls back to the plain string if there's no decimal.
+    private var balanceHero: Text {
+        let s = usdsuiFormatted
+        guard let dot = s.lastIndex(of: ".") else {
+            return Text(s).foregroundColor(TaliseColor.fg)
+        }
+        let dollars = String(s[..<dot])
+        let cents = String(s[dot...])
+        return Text(dollars).foregroundColor(TaliseColor.fg)
+            + Text(cents).foregroundColor(TaliseColor.fgMuted)
+    }
     
     /// Secondary "0.05 USDsui" line beneath the localized balance.
     /// Always shows the on-chain unit so the user can sanity-check
@@ -354,11 +366,17 @@ struct HomeView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(accented ? TaliseColor.greenMint : TaliseColor.fg)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(accented ? TaliseColor.bg : TaliseColor.fg)
                 .rotationEffect(.degrees(degrees))
-                .frame(width: 40, height: 40)
-                .taliseGlass(cornerRadius: 10, tint: accented ? TaliseColor.greenMint : nil)
+                .frame(width: 44, height: 44)
+                // FLAT solid action pill — primary = solid accent green with
+                // near-black ink; secondary = flat surface2 with fg ink. No
+                // material, blur, gradient, stroke, or shadow.
+                .background(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(accented ? TaliseColor.accent : TaliseColor.surface2)
+                )
         }
         .buttonStyle(.plain)
     }
@@ -367,14 +385,12 @@ struct HomeView: View {
 
     private var usernameCard: some View {
         ZStack(alignment: .topLeading) {
-            // Empty container the glass modifier attaches to. The
-            // 212pt height matches the Figma spec; the glass
-            // treatment (.ultraThinMaterial + dark tint + top
-            // hairline + drop shadow) lives in TaliseGlassCard so
-            // it stays in sync with the bottom nav pill.
+            // Empty container the flat surface attaches to. The 212pt
+            // height matches the Figma spec. FLAT solid card — surface fill,
+            // no material/wash/highlight/gradient edge.
             Color.clear
                 .frame(height: 212)
-                .taliseGlass(cornerRadius: 25)
+                .flatCard(cornerRadius: 25)
             // Branded Sui coin mark in the card's top-right corner.
             // Source PNG is the full-color Sui mark, so we render as
             // original (no template tint). Box bumped 18×24 → 26×26
@@ -544,10 +560,6 @@ struct HomeView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(TaliseColor.surface)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(TaliseColor.line, lineWidth: 1)
-        )
         .redacted(reason: .placeholder)
         .opacity(0.6)
     }
@@ -593,8 +605,14 @@ struct HomeView: View {
             // older loads fresh from the snapshot-backed /api/activity so we
             // never show a days-old feed as Recent. (Bug: stale cache was
             // shown and the cold-launch revalidate didn't replace it.)
+            // History must never be blank on open. Prefer a <2min cache for a
+            // genuinely "recent" feel; otherwise fall back to the newest cache
+            // on disk regardless of age — a slightly stale feed beats an empty
+            // "Recent" card. The live /api/activity load right after this
+            // revalidates and replaces it (immutable history never downgrades).
             if activity.isEmpty,
-               let cached = LocalSnapshotStore.loadActivityIfFresh(userId: uid, maxAgeSec: 2 * 60),
+               let cached = LocalSnapshotStore.loadActivityIfFresh(userId: uid, maxAgeSec: 2 * 60)
+                            ?? LocalSnapshotStore.loadActivity(userId: uid),
                !cached.isEmpty {
                 activity = cached
                 activityHasLoadedOnce = true  // suppress skeleton; show cached rows
@@ -603,7 +621,11 @@ struct HomeView: View {
         }
 
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { await loadBalance() }
+            // Always an authoritative fresh read so a cold/stale display
+            // snapshot can't flash ₦0.00. On pull-to-refresh the native spinner
+            // covers it (silent); on cold open the skeleton shows only if we
+            // had nothing cached to seed above.
+            group.addTask { await loadBalance(fresh: true, silent: force) }
             group.addTask { await loadActivity() }
             // loadSweepPreview() removed: /api/sweep/prepare no longer
             // exists on the backend (404s on every open). The banner +
@@ -621,27 +643,47 @@ struct HomeView: View {
         vaultHasFunds = false
     }
 
-    private func loadBalance() async {
-        loadingBalance = true
-        defer { loadingBalance = false }
+    /// Load the headline balance.
+    ///
+    /// - `fresh`: append `?fresh=1` so the server does an authoritative live
+    ///   gRPC read instead of possibly serving a cold/stale display-only
+    ///   snapshot — that snapshot is exactly what flashed ₦0.00 on a cold open
+    ///   before the real number landed. Cold open, pull-to-refresh, and every
+    ///   post-tx reconcile use this.
+    /// - `silent`: never flip the loading skeleton. We only ever show the
+    ///   skeleton for the FIRST-ever load (nothing on screen yet); whenever we
+    ///   already have a value — a cached seed, an optimistic figure, a prior
+    ///   read — the refresh runs silently underneath the visible number.
+    private func loadBalance(fresh: Bool = false, silent: Bool = false) async {
+        // Loader only when there's genuinely nothing to show yet.
+        let showLoader = !silent && balance == nil
+        if showLoader { loadingBalance = true }
+        defer { if showLoader { loadingBalance = false } }
         do {
-            let fetched: BalancesDTO = try await APIClient.shared.get("/api/balances")
-            balance = fetched
-            // Persist for the next cold launch so the stale-while-
-            // revalidate path can paint real numbers immediately.
-            if let uid = session.currentUser?.id {
-                LocalSnapshotStore.saveBalances(fetched, userId: uid)
+            let path = fresh ? "/api/balances?fresh=1" : "/api/balances"
+            let fetched: BalancesDTO = try await APIClient.shared.get(path)
+            // Never let an all-zero read clobber a non-zero value already on
+            // screen UNLESS this was an authoritative `fresh` read. The
+            // display-only snapshot can momentarily report 0 before the chain
+            // read lands; a genuine zero arrives via the optimistic spend path
+            // or a confirmed fresh read. This kills the "₦0.00 on open" flash.
+            if fetched.totalUsd == 0, !fresh, let cur = balance, cur.totalUsd > 0 {
+                // Keep the current value; the next fresh read corrects it.
+            } else {
+                balance = fetched
+                // Persist for the next cold launch so the stale-while-
+                // revalidate path can paint real numbers immediately.
+                if let uid = session.currentUser?.id {
+                    LocalSnapshotStore.saveBalances(fetched, userId: uid)
+                }
             }
         } catch {
-            // A pull-to-refresh that lands while a prior .task load is
-            // still in flight cancels the older request (-999). Wiping
-            // `balance` on a cancellation would clobber the working
-            // value we already had on screen — the user sees ₦0.00
-            // flash in. Preserve last-known state on cancel; only nil
-            // out for genuine load failures.
-            if !APIError.isCancellation(error) {
-                balance = nil
-            }
+            // Keep the last-known number on screen no matter what — a slightly
+            // stale balance always beats a blank / ₦0.00 card. (Previously a
+            // non-cancellation error nil'd the balance, which IS the
+            // "no balance available on open" downtime we're eliminating.) On a
+            // true first-ever load with no cache, `balance` is already nil, so
+            // the skeleton stays until a read succeeds.
         }
     }
 
@@ -875,36 +917,42 @@ struct HomeView: View {
         // sometimes needs the extra beat. If both passes miss the
         // digest, the optimistic row simply stays on screen (the
         // dedupe filter prevents duplicates).
+        // The optimistic balance adjust above is the "immediate" update the
+        // user sees. We then reconcile against canonical chain state twice —
+        // right now, and again 5s after the tx — both SILENT (no loaders), per
+        // the "auto-refresh balance + history immediately, then again 5s
+        // later, with no spinner" ask.
         let pendingDigest = ev.digest
-        Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            await loadBalance()
-            await loadActivityFresh()
-            // If the server response doesn't yet contain the new tx,
-            // re-prepend the optimistic stub so the user keeps seeing
-            // their action at the top of History.
+        let stub = ActivityEntryDTO(
+            digest: ev.digest,
+            timestampMs: Date().timeIntervalSince1970 * 1000,
+            direction: ev.direction,
+            amountUsdsui: ev.amountUsdsui,
+            amountSui: nil,
+            counterparty: ev.counterparty,
+            counterpartyName: ev.counterpartyName,
+            venue: ev.venue,
+            otherCoin: nil
+        )
+        // Keep the user's just-made action pinned to the top of History until
+        // the fullnode's tx index surfaces the real digest.
+        func pinStubIfMissing() {
             if !activity.contains(where: { $0.digest == pendingDigest }) {
-                let stub = ActivityEntryDTO(
-                    digest: ev.digest,
-                    timestampMs: Date().timeIntervalSince1970 * 1000,
-                    direction: ev.direction,
-                    amountUsdsui: ev.amountUsdsui,
-                    amountSui: nil,
-                    counterparty: ev.counterparty,
-                    counterpartyName: ev.counterpartyName,
-                    venue: ev.venue,
-                    otherCoin: nil
-                )
                 activity = [stub] + activity.filter { $0.digest != ev.digest }
-                // Second reconcile pass — the fullnode index usually
-                // catches up within another 2-3s. After this we stop
-                // retrying so a wedged route can't loop forever.
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
-                await loadActivityFresh()
-                if !activity.contains(where: { $0.digest == pendingDigest }) {
-                    activity = [stub] + activity.filter { $0.digest != ev.digest }
-                }
             }
+        }
+        Task {
+            // 1) Immediate. Balance is current chain state, so a fresh read
+            //    reflects the new figure right away; history may lag the
+            //    fullnode index, so the stub holds the top meanwhile.
+            await loadBalance(fresh: true, silent: true)
+            await loadActivityFresh()
+            pinStubIfMissing()
+            // 2) Again 5s after the tx — the tx index has caught up by now.
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await loadBalance(fresh: true, silent: true)
+            await loadActivityFresh()
+            pinStubIfMissing()
         }
     }
 
@@ -950,13 +998,8 @@ struct HomeView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .taliseGlass(cornerRadius: 18)
-            // Keep the soft accent ring so the sweep CTA still reads as
-            // a green-tinted nudge against the neutral-glass siblings.
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(TaliseColor.accent.opacity(0.18), lineWidth: 1)
-            )
+            // FLAT solid surface plate — no material, wash, or shadow.
+            .flatCard(cornerRadius: 18)
         }
         .buttonStyle(.plain)
         .disabled(sweeping)
@@ -1296,6 +1339,27 @@ struct TaliseTxEvent {
     let counterpartyName: String?
     /// "deepbook" | "navi" — only set for invest/withdraw.
     let venue: String?
+}
+
+/// FLAT card treatment, local to the Home surface. A single solid
+/// `TaliseColor.surface` fill on a continuous rounded rectangle — NO
+/// material, blur, gradient wash, specular highlight, gradient stroke, or
+/// drop shadow. Apple-system clean on the black canvas.
+private struct HomeFlatCard: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(shape.fill(TaliseColor.surface))
+            .clipShape(shape)
+    }
+}
+
+private extension View {
+    func flatCard(cornerRadius: CGFloat = 25) -> some View {
+        modifier(HomeFlatCard(cornerRadius: cornerRadius))
+    }
 }
 
 private struct TaliseLogoMark: View {

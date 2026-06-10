@@ -21,10 +21,15 @@ struct SavingsSuccessView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // One calm hero: the accent checkmark settles in.
+                // One calm hero: the accent checkmark settles in on a FLAT
+                // solid accent-tinted disc — no material, no specular ring.
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 64, weight: .medium))
                     .foregroundStyle(TaliseColor.accent)
+                    .padding(26)
+                    .background(
+                        Circle().fill(TaliseColor.accent.opacity(0.14))
+                    )
                     .scrapbookFadeUp(delay: 0.05)
 
                 Spacer().frame(height: 30)

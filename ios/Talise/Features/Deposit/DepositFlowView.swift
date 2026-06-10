@@ -117,8 +117,8 @@ struct DepositFlowView: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(TaliseColor.fg)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(TaliseColor.surfaceGlass))
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(TaliseColor.surface2))
                 }
             }
             Text("Add money to your Talise wallet.")
@@ -154,8 +154,7 @@ struct DepositFlowView: View {
                 .foregroundStyle(TaliseColor.fg)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
-                .background(Capsule().fill(TaliseColor.surfaceGlassStrong))
-                .overlay(Capsule().stroke(TaliseColor.line, lineWidth: 0.5))
+                .background(Capsule().fill(TaliseColor.surface2))
                 .padding(.bottom, 32)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -234,7 +233,11 @@ private struct FundingPathCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 22)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .opacity(dimmed ? 0.7 : 1.0)
     }
 }
@@ -338,12 +341,7 @@ private struct DepositOnrampView: View {
                     .foregroundStyle(TaliseColor.fg)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 12)
-                    .background(
-                        Capsule().fill(TaliseColor.surfaceGlassStrong)
-                    )
-                    .overlay(
-                        Capsule().stroke(TaliseColor.line, lineWidth: 0.5)
-                    )
+                    .background(Capsule().fill(TaliseColor.surface2))
                     .padding(.bottom, 32)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -356,10 +354,10 @@ private struct DepositOnrampView: View {
     private var iconHero: some View {
         ZStack {
             Circle()
-                .fill(TaliseColor.greenMint.opacity(0.15))
-                .frame(width: 64, height: 64)
+                .fill(TaliseColor.greenMint.opacity(0.16))
+                .frame(width: 72, height: 72)
             Image(systemName: "creditcard.fill")
-                .font(.system(size: 24, weight: .medium))
+                .font(.system(size: 25, weight: .medium))
                 .foregroundStyle(TaliseColor.greenMint)
         }
     }
@@ -436,12 +434,9 @@ private struct DepositOnrampView: View {
                 .font(TaliseFont.heading(13, weight: .medium))
                 .foregroundStyle(isSelected ? TaliseColor.bg : TaliseColor.fg)
                 .frame(maxWidth: .infinity)
-                .frame(height: 40)
+                .frame(height: 42)
                 .background(
-                    Capsule().fill(isSelected ? TaliseColor.fg : TaliseColor.surfaceGlass)
-                )
-                .overlay(
-                    Capsule().stroke(TaliseColor.line, lineWidth: 0.5)
+                    Capsule().fill(isSelected ? TaliseColor.fg : TaliseColor.surface2)
                 )
         }
         .buttonStyle(.plain)

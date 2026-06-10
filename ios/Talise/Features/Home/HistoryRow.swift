@@ -2,14 +2,14 @@ import SwiftUI
 
 /// Single history row. Reused by Home (top 4) and HistoryView (full list).
 ///
-/// Visual treatment is the Liquid Glass card from TaliseGlassCard with
-/// a directional tint stacked over the system material:
-///   • Sent     → small red tint
-///   • Received → small green tint
-///   • Other    → no tint (neutral glass)
+/// FLAT row — the enclosing card supplies the surface; the row itself is
+/// transparent at rest with a flat solid circular icon chip. On press it
+/// picks up a faint directional wash:
+///   • Sent     → small forest-green wash
+///   • Received → small mint-green wash
+///   • Other    → no tint (neutral)
 ///
-/// Tints are intentionally low alpha (~0.10) so the row reads as
-/// "subtly colored glass" against the dark page, not a solid pill.
+/// No material, blur, or gradient — clean Apple-system list row.
 struct HistoryRow: View {
     let entry: ActivityEntryDTO
     let onTap: () -> Void
@@ -35,23 +35,38 @@ struct HistoryRow: View {
         Button(action: onTap) {
             HStack(spacing: 14) {
                 ZStack {
-                    // Tinted directional badge — dusty red for Sent,
-                    // mossy green for Received, accent for Invest. The
-                    // bg is the tint at ~32% over the page bg, the
-                    // arrow is the tint at full saturation so it
-                    // reads as a colored glyph on a colored disc.
+                    // Tinted directional badge — a FLAT solid circular chip.
+                    // Mossy green for Received, forest for Sent, accent for
+                    // Invest. No gradient highlight, no white rim — just a
+                    // clean colored disc.
                     Circle()
                         .fill(badgeBgColor)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 36, height: 36)
                     Image(systemName: iconName)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(badgeFgColor)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(TaliseFont.body(13, weight: .light))
-                        .kerning(-0.48)
-                        .foregroundStyle(TaliseColor.fg)
+                    HStack(spacing: 6) {
+                        Text(title)
+                            .font(TaliseFont.body(13, weight: .light))
+                            .kerning(-0.48)
+                            .foregroundStyle(TaliseColor.fg)
+                        // Cash-out rows carry a small disbursement-status
+                        // pill (Pending / Paid out / Failed) so the user
+                        // can tell at a glance whether the naira has landed.
+                        if let pill = offrampStatusPill {
+                            Text(pill.label)
+                                .font(TaliseFont.body(9, weight: .semibold))
+                                .kerning(0.2)
+                                .foregroundStyle(pill.color)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule().fill(pill.color.opacity(0.16))
+                                )
+                        }
+                    }
                     MicroLabel(text: subtitle, color: TaliseColor.fgDim)
                         .kerning(-0.32)
                     if showsSwapCTA {
@@ -108,6 +123,7 @@ struct HistoryRow: View {
         case invest
         case withdraw
         case autoswap
+        case cashout
         case neutral
     }
 
@@ -118,6 +134,10 @@ struct HistoryRow: View {
     /// `autoswap` (emitted by `VaultAutoSwap` event in the Move
     /// `talise::vault` module). Each gets its own icon + tint.
     private var category: Category {
+        // A fiat off-ramp comes back as direction "sent" (venue "linq") but
+        // we surface it as its own CASH-OUT category so it never reads as an
+        // anonymous on-chain transfer.
+        if entry.offramp != nil { return .cashout }
         switch entry.direction {
         case "received": return .received
         case "invest":   return .invest
@@ -136,12 +156,12 @@ struct HistoryRow: View {
         }
     }
 
-    // Direction now reads through SHADES OF GREEN (no red), matching the
-    // Talise palette: light mint (#CAFFB8) for money-in, a low/forest wash
-    // (#4B8A37) for money-out, the bright accent (#79D96C) for the glyph.
+    // Direction reads by COLOR: RED for money-out (Sent), GREEN for money-in
+    // (Received). Invest / withdraw / auto-swap stay on the brand accent green.
     private var tintColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0x4B8A37)
+        case .sent:     return Color(hex: 0xE5484D)
+        case .cashout:  return Color(hex: 0xE5484D)
         case .received: return Color(hex: 0x79D96C)
         case .invest:   return TaliseColor.accent
         case .withdraw: return Color(hex: 0x79D96C)
@@ -154,8 +174,9 @@ struct HistoryRow: View {
     /// LIGHT mint shade; money-out gets the LOW forest shade.
     private var badgeBgColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0x4B8A37).opacity(0.18)
-        case .received: return Color(hex: 0xCAFFB8).opacity(0.42)
+        case .sent:     return Color(hex: 0xE5484D).opacity(0.16)
+        case .cashout:  return Color(hex: 0xE5484D).opacity(0.16)
+        case .received: return Color(hex: 0x79D96C).opacity(0.20)
         case .invest:   return TaliseColor.accent.opacity(0.20)
         case .withdraw: return Color(hex: 0xCAFFB8).opacity(0.42)
         case .autoswap: return TaliseColor.accent.opacity(0.20)
@@ -167,8 +188,9 @@ struct HistoryRow: View {
     /// a brighter accent green on the low forest wash. Always green-on-green.
     private var badgeFgColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0x79D96C)
-        case .received: return Color(hex: 0x2E5E1F)
+        case .sent:     return Color(hex: 0xFF6B6B)
+        case .cashout:  return Color(hex: 0xFF6B6B)
+        case .received: return Color(hex: 0xCAFFB8)
         case .invest:   return TaliseColor.accent
         case .withdraw: return Color(hex: 0x2E5E1F)
         case .autoswap: return TaliseColor.accent
@@ -178,8 +200,8 @@ struct HistoryRow: View {
 
     private var tintAlpha: Double {
         switch category {
-        case .sent, .received, .invest, .withdraw, .autoswap: return 0.18
-        case .neutral:                                         return 0
+        case .sent, .cashout, .received, .invest, .withdraw, .autoswap: return 0.18
+        case .neutral:                                                  return 0
         }
     }
 
@@ -191,6 +213,7 @@ struct HistoryRow: View {
     private var iconName: String {
         switch category {
         case .sent:     return "arrow.up.right"
+        case .cashout:  return "building.columns"
         case .received: return "arrow.down.left"
         case .invest:   return "leaf.fill"
         case .withdraw: return "leaf"
@@ -202,7 +225,35 @@ struct HistoryRow: View {
         }
     }
 
+    /// Small disbursement-status pill for cash-out rows. Nil when the row
+    /// isn't a cash-out, or when the payout is already settled (a "Paid out"
+    /// pill on a done payout is noise — the red naira amount already reads
+    /// as a completed outflow). Only surfaces Pending / Failed.
+    private var offrampStatusPill: (label: String, color: Color)? {
+        guard let off = entry.offramp else { return nil }
+        // Linq statuses are free text ("Settled in treasury", "disbursed",
+        // "processing: in bank queue", "timeout: no deposit received"…), so
+        // substring-match rather than exact-match.
+        let s = off.status.lowercased()
+        if s.contains("disburse") || s.contains("settled") || s.contains("complete")
+            || s.contains("success") || s.contains("paid") {
+            return nil // done — the red naira amount already reads as a completed outflow
+        }
+        if s.contains("timeout") || s.contains("fail") || s.contains("error")
+            || s.contains("cancel") || s.contains("reject") || s.contains("declin") {
+            return ("Failed", Color(hex: 0xE5484D))
+        }
+        return ("Pending", Color(hex: 0xD9A441))
+    }
+
     private var title: String {
+        // Fiat cash-out takes priority over every other classification.
+        if let off = entry.offramp {
+            if let bank = off.bankName, !bank.isEmpty {
+                return "Cash out \u{2192} \(bank)"
+            }
+            return "Cash out"
+        }
         // Non-USDsui/non-SUI rows (WAL, USDC, USDT, …) override the
         // default "Sent"/"Received" so the row clearly shows the coin.
         if let other = entry.otherCoin {
@@ -212,6 +263,9 @@ struct HistoryRow: View {
         }
         switch category {
         case .sent:     return "Sent"
+        // Unreachable — the offramp guard above returns first — but the
+        // switch must stay exhaustive.
+        case .cashout:  return "Cash out"
         case .received: return "Received"
         case .invest:
             if let v = entry.venue, !v.isEmpty {
@@ -245,6 +299,16 @@ struct HistoryRow: View {
     }
 
     private var subtitle: String {
+        // Cash-out rows show the destination bank + masked account instead
+        // of a relative timestamp — the "where the money went" matters more
+        // than "when" on a payout.
+        if let off = entry.offramp {
+            let bank = (off.bankName?.isEmpty == false) ? off.bankName! : "Bank"
+            if let last4 = off.accountLast4, !last4.isEmpty {
+                return "\(bank) \u{2022}\u{2022}\u{2022}\u{2022}\(last4)"
+            }
+            return bank
+        }
         let date = Date(timeIntervalSince1970: entry.timestampMs / 1000)
         let fmt = RelativeDateTimeFormatter()
         fmt.unitsStyle = .abbreviated
@@ -255,12 +319,20 @@ struct HistoryRow: View {
     /// received credit is green and a debit is neutral); auto-swap is a
     /// net-neutral conversion so it stays neutral, not green.
     private var amountColor: Color {
+        // Cash-out is money leaving the wallet for a bank — render the
+        // naira payout in the SENT red so it reads as an outflow.
+        if category == .cashout { return Color(hex: 0xE5484D) }
         if category == .autoswap { return TaliseColor.fg }
         let isInflow = entry.isReceived || entry.isWithdraw
         return isInflow ? Color(hex: 0x4FB35E) : TaliseColor.fg
     }
 
     private var amountFormatted: String {
+        // Cash-out shows the NGN payout the user actually received, not
+        // the USDsui debit — "−₦142,350.00".
+        if let off = entry.offramp {
+            return "\u{2212}\(TaliseFormat.ngn(off.amountNgn))"
+        }
         // Auto-swap & manual swap are net-neutral economically — one
         // coin in, a different coin out. We render BOTH legs of the
         // transformation ("0.1 SUI → ₦139.59") so the row reads as

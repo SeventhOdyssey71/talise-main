@@ -32,7 +32,7 @@ struct LiquidGlassPill: View {
             .frame(height: compact ? 24 : 30)
             .background(
                 ZStack {
-                    // Flat solid capsule — no blur, no shadow.
+                    // Flat dark surface capsule — no material, no blur.
                     Capsule().fill(TaliseColor.surface2)
                     if let tint {
                         Capsule().fill(tint.opacity(0.18))

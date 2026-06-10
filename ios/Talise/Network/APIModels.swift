@@ -93,9 +93,49 @@ struct RecipientResolution: Codable {
     let displayName: String?
     let display: String?
     let source: String?
+    /// Off-ramp Phase 3: present when the resolved recipient has a primary
+    /// Nigerian bank account linked to their @handle. Nil for recipients
+    /// with no primary bank (Send then works exactly as before — no toggle).
+    /// Optional so older endpoints and address-only resolutions decode
+    /// cleanly without this field.
+    let recipientBank: RecipientBank?
+
+    /// Explicit initializer so the call sites that build a resolution by
+    /// hand (contact picks, raw-address fast-paths) don't have to pass the
+    /// new `recipientBank` field — it defaults to nil there, which is
+    /// correct (those paths carry no bank info). The server-decoded path
+    /// still populates it via Codable.
+    init(address: String, displayName: String?, display: String?, source: String?, recipientBank: RecipientBank? = nil) {
+        self.address = address
+        self.displayName = displayName
+        self.display = display
+        self.source = source
+        self.recipientBank = recipientBank
+    }
 
     var displayString: String {
         displayName ?? display ?? address
+    }
+}
+
+/// Summary of the recipient's PRIMARY linked bank account. We surface only
+/// the bank name + last4 — never the full account number — so the sender
+/// can recognise the destination ("GTBank ••••1234") without seeing PII.
+struct RecipientBank: Codable, Hashable {
+    let hasPrimary: Bool
+    let bankName: String?
+    let last4: String?
+
+    /// "GTBank ••••1234" / "Their bank" fallback when the label is sparse.
+    var label: String {
+        let name = (bankName ?? "").trimmingCharacters(in: .whitespaces)
+        let tail = (last4 ?? "").trimmingCharacters(in: .whitespaces)
+        switch (name.isEmpty, tail.isEmpty) {
+        case (false, false): return "\(name) ••••\(tail)"
+        case (false, true):  return name
+        case (true, false):  return "••••\(tail)"
+        case (true, true):   return "their bank"
+        }
     }
 }
 
@@ -126,11 +166,33 @@ struct ActivityEntryDTO: Codable, Identifiable {
     /// precision on the wire. Optional so older API responses that
     /// pre-date this field decode without a custom init(from:).
     let otherCoin: ActivityOtherCoin?
+    /// Present on USDsui→fiat bank cash-out rows. When non-nil the row is
+    /// a fiat off-ramp (Linq) and should render as a "Cash out" — the
+    /// NGN payout, destination bank, and disbursement status — rather than
+    /// an anonymous on-chain "Sent". Optional so existing rows (which omit
+    /// it) keep decoding unchanged. Defaults to nil so the synthesized
+    /// memberwise initializer used by optimistic stubs in HomeView compiles
+    /// without threading an `offramp:` argument through every call site.
+    var offramp: OfframpInfo? = nil
 
     var id: String { digest }
     var isReceived: Bool { direction == "received" }
     var isInvest: Bool { direction == "invest" }
     var isWithdraw: Bool { direction == "withdraw" }
+}
+
+/// Fiat off-ramp metadata for a cash-out activity row. The server attaches
+/// this to USDsui→NGN bank disbursements (direction "sent", venue "linq").
+struct OfframpInfo: Codable, Hashable {
+    let provider: String
+    let amountNgn: Double
+    let bankName: String?
+    let accountLast4: String?
+    /// Linq order status: disbursed/settled/completed = paid out;
+    /// timeout/failed = failed; anything else = still pending.
+    let status: String
+    let rate: Double
+    let orderId: String
 }
 
 struct ActivityOtherCoin: Codable, Hashable {

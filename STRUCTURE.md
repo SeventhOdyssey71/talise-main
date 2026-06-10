@@ -9,6 +9,12 @@ import. So the split is documented, not physical.
 |---|---|
 | **frontend** | `web/app/`*(pages)* · `web/components/` · `web/emails/` · `web/public/` |
 | **backend**  | `web/app/api/` · `web/lib/` · `web/middleware.ts` |
+
+> Only the marketing surface (`/`, `/waitlist`, `/litepaper`) ships to production. The
+> web wallet/business/admin/link pages (`web/app/app/**`, `business/`, `admin/`, `c/`,
+> `i/`, `pay/`, `u/`) run in local dev and are **gitignored** (see `.gitignore`); the
+> shared `web/app/api/**` + `web/app/auth/**` routes they call STAY tracked — the iOS app
+> and the waitlist depend on that live backend.
 | **app**      | `ios/` — SwiftUI client (+ `ios/SuiGrpcKit/`) |
 | **server**   | `onara/` — Cloudflare Worker gas sponsor · `infra/` — zkLogin prover ops |
 | **docs**     | `docs/` — see `docs/architecture/codebase-structure.md` for the full map |

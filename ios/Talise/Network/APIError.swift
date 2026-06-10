@@ -61,6 +61,40 @@ enum APIError: Error, LocalizedError {
         }
     }
 
+    /// Honest fallback for the GENERIC catch in money flows — translate the
+    /// real underlying error into a short, true reason instead of a blanket
+    /// "couldn't do it right now" line. Inspects the error's text for the
+    /// known failure modes (gas sponsor exhausted / insufficient balance) and
+    /// otherwise surfaces a trimmed real message (never an HTML/stack blob).
+    ///
+    /// Pass `fallback` for the rare case the message is unusable (HTML page,
+    /// empty, or a giant blob) so each call site keeps its own neutral copy.
+    static func honestMoneyError(_ error: Error, fallback: String) -> String {
+        let raw = (error.localizedDescription.isEmpty
+            ? "\(error)"
+            : error.localizedDescription)
+        let lower = raw.lowercased()
+
+        // Gas sponsor / Onara budget exhausted, or upstream gas station down.
+        if lower.contains("gas") || lower.contains("sponsor")
+            || lower.contains("insufficient gas") || lower.contains("no_healthy_upstream")
+            || lower.contains("budget") {
+            return "Payments are briefly paused — please try again in a moment."
+        }
+        // Wallet balance — only when it's NOT a gas message (handled above).
+        if lower.contains("balance") || lower.contains("insufficient") {
+            return "You don't have enough USDsui for this."
+        }
+        // Otherwise: a trimmed, true message — never markup or a stack blob.
+        if let safe = safeMessage(raw), safe.count <= 120 {
+            return safe
+        }
+        if !raw.isEmpty, !lower.hasPrefix("<"), raw.count <= 120 {
+            return raw
+        }
+        return fallback
+    }
+
     private static func safeMessage(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         // Anything starting with markup is almost certainly a 404 page.

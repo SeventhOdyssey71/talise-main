@@ -176,7 +176,11 @@ struct ConfirmPaymentSheet: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .taliseGlass(cornerRadius: 22)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     /// Initials monogram in a green disc — derived from the resolved display
@@ -185,8 +189,6 @@ struct ConfirmPaymentSheet: View {
         ZStack {
             Circle()
                 .fill(TaliseColor.accent.opacity(0.18))
-            Circle()
-                .stroke(TaliseColor.accent.opacity(0.5), lineWidth: 1)
             Text(monogram)
                 .font(TaliseFont.heading(17, weight: .semibold))
                 .foregroundStyle(TaliseColor.accent)

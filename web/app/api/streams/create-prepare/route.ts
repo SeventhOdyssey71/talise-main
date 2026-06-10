@@ -6,16 +6,8 @@ import { userById, db } from "@/lib/db";
 import { checkSendAllowed, recordSend } from "@/lib/send-limits";
 import { resolveRecipient } from "@/lib/suins";
 import { screenTransfer } from "@/lib/screening";
-import { Transaction } from "@mysten/sui/transactions";
-import { toBase64 } from "@mysten/sui/utils";
-import { sui } from "@/lib/sui";
-import { USDSUI_TYPE } from "@/lib/usdsui";
-import { getCurrentEpoch, getChainIdentifier } from "@/lib/sui-epoch";
 import {
   ensureStreamsSchema,
-  streamEscrowEnabled,
-  streamEscrowAddress,
-  buildSponsoredStreamFunding,
   streamOnchainEnabled,
   buildStreamCreateSponsored,
 } from "@/lib/streams";
@@ -80,13 +72,17 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!streamEscrowEnabled()) {
-    // Degrade cleanly when the escrow keypair isn't configured.
+  // Streaming is now the ON-CHAIN, Clock-based rail only — the escrow +
+  // scheduler (cron) rail is retired. A stream is a real Stream<USDSUI> Move
+  // object; the recipient pulls accrued tranches via stream::claim_accrued.
+  // So availability is gated on STREAM_PACKAGE_ID/REGISTRY_ID, not the (now
+  // unused) escrow keypair.
+  if (!streamOnchainEnabled()) {
     return NextResponse.json(
       {
         error:
           "Streaming payments aren't available right now. Please try again later.",
-        code: "STREAM_ESCROW_DISABLED",
+        code: "STREAM_ONCHAIN_REQUIRED",
       },
       { status: 503 }
     );
@@ -272,16 +268,12 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── Build the funding PTB. PREFERRED rail: gasless USDsui send of the FULL
-  // amount from the sender's accumulator → the escrow address (same shape as
-  // the gasless branch of /api/send/sponsor-prepare). On a categorized
-  // gasless failure (Coin-only balance / accumulator underfunded / withdraw
-  // reservation / InsufficientGas) we fall through to the SPONSORED rail
-  // below, which sources from Coin<USDSUI> objects via Onara sponsorship.
-  const escrowAddress = streamEscrowAddress();
+  // ── Build the funding PTB. Streaming is on-chain only now: the funding tx
+  // is a SPONSORED `stream::create<USDSUI>` Move call (built below) that
+  // shares a real Stream<USDSUI> object holding the escrow Balance. Funds live
+  // in the Stream object, so there's no escrow address in the plan payload.
   const startMs = Date.now();
   const planPayload = {
-    escrowAddress,
     recipient: { address: recipientAddress, displayName: resolved.displayName },
     plan: {
       totalUsd,
@@ -294,202 +286,56 @@ export async function POST(req: Request) {
     },
   };
 
-  // ── ON-CHAIN PATH (gated behind STREAM_PACKAGE_ID via streamOnchainEnabled).
-  // When the published `talise::stream` contract is wired, the funding tx is a
-  // SPONSORED `stream::create<USDSUI>` Move call that withdraws the full amount
-  // from the user's accumulator (tx.balance) and shares a real Stream<USDSUI>
-  // object holding the escrow Balance. A custom Move call is NOT gasless-
-  // eligible, so this is Onara-sponsored (the user signs, Onara pays gas) and
-  // returned with mode 'onchain'. /api/streams/record parses the created
-  // Stream object id from the confirmed funding digest and stores it as the
-  // stream's id. The escrow + scheduler path below stays UNCHANGED as the
-  // fallback when the contract isn't configured.
-  if (streamOnchainEnabled()) {
-    try {
-      const { bytes: onchainBytes } = await buildStreamCreateSponsored({
-        senderAddress: user.sui_address,
-        recipientAddress,
-        totalMicros,
-        trancheMicros,
-        numTranches,
-        startMs,
-        intervalMs,
-      });
-
-      // Reserve the FULL amount against the rolling limit window (best-effort).
-      void recordSend({ userId, amountUsd: totalUsd, asset: "USDsui", digest: null });
-
-      return NextResponse.json({
-        bytes: onchainBytes,
-        mode: "onchain",
-        ...planPayload,
-      });
-    } catch (err) {
-      const msg = (err as Error).message ?? "build failed";
-      console.error(
-        `[streams/create-prepare] on-chain create build failed user=${userId}: ${msg}`
-      );
-      // A genuine insufficient accumulator balance can't be rescued (the
-      // create funds arg pulls from the same accumulator) → clean 400.
-      if (/insufficient/i.test(msg)) {
-        return NextResponse.json(
-          {
-            error:
-              "Insufficient USDsui balance to fund this stream. Top up and try again.",
-            detail: msg,
-            code: "INSUFFICIENT_BALANCE",
-          },
-          { status: 400 }
-        );
-      }
-      return NextResponse.json(
-        {
-          error: "Couldn't prepare the stream. Please try again.",
-          detail: msg,
-        },
-        { status: 500 }
-      );
-    }
-  }
-
+  // ── ON-CHAIN funding (the only rail). The funding tx is a SPONSORED
+  // `stream::create<USDSUI>` Move call that withdraws the full amount from the
+  // user's accumulator (tx.balance) and shares a real Stream<USDSUI> object
+  // holding the escrow Balance. A custom Move call is NOT gasless-eligible, so
+  // this is Onara-sponsored (the user signs, Onara pays gas) and returned with
+  // mode 'onchain'. /api/streams/record parses the created Stream object id
+  // from the confirmed funding digest and stores it as the stream's id.
+  // (Availability is gated on streamOnchainEnabled() at the top of the route.)
   try {
-    const client = sui();
-    const tx = new Transaction();
-    tx.setSender(user.sui_address);
-    tx.moveCall({
-      target: "0x2::balance::send_funds",
-      typeArguments: [USDSUI_TYPE],
-      arguments: [
-        tx.balance({ type: USDSUI_TYPE, balance: totalMicros }),
-        tx.pure.address(escrowAddress),
-      ],
+    const { bytes: onchainBytes } = await buildStreamCreateSponsored({
+      senderAddress: user.sui_address,
+      recipientAddress,
+      totalMicros,
+      trancheMicros,
+      numTranches,
+      startMs,
+      intervalMs,
     });
-    tx.setGasPrice(0n);
-    tx.setGasBudget(0n);
-
-    const [chainId, currentEpoch] = await Promise.all([
-      getChainIdentifier(),
-      getCurrentEpoch(),
-    ]);
-    const epochBig = BigInt(currentEpoch);
-    tx.setExpiration({
-      ValidDuring: {
-        minEpoch: String(epochBig),
-        maxEpoch: String(epochBig + 1n),
-        minTimestamp: null,
-        maxTimestamp: null,
-        chain: chainId,
-        nonce: (Math.random() * 4294967296) >>> 0,
-      },
-    });
-    tx.setGasPayment([]);
-
-    const bytes = await tx.build({ client: client as never });
-
-    // Explicit simulate to preserve prepare-time categorization (underfunded
-    // accumulator, dust rule) — never hand iOS bytes the validator rejects.
-    const sim = (await client.simulateTransaction({
-      transaction: bytes,
-      include: { effects: true },
-    } as never)) as {
-      $kind?: string;
-      FailedTransaction?: {
-        effects?: {
-          status?: { error?: { description?: string; message?: string } } | string;
-        };
-      };
-    };
-    if (sim.$kind !== "Transaction") {
-      const status = sim?.FailedTransaction?.effects?.status;
-      const reason =
-        (typeof status === "object" && status?.error
-          ? status.error.description ?? status.error.message
-          : undefined) ??
-        (typeof status === "string" ? status : JSON.stringify(status ?? sim.$kind));
-      throw new Error(`stream funding simulate rejected: ${reason}`);
-    }
 
     // Reserve the FULL amount against the rolling limit window (best-effort).
     void recordSend({ userId, amountUsd: totalUsd, asset: "USDsui", digest: null });
 
     return NextResponse.json({
-      bytes: toBase64(bytes),
-      mode: "gasless",
+      bytes: onchainBytes,
+      mode: "onchain",
       ...planPayload,
     });
   } catch (err) {
     const msg = (err as Error).message ?? "build failed";
-    console.warn(`[streams/create-prepare] gasless funding failed user=${userId}: ${msg}`);
-
-    // A GENUINE insufficient balance can't be rescued by the sponsored rail
-    // either (Onara's coinWithBalance sources the same USDsui), so surface a
-    // clean 400 instead of falling through. Mirrors sponsor-prepare, which
-    // 400s on `insufficient balance` before any fall-through.
-    if (/insufficient balance/i.test(msg)) {
+    console.error(
+      `[streams/create-prepare] on-chain create build failed user=${userId}: ${msg}`
+    );
+    // A genuine insufficient accumulator balance can't be rescued (the
+    // create funds arg pulls from the same accumulator) → clean 400.
+    if (/insufficient/i.test(msg)) {
       return NextResponse.json(
         {
-          error: "Insufficient USDsui balance to fund this stream. Top up and try again.",
+          error:
+            "Insufficient USDsui balance to fund this stream. Top up and try again.",
           detail: msg,
           code: "INSUFFICIENT_BALANCE",
         },
         { status: 400 }
       );
     }
-
-    // Categorized gasless dead-ends (Coin-only balance / accumulator
-    // underfunded / withdraw reservation / InsufficientGas) → SPONSORED
-    // fallback. The sender's USDsui exists but lives in Coin<USDSUI> objects
-    // the gasless accumulator rail can't reach; Onara-sponsored
-    // coinWithBalance({useGasCoin:false}) CAN source it.
-    if (/withdraw reservation|accumulator|InsufficientGas|insufficient/i.test(msg)) {
-      try {
-        const { bytes: sponsoredBytes } = await buildSponsoredStreamFunding({
-          senderAddress: user.sui_address,
-          totalMicros,
-        });
-
-        console.warn(
-          `[streams/create-prepare] gasless unreachable for user=${userId} (Coin-only/underfunded accumulator); funding via sponsored fallback. detail=${msg.slice(0, 200)}`
-        );
-
-        // Reserve the FULL amount against the rolling limit window (best-effort).
-        void recordSend({ userId, amountUsd: totalUsd, asset: "USDsui", digest: null });
-
-        return NextResponse.json({
-          bytes: sponsoredBytes,
-          mode: "sponsored",
-          ...planPayload,
-        });
-      } catch (sErr) {
-        const sMsg = (sErr as Error).message ?? "sponsored build failed";
-        console.error(
-          `[streams/create-prepare] SPONSORED fallback failed user=${userId}: ${sMsg}`
-        );
-        // If even the sponsored build can't source the funds, it's a real
-        // insufficient-balance (or sponsor outage) → clean 400.
-        if (/insufficient/i.test(sMsg)) {
-          return NextResponse.json(
-            {
-              error:
-                "Insufficient USDsui balance to fund this stream. Top up and try again.",
-              detail: sMsg,
-              code: "INSUFFICIENT_BALANCE",
-            },
-            { status: 400 }
-          );
-        }
-        return NextResponse.json(
-          {
-            error: "Couldn't prepare the stream funding. Please try again.",
-            detail: sMsg,
-          },
-          { status: 500 }
-        );
-      }
-    }
-
     return NextResponse.json(
-      { error: "Couldn't prepare the stream funding. Please try again.", detail: msg },
+      {
+        error: "Couldn't prepare the stream. Please try again.",
+        detail: msg,
+      },
       { status: 500 }
     );
   }

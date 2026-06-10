@@ -11,7 +11,7 @@ import SwiftUI
 /// caller via `TaliseFormat.local2`, e.g. "$65.00".
 ///
 /// Design tokens (Figma get_design_context, node 141:18):
-///   bg              black + green glow blob (SuccessGlowBackground)
+///   bg              flat black (glow blob retired with glassmorphism)
 ///   amount          DM Sans 75 / regular / #B1F49A / tracking -1.5
 ///   title           DM Sans 25 / medium / #B1F49A / tracking -0.5
 ///   subtitle        JetBrains Mono 13 / regular / white / tracking -0.26
@@ -35,7 +35,9 @@ struct SuccessfulTxView: View {
 
     var body: some View {
         ZStack {
-            SuccessGlowBackground()
+            // Flat black canvas — the radial green glow + blur bloom was
+            // retired with the rest of the glassmorphism.
+            TaliseColor.bg.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 Spacer()
@@ -92,7 +94,8 @@ struct SuccessfulTxView: View {
                         .kerning(-0.3)
                         .foregroundStyle(.white)
                         .frame(width: 158, height: 41)
-                        .background(Capsule().fill(Color.white.opacity(0.2)))
+                        .background(Capsule().fill(TaliseColor.surface2))
+                        .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
 

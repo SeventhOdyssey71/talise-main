@@ -1,50 +1,32 @@
 import SwiftUI
 
-/// Modifier that applies a Liquid Glass backdrop to `.sheet` presentations.
+/// Modifier that applies a FLAT solid backdrop to `.sheet` presentations.
 /// Apply on the sheet's *root* view (not the parent presenting the sheet).
-///
-/// Layering, outer → inner:
-///   transparent presentation > material > dark tint > top specular stroke > TopGlow accent
+/// Glassmorphism retired — name + `accent` param kept for source
+/// compatibility; the sheet is now a clean opaque panel.
 ///
 /// What it does:
 /// - Hides the default sheet background (`.presentationBackground(.clear)`)
-///   so we can layer our own. Falls back to the system material on older
-///   OS variants where the API is unavailable.
-/// - Paints the page with `.ultraThinMaterial` over `Color.black.opacity(0.45)`
-///   so the sheet still reads as glass on a black presenting view.
-/// - Adds a thin white top hairline to mark the sheet's grabber edge —
-///   same specular language as the bottom nav pill and `taliseGlass`.
-/// - Optional `accent` paints a TopGlow-style wash near the top of the
-///   sheet so the sheet feels "lit" from above like the rest of the app.
+///   so we can paint our own solid surface.
+/// - Paints the page with the flat `TaliseColor.surface` fill — no material,
+///   no blur, no bloom.
+/// - Adds one faint `TaliseColor.line` hairline at the sheet's top edge.
+/// - `accent` is ignored (retained only so existing call sites compile).
 struct LiquidGlassSheet: ViewModifier {
     var accent: Color? = TaliseColor.accent
 
     func body(content: Content) -> some View {
-        content
+        // `accent` is retained in the signature for source compatibility but
+        // no longer paints a bloom — the sheet is a flat solid surface.
+        _ = accent
+        return content
             .background(
-                ZStack(alignment: .top) {
-                    // Solid opaque sheet surface — NO blur material. The sheet
-                    // reads as a flat panel, not frosted glass.
-                    Rectangle().fill(TaliseColor.bg)
-                    if let accent {
-                        // Quiet flat top wash (no blur) — a faint "lit from
-                        // above" green tint matching the screens' TopGlow.
-                        LinearGradient(
-                            colors: [accent.opacity(0.10), .clear],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(height: 240)
-                        .frame(maxWidth: .infinity, alignment: .top)
-                        .allowsHitTesting(false)
-                    }
-                }
-                .ignoresSafeArea()
+                // Solid flat sheet surface — no material, no blur, no bloom.
+                TaliseColor.surface.ignoresSafeArea()
             )
             .overlay(alignment: .top) {
-                // Faint flat hairline at the sheet's top edge (grabber line).
-                Rectangle()
-                    .fill(TaliseColor.line)
+                // One faint flat hairline at the sheet's top edge.
+                TaliseColor.line
                     .frame(height: 1)
                     .allowsHitTesting(false)
             }

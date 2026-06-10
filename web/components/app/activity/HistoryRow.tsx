@@ -1,5 +1,7 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { BankIcon } from "@hugeicons/core-free-icons";
 import { useCurrency } from "@/components/app";
 import { DirectionBadge } from "./DirectionBadge";
 import {
@@ -12,19 +14,20 @@ import {
   isInflow,
   otherCoinOf,
   formatCoinAmount,
+  offrampOf,
+  offrampState,
+  offrampChipLabel,
+  offrampBankLine,
+  formatNgn,
 } from "./types";
 
 /**
- * One activity row. A clean white→faint-mint lifted card at rest; on
- * hover/press it picks up a faint directional tint (warm red = sent,
- * forest = received/withdraw/invest/swap) and an accent-tinted hairline,
- * via the `.talise-history-row` rule in globals.css. The whole row is a
- * button that opens the receipt sheet.
+ * One activity row. Borderless at rest; on hover it picks up a faint
+ * directional fill (warm red = sent, forest = received/invest/swap) via the
+ * `.talise-history-row` rule in globals.css.
  *
- * Layout is responsive without a media query: the badge + title/subtitle
- * stack flexes left, the amount sits hard-right with tabular numerals, so it
- * reads as a comfortable wide list row on desktop and a stacked card on
- * mobile.
+ * Wise-style layout: circular direction chip (size-9, accent-soft disc) left,
+ * title + grey sublabel middle, big tabular amount right.
  */
 export function HistoryRow({
   row,
@@ -35,32 +38,100 @@ export function HistoryRow({
 }) {
   const { formatLocal } = useCurrency();
   const category = categoryOf(row);
-  const sub = counterpartyLabel(row);
   const time = relativeTime(row.timestampMs);
+  const offramp = offrampOf(row);
+
+  if (offramp) {
+    const chip =
+      offrampState(offramp.status) === "done"
+        ? null
+        : offrampChipLabel(offramp.status);
+    const bank = offramp.bankName?.trim();
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        data-direction="sent"
+        className="talise-history-row group relative flex w-full items-center gap-3 px-3 py-3 text-left transition-[transform,background-color,border-color] duration-150 ease-out active:scale-[0.995]"
+      >
+        {/* Bank/withdraw chip — warm danger disc (money out) */}
+        <span
+          className="flex size-9 shrink-0 items-center justify-center rounded-full"
+          style={{ background: "color-mix(in srgb, #c95a4a 16%, #ffffff)" }}
+        >
+          <HugeiconsIcon icon={BankIcon} size={17} color="#b3473b" strokeWidth={2} />
+        </span>
+
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span
+            className="truncate text-[14px] font-medium text-fg"
+            style={{ letterSpacing: "-0.01em" }}
+          >
+            {bank ? `Cash out → ${bank}` : "Cash out"}
+          </span>
+          <span className="flex min-w-0 items-center gap-1 text-[12px] text-fg-dim">
+            <span className="truncate">{offrampBankLine(offramp)}</span>
+            <span className="opacity-40">·</span>
+            <span className="shrink-0">{time}</span>
+          </span>
+        </span>
+
+        <span className="flex shrink-0 flex-col items-end gap-1 pl-2">
+          <span
+            className="whitespace-nowrap text-[15px] font-semibold tabular-nums"
+            style={{ color: "var(--color-danger)", letterSpacing: "-0.02em" }}
+          >
+            −{formatNgn(offramp.amountNgn)}
+          </span>
+          {chip && (
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+              style={
+                offrampState(offramp.status) === "failed"
+                  ? {
+                      color: "var(--color-danger)",
+                      background:
+                        "color-mix(in srgb, var(--color-danger) 12%, transparent)",
+                    }
+                  : { color: "var(--color-fg-muted)", background: "var(--color-surface-2)" }
+              }
+            >
+              {chip}
+            </span>
+          )}
+        </span>
+      </button>
+    );
+  }
+
+  const sub = counterpartyLabel(row);
 
   return (
     <button
       type="button"
       onClick={onOpen}
       data-direction={directionAttr(category)}
-      className="talise-history-row group relative flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-[transform,background-color,border-color] duration-200 ease-out active:scale-[0.995] sm:px-5"
+      className="talise-history-row group relative flex w-full items-center gap-3 px-3 py-3 text-left transition-[transform,background-color,border-color] duration-150 ease-out active:scale-[0.995]"
     >
-      <span className="relative flex min-w-0 flex-1 items-center gap-3.5">
-        <DirectionBadge category={category} />
-        <span className="flex min-w-0 flex-col gap-0.5">
-          <span
-            className="truncate text-[14px] font-medium text-fg"
-            style={{ letterSpacing: "-0.01em" }}
-          >
-            {titleOf(row)}
-          </span>
-          <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-fg-dim">
-            {sub && <span className="truncate">{sub}</span>}
-            {sub && <span className="text-fg-dim/50">·</span>}
-            <span className="shrink-0">{time}</span>
-          </span>
+      {/* Direction chip — circular, size-9 (36px) */}
+      <DirectionBadge category={category} />
+
+      {/* Title + sublabel */}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span
+          className="truncate text-[14px] font-medium text-fg"
+          style={{ letterSpacing: "-0.01em" }}
+        >
+          {titleOf(row)}
+        </span>
+        <span className="flex min-w-0 items-center gap-1 text-[12px] text-fg-dim">
+          {sub && <span className="truncate">{sub}</span>}
+          {sub && <span className="opacity-40">·</span>}
+          <span className="shrink-0">{time}</span>
         </span>
       </span>
+
+      {/* Amount — tabular, semibold for inflow (forest), medium for outflow (ink) */}
       <span className="relative shrink-0 pl-2">
         <Amount row={row} formatLocal={formatLocal} />
       </span>
@@ -69,9 +140,8 @@ export function HistoryRow({
 }
 
 /**
- * Map the visual category onto the `data-direction` contract consumed by
- * `.landing-mint .talise-history-row` in globals.css (sent → warm red tint;
- * received/withdraw/invest/swap → forest tint). Swap rides the invest tint.
+ * Map category onto the `data-direction` attribute consumed by the
+ * `.app-clean .talise-history-row` hover rules in globals.css.
  */
 function directionAttr(
   category: Category
@@ -127,8 +197,10 @@ function Amount({
   }
 
   const inflow = isInflow(row);
-  const prefix = inflow ? "+" : "-";
+  const prefix = inflow ? "+" : "−";
+  // Inflow = forest green (positive credit); outflow = ink (neutral debit)
   const color = inflow ? "text-accent" : "text-fg";
+  const weight = "font-semibold";
 
   let text: string;
   if (coin && coin.symbol.toUpperCase() !== "USDSUI") {
@@ -143,7 +215,7 @@ function Amount({
 
   return (
     <span
-      className={`whitespace-nowrap text-[15px] font-medium tabular-nums ${color}`}
+      className={`whitespace-nowrap text-[15px] tabular-nums ${weight} ${color}`}
       style={{ letterSpacing: "-0.02em" }}
     >
       {text}

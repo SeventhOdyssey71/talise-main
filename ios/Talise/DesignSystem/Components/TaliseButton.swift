@@ -62,44 +62,44 @@ struct TaliseButton: View {
             .frame(maxWidth: .infinity)
             .frame(height: size.height)
             .padding(.horizontal, size.hPadding)
-            .background(background)
-            .overlay(
-                RoundedRectangle(cornerRadius: TaliseRadius.sm)
-                    .stroke(border, lineWidth: 1)
+            .background(
+                ZStack {
+                    let shape = RoundedRectangle(cornerRadius: TaliseRadius.sm, style: .continuous)
+                    switch variant {
+                    case .primary:
+                        // The confident green CTA — solid forest fill.
+                        shape.fill(TaliseColor.greenDeep)
+                    case .danger:
+                        shape.fill(TaliseColor.danger)
+                    case .secondary:
+                        // Flat dark surface.
+                        shape.fill(TaliseColor.surface2)
+                    case .ghost:
+                        shape.fill(Color.clear)
+                    }
+                }
             )
-            .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.sm))
+            .overlay(
+                // One faint hairline only on the flat secondary surface.
+                RoundedRectangle(cornerRadius: TaliseRadius.sm, style: .continuous)
+                    .strokeBorder(TaliseColor.line, lineWidth: variant == .secondary ? 1 : 0)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: TaliseRadius.sm, style: .continuous))
             .opacity(loading ? 0.85 : 1.0)
         }
         .buttonStyle(.plain)
         .disabled(loading)
     }
 
-    private var background: Color {
-        switch variant {
-        case .primary: return TaliseColor.fg
-        case .secondary: return TaliseColor.surface
-        case .ghost: return .clear
-        case .danger: return TaliseColor.danger
-        }
-    }
-
     private var foreground: Color {
         switch variant {
-        case .primary: return TaliseColor.bg
+        case .primary: return Color(hex: 0xF2FFEC)   // near-white on the green CTA
         case .secondary: return TaliseColor.fg
         case .ghost: return TaliseColor.fgMuted
         case .danger: return .white
         }
     }
 
-    private var border: Color {
-        switch variant {
-        case .primary: return TaliseColor.fg
-        case .secondary: return TaliseColor.line
-        case .ghost: return .clear
-        case .danger: return TaliseColor.danger
-        }
-    }
 }
 
 #Preview {

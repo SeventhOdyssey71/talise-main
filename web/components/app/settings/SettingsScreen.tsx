@@ -61,11 +61,6 @@ const COUNTRIES: { code: string; name: string }[] = [
 
 const NOTIFY_KEY = "talise:notify-on-receive";
 
-function shortAddr(a: string): string {
-  if (a.length <= 14) return a;
-  return `${a.slice(0, 8)}…${a.slice(-6)}`;
-}
-
 export function SettingsScreen() {
   const { me, loading, refresh } = useMe();
   const { toast } = useToast();
@@ -195,39 +190,46 @@ export function SettingsScreen() {
     COUNTRIES.find((c) => c.code === country)?.name ?? country;
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 pb-8">
-      {/* ── Profile ──────────────────────────────────────────────────────── */}
-      <section className="space-y-2.5">
-        <Eyebrow>Profile</Eyebrow>
-        <GlassCard className="space-y-5 p-5">
-          <label className="block">
-            <Eyebrow className="mb-2 block">Display name</Eyebrow>
-            <div className="flex items-center gap-2.5">
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value.slice(0, 64))}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void saveName();
-                }}
-                placeholder="Your name"
-                maxLength={64}
-                className="talise-glass min-w-0 flex-1 bg-transparent px-4 py-3 text-[15px] text-fg outline-none placeholder:text-fg-dim"
-                style={{ borderRadius: 14 }}
-              />
-              <PrimaryButton
-                onClick={() => void saveName()}
-                disabled={!nameDirty}
-                loading={savingName}
-                variant={nameDirty ? "primary" : "ghost"}
-              >
-                Save
-              </PrimaryButton>
-            </div>
-          </label>
+    <div className="mx-auto w-full max-w-2xl space-y-8 pb-8">
 
-          <div className="border-t border-line pt-5">
+      {/* ── Profile ──────────────────────────────────────────────────────── */}
+      <section className="space-y-3">
+        <Eyebrow>Profile</Eyebrow>
+        <GlassCard className="divide-y divide-line overflow-hidden p-0" radius={14}>
+
+          {/* Display name row */}
+          <div className="px-5 py-4">
+            <label className="block">
+              <span className="mb-2 block text-[11px] font-medium uppercase tracking-[0.18em] text-fg-dim">
+                Display name
+              </span>
+              <div className="flex items-center gap-2.5">
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value.slice(0, 64))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveName();
+                  }}
+                  placeholder="Your name"
+                  maxLength={64}
+                  className="min-w-0 flex-1 rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors"
+                />
+                <PrimaryButton
+                  onClick={() => void saveName()}
+                  disabled={!nameDirty}
+                  loading={savingName}
+                  variant={nameDirty ? "primary" : "ghost"}
+                >
+                  Save
+                </PrimaryButton>
+              </div>
+            </label>
+          </div>
+
+          {/* Handle row */}
+          <div className="px-5 py-4">
             {me.taliseHandle ? (
-              <div className="flex items-start gap-3.5">
+              <div className="flex items-center gap-3.5">
                 <span
                   className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
                   style={{ background: "var(--color-accent-soft)" }}
@@ -240,12 +242,12 @@ export function SettingsScreen() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-medium text-fg">Your handle</p>
-                  <p className="break-all font-mono text-[13px] text-fg-muted">
+                  <p className="mt-0.5 break-all font-mono text-[13px] text-fg-muted">
                     @{me.taliseHandle}.talise.sui
                   </p>
-                  <p className="mt-1 text-[12px] text-fg-dim">
+                  <p className="mt-1 text-[12px] leading-relaxed text-fg-dim">
                     Anyone can pay you at this name. Handles are minted on SuiNS
-                    and can't be changed.
+                    and can&apos;t be changed.
                   </p>
                 </div>
               </div>
@@ -253,6 +255,7 @@ export function SettingsScreen() {
               <HandleClaimCard onClaimed={() => void refresh()} />
             )}
           </div>
+
         </GlassCard>
       </section>
 
@@ -260,13 +263,15 @@ export function SettingsScreen() {
       <BusinessAccountCard />
 
       {/* ── Preferences ──────────────────────────────────────────────────── */}
-      <section className="space-y-2.5">
+      <section className="space-y-3">
         <Eyebrow>Preferences</Eyebrow>
-        <div className="space-y-2">
+        <GlassCard className="divide-y divide-line overflow-hidden p-0" radius={14}>
+
+          {/* Display currency — CurrencyPicker renders its own row markup */}
           <CurrencyPicker />
 
           {/* Country */}
-          <label className="talise-history-row flex w-full cursor-pointer items-center gap-3.5 px-3.5 py-3">
+          <label className="flex w-full cursor-pointer items-center gap-3.5 px-5 py-3.5 transition-colors hover:bg-surface-2">
             <span
               className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
               style={{ background: "var(--color-accent-soft)" }}
@@ -286,7 +291,7 @@ export function SettingsScreen() {
                 <Spinner size={15} />
               ) : (
                 <>
-                  <span className="text-[14px] text-fg">
+                  <span className="rounded-full bg-surface-2 px-3 py-1 text-[13px] font-medium text-fg">
                     {countryName || "Select"}
                   </span>
                   <select
@@ -310,7 +315,7 @@ export function SettingsScreen() {
           </label>
 
           {/* Notify on receive */}
-          <div className="talise-history-row flex w-full items-center gap-3.5 px-3.5 py-3">
+          <div className="flex w-full items-center gap-3.5 px-5 py-3.5">
             <span
               className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
               style={{ background: "var(--color-accent-soft)" }}
@@ -335,14 +340,17 @@ export function SettingsScreen() {
               onChange={(v) => void toggleNotify(v)}
             />
           </div>
-        </div>
+
+        </GlassCard>
       </section>
 
       {/* ── Wallet ───────────────────────────────────────────────────────── */}
-      <section className="space-y-2.5">
+      <section className="space-y-3">
         <Eyebrow>Wallet</Eyebrow>
-        <GlassCard className="space-y-4 p-5">
-          <div className="flex items-start gap-3.5">
+        <GlassCard className="divide-y divide-line overflow-hidden p-0" radius={14}>
+
+          {/* Sui address */}
+          <div className="flex items-center gap-3.5 px-5 py-4">
             <span
               className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
               style={{ background: "var(--color-accent-soft)" }}
@@ -352,7 +360,7 @@ export function SettingsScreen() {
             <div className="min-w-0 flex-1">
               <p className="text-[15px] font-medium text-fg">Sui address</p>
               <p
-                className="break-all font-mono text-[12px] leading-relaxed text-fg-muted"
+                className="mt-0.5 break-all font-mono text-[12px] leading-relaxed text-fg-muted"
                 title={me.suiAddress}
               >
                 {me.suiAddress}
@@ -360,11 +368,12 @@ export function SettingsScreen() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2.5 border-t border-line pt-4">
+          {/* Actions */}
+          <div className="flex flex-wrap gap-2.5 px-5 py-4">
             <button
               type="button"
               onClick={copyAddress}
-              className="talise-glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-fg transition-[transform,border-color] hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:scale-[0.97]"
+              className="inline-flex items-center gap-2 rounded-full border border-line bg-surface-2 px-4 py-2 text-sm font-medium text-fg transition-colors hover:border-accent/40 hover:bg-accent-soft active:scale-[0.97]"
             >
               <HugeiconsIcon
                 icon={copied ? Tick02Icon : Copy01Icon}
@@ -378,7 +387,7 @@ export function SettingsScreen() {
               href={`https://suiscan.xyz/mainnet/account/${me.suiAddress}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="talise-glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-fg transition-[transform,border-color] hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:scale-[0.97]"
+              className="inline-flex items-center gap-2 rounded-full border border-line bg-surface-2 px-4 py-2 text-sm font-medium text-fg transition-colors hover:border-accent/40 hover:bg-accent-soft active:scale-[0.97]"
             >
               <HugeiconsIcon
                 icon={ArrowUpRight01Icon}
@@ -390,34 +399,56 @@ export function SettingsScreen() {
             </a>
           </div>
 
-          <p className="text-[12px] leading-relaxed text-fg-dim">
-            Your balance is held in USDsui — a fully-backed dollar stablecoin on
-            Sui, always 1:1 with USD. The currency you pick above only changes
-            how amounts are shown.
-          </p>
+          {/* USDsui explainer */}
+          <div className="px-5 py-4">
+            <p className="text-[12px] leading-relaxed text-fg-dim">
+              Your balance is held in USDsui — a fully-backed dollar stablecoin on
+              Sui, always 1:1 with USD. The currency you pick above only changes
+              how amounts are shown.
+            </p>
+          </div>
+
         </GlassCard>
       </section>
 
       {/* ── Account ──────────────────────────────────────────────────────── */}
-      <section className="space-y-2.5">
+      <section className="space-y-3">
         <Eyebrow>Account</Eyebrow>
-        <a
-          href="/auth/logout"
-          className="mt-1 flex w-full items-center justify-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--color-danger)_28%,transparent)] bg-[color-mix(in_srgb,var(--color-danger)_10%,transparent)] px-6 py-3.5 text-[15px] font-semibold text-[var(--color-danger)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-danger)_18%,transparent)]"
-        >
-          <HugeiconsIcon icon={Logout01Icon} size={17} strokeWidth={2} />
-          Sign out
-        </a>
-        <p className="text-center text-[11px] text-fg-dim">
-          Your wallet stays safe. Sign back in with the same Google account
-          anytime.
-        </p>
+        <GlassCard className="divide-y divide-line overflow-hidden p-0" radius={14}>
+          <a
+            href="/auth/logout"
+            className="flex w-full items-center gap-3.5 px-5 py-3.5 transition-colors hover:bg-surface-2"
+          >
+            <span
+              className="flex size-10 shrink-0 items-center justify-center rounded-full"
+              style={{
+                background: "color-mix(in srgb, var(--color-danger) 12%, var(--color-surface-2))",
+              }}
+            >
+              <HugeiconsIcon
+                icon={Logout01Icon}
+                size={18}
+                strokeWidth={2}
+                style={{ color: "var(--color-danger)" }}
+              />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-medium" style={{ color: "var(--color-danger)" }}>
+                Sign out
+              </span>
+              <span className="block text-[13px] text-fg-dim">
+                Your wallet stays safe — sign back in anytime.
+              </span>
+            </span>
+          </a>
+        </GlassCard>
       </section>
+
     </div>
   );
 }
 
-/** Compact glass toggle switch. */
+/** Compact toggle switch — matches Wise-style on/off for preferences. */
 function Toggle({
   on,
   busy,
@@ -436,11 +467,11 @@ function Toggle({
       disabled={busy}
       onClick={() => onChange(!on)}
       className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
-        on ? "bg-accent-deep" : "bg-surface-2 border border-line"
+        on ? "bg-accent-deep" : "border border-line bg-surface-2"
       }`}
     >
       <span
-        className={`absolute flex size-5 items-center justify-center rounded-full bg-white shadow-[0_2px_6px_-2px_rgba(35,78,20,0.45)] transition-transform ${
+        className={`absolute flex size-5 items-center justify-center rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.18)] transition-transform ${
           on ? "translate-x-[22px]" : "translate-x-[3px]"
         }`}
       >

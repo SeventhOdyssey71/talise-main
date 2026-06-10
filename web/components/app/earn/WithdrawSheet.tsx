@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Sheet,
+  GlassCard,
   MicroLabel,
   PrimaryButton,
   GlassPill,
@@ -88,12 +89,12 @@ export function WithdrawSheet({
     <Sheet open={!!venue} onClose={onClose} title="Position" size="md">
       {v && (
         <div className="space-y-5 pb-1">
-          <h2 className="text-[22px] font-medium tracking-[-0.02em] text-fg">
+          <h2 className="text-[20px] font-medium tracking-[-0.02em] text-fg">
             Your {venueLabel(v.venue)} earnings
           </h2>
 
-          {/* Position card */}
-          <div className="talise-glass overflow-hidden" style={{ borderRadius: 18 }}>
+          {/* Position stat rows — clean flat card */}
+          <GlassCard className="overflow-hidden !p-0" radius={12}>
             <PositionRow label="Supplied" value={formatUsd(supplied, { fixed: true })} />
             <Divider />
             <PositionRow label="APY" value={formatApy(apy || bestApy)} accent />
@@ -112,16 +113,13 @@ export function WithdrawSheet({
               label="Earning / day"
               value={supplied > 0 && apy > 0 ? formatUsd(dailyEarning) : "—"}
             />
-          </div>
+          </GlassCard>
 
           {/* Partial withdraw */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <MicroLabel>Withdraw amount</MicroLabel>
-            <div
-              className="talise-glass flex items-center gap-2 px-4 py-3.5"
-              style={{ borderRadius: 16 }}
-            >
-              <span className="text-[22px] font-medium text-fg-muted">{symbol}</span>
+            <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3">
+              <span className="text-[20px] font-medium text-fg-muted">{symbol}</span>
               <input
                 inputMode="decimal"
                 value={partial}
@@ -131,7 +129,7 @@ export function WithdrawSheet({
                   setError(null);
                 }}
                 placeholder="0.00"
-                className="w-full bg-transparent text-[22px] font-medium tracking-[-0.01em] tabular-nums text-fg outline-none placeholder:text-fg-dim"
+                className="w-full bg-transparent text-[20px] font-medium tracking-[-0.01em] tabular-nums text-fg outline-none placeholder:text-fg-dim"
               />
               <GlassPill
                 size="sm"
@@ -140,7 +138,7 @@ export function WithdrawSheet({
               >
                 MAX
               </GlassPill>
-              <span className="text-[13px] font-medium text-fg-muted">{currency}</span>
+              <span className="text-[12px] font-medium text-fg-muted">{currency}</span>
             </div>
           </div>
 
@@ -208,7 +206,7 @@ function PositionRow({
     <div className="flex items-center justify-between px-4 py-3">
       <span className="text-[13px] text-fg-muted">{label}</span>
       <span
-        className={`text-[15px] font-medium tracking-[-0.01em] tabular-nums ${
+        className={`text-[14px] font-medium tracking-[-0.01em] tabular-nums ${
           accent ? "text-accent" : "text-fg"
         }`}
       >
@@ -219,5 +217,5 @@ function PositionRow({
 }
 
 function Divider() {
-  return <div className="mx-3.5 h-px bg-line" />;
+  return <div className="mx-4 h-px bg-line" />;
 }

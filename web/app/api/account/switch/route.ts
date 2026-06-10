@@ -30,6 +30,6 @@ export async function POST(req: Request) {
   await switchActiveContext(user.id, to);
   return NextResponse.json({
     ok: true,
-    redirect: to === "business" ? "/business" : "/home",
+    redirect: to === "business" ? "/business/dashboard" : "/app",
   });
 }

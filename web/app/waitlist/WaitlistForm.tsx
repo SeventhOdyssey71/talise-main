@@ -313,7 +313,17 @@ function HandleClaim({ session }: { session: Session }) {
         suiAddress?: string;
         error?: string;
         alreadyClaimed?: boolean;
+        reserved?: boolean;
+        message?: string;
       };
+      if (r.status === 503 && body.reserved && body.handle) {
+        // Operator gas was low: the name IS reserved (held in the DB, mint
+        // queued for finalisation). Show the same "you're in" dashboard — the
+        // user owns the name — rather than a false "couldn't claim" error.
+        setClaimSuccess({ handle: body.handle });
+        setClaim("claimed");
+        return;
+      }
       if (r.status === 401) {
         // Session expired between mount and claim. Reload the page so
         // the outer form re-probes /api/auth/me and shows the sign-in
@@ -331,7 +341,7 @@ function HandleClaim({ session }: { session: Session }) {
         return;
       }
       if (!r.ok || !body.ok || !body.handle) {
-        throw new Error(body.error || "Couldn't claim that handle.");
+        throw new Error(body.error || body.message || "Couldn't claim that handle.");
       }
       setClaimSuccess({
         handle: body.handle,

@@ -271,7 +271,7 @@ export async function GET(req: Request) {
     const returnTo = await consumeReturnTo();
     const dest = returnTo
       ?? (user.account_type === "business"
-            ? "/business"
+            ? "/business/dashboard"
             : user.account_type === "personal"
               ? "/app"
               : "/waitlist");

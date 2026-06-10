@@ -2,15 +2,14 @@
  * Corridor registry: destination currency → payout adapter.
  *
  * This is the single resolution point the off-ramp routes use to pick a
- * provider for a corridor, replacing the hard-coded `import { ... } from
- * "@/lib/paga"` coupling with a `toCcy → PayoutAdapter` lookup (master plan
+ * provider for a corridor — a `toCcy → PayoutAdapter` lookup (master plan
  * §4 provider-agnostic contract).
  *
- * Paga (NGN) is the canonical reference and stays live behind its existing
- * `web/app/api/offramp/paga/*` routes — it is intentionally NOT registered
+ * The live NGN off-ramp is the Linq engine behind its existing
+ * `web/app/api/offramp/linq/*` routes — it is intentionally NOT registered
  * here so this additive scaffolding cannot alter the live NGN path. NGN is
- * therefore listed as a "reserved, served by Paga" corridor: a caller that
- * asks the registry for NGN is told to use the Paga routes rather than
+ * therefore listed as a "reserved, served by Linq" corridor: a caller that
+ * asks the registry for NGN is told to use the Linq routes rather than
  * silently getting a stub.
  */
 
@@ -34,15 +33,15 @@ const ADAPTERS: Partial<Record<PayoutCurrency, PayoutAdapter>> = {
 
 /**
  * Currencies whose off-ramp is owned by a dedicated route stack outside
- * this registry. NGN is served by the live Paga routes; resolving it here
- * returns `null` so callers fall through to Paga rather than a stub.
+ * this registry. NGN is served by the live Linq routes; resolving it here
+ * returns `null` so callers fall through to Linq rather than a stub.
  */
 const RESERVED: ReadonlySet<PayoutCurrency> = new Set<PayoutCurrency>(["NGN"]);
 
 /**
  * Resolve the payout adapter for a destination currency, or `null` if no
  * adapter serves it (unsupported, or reserved for a dedicated route stack
- * such as Paga/NGN).
+ * such as Linq/NGN).
  */
 export function adapterForCurrency(ccy: PayoutCurrency): PayoutAdapter | null {
   if (RESERVED.has(ccy)) return null;

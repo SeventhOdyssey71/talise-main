@@ -47,6 +47,20 @@ enum TaliseFormat {
         return symbolic(amount, currency: currency, fixed: 2)
     }
 
+    /// Render a raw NGN figure with the ₦ symbol and grouped thousands,
+    /// e.g. "₦142,350.00". Used for fiat cash-out (off-ramp) payouts where
+    /// the server already gives us the naira amount — we do NOT run it
+    /// through the USD→display FX path because it's already in naira.
+    static func ngn(_ amount: Double, decimals: Int = 2) -> String {
+        let fmt = NumberFormatter()
+        fmt.numberStyle = .decimal
+        fmt.locale = Locale(identifier: "en_US")
+        fmt.minimumFractionDigits = decimals
+        fmt.maximumFractionDigits = decimals
+        let body = fmt.string(from: NSNumber(value: amount)) ?? "0"
+        return "\u{20A6}\(body)"
+    }
+
     /// Render an amount in any TaliseCurrency without going through
     /// CurrencySettings — used in the picker preview rows.
     static func symbolic(

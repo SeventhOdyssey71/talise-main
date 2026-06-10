@@ -82,7 +82,7 @@ export async function POST(req: Request) {
       notifyOnReceive: !!body.notify,
     });
     await tryAttributeReferral(id, body.referralCode ?? null);
-    return NextResponse.json({ ok: true, redirect: "/home" });
+    return NextResponse.json({ ok: true, redirect: "/app" });
   }
 
   if (body.accountType === "business") {
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
       notifyOnReceive: true,
     });
     await tryAttributeReferral(id, body.referralCode ?? null);
-    return NextResponse.json({ ok: true, redirect: "/business" });
+    return NextResponse.json({ ok: true, redirect: "/business/dashboard" });
   }
 
   return NextResponse.json({ error: "unknown account type" }, { status: 400 });

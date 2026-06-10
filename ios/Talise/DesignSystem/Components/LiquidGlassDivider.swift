@@ -14,6 +14,7 @@ struct LiquidGlassDivider: View {
     var inset: CGFloat = 0
 
     var body: some View {
+        // A flat hairline — one solid color, full width. No specular fade.
         color
             .frame(height: 1 / UIScreen.main.scale)
             .padding(.horizontal, inset)

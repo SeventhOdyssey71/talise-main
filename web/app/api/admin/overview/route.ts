@@ -61,8 +61,8 @@ export async function GET(req: Request) {
     transfersTotal,
     transfersByState,
     transfersParked,
-    pagaTotal,
-    pagaByStatus,
+    linqTotal,
+    linqByStatus,
     invoicesTotal,
     invoicesPaid,
     roundupPending,
@@ -88,8 +88,8 @@ export async function GET(req: Request) {
     scalar(`SELECT COUNT(*) FROM transfers`),
     groupCounts(`SELECT state, COUNT(*) FROM transfers GROUP BY state ORDER BY 2 DESC`),
     scalar(`SELECT COUNT(*) FROM transfers WHERE parked_funds = true`),
-    scalar(`SELECT COUNT(*) FROM paga_offramps`),
-    groupCounts(`SELECT status, COUNT(*) FROM paga_offramps GROUP BY status ORDER BY 2 DESC`),
+    scalar(`SELECT COUNT(*) FROM linq_offramps`),
+    groupCounts(`SELECT status, COUNT(*) FROM linq_offramps GROUP BY status ORDER BY 2 DESC`),
     scalar(`SELECT COUNT(*) FROM invoices`),
     scalar(`SELECT COUNT(*) FROM invoices WHERE status = 'paid'`),
     scalar(`SELECT COUNT(*) FROM roundup_queue WHERE processed_at IS NULL`),
@@ -102,7 +102,7 @@ export async function GET(req: Request) {
     scalar(`SELECT COUNT(*) FROM savings_goals WHERE archived = 0`),
   ]);
 
-  // Roll transfers + paga states up into success / pending / failed.
+  // Roll transfers + linq off-ramp states up into success / pending / failed.
   const SUCCESS = new Set(["settled", "onchain_settled"]);
   const FAILED = new Set(["failed", "refunded", "rejected"]);
   function rollup(rows: Array<{ key: string; count: number }>) {
@@ -118,13 +118,13 @@ export async function GET(req: Request) {
     return { success, pending, failed };
   }
   const transferRoll = rollup(transfersByState);
-  const pagaRoll = rollup(pagaByStatus);
+  const linqRoll = rollup(linqByStatus);
 
   // tx_history rows are recorded only after on-chain confirmation → all
   // count as successful.
-  const txSuccess = txTotal + transferRoll.success + pagaRoll.success;
-  const txPending = transferRoll.pending + pagaRoll.pending;
-  const txFailed = transferRoll.failed + pagaRoll.failed;
+  const txSuccess = txTotal + transferRoll.success + linqRoll.success;
+  const txPending = transferRoll.pending + linqRoll.pending;
+  const txFailed = transferRoll.failed + linqRoll.failed;
 
   return NextResponse.json({
     generatedAt: now,
@@ -145,12 +145,12 @@ export async function GET(req: Request) {
       onchain: txTotal,
       onchain24h: txNew24h,
       transfers: transfersTotal,
-      paga: pagaTotal,
+      linq: linqTotal,
       success: txSuccess,
       pending: txPending,
       failed: txFailed,
       transfersByState,
-      pagaByStatus,
+      linqByStatus,
       parked: transfersParked,
     },
     commerce: {

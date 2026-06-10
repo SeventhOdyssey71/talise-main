@@ -43,13 +43,23 @@ struct LiquidGlassButton: View {
             .frame(height: size.height)
             .padding(.horizontal, size.hPadding)
             .background(
-                // SOLID confident fill — a real primary, not a faint wash.
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(fillColor)
+                ZStack {
+                    let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    if let tint {
+                        // Solid flat fill — the button's identity color. The
+                        // bright Talise greens render as the solid forest
+                        // CTA; other tints (danger / gold) keep their solid
+                        // color. No gradient, no material.
+                        shape.fill(tint)
+                    } else {
+                        // Neutral / secondary — flat dark surface.
+                        shape.fill(TaliseColor.surface2)
+                    }
+                }
             )
             .overlay(
-                // Hairline only on the neutral (secondary) variant so it
-                // still reads as a button; filled variants need no edge.
+                // One faint hairline only on the neutral/secondary variant so
+                // it separates from the canvas; solid-tinted buttons need none.
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(TaliseColor.line, lineWidth: tint == nil ? 1 : 0)
             )
@@ -67,10 +77,6 @@ struct LiquidGlassButton: View {
         case .lg: return 16
         }
     }
-
-    /// Solid fill — a confident primary in the tint color, or a quiet flat
-    /// surface for the neutral/secondary variant.
-    private var fillColor: Color { tint ?? TaliseColor.surface2 }
 
     /// Dark ink on the bright Talise greens (for contrast + pop); white on
     /// the neutral surface and the darker tints (danger / gold).

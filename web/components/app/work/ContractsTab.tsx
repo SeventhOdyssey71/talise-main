@@ -1,8 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fromBase64 } from "@mysten/sui/utils";
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -13,7 +11,6 @@ import {
 import {
   triggerOauthSignIn,
   readEphemeralForT2000,
-  writeCachedProof,
 } from "@/lib/zkclient";
 import {
   GlassCard,
@@ -32,6 +29,7 @@ import {
   useCurrency,
   resolveRecipient,
 } from "@/components/app";
+import { signSponsorReadyBytes, friendlyError } from "@/components/app/cheques/signBytes";
 
 type Cadence = "hourly" | "daily" | "weekly" | "monthly";
 
@@ -67,6 +65,8 @@ export function ContractsTab() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [cancelFor, setCancelFor] = useState<Contract | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -83,45 +83,84 @@ export function ContractsTab() {
     void load();
   }, [load]);
 
-  const cancel = async (c: Contract) => {
-    if (
-      !window.confirm(
-        `Cancel "${c.title}"? Future pay stops and the unsent ${formatUsd(
-          c.remainingUsd,
-          { fixed: true }
-        )} is returned to you.`
-      )
-    )
-      return;
-    try {
-      const r = await api<{ refundUsd?: number; refunded?: boolean }>(
-        `/api/contracts/${c.id}`,
-        { method: "POST", body: { action: "cancel" } }
-      );
-      toast(
-        r.refunded && r.refundUsd
-          ? `Contract cancelled — ${formatUsd(r.refundUsd, { fixed: true })} returned`
-          : "Contract cancelled",
-        "neutral"
-      );
-      await load();
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Couldn't cancel", "danger");
-    }
-  };
+  // Cancel a contract: the server flips status + returns Onara-SPONSORED on-chain
+  // `cancel_and_withdraw` bytes (mode:'onchain') that the SENDER must sign to pull
+  // the unsent remainder back. Streaming is on-chain only — there's no gasless
+  // refund path, so we sign the returned bytes when present.
+  const cancel = useCallback(
+    async (c: Contract) => {
+      setCancelling(true);
+      try {
+        const r = await api<{
+          status: string;
+          mode?: string;
+          bytes?: string;
+          refundUsd?: number;
+          refunded?: boolean;
+          detail?: string;
+        }>(`/api/contracts/${c.id}`, {
+          method: "POST",
+          body: { action: "cancel" },
+        });
+
+        // On-chain refund: sign + broadcast the withdraw bytes the server built.
+        if (r.mode === "onchain" && r.bytes) {
+          try {
+            await signSponsorReadyBytes(r.bytes, { kind: "stream-cancel" });
+            toast(
+              r.refundUsd
+                ? `Contract cancelled — ${formatUsd(r.refundUsd, { fixed: true })} returned`
+                : "Contract cancelled",
+              "neutral"
+            );
+          } catch (signErr) {
+            // The contract is already cancelled server-side; only the on-chain
+            // withdraw didn't complete. Funds stay safe in the Stream object.
+            if (signErr instanceof ApiError && signErr.code === "NOT_SIGNED_IN") {
+              toast("Sign in to claim the unsent balance.", "danger");
+            } else {
+              toast(
+                "Contract cancelled, but the refund withdraw didn't go through. Try again.",
+                "danger"
+              );
+            }
+          }
+        } else {
+          toast(
+            r.refunded && r.refundUsd
+              ? `Contract cancelled — ${formatUsd(r.refundUsd, { fixed: true })} returned`
+              : "Contract cancelled",
+            "neutral"
+          );
+        }
+        setCancelFor(null);
+        await load();
+      } catch (err) {
+        toast(
+          err instanceof ApiError ? friendlyError(err, "Couldn't cancel") : "Couldn't cancel",
+          "danger"
+        );
+      } finally {
+        setCancelling(false);
+      }
+    },
+    [toast, formatUsd, load]
+  );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      {/* Section header */}
       <div className="flex items-center justify-between">
-        <MicroLabel>Active contracts</MicroLabel>
+        <Eyebrow>Active contracts</Eyebrow>
         <PrimaryButton onClick={() => setCreateOpen(true)} variant="ghost">
-          <HugeiconsIcon icon={Add01Icon} size={16} strokeWidth={2} />
+          <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} />
           New contract
         </PrimaryButton>
       </div>
 
+      {/* Content */}
       {loading ? (
-        <div className="flex justify-center py-16">
+        <div className="flex justify-center py-12">
           <Spinner size={22} />
         </div>
       ) : contracts.length === 0 ? (
@@ -132,23 +171,25 @@ export function ContractsTab() {
             subtitle="Set up recurring pay for a contractor or teammate. Fund it once — Talise releases each pay period automatically."
             action={
               <PrimaryButton onClick={() => setCreateOpen(true)}>
-                <HugeiconsIcon icon={PlusSignIcon} size={16} strokeWidth={2} />
+                <HugeiconsIcon icon={PlusSignIcon} size={15} strokeWidth={2} />
                 Hire someone
               </PrimaryButton>
             }
           />
         </GlassCard>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {contracts.map((c) => (
-            <ContractCard
+        /* Wise-style: all contracts in one flat card as stacked rows */
+        <GlassCard className="overflow-hidden p-0">
+          {contracts.map((c, i) => (
+            <ContractRow
               key={c.id}
               c={c}
               formatUsd={formatUsd}
-              onCancel={() => cancel(c)}
+              onCancel={() => setCancelFor(c)}
+              divider={i < contracts.length - 1}
             />
           ))}
-        </div>
+        </GlassCard>
       )}
 
       <CreateContractSheet
@@ -159,18 +200,64 @@ export function ContractsTab() {
           void load();
         }}
       />
+
+      {/* Cancel confirmation */}
+      <Sheet
+        open={!!cancelFor}
+        onClose={() => {
+          if (!cancelling) setCancelFor(null);
+        }}
+        title="Cancel contract"
+      >
+        <div className="space-y-4">
+          <p className="text-[14px] text-fg-muted">
+            {cancelFor ? (
+              <>
+                Cancel <span className="font-medium text-fg">{cancelFor.title}</span>? Future
+                pay stops and the unsent{" "}
+                <span className="font-medium text-fg">
+                  {formatUsd(cancelFor.remainingUsd, { fixed: true })}
+                </span>{" "}
+                is returned to you. You&apos;ll sign once to release the refund.
+              </>
+            ) : null}
+          </p>
+          <div className="flex items-center gap-2">
+            <PrimaryButton
+              onClick={() => setCancelFor(null)}
+              variant="ghost"
+              disabled={cancelling}
+              full
+            >
+              Keep it
+            </PrimaryButton>
+            <PrimaryButton
+              onClick={() => cancelFor && cancel(cancelFor)}
+              variant="danger"
+              loading={cancelling}
+              full
+            >
+              Cancel contract
+            </PrimaryButton>
+          </div>
+        </div>
+      </Sheet>
     </div>
   );
 }
 
-function ContractCard({
+// ── Contract row (Wise list-row pattern) ───────────────────────────────────
+
+function ContractRow({
   c,
   formatUsd,
   onCancel,
+  divider,
 }: {
   c: Contract;
   formatUsd: (usd: number, o?: { fixed?: boolean }) => string;
   onCancel: () => void;
+  divider: boolean;
 }) {
   const pct = c.totalUsd > 0 ? Math.min(100, (c.paidUsd / c.totalUsd) * 100) : 0;
   const stateTone =
@@ -197,63 +284,68 @@ function ContractCard({
   const payee = c.payeeHandle || `${c.payeeAddress.slice(0, 6)}…${c.payeeAddress.slice(-4)}`;
 
   return (
-    <GlassCard className="flex flex-col gap-3 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-medium text-fg">{c.title}</p>
-          <p className="mt-0.5 truncate font-mono text-[12px] text-fg-dim">{payee}</p>
-        </div>
-        <StatusPill label={stateLabel} tone={stateTone} />
+    <div>
+      <div className="talise-history-row flex items-start gap-3.5 px-4 py-3.5">
+        {/* Circular icon chip */}
+        <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <HugeiconsIcon icon={UserGroupIcon} size={17} strokeWidth={1.8} />
+        </span>
+
+        {/* Title + payee + progress */}
+        <span className="min-w-0 flex-1 space-y-2">
+          <span>
+            <span className="block truncate text-[15px] font-medium text-fg">{c.title}</span>
+            <span className="block truncate font-mono text-[11px] text-fg-dim">
+              {payee} · {formatUsd(c.rateUsd, { fixed: true })}/{c.cadenceLabel}
+            </span>
+          </span>
+
+          {/* Progress bar */}
+          <span className="block">
+            <span className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+              <span
+                className="block h-full rounded-full bg-accent-deep transition-[width] duration-500"
+                style={{ width: `${pct}%` }}
+              />
+            </span>
+            <span className="mt-1 flex items-center justify-between">
+              <span className="font-mono text-[11px] text-fg-dim" style={{ fontVariantNumeric: "tabular-nums" }}>
+                {formatUsd(c.paidUsd, { fixed: true })} / {formatUsd(c.totalUsd, { fixed: true })}
+              </span>
+              <span className="font-mono text-[10px] text-fg-dim">
+                {c.periodsPaid}/{c.periods}
+              </span>
+            </span>
+          </span>
+        </span>
+
+        {/* Status + next pay + action */}
+        <span className="flex shrink-0 flex-col items-end gap-2">
+          <StatusPill label={stateLabel} tone={stateTone} />
+          {next ? (
+            <span className="font-mono text-[11px] text-fg-dim">
+              Next {next.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            </span>
+          ) : (
+            <span className="font-mono text-[11px] text-fg-dim">
+              {formatUsd(c.remainingUsd, { fixed: true })} left
+            </span>
+          )}
+          {c.status === "active" && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] text-fg-dim transition-colors hover:bg-surface-2 hover:text-[var(--color-danger)]"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+              Cancel
+            </button>
+          )}
+        </span>
       </div>
 
-      <p className="text-[13px] text-fg-muted">
-        {formatUsd(c.rateUsd, { fixed: true })} every {c.cadenceLabel} · {c.periods}{" "}
-        {c.cadenceLabel}
-        {c.periods === 1 ? "" : "s"}
-      </p>
-
-      {/* Progress */}
-      <div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-surface-2)]">
-          <div
-            className="h-full rounded-full bg-accent-deep transition-[width] duration-500"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <div className="mt-1.5 flex items-center justify-between text-[12px]">
-          <span className="text-fg-muted" style={{ fontVariantNumeric: "tabular-nums" }}>
-            Paid {formatUsd(c.paidUsd, { fixed: true })} of{" "}
-            {formatUsd(c.totalUsd, { fixed: true })}
-          </span>
-          <span className="font-mono text-fg-dim">
-            {c.periodsPaid}/{c.periods}
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-auto flex items-center justify-between pt-1">
-        {next ? (
-          <span className="text-[12px] text-fg-dim">
-            Next pay{" "}
-            {next.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-          </span>
-        ) : (
-          <span className="text-[12px] text-fg-dim">
-            {formatUsd(c.remainingUsd, { fixed: true })} remaining
-          </span>
-        )}
-        {c.status === "active" && (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-fg-dim transition-colors hover:text-[var(--color-danger)]"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
-            Cancel
-          </button>
-        )}
-      </div>
-    </GlassCard>
+      {divider && <div className="mx-4 border-t border-line" />}
+    </div>
   );
 }
 
@@ -345,20 +437,22 @@ function CreateContractSheet({
       throw new Error("no recipient");
     }
 
-    const eph = readEphemeralForT2000();
-    if (!eph) {
+    // Bail to sign-in early if there's no ephemeral key in this tab (so we don't
+    // burn a prepare/build before kicking the OAuth flow).
+    if (!readEphemeralForT2000()) {
       triggerOauthSignIn({
         returnTo: typeof location !== "undefined" ? location.pathname : "/app/work",
       });
       throw new Error("not signed in");
     }
 
-    // 1) Prepare the stream funding tx (full amount → escrow / on-chain create).
+    // 1) Prepare the stream funding tx. Streaming is ON-CHAIN only now: this
+    //    returns mode:'onchain' Onara-sponsored `stream::create<USDSUI>` bytes
+    //    that the sender signs (no gasless rail for a custom Move call).
     const prep = await api<{
       bytes: string;
       mode: string;
-      escrowAddress?: string;
-      recipient?: { address: string };
+      recipient?: { address: string; displayName: string };
       plan: {
         totalMicros: string;
         trancheMicros: string;
@@ -376,45 +470,18 @@ function CreateContractSheet({
       },
     });
 
-    // 2) Sign the funding bytes with the ephemeral key.
-    const keypair = Ed25519Keypair.fromSecretKey(eph.ephemeralPrivateKey);
-    const { signature: userSignature } = await keypair.signTransaction(
-      fromBase64(prep.bytes)
-    );
-
-    // 3) Execute — gasless rail vs sponsor-execute, same split as useSignAndSend.
-    const executePath =
-      prep.mode === "gasless"
-        ? "/api/send/gasless-submit"
-        : "/api/zk/sponsor-execute";
-    const exec = await api<{
-      digest: string;
-      freshProof?: Parameters<typeof writeCachedProof>[0];
-    }>(executePath, {
-      method: "POST",
-      body: {
-        bytesB64: prep.bytes,
-        ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
-        maxEpoch: eph.maxEpoch,
-        randomness: eph.randomness,
-        userSignature,
-        cachedProof: eph.cachedProof,
-        meta: { kind: "stream-fund" },
-      },
+    // 2) Sign the sponsor-ready bytes with the zkLogin ephemeral key and
+    //    broadcast via /api/zk/sponsor-execute → confirmed funding digest.
+    const { digest: fundingDigest } = await signSponsorReadyBytes(prep.bytes, {
+      kind: "stream-fund",
     });
-    if (exec.freshProof) {
-      try {
-        writeCachedProof(exec.freshProof);
-      } catch {
-        /* non-fatal */
-      }
-    }
 
-    // 4) Record the stream (server inserts the row + returns the stream id).
+    // 3) Record the stream — the server parses the created on-chain Stream
+    //    object id from the funding digest and returns it as the stream id.
     const rec = await api<{ id: string }>("/api/streams/record", {
       method: "POST",
       body: {
-        fundingDigest: exec.digest,
+        fundingDigest,
         recipientAddress: resolved.address,
         recipientHandle: resolved.displayName || null,
         totalMicros: prep.plan.totalMicros,
@@ -425,7 +492,7 @@ function CreateContractSheet({
       },
     });
 
-    // 5) Persist the contract metadata wrapping that stream.
+    // 4) Persist the contract metadata wrapping that stream.
     await api("/api/contracts", {
       method: "POST",
       body: {
@@ -436,13 +503,10 @@ function CreateContractSheet({
         cadence,
         periods: periodsNum,
         streamId: rec.id,
-        fundingDigest: exec.digest,
+        fundingDigest,
       },
     });
 
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("talise:tx", { detail: { digest: exec.digest } }));
-    }
     toast("Contract funded — pay starts now", "success");
     reset();
     onCreated();
@@ -484,7 +548,7 @@ function CreateContractSheet({
             value={payeeInput}
             onChange={(e) => setPayeeInput(e.target.value)}
             placeholder="@alice or 0x…"
-            className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
           />
         </Field>
         {resolving && (
@@ -493,7 +557,7 @@ function CreateContractSheet({
           </div>
         )}
         {resolved && (
-          <div className="flex items-center gap-2 rounded-xl bg-[var(--color-accent-soft)] px-3 py-2 text-[13px] text-accent">
+          <div className="flex items-center gap-2 rounded-xl bg-accent-soft px-3 py-2 text-[13px] text-accent">
             Paying {resolved.displayName}
           </div>
         )}
@@ -504,13 +568,13 @@ function CreateContractSheet({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Senior contractor — design"
-            className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
           />
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Rate per period">
-            <div className="talise-glass flex items-center rounded-2xl px-3.5 py-2.5">
+            <div className="talise-glass flex items-center rounded-xl px-3.5 py-2.5">
               <span className="text-[15px] text-fg-dim">$</span>
               <input
                 value={rate}
@@ -528,21 +592,22 @@ function CreateContractSheet({
               onChange={(e) => setPeriods(e.target.value.replace(/[^\d]/g, ""))}
               inputMode="numeric"
               placeholder="4"
-              className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
               style={{ fontVariantNumeric: "tabular-nums" }}
             />
           </Field>
         </div>
 
+        {/* Cadence selector */}
         <div>
-          <Eyebrow className="mb-2 block">Cadence</Eyebrow>
+          <Eyebrow className="mb-2.5 block">Cadence</Eyebrow>
           <div className="flex flex-wrap gap-2">
             {CADENCES.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => setCadence(c.id)}
-                className={`rounded-full px-4 py-2 text-[13px] font-medium transition-colors ${
+                className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors ${
                   cadence === c.id
                     ? "bg-accent-deep text-white"
                     : "talise-glass text-fg-muted hover:text-fg"
@@ -555,7 +620,7 @@ function CreateContractSheet({
         </div>
 
         {/* Live preview */}
-        <div className="rounded-2xl border border-line bg-[var(--color-surface-2)] px-4 py-4">
+        <div className="rounded-xl border border-line bg-surface-2 px-4 py-4">
           {total > 0 ? (
             <>
               <p className="text-[14px] leading-relaxed text-fg">
@@ -575,8 +640,8 @@ function CreateContractSheet({
                 </span>
               </div>
               <p className="mt-1.5 text-[12px] text-fg-dim">
-                Funded once, gasless. Each {cad.period}&apos;s pay releases automatically —
-                cancel anytime to get the unsent balance back.
+                Funded once — gas is on us. Each {cad.period}&apos;s pay releases
+                automatically; cancel anytime to get the unsent balance back.
               </p>
             </>
           ) : (

@@ -121,7 +121,11 @@ struct ReceiveView: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 52)
-            .background(RoundedRectangle(cornerRadius: 14).fill(TaliseColor.surface2))
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(TaliseColor.surface2)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
@@ -140,9 +144,9 @@ struct ReceiveView: View {
 
             QRView(content: qrContent)
                 .frame(width: 220, height: 220)
-                .padding(16)
+                .padding(18)
                 .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
             Text(short(address))
                 .font(TaliseFont.mono(13, weight: .light))
@@ -150,9 +154,13 @@ struct ReceiveView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-        .padding(.vertical, 28)
+        .padding(.vertical, 30)
         .frame(maxWidth: .infinity)
-        .taliseGlass(cornerRadius: 25)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 
     private var actions: some View {
@@ -195,33 +203,8 @@ struct ReceiveView: View {
             .foregroundStyle(primary ? TaliseColor.bg : TaliseColor.fg)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
-            .background(secondaryGlassBackground(primary: primary))
-            .overlay(secondaryGlassStroke(primary: primary))
+            .background(Capsule().fill(primary ? TaliseColor.fg : TaliseColor.surface2))
             .clipShape(Capsule())
-            .shadow(color: Color.black.opacity(primary ? 0 : 0.35), radius: 12, x: 0, y: 6)
-        }
-    }
-
-    /// Background swap for the secondary (Copy address) pill: keep the
-    /// primary Share pill flat-white (it's the high-affordance action),
-    /// but render the secondary pill as a liquid-glass capsule —
-    /// ultraThinMaterial + dark tint, so it sits on the page background
-    /// the same way the bottom nav pill does.
-    @ViewBuilder
-    private func secondaryGlassBackground(primary: Bool) -> some View {
-        if primary {
-            Capsule().fill(TaliseColor.fg)
-        } else {
-            Capsule().fill(TaliseColor.surface2)
-        }
-    }
-
-    /// Top specular hairline for the secondary pill — same gradient
-    /// recipe as TaliseGlassCard. Nothing on the primary (white) pill.
-    @ViewBuilder
-    private func secondaryGlassStroke(primary: Bool) -> some View {
-        if !primary {
-            Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
         }
     }
 

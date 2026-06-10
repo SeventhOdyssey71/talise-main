@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -10,6 +11,7 @@ import {
   CheckmarkCircle02Icon,
   Cancel01Icon,
   PlusSignIcon,
+  ArrowRight02Icon,
 } from "@hugeicons/core-free-icons";
 import {
   GlassCard,
@@ -18,7 +20,6 @@ import {
   Sheet,
   Field,
   Eyebrow,
-  MicroLabel,
   EmptyState,
   Spinner,
   api,
@@ -46,11 +47,15 @@ const ORIGIN =
   typeof window !== "undefined" ? window.location.origin : "";
 
 export function InvoicesTab() {
+  const router = useRouter();
   const { toast } = useToast();
   const { formatUsd } = useCurrency();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  // The invoice currently targeted by the mark-paid / void confirmation sheets.
+  const [markPaidFor, setMarkPaidFor] = useState<Invoice | null>(null);
+  const [voidFor, setVoidFor] = useState<Invoice | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -76,41 +81,22 @@ export function InvoicesTab() {
     }
   };
 
-  const mutate = async (id: string, action: "void" | "mark-paid") => {
-    try {
-      if (action === "mark-paid") {
-        const digest = window.prompt(
-          "Paste the transaction digest you received off-platform to mark this paid:"
-        );
-        if (!digest || !digest.trim()) return;
-        await api(`/api/invoices/${id}`, {
-          method: "POST",
-          body: { action: "mark-paid", digest: digest.trim() },
-        });
-        toast("Invoice marked paid", "success");
-      } else {
-        if (!window.confirm("Void this invoice? The pay link will stop working.")) return;
-        await api(`/api/invoices/${id}`, { method: "POST", body: { action: "void" } });
-        toast("Invoice voided", "neutral");
-      }
-      await load();
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Something went wrong", "danger");
-    }
-  };
+  const open = (id: string) => router.push(`/app/work/invoices/${id}`);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      {/* Section header */}
       <div className="flex items-center justify-between">
-        <MicroLabel>Your invoices</MicroLabel>
+        <Eyebrow>Your invoices</Eyebrow>
         <PrimaryButton onClick={() => setCreateOpen(true)} variant="ghost">
-          <HugeiconsIcon icon={Add01Icon} size={16} strokeWidth={2} />
+          <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} />
           New invoice
         </PrimaryButton>
       </div>
 
+      {/* Content */}
       {loading ? (
-        <div className="flex justify-center py-16">
+        <div className="flex justify-center py-12">
           <Spinner size={22} />
         </div>
       ) : invoices.length === 0 ? (
@@ -121,25 +107,28 @@ export function InvoicesTab() {
             subtitle="Create your first invoice and share a pay link that works for anyone — gasless, no wallet needed."
             action={
               <PrimaryButton onClick={() => setCreateOpen(true)}>
-                <HugeiconsIcon icon={PlusSignIcon} size={16} strokeWidth={2} />
+                <HugeiconsIcon icon={PlusSignIcon} size={15} strokeWidth={2} />
                 Create invoice
               </PrimaryButton>
             }
           />
         </GlassCard>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {invoices.map((inv) => (
-            <InvoiceCard
+        /* Wise-style: all invoices in one flat card as stacked rows */
+        <GlassCard className="overflow-hidden p-0">
+          {invoices.map((inv, i) => (
+            <InvoiceRow
               key={inv.id}
               inv={inv}
               formatUsd={formatUsd}
+              onOpen={() => open(inv.id)}
               onCopy={() => copyLink(inv.id)}
-              onMarkPaid={() => mutate(inv.id, "mark-paid")}
-              onVoid={() => mutate(inv.id, "void")}
+              onMarkPaid={() => setMarkPaidFor(inv)}
+              onVoid={() => setVoidFor(inv)}
+              divider={i < invoices.length - 1}
             />
           ))}
-        </div>
+        </GlassCard>
       )}
 
       <CreateInvoiceSheet
@@ -150,22 +139,165 @@ export function InvoicesTab() {
           void load();
         }}
       />
+
+      <MarkPaidSheet
+        invoice={markPaidFor}
+        onClose={() => setMarkPaidFor(null)}
+        onDone={() => {
+          setMarkPaidFor(null);
+          void load();
+        }}
+      />
+
+      <VoidSheet
+        invoice={voidFor}
+        onClose={() => setVoidFor(null)}
+        onDone={() => {
+          setVoidFor(null);
+          void load();
+        }}
+      />
     </div>
   );
 }
 
-function InvoiceCard({
+// ── Mark-paid sheet (replaces window.prompt) ───────────────────────────────
+
+function MarkPaidSheet({
+  invoice,
+  onClose,
+  onDone,
+}: {
+  invoice: Invoice | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const [digest, setDigest] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // Reset the field whenever a fresh invoice is targeted.
+  useEffect(() => {
+    if (invoice) setDigest("");
+  }, [invoice]);
+
+  const submit = async () => {
+    if (!invoice) return;
+    const d = digest.trim();
+    if (!d) {
+      toast("Paste the transaction digest", "danger");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api(`/api/invoices/${invoice.id}`, {
+        method: "POST",
+        body: { action: "mark-paid", digest: d },
+      });
+      toast("Invoice marked paid", "success");
+      onDone();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Couldn't mark paid", "danger");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Sheet open={!!invoice} onClose={onClose} title="Mark paid">
+      <div className="space-y-4">
+        <p className="text-[14px] text-fg-muted">
+          Paste the on-chain transaction digest of a payment you received off-platform.
+          It&apos;s verified on Sui — it must have credited your address — before the
+          invoice is marked paid.
+        </p>
+        <Field label="Transaction digest" hint="The base58 digest from the Sui explorer">
+          <input
+            value={digest}
+            onChange={(e) => setDigest(e.target.value)}
+            placeholder="9xR…"
+            autoComplete="off"
+            spellCheck={false}
+            className="talise-glass w-full rounded-xl px-3.5 py-2.5 font-mono text-[13px] text-fg outline-none placeholder:text-fg-dim"
+          />
+        </Field>
+        <PrimaryButton onClick={submit} loading={submitting} disabled={!digest.trim()} full>
+          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} strokeWidth={2} />
+          Verify &amp; mark paid
+        </PrimaryButton>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Void sheet (replaces window.confirm) ───────────────────────────────────
+
+function VoidSheet({
+  invoice,
+  onClose,
+  onDone,
+}: {
+  invoice: Invoice | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!invoice) return;
+    setSubmitting(true);
+    try {
+      await api(`/api/invoices/${invoice.id}`, {
+        method: "POST",
+        body: { action: "void" },
+      });
+      toast("Invoice voided", "neutral");
+      onDone();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Couldn't void invoice", "danger");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Sheet open={!!invoice} onClose={onClose} title="Void invoice">
+      <div className="space-y-4">
+        <p className="text-[14px] text-fg-muted">
+          Voiding this invoice stops its pay link from working. This can&apos;t be undone.
+        </p>
+        <div className="flex items-center gap-2">
+          <PrimaryButton onClick={onClose} variant="ghost" full>
+            Keep it
+          </PrimaryButton>
+          <PrimaryButton onClick={submit} variant="danger" loading={submitting} full>
+            Void invoice
+          </PrimaryButton>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Invoice row (Wise list-row pattern) ────────────────────────────────────
+
+function InvoiceRow({
   inv,
   formatUsd,
+  onOpen,
   onCopy,
   onMarkPaid,
   onVoid,
+  divider,
 }: {
   inv: Invoice;
   formatUsd: (usd: number, o?: { fixed?: boolean }) => string;
+  onOpen: () => void;
   onCopy: () => void;
   onMarkPaid: () => void;
   onVoid: () => void;
+  divider: boolean;
 }) {
   const tone =
     inv.status === "paid" ? "completed" : inv.status === "void" ? "danger" : "pending";
@@ -179,56 +311,98 @@ function InvoiceCard({
     day: "numeric",
   });
 
+  // Stop a button click from also triggering the row's navigate.
+  const guard = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn();
+  };
+
   return (
-    <GlassCard className="flex flex-col gap-3 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-medium text-fg">{title}</p>
-          <p className="mt-0.5 font-mono text-[11px] text-fg-dim">
-            {inv.id} · {created}
-          </p>
-        </div>
-        <StatusPill label={label} tone={tone} />
-      </div>
-
-      <div
-        className="text-[24px] font-semibold text-fg"
-        style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
+    <div>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="talise-history-row flex w-full items-center gap-3.5 px-4 py-3.5 text-left"
+        aria-label={`Open invoice ${title}`}
       >
-        {formatUsd(inv.amountUsd, { fixed: true })}
-      </div>
+        {/* Circular icon chip */}
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <HugeiconsIcon icon={Invoice01Icon} size={17} strokeWidth={1.8} />
+        </span>
 
-      <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onCopy}
-          className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-surface-2)] px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg"
-        >
-          <HugeiconsIcon icon={Copy01Icon} size={13} strokeWidth={2} />
-          Copy link
-        </button>
-        {inv.status === "open" && (
-          <>
-            <button
-              type="button"
-              onClick={onMarkPaid}
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-accent transition-colors hover:bg-accent-soft"
-            >
-              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} strokeWidth={2} />
-              Mark paid
-            </button>
-            <button
-              type="button"
-              onClick={onVoid}
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-fg-dim transition-colors hover:text-[var(--color-danger)]"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
-              Void
-            </button>
-          </>
-        )}
-      </div>
-    </GlassCard>
+        {/* Title + meta */}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-medium text-fg">{title}</span>
+          <span className="block truncate font-mono text-[11px] text-fg-dim">
+            {inv.id.slice(0, 8)}… · {created}
+          </span>
+        </span>
+
+        {/* Amount + status */}
+        <span className="flex shrink-0 flex-col items-end gap-1.5">
+          <span
+            className="text-[15px] font-semibold text-fg"
+            style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}
+          >
+            {formatUsd(inv.amountUsd, { fixed: true })}
+          </span>
+          <StatusPill label={label} tone={tone} />
+        </span>
+
+        <HugeiconsIcon
+          icon={ArrowRight02Icon}
+          size={15}
+          strokeWidth={2}
+          className="shrink-0 text-fg-dim"
+        />
+      </button>
+
+      {/* Inline actions for open invoices */}
+      {inv.status === "open" && (
+        <div className="flex items-center gap-1 px-4 pb-3 pt-0">
+          <button
+            type="button"
+            onClick={guard(onCopy)}
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-accent"
+          >
+            <HugeiconsIcon icon={Copy01Icon} size={12} strokeWidth={2} />
+            Copy link
+          </button>
+          <button
+            type="button"
+            onClick={guard(onMarkPaid)}
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-accent transition-colors hover:bg-accent-soft"
+          >
+            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={12} strokeWidth={2} />
+            Mark paid
+          </button>
+          <button
+            type="button"
+            onClick={guard(onVoid)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-fg-dim transition-colors hover:text-[var(--color-danger)]"
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
+            Void
+          </button>
+        </div>
+      )}
+
+      {/* Copy link on non-open invoices */}
+      {inv.status !== "open" && (
+        <div className="flex items-center gap-1 px-4 pb-3 pt-0">
+          <button
+            type="button"
+            onClick={guard(onCopy)}
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-accent"
+          >
+            <HugeiconsIcon icon={Copy01Icon} size={12} strokeWidth={2} />
+            Copy link
+          </button>
+        </div>
+      )}
+
+      {divider && <div className="mx-4 border-t border-line" />}
+    </div>
   );
 }
 
@@ -248,6 +422,7 @@ function CreateInvoiceSheet({
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [memo, setMemo] = useState("");
+  const [dueDate, setDueDate] = useState(""); // yyyy-mm-dd from <input type="date">
   const [currency, setCurrency] = useState(displayCurrency || "USD");
   const [items, setItems] = useState<LineItem[]>([
     { description: "", qty: "1", unitUsd: "" },
@@ -293,6 +468,7 @@ function CreateInvoiceSheet({
     setCustomerName("");
     setCustomerEmail("");
     setMemo("");
+    setDueDate("");
     setItems([{ description: "", qty: "1", unitUsd: "" }]);
   };
 
@@ -315,6 +491,14 @@ function CreateInvoiceSheet({
       toast("Add at least one line item", "danger");
       return;
     }
+    // Turn the picked calendar day into an epoch-ms due date. Use UTC end-of-day
+    // so "due May 5" reads as May 5 everywhere regardless of the viewer's tz.
+    let dueMs: number | undefined;
+    if (dueDate) {
+      const t = Date.parse(`${dueDate}T23:59:59Z`);
+      if (Number.isFinite(t)) dueMs = t;
+    }
+
     setSubmitting(true);
     try {
       const r = await api<{ payUrl: string }>("/api/invoices", {
@@ -324,6 +508,7 @@ function CreateInvoiceSheet({
           customerName: customerName.trim() || undefined,
           customerEmail: customerEmail.trim() || undefined,
           memo: memo.trim() || undefined,
+          dueMs,
           lineItems: cleaned,
         },
       });
@@ -345,13 +530,14 @@ function CreateInvoiceSheet({
   return (
     <Sheet open={open} onClose={onClose} title="New invoice" size="lg">
       <div className="space-y-4">
+        {/* Customer details */}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Customer name" hint="Shown on the invoice (optional)">
             <input
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
               placeholder="Acme Inc."
-              className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
             />
           </Field>
           <Field label="Customer email" hint="For your records only (optional)">
@@ -360,28 +546,38 @@ function CreateInvoiceSheet({
               onChange={(e) => setCustomerEmail(e.target.value)}
               placeholder="billing@acme.com"
               type="email"
-              className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
             />
           </Field>
         </div>
 
-        <Field label="Currency" hint="Display only — money settles 1:1 as USDsui">
-          <select
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
-            className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none"
-          >
-            {currencies.map((c) => (
-              <option key={c.code} value={c.code} className="bg-surface text-fg">
-                {c.code} — {c.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Currency" hint="Display only — settles 1:1 as USDsui">
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none"
+            >
+              {currencies.map((c) => (
+                <option key={c.code} value={c.code} className="bg-surface text-fg">
+                  {c.code} — {c.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Due date" hint="When payment is expected (optional)">
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none"
+            />
+          </Field>
+        </div>
 
         {/* Line items */}
         <div>
-          <Eyebrow className="mb-2 block">Line items</Eyebrow>
+          <Eyebrow className="mb-2.5 block">Line items</Eyebrow>
           <div className="space-y-2">
             {items.map((it, i) => (
               <div key={i} className="flex items-center gap-2">
@@ -430,7 +626,7 @@ function CreateInvoiceSheet({
             onClick={addItem}
             className="mt-2.5 inline-flex items-center gap-1.5 text-[13px] text-accent transition-opacity hover:opacity-80"
           >
-            <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} />
+            <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={2} />
             Add line item
           </button>
         </div>
@@ -440,12 +636,12 @@ function CreateInvoiceSheet({
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
             placeholder="Thanks for your business!"
-            className="talise-glass w-full rounded-2xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
           />
         </Field>
 
-        {/* Live preview total */}
-        <div className="flex items-center justify-between rounded-2xl border border-line bg-[var(--color-surface-2)] px-4 py-3.5">
+        {/* Live total */}
+        <div className="flex items-center justify-between rounded-xl border border-line bg-surface-2 px-4 py-3.5">
           <span className="text-[14px] text-fg-muted">Invoice total</span>
           <span
             className="text-[22px] font-semibold text-fg"
@@ -456,7 +652,7 @@ function CreateInvoiceSheet({
         </div>
 
         <PrimaryButton onClick={submit} disabled={!canSubmit} loading={submitting} full>
-          Create invoice & copy pay link
+          Create invoice &amp; copy pay link
         </PrimaryButton>
       </div>
     </Sheet>

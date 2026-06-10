@@ -10,12 +10,12 @@ export const dynamic = "force-dynamic";
  *
  *   onchain   = tx_history (post-confirmation ⇒ always "success")
  *   transfers = transfers (cross-border state machine)
- *   paga      = paga_offramps (legacy NGN payouts)
+ *   linq      = linq_offramps (USDSUI → NGN payouts via Linq)
  *
  * Read-only, paginated (pageSize 50), admin-gated. A cold/empty/absent
  * table yields {rows:[],total:0,…} rather than a 500.
  *
- * Params: source ('onchain'|'transfers'|'paga'), status
+ * Params: source ('onchain'|'transfers'|'linq'), status
  * ('all'|'success'|'pending'|'failed'), q (free text), page (0-based).
  * Returns { source, rows, total, page, pageSize, counts:{all,success,
  * pending,failed} } where counts are for the active source.
@@ -23,11 +23,11 @@ export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
 
-type Source = "onchain" | "transfers" | "paga";
+type Source = "onchain" | "transfers" | "linq";
 type StatusFilter = "all" | "success" | "pending" | "failed";
 type Bucket = "success" | "pending" | "failed";
 
-const SOURCES: Source[] = ["onchain", "transfers", "paga"];
+const SOURCES: Source[] = ["onchain", "transfers", "linq"];
 const STATUSES: StatusFilter[] = ["all", "success", "pending", "failed"];
 
 function whitelistSource(v: string | null): Source {
@@ -44,10 +44,10 @@ function transferBucket(state: string | null | undefined): Bucket {
   if (s === "failed" || s === "refunded") return "failed";
   return "pending";
 }
-function pagaBucket(status: string | null | undefined): Bucket {
+function linqBucket(status: string | null | undefined): Bucket {
   const s = (status ?? "").toLowerCase();
-  if (/settled|success/.test(s)) return "success";
-  if (/failed/.test(s)) return "failed";
+  if (/settled|success|disbursed|completed/.test(s)) return "success";
+  if (/failed|reject|timeout/.test(s)) return "failed";
   return "pending";
 }
 
@@ -102,7 +102,7 @@ export async function GET(req: Request) {
       await transfers({ status, q, like, page, offset })
     );
   }
-  return NextResponse.json(await paga({ status, q, like, page, offset }));
+  return NextResponse.json(await linq({ status, q, like, page, offset }));
 }
 
 type QueryArgs = {
@@ -242,32 +242,34 @@ async function transfers({ status, q, like, page, offset }: QueryArgs) {
   };
 }
 
-// ─── paga (paga_offramps) ──────────────────────────────────────────
+// ─── linq (linq_offramps) ──────────────────────────────────────────
 
-async function paga({ status, q, like, page, offset }: QueryArgs) {
+async function linq({ status, q, like, page, offset }: QueryArgs) {
   const counts = { all: 0, success: 0, pending: 0, failed: 0 };
 
   const statusGroups = await safeRows(
-    `SELECT status, COUNT(*) AS n FROM paga_offramps GROUP BY status`
+    `SELECT status, COUNT(*) AS n FROM linq_offramps GROUP BY status`
   );
   for (const g of statusGroups) {
     const n = Number(g.n ?? 0);
     counts.all += n;
-    counts[pagaBucket(String(g.status ?? ""))] += n;
+    counts[linqBucket(String(g.status ?? ""))] += n;
   }
 
-  // Paga buckets are regex over an open status vocabulary, so the
+  // Linq buckets are regex over an open status vocabulary, so the
   // filter is applied in SQL via ILIKE patterns rather than IN-lists.
   const where: string[] = [];
   const args: unknown[] = [];
 
   if (status === "success") {
-    where.push(`(LOWER(status) LIKE '%settled%' OR LOWER(status) LIKE '%success%')`);
+    where.push(
+      `(LOWER(status) LIKE '%settled%' OR LOWER(status) LIKE '%success%' OR LOWER(status) LIKE '%disbursed%' OR LOWER(status) LIKE '%completed%')`
+    );
   } else if (status === "failed") {
-    where.push(`(LOWER(status) LIKE '%failed%')`);
+    where.push(`(LOWER(status) LIKE '%failed%' OR LOWER(status) LIKE '%reject%' OR LOWER(status) LIKE '%timeout%')`);
   } else if (status === "pending") {
     where.push(
-      `(status IS NULL OR (LOWER(status) NOT LIKE '%settled%' AND LOWER(status) NOT LIKE '%success%' AND LOWER(status) NOT LIKE '%failed%'))`
+      `(status IS NULL OR (LOWER(status) NOT LIKE '%settled%' AND LOWER(status) NOT LIKE '%success%' AND LOWER(status) NOT LIKE '%disbursed%' AND LOWER(status) NOT LIKE '%completed%' AND LOWER(status) NOT LIKE '%failed%' AND LOWER(status) NOT LIKE '%reject%' AND LOWER(status) NOT LIKE '%timeout%'))`
     );
   }
 
@@ -278,18 +280,17 @@ async function paga({ status, q, like, page, offset }: QueryArgs) {
     const b = `$${args.length}`;
     args.push(like);
     const c = `$${args.length}`;
-    where.push(`(paga_reference ILIKE ${a} OR bank_account_number ILIKE ${b} OR user_id ILIKE ${c})`);
+    where.push(`(linq_order_id ILIKE ${a} OR bank_account_number ILIKE ${b} OR user_id ILIKE ${c})`);
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  const total = await safeCount(`SELECT COUNT(*) FROM paga_offramps ${whereSql}`, args);
+  const total = await safeCount(`SELECT COUNT(*) FROM linq_offramps ${whereSql}`, args);
 
   const rows = await safeRows(
-    `SELECT id, created_at, user_id, usdsui_amount, ngn_amount, fx_rate, bank_code,
-            bank_account_number, bank_account_name, paga_reference, status, status_reason,
-            debited_at, settled_at, failed_at
-       FROM paga_offramps
+    `SELECT id, linq_order_id, created_at, user_id, amount_usdsui, amount_ngn, rate, bank_code,
+            bank_account_number, bank_account_name, wallet_address, status, status_reason, updated_at
+       FROM linq_offramps
        ${whereSql}
       ORDER BY created_at DESC NULLS LAST
       LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
@@ -297,8 +298,8 @@ async function paga({ status, q, like, page, offset }: QueryArgs) {
   );
 
   return {
-    source: "paga",
-    rows: rows.map((r) => ({ ...r, bucket: pagaBucket(String(r.status ?? "")) })),
+    source: "linq",
+    rows: rows.map((r) => ({ ...r, bucket: linqBucket(String(r.status ?? "")) })),
     total,
     page,
     pageSize: PAGE_SIZE,

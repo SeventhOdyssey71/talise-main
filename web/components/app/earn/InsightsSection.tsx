@@ -27,7 +27,8 @@ export function InsightsSection() {
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      {/* 3-tile stat row — compact, no large empty voids */}
+      <div className="grid grid-cols-3 gap-2.5">
         <Tile label="Spent" value={formatUsd(data?.spentUsd ?? 0, { fixed: true })} loading={loading && !data} />
         <Tile label="Received" value={formatUsd(data?.receivedUsd ?? 0, { fixed: true })} loading={loading && !data} />
         <Tile
@@ -38,27 +39,25 @@ export function InsightsSection() {
         />
       </div>
 
+      {/* Top counterparties — Wise-style list rows */}
       {data && data.topCounterparties.length > 0 && (
-        <GlassCard radius={20} className="overflow-hidden !p-0">
+        <GlassCard radius={14} className="overflow-hidden !p-0">
           {data.topCounterparties.slice(0, 4).map((c, i) => (
             <div key={c.address}>
               {i > 0 && <div className="mx-4 h-px bg-line" />}
-              <div className="flex items-center gap-3.5 px-4 py-3">
-                <span
-                  className="flex size-9 shrink-0 items-center justify-center rounded-full text-[12px] font-medium text-accent"
-                  style={{ background: "var(--color-accent-soft)" }}
-                >
+              <div className="flex items-center gap-3 px-4 py-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft font-mono text-[11px] font-medium text-accent">
                   {initials(c.name, c.address)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-medium text-fg">
+                  <span className="block truncate text-[13px] font-medium text-fg">
                     {c.name ?? shortAddr(c.address)}
                   </span>
                   <span className="block font-mono text-[11px] text-fg-dim">
                     {c.count} {c.count === 1 ? "payment" : "payments"}
                   </span>
                 </div>
-                <span className="text-[14px] font-medium tabular-nums text-fg">
+                <span className="text-[13px] font-medium tabular-nums text-fg">
                   {formatUsd(c.totalUsd, { fixed: true })}
                 </span>
               </div>
@@ -68,14 +67,11 @@ export function InsightsSection() {
       )}
 
       {data && data.topCounterparties.length === 0 && !loading && (
-        <GlassCard radius={20} className="flex items-center gap-3 px-4 py-4">
-          <span
-            className="flex size-9 shrink-0 items-center justify-center rounded-full text-accent"
-            style={{ background: "var(--color-accent-soft)" }}
-          >
-            <HugeiconsIcon icon={Analytics02Icon} size={18} strokeWidth={1.6} />
+        <GlassCard radius={14} className="flex items-center gap-3 px-4 py-3.5">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+            <HugeiconsIcon icon={Analytics02Icon} size={17} strokeWidth={1.6} />
           </span>
-          <p className="text-[13px] text-fg-muted">
+          <p className="text-[12px] text-fg-muted">
             Your spending breakdown shows up here once you start sending.
           </p>
         </GlassCard>
@@ -96,15 +92,15 @@ function Tile({
   loading?: boolean;
 }) {
   return (
-    <GlassCard radius={18} className="px-3 py-3.5">
+    <GlassCard radius={12} className="px-3 py-3">
       <span className="block font-mono text-[10px] uppercase tracking-[0.16em] text-fg-dim">
         {label}
       </span>
       {loading ? (
-        <span className="mt-2 block h-5 w-12 rounded-full bg-surface-2" />
+        <span className="mt-2 block h-4 w-10 rounded-full bg-surface-2" />
       ) : (
         <span
-          className={`mt-1 block truncate text-[18px] font-medium tracking-[-0.02em] tabular-nums ${
+          className={`mt-1 block truncate text-[15px] font-medium tracking-[-0.02em] tabular-nums ${
             accent ? "text-accent" : "text-fg"
           }`}
         >

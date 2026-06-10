@@ -1,23 +1,19 @@
 import { NextResponse } from "next/server";
-import { sweepExpiredCheques, chequesEnabled } from "@/lib/cheques";
 
 export const runtime = "nodejs";
 
 /**
- * GET /api/cron/cheques-sweep
+ * RETIRED — no cron.
  *
- * Reclaims funded cheques past their expiry back to their creators so no escrow
- * float is ever stranded. Bearer CRON_SECRET gated (Vercel cron sends it).
+ * On the on-chain cheque rail, an expired-unclaimed cheque is reclaimed by the
+ * CREATOR on demand (`cheque::reclaim`, surfaced in the wallet's "Mine" tab) —
+ * there is nothing to sweep on a schedule. This route is removed from
+ * vercel.json and left inert (410). `sweepExpiredCheques` remains in lib/cheques
+ * for any manual/admin use.
  */
-export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization") ?? "";
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-  }
-  if (!chequesEnabled()) return NextResponse.json({ ok: true, swept: 0, disabled: true });
-  const swept = await sweepExpiredCheques();
-  return NextResponse.json({ ok: true, swept });
+export async function GET() {
+  return NextResponse.json(
+    { error: "gone", detail: "cheque expiry is on-chain creator reclaim now; no sweep cron" },
+    { status: 410 }
+  );
 }
