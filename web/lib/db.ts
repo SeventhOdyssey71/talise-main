@@ -135,8 +135,20 @@ function getSql(): Sql {
       if (mode === "require") return { rejectUnauthorized: false };
       return "prefer";
     })(),
-    // Modest pool — keep headroom for parallel requests without hammering the
-    // ~1G memory pxxl box. Adjust if function concurrency rises.
+    // PgBouncer in TRANSACTION mode (Supabase pooled :6543) does not support
+    // named prepared statements — postgres.js uses them by default, which
+    // breaks with "prepared statement … does not exist" under the pooler.
+    // Auto-disable when the URL is a transaction pooler; direct/session
+    // connections keep prepared statements for speed.
+    prepare: (() => {
+      const u = new URL(url);
+      if (u.searchParams.get("pgbouncer") === "true") return false;
+      if (u.hostname.endsWith("pooler.supabase.com") && u.port === "6543") return false;
+      return true;
+    })(),
+    // Modest per-instance pool — the platform pooler (PgBouncer) multiplexes
+    // across lambdas, so each instance stays small while total concurrency
+    // scales. Adjust if function concurrency rises.
     max: 8,
     idle_timeout: 30,
     connect_timeout: 10,
