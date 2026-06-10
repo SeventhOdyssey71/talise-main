@@ -48,6 +48,10 @@ struct ScanToPayView: View {
     /// True while we resolve the scanned recipient to a display identity
     /// before presenting the confirm sheet — drives the "Resolving…" overlay.
     @State private var resolving = false
+    /// Brief "Scanned ✓" success interstitial between a locked scan and the
+    /// confirm sheet. Without it the sheet snapped up the instant a code was
+    /// read — too fast to register what happened.
+    @State private var scanned = false
     /// The resolved payment, set once the scanned recipient resolves. Drives
     /// the `.sheet(item:)` that presents `ConfirmPaymentSheet`.
     @State private var pendingPayment: PendingPayment?
@@ -135,6 +139,9 @@ struct ScanToPayView: View {
             if resolving {
                 resolvingOverlay
             }
+            if scanned {
+                scannedOverlay
+            }
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(false)
@@ -189,6 +196,63 @@ struct ScanToPayView: View {
         ocrCandidate = nil
         ocrStreak = 0
         resumeToken &+= 1
+    }
+
+    /// "Scanned successfully" beat — a mint check that pops in, holds, then
+    /// hands off to the confirm sheet. ~0.9s total: long enough to register,
+    /// short enough to keep the flow fast.
+    private var scannedOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(TaliseColor.greenMint.opacity(0.16))
+                        .frame(width: 64, height: 64)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(TaliseColor.greenMint)
+                }
+                .scaleEffect(scannedPop ? 1 : 0.4)
+                .opacity(scannedPop ? 1 : 0)
+                Text("Scanned successfully")
+                    .font(TaliseFont.body(13, weight: .regular))
+                    .foregroundStyle(.white)
+                    .opacity(scannedPop ? 1 : 0)
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 22)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(TaliseColor.surface)
+            )
+        }
+        .transition(.opacity)
+        .onAppear {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.62)) {
+                scannedPop = true
+            }
+        }
+        .onDisappear { scannedPop = false }
+    }
+    @State private var scannedPop = false
+
+    /// Show the success beat, then run `andThen` (presenting whichever sheet
+    /// the scan routed to). One place so the QR and bank-OCR paths feel
+    /// identical.
+    private func showScannedThen(_ andThen: @escaping () -> Void) {
+        #if canImport(UIKit)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+        withAnimation(.easeIn(duration: 0.12)) { scanned = true }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            withAnimation(.easeOut(duration: 0.15)) { scanned = false }
+            // Let the veil fade before the sheet slides — no overlap jank.
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            andThen()
+        }
     }
 
     private var resolvingOverlay: some View {
@@ -550,13 +614,12 @@ struct ScanToPayView: View {
         }
         guard ocrStreak >= ocrLockThreshold else { return }
 
-        // Locked — route to the off-ramp. Latch so QR frames + further OCR
-        // can't double-route.
+        // Locked — route to the off-ramp via the success beat. Latch so QR
+        // frames + further OCR can't double-route.
         didRoute = true
-        #if canImport(UIKit)
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        #endif
-        pendingBank = PendingBankPayout(bank: candidate.bank, accountNumber: candidate.accountNumber)
+        showScannedThen {
+            pendingBank = PendingBankPayout(bank: candidate.bank, accountNumber: candidate.accountNumber)
+        }
     }
 
     // MARK: - Top status bar
@@ -745,11 +808,13 @@ struct ScanToPayView: View {
         }
     }
 
-    /// Hand a resolved recipient to the confirm sheet.
+    /// Hand a resolved recipient to the confirm sheet — via the success beat.
     private func present(_ resolution: RecipientResolution, amount: Double?) async {
         await MainActor.run {
             withAnimation { resolving = false }
-            pendingPayment = PendingPayment(recipient: resolution, amount: amount)
+            showScannedThen {
+                pendingPayment = PendingPayment(recipient: resolution, amount: amount)
+            }
         }
     }
 

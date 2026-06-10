@@ -31,6 +31,9 @@ export function ScanSheet({ open, onClose }: Props) {
   const routedRef = useRef(false);
   const [cam, setCam] = useState<CamState>("starting");
   const [unrecognized, setUnrecognized] = useState(false);
+  // "Scanned ✓" success beat — without it the Send page snapped in the
+  // instant a code was read, too fast to register. ~0.9s hold.
+  const [scannedOk, setScannedOk] = useState(false);
 
   const teardown = useCallback(() => {
     stopRef.current = true;
@@ -49,11 +52,14 @@ export function ScanSheet({ open, onClose }: Props) {
       }
       routedRef.current = true;
       teardown();
-      if (navigator.vibrate) navigator.vibrate(60);
+      if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+      setScannedOk(true);
       const q = new URLSearchParams({ to: hit.recipient });
       if (hit.amount != null) q.set("amount", hit.amount.toFixed(2));
-      onClose();
-      router.push(`/app/pay?${q.toString()}`);
+      window.setTimeout(() => {
+        onClose();
+        router.push(`/app/pay?${q.toString()}`);
+      }, 900);
     },
     [onClose, router, teardown]
   );
@@ -193,6 +199,20 @@ export function ScanSheet({ open, onClose }: Props) {
         </div>
       </div>
 
+      {/* Scanned-successfully beat */}
+      {scannedOk && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/70">
+          <div className="talise-scan-pop flex flex-col items-center gap-3 rounded-3xl bg-[#161d12] px-8 py-6">
+            <span className="flex size-16 items-center justify-center rounded-full bg-[#cbf3b4]/15">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path d="M4 12.5l5 5L20 6.5" stroke="#cbf3b4" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <span className="text-[13px] text-white">Scanned successfully</span>
+          </div>
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="absolute inset-x-0 top-0 bg-gradient-to-b from-black/60 to-transparent px-4 pb-10 pt-4">
         <div className="flex items-center justify-between">
@@ -243,6 +263,8 @@ export function ScanSheet({ open, onClose }: Props) {
       <style>{`
         .talise-scan-sweep { top: 12%; animation: talise-sweep 2.4s ease-in-out infinite alternate; }
         @keyframes talise-sweep { from { top: 12%; } to { top: 86%; } }
+        .talise-scan-pop { animation: talise-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        @keyframes talise-pop { from { transform: scale(0.55); opacity: 0; } to { transform: scale(1); opacity: 1; } }
       `}</style>
     </div>
   );
