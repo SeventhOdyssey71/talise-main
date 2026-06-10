@@ -6,8 +6,15 @@ import { WaitlistForm } from "./WaitlistForm";
 export const metadata: Metadata = {
   title: "Talise. Join the waitlist.",
   description:
-    "Talise is in private beta. Drop your email and we'll let you in as the doors open.",
+    "Join the Talise waitlist — a dollar wallet you fund and send by @handle, gasless, no seed phrase.",
 };
+
+/**
+ * Waitlist OPEN — collecting sign-ups. Joining records a sign-up only (no gas);
+ * handle minting / sponsored txns happen later at activation. Flip back to true
+ * to show the "waitlist is full" state and pause new sign-ups.
+ */
+const WAITLIST_FULL = false;
 
 /**
  * Talise waitlist page. Mirrors the landing's dark visual language
@@ -51,22 +58,55 @@ export default function WaitlistPage() {
           dashboard fans out to the full width for its side-by-side cards. So
           the section is generous and the children own their own max-width. */}
       <section className="mx-auto flex w-full max-w-[1040px] flex-1 flex-col items-center justify-center px-5 py-10 sm:px-6 sm:py-12">
-        <div className="text-center">
-          <h1 className="text-balance break-words text-[30px] font-medium leading-[1.08] tracking-[-0.025em] sm:text-[40px] lg:text-[44px]">
-            Get an{" "}
-            <span className="text-[var(--color-accent)]">@handle</span>{" "}
-            <br className="hidden sm:block" />
-            that holds dollars.
-          </h1>
+        {WAITLIST_FULL ? (
+          <div className="mx-auto max-w-[480px] text-center">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] px-3.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--color-fg-dim)]">
+              <span className="size-1.5 rounded-full bg-[var(--color-fg-dim)]" />
+              Waitlist · closed
+            </span>
+            <h1 className="mt-5 text-balance break-words text-[30px] font-medium leading-[1.08] tracking-[-0.025em] sm:text-[40px] lg:text-[44px]">
+              The waitlist is full.
+            </h1>
+            <p className="mx-auto mt-4 max-w-[420px] text-[14px] leading-[1.55] text-[var(--color-fg-muted)] sm:text-[15px]">
+              We&apos;ve reached capacity for this round and paused new sign-ups.
+              Follow{" "}
+              <a
+                href="https://x.com/taliseio"
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-[var(--color-accent)] underline-offset-2 hover:underline"
+              >
+                @taliseio
+              </a>{" "}
+              — we&apos;ll open the next round soon.
+            </p>
+            <Link
+              href="/"
+              className="mt-8 inline-flex h-11 items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-7 text-[14px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)]"
+            >
+              Back to home
+            </Link>
+          </div>
+        ) : (
+          <>
+            <div className="text-center">
+              <h1 className="text-balance break-words text-[30px] font-medium leading-[1.08] tracking-[-0.025em] sm:text-[40px] lg:text-[44px]">
+                Get an{" "}
+                <span className="text-[var(--color-accent)]">@handle</span>{" "}
+                <br className="hidden sm:block" />
+                that holds dollars.
+              </h1>
 
-          <p className="mx-auto mt-4 max-w-[420px] text-[14px] leading-[1.55] text-[var(--color-fg-muted)] sm:text-[15px]">
-            Hold dollars. Send home in seconds. Earn on idle balance.
-          </p>
-        </div>
+              <p className="mx-auto mt-4 max-w-[420px] text-[14px] leading-[1.55] text-[var(--color-fg-muted)] sm:text-[15px]">
+                Hold dollars. Send home in seconds. Earn on idle balance.
+              </p>
+            </div>
 
-        <div className="mt-7 w-full sm:mt-8">
-          <WaitlistForm />
-        </div>
+            <div className="mt-7 w-full sm:mt-8">
+              <WaitlistForm />
+            </div>
+          </>
+        )}
       </section>
 
       {/* Minimal footer, matches landing. */}

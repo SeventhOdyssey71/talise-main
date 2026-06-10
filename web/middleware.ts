@@ -82,8 +82,97 @@ function withSecurityHeaders(res: NextResponse): NextResponse {
   return res;
 }
 
+// ── IP denylist (2026-06-07) ─────────────────────────────────────────
+// Hard-block abusive sources at the edge, before any route runs. Seeded
+// with the datacenter IP that flooded the waitlist sign-up (Tencent Cloud,
+// not a real user). Extend without a code change via the BLOCKED_IPS env
+// var (comma-separated exact IPs). Matched against the same non-spoofable
+// client-IP resolution the rate limiter uses (Vercel-set headers first).
+const BLOCKED_IPS: ReadonlySet<string> = new Set(
+  [
+    "43.134.125.171",
+    "43.134.189.52",
+    ...(process.env.BLOCKED_IPS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  ]
+);
+
+// ── Country geo-block (2026-06-07) ───────────────────────────────────
+// Block whole countries at the edge using Vercel's geo tag
+// (`x-vercel-ip-country`, set by the edge on every request — not present
+// in local dev, so dev is never blocked). Seeded with ID (Indonesia);
+// extend/adjust without a code change via the BLOCKED_COUNTRIES env var
+// (comma-separated ISO-3166 alpha-2 codes). Best-effort: a VPN/proxy in
+// another country evades it, the same as any geo-fence.
+const BLOCKED_COUNTRIES: ReadonlySet<string> = new Set(
+  [
+    "ID",
+    ...(process.env.BLOCKED_COUNTRIES ?? "")
+      .split(",")
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean),
+  ]
+);
+
+/**
+ * Resolve the true client IP for denylist matching. Mirrors
+ * lib/rate-limit.ts getClientIp: prefer the platform-set, non-spoofable
+ * headers (Vercel overwrites these on ingress) before the
+ * client-influenced x-forwarded-for, so an attacker can't dodge the block
+ * by sending their own X-Forwarded-For.
+ */
+function clientIp(req: NextRequest): string {
+  const vercel = req.headers.get("x-vercel-forwarded-for");
+  if (vercel) {
+    const first = vercel.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const xri = req.headers.get("x-real-ip");
+  if (xri) return xri.trim();
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return "unknown";
+}
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  // Edge-level ban: denylisted IPs get 403 on EVERY path before any route
+  // or DB touch. Cheapest possible place to shed abusive traffic.
+  if (BLOCKED_IPS.size > 0 && BLOCKED_IPS.has(clientIp(req))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Geo-block: visitors from a blocked country get a 451 with a short
+  // human-readable page (browsers hit pages, not JSON). The country comes
+  // from Vercel's edge tag; absent in local dev so dev is never blocked.
+  const country = req.headers.get("x-vercel-ip-country")?.toUpperCase();
+  if (country && BLOCKED_COUNTRIES.has(country)) {
+    return new NextResponse(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+        `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+        `<title>Talise — not available in your region</title>` +
+        `<style>html,body{height:100%;margin:0}body{display:flex;align-items:center;` +
+        `justify-content:center;background:#fafdf8;color:#14250e;` +
+        `font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}` +
+        `main{max-width:420px;padding:32px;text-align:center}` +
+        `h1{font-size:22px;margin:0 0 10px;letter-spacing:-.02em}` +
+        `p{font-size:15px;line-height:1.5;color:#586b50;margin:0}</style></head>` +
+        `<body><main><h1>Talise isn't available in your region yet</h1>` +
+        `<p>We're not accepting visitors from your location at this time. ` +
+        `Follow <a href="https://x.com/taliseio" style="color:#2f7d31">@taliseio</a> for updates.</p>` +
+        `</main></body></html>`,
+      {
+        status: 451,
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+      }
+    );
+  }
+
   if (
     pathname.startsWith("/api/") &&
     (req.method === "POST" || req.method === "PUT" || req.method === "PATCH")
