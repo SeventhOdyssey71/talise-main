@@ -108,18 +108,11 @@ web/app/api/infra/
 web/lib/infra-config.ts
 web/lib/infra-probes.ts
 
-# ── Beta product PAGES — LOCAL-ONLY until launch ─────────────────────
-# Only the marketing surface is public for now: / , /waitlist , /litepaper.
-# The web wallet, business workspace, admin tools, and the payment/profile
-# link pages run in local dev but are untracked so they don't deploy. The
-# API + auth routes they share (web/app/api/*, web/app/auth/*) STAY tracked —
-# the iOS app + the waitlist depend on that live backend.
-web/app/app/
-web/app/business/
+# ── LAUNCHED 2026-06-10: the product pages now SHIP ───────────────────
+# /app + /business are live behind the app_allowlist gate (open sign-in,
+# allowed emails only — see web/app/app/layout.tsx + /api/admin/app-access).
+# The public link pages (/c /i /pay /u) ship ungated — they're how
+# non-members receive money. Only the local ops dashboard stays untracked:
 web/app/admin/
-web/app/c/
-web/app/i/
-web/app/pay/
-web/app/u/
 .vercel
 marketing/exports/

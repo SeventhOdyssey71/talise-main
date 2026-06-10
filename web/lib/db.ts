@@ -874,6 +874,19 @@ async function doEnsureSchema(): Promise<void> {
     // near-immutable name. NULL until first resolved.
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS suins_subname TEXT`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS suins_subname_at BIGINT`,
+
+    // ─── app_allowlist (private-beta access gate) ────────────────────
+    // The /app and /business surfaces are open to sign-in but GATED to
+    // explicitly-granted emails. One row per allowed email (lowercased).
+    // Grants come from the admin API (/api/admin/app-access) or direct SQL;
+    // APP_ALLOWED_EMAILS env is a belt-and-braces bootstrap that always
+    // passes even if this table is unreachable.
+    `CREATE TABLE IF NOT EXISTS app_allowlist (
+      email TEXT PRIMARY KEY,
+      granted_at BIGINT NOT NULL,
+      granted_by TEXT,
+      note TEXT
+    )`,
   ];
 
   // ─── int4 → int8 widener spec (cross-section migration) ────────────
@@ -1910,4 +1923,66 @@ export async function markRoundupProcessed(
     sql: `UPDATE roundup_queue SET processed_at = ?, tx_digest = ? WHERE id = ?`,
     args: [Date.now(), txDigest, id],
   });
+}
+
+// ─── App allowlist (private-beta access gate) ───────────────────────────────
+
+/** Env bootstrap — comma-separated emails that ALWAYS have access (founders),
+ *  even if the DB allowlist is unreachable. */
+function envAllowedEmails(): Set<string> {
+  return new Set(
+    (process.env.APP_ALLOWED_EMAILS ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+/** Is this email allowed into the gated app surfaces? Fail-CLOSED on DB error
+ *  (except for the env bootstrap list, which always passes). */
+export async function isAppAccessAllowed(email: string): Promise<boolean> {
+  const norm = email.trim().toLowerCase();
+  if (envAllowedEmails().has(norm)) return true;
+  try {
+    await ensureSchema();
+    const r = await db().execute({
+      sql: `SELECT 1 FROM app_allowlist WHERE email = ?`,
+      args: [norm],
+    });
+    return r.rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function grantAppAccess(
+  email: string,
+  grantedBy: string | null,
+  note?: string
+): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: `INSERT INTO app_allowlist (email, granted_at, granted_by, note)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (email) DO UPDATE SET granted_by = EXCLUDED.granted_by, note = EXCLUDED.note`,
+    args: [email.trim().toLowerCase(), Date.now(), grantedBy, note ?? null],
+  });
+}
+
+export async function revokeAppAccess(email: string): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: `DELETE FROM app_allowlist WHERE email = ?`,
+    args: [email.trim().toLowerCase()],
+  });
+}
+
+export async function listAppAccess(): Promise<
+  Array<{ email: string; granted_at: number; granted_by: string | null; note: string | null }>
+> {
+  await ensureSchema();
+  const r = await db().execute(
+    `SELECT email, granted_at, granted_by, note FROM app_allowlist ORDER BY granted_at DESC`
+  );
+  return r.rows as never;
 }
