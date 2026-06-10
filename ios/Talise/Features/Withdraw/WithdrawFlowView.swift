@@ -62,7 +62,7 @@ struct WithdrawFlowView: View {
                             .buttonStyle(TilePress())
 
                             Button {
-                                withAnimation(.snappy(duration: 0.24)) {
+                                withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
                                     expanded = expanded == .cheques ? nil : .cheques
                                 }
                             } label: {
@@ -76,6 +76,7 @@ struct WithdrawFlowView: View {
                             }
                             .buttonStyle(TilePress())
                         }
+                        .zIndex(3)
 
                         // ── Cheques group, expanded inline under the grid ──
                         if expanded == .cheques {
@@ -90,12 +91,13 @@ struct WithdrawFlowView: View {
                                     handOff(.taliseRequestMyChequesCover)
                                 },
                             ])
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .zIndex(1)
                         }
 
                         // ── Work group: streams, invoices, contracts ──
                         Button {
-                            withAnimation(.snappy(duration: 0.24)) {
+                            withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
                                 expanded = expanded == .work ? nil : .work
                             }
                         } label: {
@@ -107,6 +109,7 @@ struct WithdrawFlowView: View {
                             )
                         }
                         .buttonStyle(TilePress())
+                        .zIndex(2)
 
                         if expanded == .work {
                             SubActionList(rows: [
@@ -120,7 +123,8 @@ struct WithdrawFlowView: View {
                                     handOff(.taliseRequestContractsCover)
                                 },
                             ])
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .zIndex(0)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -166,7 +170,11 @@ struct WithdrawFlowView: View {
 // uses), so web + iOS finally share one icon language.
 
 /// Hugeicon image, template-tinted.
-private struct HugeIcon: View {
+/// INTERNAL (not private): shared with DepositFlowView so the Deposit and
+/// Move-money sheets speak the same visual language. Lives here (not in
+/// DesignSystem/) only because this pbxproj predates synchronized groups —
+/// adding a file means hand-editing project.pbxproj.
+struct HugeIcon: View {
     let name: String
     var size: CGFloat = 20
     var tint: Color = TaliseColor.greenMint
@@ -181,22 +189,27 @@ private struct HugeIcon: View {
     }
 }
 
-/// The squircle icon chip — soft mint wash, mint glyph.
-private struct IconChip: View {
+/// The squircle icon chip — soft mint wash, mint glyph. INTERNAL: shared
+/// with DepositFlowView (see HugeIcon note).
+struct IconChip: View {
     let icon: String
     var side: CGFloat = 42
     var iconSize: CGFloat = 20
+    /// Glyph + wash colour — mint by default; pass fgMuted for dimmed
+    /// not-yet-live rows.
+    var tint: Color = TaliseColor.greenMint
 
     var body: some View {
         RoundedRectangle(cornerRadius: side * 0.32, style: .continuous)
-            .fill(TaliseColor.greenMint.opacity(0.12))
+            .fill(tint.opacity(0.12))
             .frame(width: side, height: side)
-            .overlay(HugeIcon(name: icon, size: iconSize))
+            .overlay(HugeIcon(name: icon, size: iconSize, tint: tint))
     }
 }
 
 /// Press feedback for the big tiles — a gentle scale, CashApp-style.
-private struct TilePress: ButtonStyle {
+/// INTERNAL: shared with DepositFlowView (see HugeIcon note).
+struct TilePress: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.965 : 1)
@@ -300,6 +313,11 @@ private struct SubActionList: View {
     }
     let rows: [Row]
 
+    /// Per-row reveal stagger: rows fade + settle in 45ms apart once the
+    /// container lands, so the expand reads as a composed motion rather
+    /// than a block popping in.
+    @State private var revealed = false
+
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
@@ -319,6 +337,13 @@ private struct SubActionList: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .opacity(revealed ? 1 : 0)
+                .offset(y: revealed ? 0 : -7)
+                .animation(
+                    .spring(response: 0.34, dampingFraction: 0.86)
+                        .delay(0.04 + Double(i) * 0.045),
+                    value: revealed
+                )
                 if i < rows.count - 1 {
                     Divider().overlay(TaliseColor.fg.opacity(0.06)).padding(.leading, 66)
                 }
@@ -333,6 +358,8 @@ private struct SubActionList: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
         )
+        .onAppear { revealed = true }
+        .onDisappear { revealed = false }
     }
 }
 
