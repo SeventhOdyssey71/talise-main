@@ -110,8 +110,12 @@ export default function ChequesPage() {
           Money in a link
         </h1>
         <p className="text-[14px] text-fg-muted">
-          Write a cheque, drop the link in any DM, and they claim it as real
-          money. No account, no app required.
+          {/* Short on phones; the fuller line reads on wider screens. */}
+          <span className="sm:hidden">A link anyone can claim as real money.</span>
+          <span className="hidden sm:inline">
+            Write a cheque, drop the link in any DM, and they claim it as real
+            money. No account, no app required.
+          </span>
         </p>
       </header>
 

@@ -99,8 +99,8 @@ export default function StreamPage() {
           Money over time
         </h1>
         <p className="text-[14px] text-fg-muted">
-          Drip a salary, an allowance, or a payout — every payment gasless,
-          because gas is free on Talise.
+          Drip a salary, an allowance, or a payout — fund once, it settles in
+          seconds, on schedule.
         </p>
       </header>
 
@@ -367,7 +367,7 @@ function SetupTab({ onStarted }: { onStarted: () => void }) {
             One every {intervalLabel}, finishing in {durationLabel}. First payment fires now.
           </p>
           <p className="font-mono text-[10px] text-accent">
-            Every payment is gasless — ${totalUsd.toFixed(2)} total, $0 in fees.
+            ${totalUsd.toFixed(2)} total · settles in seconds.
           </p>
         </GlassCard>
       ) : (
@@ -534,7 +534,7 @@ function ListTab({ reloadSignal }: { reloadSignal: number }) {
       <EmptyState
         icon={<HugeiconsIcon icon={RadioIcon} size={26} />}
         title="No streams yet"
-        subtitle="Start one to drip money over time — every payment is gasless."
+        subtitle="Start one to drip money over time — fund once, it settles on schedule."
       />
     );
   }

@@ -25,8 +25,12 @@ export default function WorkPage() {
           Get paid. Pay your team.
         </h1>
         <p className="mt-1.5 max-w-xl text-[14px] text-fg-muted">
-          Send a clean invoice that anyone can pay with a tap, or set up recurring
-          pay for contractors — funded once, released automatically.
+          {/* Short on phones; the full pitch reads on wider screens. */}
+          <span className="sm:hidden">Invoice clients. Pay your team.</span>
+          <span className="hidden sm:inline">
+            Send a clean invoice that anyone can pay with a tap, or set up recurring
+            pay for contractors — funded once, released automatically.
+          </span>
         </p>
       </header>
 

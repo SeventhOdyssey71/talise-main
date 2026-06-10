@@ -11,8 +11,13 @@
  * right); mobile stacks everything in a single column.
  */
 
+import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { GiftCardIcon, ArrowRight02Icon } from "@hugeicons/core-free-icons";
+import {
+  GiftCardIcon,
+  ArrowRight02Icon,
+  ArrowDown01Icon,
+} from "@hugeicons/core-free-icons";
 import Link from "next/link";
 import { GlassCard } from "@/components/app";
 import { SupplyCard } from "@/components/app/earn/SupplyCard";
@@ -21,6 +26,12 @@ import { GoalsSection } from "@/components/app/earn/GoalsSection";
 import { InsightsSection } from "@/components/app/earn/InsightsSection";
 
 export default function EarnPage() {
+  // Mobile keeps the lead clear — Earn (Supply) + Rewards + Round-up. Goals and
+  // Insights are real but secondary, so on phones they sit behind a single
+  // "More" disclosure rather than extending the scroll. Desktop shows the full
+  // two-column layout unchanged.
+  const [moreOpen, setMoreOpen] = useState(false);
+
   return (
     <div className="space-y-6">
       {/* min-w-0 on the grid columns: grid items default to min-width:auto and
@@ -37,8 +48,24 @@ export default function EarnPage() {
         <div className="min-w-0 space-y-5">
           <RewardsLink />
           <RoundupCard />
-          <GoalsSection />
-          <InsightsSection />
+
+          {/* Goals + Insights — always visible on lg; collapsed behind a
+              "More" toggle on mobile to keep the first screen calm. */}
+          <div className={moreOpen ? "space-y-5" : "hidden space-y-5 lg:block"}>
+            <GoalsSection />
+            <InsightsSection />
+          </div>
+
+          {!moreOpen && (
+            <button
+              type="button"
+              onClick={() => setMoreOpen(true)}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl border border-line bg-surface px-4 py-3 text-[14px] font-medium text-fg-muted transition-colors hover:text-fg lg:hidden"
+            >
+              Goals &amp; insights
+              <HugeiconsIcon icon={ArrowDown01Icon} size={16} strokeWidth={2} />
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Coins01Icon } from "@hugeicons/core-free-icons";
+import { Coins01Icon, ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { Eyebrow, EmptyState, GlassCard, PrimaryButton, api, ApiError } from "@/components/app";
 import {
   TierCard,
@@ -31,6 +31,10 @@ export default function RewardsPage() {
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // On mobile, lead with tier + referral (the actions) and tuck the lifetime
+  // tallies + "how you earn" explainer behind a single disclosure. Desktop
+  // keeps the full two-column layout, so this only gates the <lg view.
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setError(null);
@@ -90,19 +94,34 @@ export default function RewardsPage() {
         </GlassCard>
       ) : summary ? (
         <>
-          {/* Top region — tier+stats+rules (3 col) alongside referral (2 col) */}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
-            <div className="space-y-4 lg:col-span-3">
+          {/* Top region — tier+stats+rules (3 col) alongside referral (2 col).
+              On mobile the order is tightened to tier → referral → (collapsed
+              stats + rules) so the first screen leads with the actions. */}
+          <div className="flex flex-col gap-5 lg:grid lg:grid-cols-5">
+            <div className="order-1 space-y-4 lg:col-span-3">
               <TierCard tier={summary.tier} points={summary.pointsTotal} />
-              <LifetimeStats
-                sentUsd={summary.lifetimeSentUsd}
-                savedUsd={summary.lifetimeSavedUsd}
-              />
-              <EarnRules rates={summary.pointRates} />
+              {/* Stats + rules: always shown on lg; behind "More" on mobile. */}
+              <div className={detailsOpen ? "space-y-4" : "hidden space-y-4 lg:block"}>
+                <LifetimeStats
+                  sentUsd={summary.lifetimeSentUsd}
+                  savedUsd={summary.lifetimeSavedUsd}
+                />
+                <EarnRules rates={summary.pointRates} />
+              </div>
             </div>
-            <div className="lg:col-span-2">
+            <div className="order-2 lg:col-span-2 lg:order-none">
               <ReferralCard code={summary.code} referralCount={summary.referralCount} />
             </div>
+            {!detailsOpen && (
+              <button
+                type="button"
+                onClick={() => setDetailsOpen(true)}
+                className="order-3 inline-flex w-full items-center justify-center gap-1.5 rounded-2xl border border-line bg-surface px-4 py-3 text-[14px] font-medium text-fg-muted transition-colors hover:text-fg lg:hidden"
+              >
+                Stats &amp; how you earn
+                <HugeiconsIcon icon={ArrowDown01Icon} size={16} strokeWidth={2} />
+              </button>
+            )}
           </div>
 
           {/* Redemption catalogue spans the full width */}

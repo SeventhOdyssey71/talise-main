@@ -100,7 +100,7 @@ export function IdentityCard({ me }: { me: Me | null }) {
           />
         </button>
         <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-fg-dim">
-          $0.00 fee · instant
+          Settles in seconds
         </span>
       </div>
     </GlassCard>

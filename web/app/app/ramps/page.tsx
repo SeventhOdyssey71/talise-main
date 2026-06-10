@@ -50,8 +50,12 @@ export default function RampsPage() {
           Turn USDsui into cash, at the real rate.
         </h1>
         <p className="max-w-md text-[15px] leading-relaxed text-fg-muted">
-          Paid straight to your bank via Linq — a live rate, one clear fee, settled
-          in seconds.
+          {/* Short on phones; the fuller line reads on wider screens. */}
+          <span className="sm:hidden">Straight to your bank, settled in seconds.</span>
+          <span className="hidden sm:inline">
+            Paid straight to your bank via Linq — a live rate, one clear fee,
+            settled in seconds.
+          </span>
         </p>
       </header>
 
@@ -77,7 +81,6 @@ export default function RampsPage() {
               </h2>
             </div>
           </div>
-          <StatusPill label="Live" tone="success" />
         </div>
 
         <ul className="relative mt-6 divide-y divide-black/[0.05]">

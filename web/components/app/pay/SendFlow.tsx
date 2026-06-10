@@ -934,9 +934,9 @@ function ReviewStep({
               />
             </span>
           }
-          title="Fees"
-          sub="Sponsored by Talise"
-          value="Free"
+          title="Network fee"
+          sub="Gas sponsored by Talise"
+          value="$0.00"
           last={false}
         />
         <ReviewRow
