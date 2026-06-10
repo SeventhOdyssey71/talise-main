@@ -4,7 +4,7 @@ import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { fromBase64, toBase64 } from "@mysten/sui/utils";
-import { db, ensureSchema } from "@/lib/db";
+import { db, ensureSchema, schemaVersionGate } from "@/lib/db";
 import { sui, USDSUI_DECIMALS } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { onara } from "@/lib/onara";
@@ -99,11 +99,19 @@ export type ChequeRow = {
 // ─── Schema ─────────────────────────────────────────────────────────────────
 
 let _schemaReady: Promise<void> | null = null;
+// Bump this whenever ANY DDL statement below changes — the one-SELECT version
+// gate skips the whole replay (≈12 round-trips, seconds on a remote DB) on
+// every cold start while the stored marker matches.
+const CHEQUES_SCHEMA_VERSION = "2026-06-10.1";
+
 export function ensureChequesSchema(): Promise<void> {
   if (_schemaReady) return _schemaReady;
   _schemaReady = (async () => {
     await ensureSchema();
     const c = db();
+
+    const gate = await schemaVersionGate("cheques_schema_version", CHEQUES_SCHEMA_VERSION);
+    if (gate.upToDate) return;
 
     // ── cheques: the cheque state machine ────────────────────────────────
     //
@@ -212,6 +220,8 @@ export function ensureChequesSchema(): Promise<void> {
     await c.execute(
       `CREATE INDEX IF NOT EXISTS idx_cheque_attempts_cheque ON cheque_claim_attempts(cheque_id, created_at DESC)`
     );
+
+    await gate.stamp();
   })().catch((err) => {
     // Reset so a transient DDL error retries on the next call (mirrors
     // ensureStreamsSchema / ensureLedgerSchema discipline).

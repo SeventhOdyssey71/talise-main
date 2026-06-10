@@ -1,4 +1,5 @@
 import postgres, { type Sql } from "postgres";
+import { createHash } from "node:crypto";
 
 /**
  * Talise database layer — Postgres.
@@ -863,16 +864,7 @@ async function doEnsureSchema(): Promise<void> {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS suins_subname_at BIGINT`,
   ];
 
-  for (const stmt of stmts) {
-    try {
-      await c.execute(stmt);
-    } catch {
-      /* idempotent; ALTERs against missing tables on first cold start
-         will throw harmlessly — the CREATE above eventually wins. */
-    }
-  }
-
-  // ─── int4 → int8 widener (cross-section migration) ─────────────────
+  // ─── int4 → int8 widener spec (cross-section migration) ────────────
   // The original Postgres migration shipped briefly with `INTEGER` for
   // ms-precision timestamps; `Date.now()` is ~1.78 trillion today, well
   // beyond int4's ~2.15B limit, so inserts blow up with:
@@ -880,6 +872,7 @@ async function doEnsureSchema(): Promise<void> {
   // `CREATE TABLE IF NOT EXISTS` won't fix an already-narrow column —
   // need an explicit ALTER. Gate each on `information_schema.columns`
   // so the migration is a no-op once columns are already int8.
+  // (Declared BEFORE the version gate below so the hash covers it.)
   const tsColumns: Array<[string, string]> = [
     ["users", "created_at"],
     ["users", "last_seen_at"],
@@ -899,6 +892,41 @@ async function doEnsureSchema(): Promise<void> {
     ["mobile_sessions", "expires_at"],
     ["mobile_sessions", "max_epoch"],
   ];
+
+  // ─── Schema-version fast path ───────────────────────────────────────
+  // The DDL below is ~114 sequential round-trips. Against a remote box at
+  // ~180ms RTT that is ~20 SECONDS on EVERY cold start (each dev restart,
+  // each cold serverless lambda) — the dominant cold-start cost we measured.
+  // The statements are pure data, so hash them: if the stored marker matches,
+  // the DB is already at exactly this schema and we skip the entire replay
+  // for the cost of ONE SELECT. Any edit to the DDL (or the widener spec)
+  // changes the hash, so the next cold start replays the idempotent DDL once
+  // and re-stamps. A missing global_kv (fresh DB) or any read error simply
+  // falls through to the full replay.
+  const schemaHash = createHash("sha256")
+    .update(stmts.join(";"))
+    .update(JSON.stringify(tsColumns))
+    .digest("hex")
+    .slice(0, 16);
+  try {
+    const mark = await c.execute({
+      sql: `SELECT v_text FROM global_kv WHERE k = 'schema_version'`,
+      args: [],
+    });
+    if ((mark.rows[0]?.v_text as string | undefined) === schemaHash) return;
+  } catch {
+    /* global_kv not created yet — fresh DB, run the full DDL below */
+  }
+
+  for (const stmt of stmts) {
+    try {
+      await c.execute(stmt);
+    } catch {
+      /* idempotent; ALTERs against missing tables on first cold start
+         will throw harmlessly — the CREATE above eventually wins. */
+    }
+  }
+
   for (const [table, col] of tsColumns) {
     try {
       const r = await c.execute({
@@ -916,6 +944,60 @@ async function doEnsureSchema(): Promise<void> {
       /* table not yet created — fresh DBs get BIGINT from CREATE above */
     }
   }
+
+  // Stamp the schema version so the next cold start takes the one-SELECT fast
+  // path instead of replaying ~114 DDL round-trips. Best-effort: a failed
+  // stamp just means the next cold start replays the idempotent DDL again.
+  try {
+    await c.execute({
+      sql: `INSERT INTO global_kv (k, v_text, refreshed_at) VALUES ('schema_version', ?, ?)
+            ON CONFLICT (k) DO UPDATE SET v_text = EXCLUDED.v_text, refreshed_at = EXCLUDED.refreshed_at`,
+      args: [schemaHash, Date.now()],
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/**
+ * One-SELECT schema-version gate for the self-bootstrapping FEATURE schemas
+ * (cheques / streams / mobile-sessions), mirroring the main ensureSchema fast
+ * path above. `hashInput` should be the feature's DDL joined into one string —
+ * any DDL edit changes the hash, so the next cold start replays once and
+ * re-stamps. Returns `upToDate: true` when the stored marker matches (caller
+ * skips its DDL), plus a `stamp()` to call after a successful replay.
+ */
+export async function schemaVersionGate(
+  key: string,
+  hashInput: string
+): Promise<{ upToDate: boolean; stamp: () => Promise<void> }> {
+  const c = db();
+  const hash = createHash("sha256").update(hashInput).digest("hex").slice(0, 16);
+  try {
+    const r = await c.execute({
+      sql: `SELECT v_text FROM global_kv WHERE k = ?`,
+      args: [key],
+    });
+    if ((r.rows[0]?.v_text as string | undefined) === hash) {
+      return { upToDate: true, stamp: async () => {} };
+    }
+  } catch {
+    /* global_kv missing — fall through to replay */
+  }
+  return {
+    upToDate: false,
+    stamp: async () => {
+      try {
+        await c.execute({
+          sql: `INSERT INTO global_kv (k, v_text, refreshed_at) VALUES (?, ?, ?)
+                ON CONFLICT (k) DO UPDATE SET v_text = EXCLUDED.v_text, refreshed_at = EXCLUDED.refreshed_at`,
+          args: [key, hash, Date.now()],
+        });
+      } catch {
+        /* non-fatal — next cold start just replays the idempotent DDL */
+      }
+    },
+  };
 }
 
 export async function dbHealth(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
