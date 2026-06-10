@@ -121,3 +121,5 @@ web/app/c/
 web/app/i/
 web/app/pay/
 web/app/u/
+.vercel
+marketing/exports/
