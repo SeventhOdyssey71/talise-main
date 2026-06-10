@@ -2,6 +2,8 @@
 
 A USDsui dollar wallet for Sui — a neobank where you sign in with Google, hold dollars, and pay anyone by `@handle`, gasless. Money comes in by card or bank (Transak on-ramp) and out to a real bank account (Linq off-ramp — live for Nigeria today).
 
+**Live in production at [talise.io](https://talise.io).** The web wallet (`/app`) is behind an email allowlist gate — Google sign-in is open to all, but only allowlisted accounts enter; everyone else lands in a waiting room. The business workspace (`/business`) and the public claim/pay pages (`/c` cheque claim, `/i` invoice pay, `/pay`, `/u`) are live. NGN bank cash-out is **capped at $200 per withdrawal during beta** (`OFFRAMP_MAX_USD` in `web/lib/linq.ts`, enforced server-side in every Linq entry point).
+
 ## What it does
 
 <!-- screenshots: drop hero gif at docs/media/hero.gif and app collage at web/public/talise-app-collage.png -->
@@ -13,7 +15,7 @@ A USDsui dollar wallet for Sui — a neobank where you sign in with Google, hold
 
 **Money in / money out**
 - **On-ramp (beta).** Transak hosted widget: pay by card or bank → USDC lands on the user's Sui address → an auto-swap step converts it to USDsui. Transak runs KYC inside its widget; Talise collects no identity fields. Bridge is wired as an alternate provider (delivers USDsui directly) but Transak is the live path.
-- **Off-ramp (LIVE for Nigeria).** Linq pays USDSUI out to a Nigerian (NGN) bank account. We create an order, Linq returns a deposit address it watches, the user sends exactly that USDSUI, and Linq disburses to the bank — no Talise treasury float, no on-chain verification on our side. KES / GHS corridors are coming next.
+- **Off-ramp (LIVE for Nigeria).** Linq pays USDSUI out to a Nigerian (NGN) bank account. We create an order, Linq returns a deposit address it watches, the user sends exactly that USDSUI, and Linq disburses to the bank — no Talise treasury float, no on-chain verification on our side. Withdrawals are capped at $200 each during beta. Southeast Asia (Philippines first) is the next corridor target — see [`docs/strategy/sea-expansion.md`](docs/strategy/sea-expansion.md); KES / GHS remain on the African roadmap.
 
 **Pay**
 - **Scan to pay.** Point the camera at a bank placard (OCR the bank + account) or a QR code, then pay — on-chain to a `@handle` or out to that bank via the off-ramp.
@@ -25,9 +27,11 @@ A USDsui dollar wallet for Sui — a neobank where you sign in with Google, hold
 - **Round-ups, goals, rewards** — savings nudges and a points layer.
 
 **Work**
-- **Streaming pay** (per-second payroll), **work contracts** (milestone escrow), **invoices + public pay-links**, and **money-link cheques** (claimable links — recipient claims with a Google sign-in, no prior account).
+- **Streaming pay** — salary streams settled fully on-chain. Recipients claim accrued value against the Sui `Clock` (`claim_accrued`); there is no cron or scheduler in the loop.
+- **Money-link cheques** — claimable links backed by an on-chain escrow (the `talise_pay` package on mainnet). A worker signs the release; claims are gated by captcha, VPN detection, and geo. Recipients claim with a Google sign-in, no prior account.
+- **Invoices + public pay-links** with trustless on-chain settlement, and **team payouts** — up to 50 recipients paid in one atomic PTB.
 
-> Surface status: the iOS app exercises the full feature set against the live backend. On web, only the marketing surface (`/`, `/waitlist`, `/litepaper`) ships to production — the web wallet/business/admin pages (`web/app/app/**`, etc.) run in local dev and are gitignored.
+> Surface status: the iOS app and the web app both exercise the full feature set against the live production backend. Web is live at `talise.io` with the `/app` wallet behind the email allowlist gate.
 
 ## The stack
 
@@ -105,10 +109,13 @@ bun run dev                      # http://localhost:8787
 
 | Layer | Endpoint |
 |-------|----------|
-| Web | Vercel — `talise.app` |
+| Web | Vercel — `talise.io` |
+| Database | Supabase Postgres (us-east-1, pooled — in-region with Vercel), behind a libSQL-shaped adapter |
 | Onara gas station | Cloudflare Worker — `https://api.onara.app` |
-| Sui RPC | Mainnet fullnode via Shinami |
-| zkLogin prover | Shinami managed (self-host fallback in `prover/`) |
+| Sui RPC | Mainnet reads over a gRPC fullnode fallback chain (2.2s per-endpoint cap); sends are gasless-first with a sponsored fallback |
+| zkLogin prover | Shinami managed (self-host fallback in `infra/prover/`) |
+
+Reads are served from display-only snapshots with bounded live reads; a schema-version gate trims cold-start from ~29s to a single `SELECT`. Snapshots are display-only and never sit in the send or limit-enforcement paths.
 
 Mainnet Move package ids (autoswap v1 → v4, registry, vault types) are tabulated in [`move/talise/AUTOSWAP.md`](move/talise/AUTOSWAP.md#version-history--migration). That document is the source of truth for `TALISE_AUTOSWAP_PACKAGE_ID` (type-tag root) vs `TALISE_AUTOSWAP_PACKAGE_LATEST` (entry-call target).
 

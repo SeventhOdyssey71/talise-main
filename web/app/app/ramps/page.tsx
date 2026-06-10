@@ -50,8 +50,8 @@ export default function RampsPage() {
           Turn USDsui into cash, at the real rate.
         </h1>
         <p className="max-w-md text-[15px] leading-relaxed text-fg-muted">
-          Paid straight to your bank via Linq — a live rate, one clear fee, money
-          in minutes.
+          Paid straight to your bank via Linq — a live rate, one clear fee, settled
+          in seconds.
         </p>
       </header>
 
