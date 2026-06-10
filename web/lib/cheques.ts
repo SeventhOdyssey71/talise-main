@@ -506,35 +506,38 @@ export async function markFunded(input: {
   if (!cq) return { ok: false, reason: "not_found" };
   if (cq.status !== "draft") return { ok: false, reason: `not_draft:${cq.status}` };
 
-  // ── On-chain rail: parse the created Cheque object id from the digest ──
+  // ── On-chain rail: flip to funded NOW; reconcile the object id lazily ──
   if (chequeOnchainEnabled()) {
-    // The client confirms the instant sponsor-execute returns the digest —
-    // usually BEFORE the fullnode has indexed the tx's objectChanges. Retry the
-    // parse with backoff so indexing lag (the dominant cause of a 409 here)
-    // resolves instead of failing a perfectly-good funding tx. Terminal reasons
-    // (sender mismatch, misconfig) don't change on retry, so we stop early.
+    // The funding tx already SUCCEEDED (the client got a digest back from
+    // sponsor-execute), so the Cheque object exists on chain. We must NOT block
+    // the user here waiting on the fullnode to index the tx's objectChanges —
+    // that's what made confirm-funded take ~30s. Do a quick best-effort parse
+    // (2 tries) to capture the object id when it's already indexed; if it isn't
+    // yet, flip to `funded` with the digest and a null object id, and reconcile
+    // the id lazily at claim time (releaseCheque) — by then it's long-indexed.
+    // Terminal parse failures (sender mismatch / misconfig) still hard-fail.
     const TERMINAL = /sender_mismatch|onchain_disabled|missing_digest/i;
     let parsed = await parseCreatedChequeObjectId(input.digest, {
       expectedSender: input.creatorAddress,
     });
-    for (let attempt = 0; !parsed.ok && attempt < 6; attempt++) {
-      if (parsed.reason && TERMINAL.test(parsed.reason)) break;
-      await new Promise((r) => setTimeout(r, 1200));
+    if (!parsed.ok && !(parsed.reason && TERMINAL.test(parsed.reason))) {
+      await new Promise((r) => setTimeout(r, 800));
       parsed = await parseCreatedChequeObjectId(input.digest, {
         expectedSender: input.creatorAddress,
       });
     }
-    if (!parsed.ok || !parsed.chequeObjectId) {
-      return { ok: false, reason: parsed.reason ?? "cheque_object_not_found" };
+    if (parsed.reason && TERMINAL.test(parsed.reason)) {
+      return { ok: false, reason: parsed.reason };
     }
+    const objectId = parsed.ok ? parsed.chequeObjectId ?? null : null;
     const r = await db().execute({
       sql: `UPDATE cheques
               SET status='funded', fund_digest=?, cheque_object_id=?, funded_at=?
             WHERE id=? AND status='draft' RETURNING id`,
-      args: [input.digest, parsed.chequeObjectId, Date.now(), input.chequeId],
+      args: [input.digest, objectId, Date.now(), input.chequeId],
     });
     if (r.rows.length === 0) return { ok: false, reason: "race_lost" };
-    return { ok: true, chequeObjectId: parsed.chequeObjectId };
+    return { ok: true, chequeObjectId: objectId ?? undefined };
   }
 
   // ── Escrow rail (fallback): verify the deposit credited the escrow ──
@@ -749,23 +752,41 @@ export async function releaseCheque(input: {
   const lock = await db().execute({
     sql: `UPDATE cheques SET status='claiming'
           WHERE id=? AND status='funded' AND expires_at > ?
-          RETURNING amount_micros, cheque_object_id`,
+          RETURNING amount_micros, cheque_object_id, fund_digest`,
     args: [input.chequeId, now],
   });
   if (lock.rows.length === 0) return { ok: false, reason: "not_claimable" };
   const micros = BigInt(String(lock.rows[0].amount_micros));
-  const chequeObjectId = (lock.rows[0].cheque_object_id as string | null) ?? null;
+  let chequeObjectId = (lock.rows[0].cheque_object_id as string | null) ?? null;
+  const fundDigest = (lock.rows[0].fund_digest as string | null) ?? null;
 
   const onchain = chequeOnchainEnabled();
   if (onchain && !chequeObjectId) {
-    // On-chain rail but no object id recorded — funding never confirmed
-    // on-chain. Roll the lock back and refuse rather than fall back to an
-    // escrow transfer that has no funds.
-    await db().execute({
-      sql: `UPDATE cheques SET status='funded' WHERE id=? AND status='claiming'`,
-      args: [input.chequeId],
-    });
-    return { ok: false, reason: "missing_cheque_object" };
+    // The object id wasn't captured at funding time (fullnode indexing lag at
+    // confirm). Reconcile it now from the stored funding digest — by claim
+    // time the tx is long-indexed, so this resolves quickly. Only refuse if we
+    // genuinely can't find a Cheque object created by that funding tx.
+    if (fundDigest) {
+      let parsed = await parseCreatedChequeObjectId(fundDigest);
+      for (let i = 0; !parsed.ok && i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        parsed = await parseCreatedChequeObjectId(fundDigest);
+      }
+      if (parsed.ok && parsed.chequeObjectId) {
+        chequeObjectId = parsed.chequeObjectId;
+        await db().execute({
+          sql: `UPDATE cheques SET cheque_object_id=? WHERE id=?`,
+          args: [chequeObjectId, input.chequeId],
+        });
+      }
+    }
+    if (!chequeObjectId) {
+      await db().execute({
+        sql: `UPDATE cheques SET status='funded' WHERE id=? AND status='claiming'`,
+        args: [input.chequeId],
+      });
+      return { ok: false, reason: "missing_cheque_object" };
+    }
   }
 
   try {

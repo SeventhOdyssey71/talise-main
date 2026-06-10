@@ -38,7 +38,11 @@ function isActive(pathname: string, item: Item): boolean {
 export function PaySubNav() {
   const pathname = usePathname() ?? "/app/pay";
   return (
-    <nav className="mb-5 flex w-full justify-center sm:justify-start">
+    // MOBILE-ONLY: on desktop the sidebar already expands Pay into the same
+    // Send/Request/Cheques/Stream children, so this pill row would be redundant
+    // (lg:hidden). On mobile the sidebar is hidden and the bottom-nav doesn't
+    // expand Pay, so this is the only sub-nav.
+    <nav className="mb-5 flex w-full justify-center sm:justify-start lg:hidden">
       <div className="talise-glass flex items-center gap-1 rounded-full px-1.5 py-1.5">
         {ITEMS.map((item) => {
           const active = isActive(pathname, item);
