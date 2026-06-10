@@ -461,16 +461,16 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
       <div className="relative z-10 lg:pl-60">
         {/* Mobile mini-bar — transparent, sits on the mint gradient and scrolls
             away with the content (no bar background / border). */}
-        <header className="relative z-30 flex items-center justify-between px-4 pb-1 pt-3 lg:hidden">
+        {/* Just the wordmark — the balance chip + avatar were removed (balance
+            lives on the page itself; account actions live in Settings). */}
+        <header className="relative z-30 flex items-center px-4 pb-1 pt-3 lg:hidden">
           <Logo homeHref={nav.brandHref} />
-          <div className="flex items-center gap-2.5">
-            <BalanceChip homeHref={nav.brandHref} />
-            <AccountMenu me={me} settingsHref={nav.settingsHref} rampsHref={nav.rampsHref} />
-          </div>
         </header>
 
-        {/* Content column */}
-        <main className="mx-auto w-full max-w-[1040px] px-4 pb-32 pt-4 sm:px-6 lg:px-8 lg:pb-12 lg:pt-16">
+        {/* Content column. overflow-x-clip: belt-and-braces — no child (wide
+            grid item, unbreakable number, slider) can ever drag the page into
+            horizontal scroll on mobile. */}
+        <main className="mx-auto w-full min-w-0 max-w-[1040px] overflow-x-clip px-4 pb-32 pt-4 sm:px-6 lg:px-8 lg:pb-12 lg:pt-16">
           {children}
         </main>
       </div>
