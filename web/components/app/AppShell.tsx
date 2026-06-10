@@ -13,7 +13,7 @@
  * Mounts <CurrencyProvider> + <ToastProvider> for everything beneath it.
  */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -29,13 +29,16 @@ import {
   UserIcon,
   Invoice01Icon,
   UserGroupIcon,
+  BarcodeScanIcon,
 } from "@hugeicons/core-free-icons";
 import { CurrencyProvider, useCurrency } from "./data/currency";
 import { Flag } from "./ui";
 import { ToastProvider } from "./data/toast";
 import { useBalances, seedResource, type Me, type Balances } from "./data";
-import { triggerOauthSignIn } from "@/lib/zkclient";
+import { triggerOauthSignIn, clearStored, clearExpiryMarker } from "@/lib/zkclient";
+import { forceFreshSignIn, signingSessionExpired } from "@/lib/session-expiry";
 import { Diamond } from "@/components/Diamond";
+import { ScanSheet } from "./scan/ScanSheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu,
@@ -374,7 +377,9 @@ function AccountMenu({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <a href="/auth/logout">
+          {/* Wipe the tab's ephemeral key + cross-tab expiry marker BEFORE the
+              cookie teardown so no zk material outlives the session. */}
+          <a href="/auth/logout" onClick={() => { clearStored(); clearExpiryMarker(); }}>
             <HugeiconsIcon icon={Logout01Icon} size={18} strokeWidth={1.8} /> Sign out
           </a>
         </DropdownMenuItem>
@@ -387,6 +392,8 @@ function AccountMenu({
 
 function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: ReactNode }) {
   const pathname = usePathname() ?? nav.brandHref;
+  // Mobile scan-to-pay overlay (header button below).
+  const [scanOpen, setScanOpen] = useState(false);
 
   return (
     <div className="app-clean talise-appshell relative min-h-screen text-fg">
@@ -472,8 +479,22 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
             removed — the balance lives on the page itself. */}
         <header className="relative z-30 flex items-center justify-between px-4 pb-1 pt-3 lg:hidden">
           <Logo homeHref={nav.brandHref} />
-          <AccountMenu me={me} settingsHref={nav.settingsHref} rampsHref={nav.rampsHref} />
+          <div className="flex items-center gap-2.5">
+            {/* Scan-to-pay — camera QR reader routing into Send with the
+                recipient prefilled (mobile-only entry; desktop has no camera
+                ergonomics worth the chrome). */}
+            <button
+              type="button"
+              onClick={() => setScanOpen(true)}
+              aria-label="Scan to pay"
+              className="flex size-9 items-center justify-center rounded-full bg-surface text-fg ring-1 ring-black/[0.06]"
+            >
+              <HugeiconsIcon icon={BarcodeScanIcon} size={17} strokeWidth={1.9} />
+            </button>
+            <AccountMenu me={me} settingsHref={nav.settingsHref} rampsHref={nav.rampsHref} />
+          </div>
         </header>
+        <ScanSheet open={scanOpen} onClose={() => setScanOpen(false)} />
 
         {/* Content column. overflow-x-clip: belt-and-braces — no child (wide
             grid item, unbreakable number, slider) can ever drag the page into
@@ -528,6 +549,32 @@ export type AppShellProps = {
 };
 
 export function AppShell({ me, initialBalances, nav = CONSUMER_NAV, children }: AppShellProps) {
+  // Expired-session watcher: once the zkLogin signing window lapses, sign the
+  // user OUT for a clean re-sign-in instead of leaving a half-session that
+  // renders pages but can't sign (see lib/session-expiry.ts). Checked on
+  // mount, on tab focus, and every 60s while open.
+  const signedIn = !!me;
+  useEffect(() => {
+    if (!signedIn) return;
+    let done = false;
+    const check = () => {
+      if (!done && signingSessionExpired()) {
+        done = true; // one teardown only
+        void forceFreshSignIn();
+      }
+    };
+    check();
+    const onVis = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    const t = window.setInterval(check, 60_000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.clearInterval(t);
+    };
+  }, [signedIn]);
+
   if (!me) {
     return <SignInScreen returnTo={nav.signInReturnTo} />;
   }

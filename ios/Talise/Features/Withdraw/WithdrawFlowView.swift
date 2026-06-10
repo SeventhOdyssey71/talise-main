@@ -18,165 +18,110 @@ import SwiftUI
 struct WithdrawFlowView: View {
     var onClose: () -> Void
 
+    /// Which action group (if any) is expanded inline.
+    private enum ActionGroup { case cheques, work }
+    @State private var expanded: ActionGroup?
+
+    /// Dismiss the cover, then post the target cover's notification with a
+    /// 220ms delay so the dismiss settles before the next cover slides up.
+    /// (We can't push these flows inside this stack — each runs its own
+    /// NavigationStack and nesting breaks the multi-step paths.)
+    private func handOff(_ name: Notification.Name) {
+        onClose()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            NotificationCenter.default.post(name: name, object: nil)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 inlineHeader
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        NavigationLink {
-                            BankWithdrawView()
-                        } label: {
-                            OptionCardRow(
-                                icon: "building.columns.fill",
-                                title: "Withdraw to Bank",
-                                subtitle: "Cash out to a Nigerian bank account in NGN.",
-                                badge: nil
-                            )
-                        }
-                        .buttonStyle(.plain)
+                    VStack(alignment: .leading, spacing: 12) {
+                        // ── Primary actions: a clean 2×2 grid ──
+                        LazyVGrid(
+                            columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                            spacing: 12
+                        ) {
+                            NavigationLink {
+                                BankWithdrawView()
+                            } label: {
+                                ActionTile(icon: "building.columns", title: "Bank transfer", caption: "Cash out in NGN")
+                            }
+                            .buttonStyle(.plain)
 
-                        // Onchain Send hand-off: dismiss the Withdraw
-                        // cover, then post the Send-cover notification
-                        // with a 220ms delay so the cover dismiss has
-                        // time to settle before the next one slides up.
-                        // We can't push SendFlowView inside this stack
-                        // — its own NavigationStack would nest and the
-                        // multi-step path breaks.
-                        Button {
-                            onClose()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                                NotificationCenter.default.post(
-                                    name: .taliseRequestSendCover, object: nil
+                            Button { handOff(.taliseRequestSendCover) } label: {
+                                ActionTile(icon: "paperplane", title: "Send", caption: "@handle or address")
+                            }
+                            .buttonStyle(.plain)
+
+                            Button { handOff(.taliseRequestCrossBorderCover) } label: {
+                                ActionTile(icon: "globe", title: "Send abroad", caption: "Paid in their currency")
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                withAnimation(.snappy(duration: 0.24)) {
+                                    expanded = expanded == .cheques ? nil : .cheques
+                                }
+                            } label: {
+                                ActionTile(
+                                    icon: "doc.text",
+                                    title: "Cheques",
+                                    caption: "Money, in a link",
+                                    expandable: true,
+                                    isExpanded: expanded == .cheques
                                 )
                             }
+                            .buttonStyle(.plain)
+                        }
+
+                        // ── Cheques group, expanded inline under the grid ──
+                        if expanded == .cheques {
+                            SubActionList(rows: [
+                                .init(icon: "square.and.pencil", title: "Write a cheque") {
+                                    handOff(.taliseRequestChequeWriteCover)
+                                },
+                                .init(icon: "tray.and.arrow.down", title: "Cash a cheque") {
+                                    handOff(.taliseRequestChequeClaimCover)
+                                },
+                                .init(icon: "list.bullet.rectangle.portrait", title: "My cheques") {
+                                    handOff(.taliseRequestMyChequesCover)
+                                },
+                            ])
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+
+                        // ── Work group: streams, invoices, contracts ──
+                        Button {
+                            withAnimation(.snappy(duration: 0.24)) {
+                                expanded = expanded == .work ? nil : .work
+                            }
                         } label: {
-                            OptionCardRow(
-                                icon: "paperplane.fill",
-                                title: "Onchain Send",
-                                subtitle: "Send USDsui to any Talise user, @handle, or Sui address.",
-                                badge: "No fee"
+                            GroupRow(
+                                icon: "briefcase",
+                                title: "Work",
+                                caption: "Streams · Invoices · Contracts",
+                                isExpanded: expanded == .work
                             )
                         }
                         .buttonStyle(.plain)
 
-                        // Cross-border send hand-off. Same dismiss-then-post
-                        // pattern as Onchain Send so the international rail's
-                        // own NavigationStack runs as a root cover, not
-                        // nested inside this Withdraw stack.
-                        Button {
-                            onClose()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                                NotificationCenter.default.post(
-                                    name: .taliseRequestCrossBorderCover, object: nil
-                                )
-                            }
-                        } label: {
-                            OptionCardRow(
-                                icon: "globe",
-                                title: "Send abroad",
-                                subtitle: "Send to Nigeria, Japan, the Philippines and more — they get paid in their currency.",
-                                badge: "Live rate"
-                            )
+                        if expanded == .work {
+                            SubActionList(rows: [
+                                .init(icon: "dot.radiowaves.left.and.right", title: "Stream a payment") {
+                                    handOff(.taliseRequestStreamCover)
+                                },
+                                .init(icon: "doc.plaintext", title: "Invoices") {
+                                    handOff(.taliseRequestInvoicesCover)
+                                },
+                                .init(icon: "doc.text.below.ecg", title: "Contracts") {
+                                    handOff(.taliseRequestContractsCover)
+                                },
+                            ])
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                         }
-                        .buttonStyle(.plain)
-
-                        // Cheque — write a claimable money link.
-                        Button {
-                            onClose()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                                NotificationCenter.default.post(name: .taliseRequestChequeWriteCover, object: nil)
-                            }
-                        } label: {
-                            OptionCardRow(
-                                icon: "doc.text.fill",
-                                title: "Write a cheque",
-                                subtitle: "Put money in a link and DM it to anyone. They claim it as real money.",
-                                badge: "New"
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        // Cheque — cash a cheque someone sent you.
-                        Button {
-                            onClose()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                                NotificationCenter.default.post(name: .taliseRequestChequeClaimCover, object: nil)
-                            }
-                        } label: {
-                            OptionCardRow(
-                                icon: "tray.and.arrow.down.fill",
-                                title: "Cash a cheque",
-                                subtitle: "Got a cheque link? Paste it here to claim the money into your wallet.",
-                                badge: nil
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        // Cheque — see the cheques you've written and reclaim
-                        // the unclaimed ones.
-                        Button {
-                            onClose()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                                NotificationCenter.default.post(name: .taliseRequestMyChequesCover, object: nil)
-                            }
-                        } label: {
-                            OptionCardRow(
-                                icon: "list.bullet.rectangle.portrait.fill",
-                                title: "My cheques",
-                                subtitle: "See the cheques you've written and claim back any that haven't been cashed.",
-                                badge: nil
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        // Stream — drip a payment over time.
-                        Button {
-                            onClose()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                                NotificationCenter.default.post(name: .taliseRequestStreamCover, object: nil)
-                            }
-                        } label: {
-                            OptionCardRow(
-                                icon: "dot.radiowaves.left.and.right",
-                                title: "Stream a payment",
-                                subtitle: "Send money that arrives over time — a salary, allowance, or payout. Free, every payment.",
-                                badge: "New"
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        // Invoices — bill someone in USDsui, share a pay link.
-                        Button {
-                            onClose()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                                NotificationCenter.default.post(name: .taliseRequestInvoicesCover, object: nil)
-                            }
-                        } label: {
-                            OptionCardRow(
-                                icon: "doc.plaintext.fill",
-                                title: "Invoices",
-                                subtitle: "Bill a client in USDsui and share a pay link. Settled the moment they pay.",
-                                badge: "New"
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        // Contracts — recurring/milestone pay that drips over time.
-                        Button {
-                            onClose()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                                NotificationCenter.default.post(name: .taliseRequestContractsCover, object: nil)
-                            }
-                        } label: {
-                            OptionCardRow(
-                                icon: "doc.text.below.ecg.fill",
-                                title: "Contracts",
-                                subtitle: "Hire someone and pay them on a schedule — funded upfront, released period by period.",
-                                badge: "New"
-                            )
-                        }
-                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
@@ -192,7 +137,7 @@ struct WithdrawFlowView: View {
     /// use the app's Talise sans font, lighter weight, smaller size.
     private var inlineHeader: some View {
         HStack(alignment: .center) {
-            Text("Withdraw")
+            Text("Move money")
                 .font(TaliseFont.heading(26, weight: .medium))
                 .kerning(-0.6)
                 .foregroundStyle(TaliseColor.fg)
@@ -208,6 +153,134 @@ struct WithdrawFlowView: View {
         .padding(.horizontal, 20)
         .padding(.top, 18)
         .padding(.bottom, 14)
+    }
+}
+
+// MARK: - Action tiles + groups (quiet, monochrome — no badge pills, no
+// colored icon discs; the surface + type carry the hierarchy)
+
+/// One square-ish primary tile in the 2×2 grid.
+private struct ActionTile: View {
+    let icon: String
+    let title: String
+    let caption: String
+    var expandable = false
+    var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Image(systemName: icon)
+                    .font(.system(size: 19, weight: .regular))
+                    .foregroundStyle(TaliseColor.fg)
+                Spacer()
+                if expandable {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgDim)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+            }
+            Spacer(minLength: 14)
+            Text(title)
+                .font(TaliseFont.heading(15, weight: .medium))
+                .kerning(-0.2)
+                .foregroundStyle(TaliseColor.fg)
+            Text(caption)
+                .font(TaliseFont.body(12, weight: .light))
+                .foregroundStyle(TaliseColor.fgDim)
+                .lineLimit(1)
+                .padding(.top, 2)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 108)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+/// Slim full-width group header row (Work).
+private struct GroupRow: View {
+    let icon: String
+    let title: String
+    let caption: String
+    var isExpanded = false
+
+    var body: some View {
+        HStack(spacing: 13) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(TaliseColor.fg)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(TaliseFont.heading(15, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                Text(caption)
+                    .font(TaliseFont.body(12, weight: .light))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
+            Spacer()
+            Image(systemName: "chevron.down")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(TaliseColor.fgDim)
+                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+/// The expanded rows of a group — one rounded container, hairline dividers.
+private struct SubActionList: View {
+    struct Row: Identifiable {
+        let icon: String
+        let title: String
+        let action: () -> Void
+        var id: String { title }
+    }
+    let rows: [Row]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                Button(action: row.action) {
+                    HStack(spacing: 13) {
+                        Image(systemName: row.icon)
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundStyle(TaliseColor.fgMuted)
+                            .frame(width: 22)
+                        Text(row.title)
+                            .font(TaliseFont.body(14.5, weight: .regular))
+                            .foregroundStyle(TaliseColor.fg)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(TaliseColor.fgDim)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if i < rows.count - 1 {
+                    Divider().overlay(TaliseColor.fg.opacity(0.06)).padding(.leading, 51)
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(TaliseColor.surface.opacity(0.6))
+        )
     }
 }
 

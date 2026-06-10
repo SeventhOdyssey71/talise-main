@@ -17,6 +17,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { publicOrigin } from "@/lib/public-origin";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Copy01Icon,
@@ -57,8 +58,7 @@ export function RequestPanel() {
   const address = me?.suiAddress ?? "";
   const handle = me?.taliseHandle ?? null;
 
-  const origin =
-    typeof window !== "undefined" ? window.location.origin : "https://www.talise.io";
+  const origin = publicOrigin();
 
   // Parsed request amount in USD (USDsui is 1:1 USD). The field is entered in
   // USD to match the on-chain settlement currency and the public pay link.

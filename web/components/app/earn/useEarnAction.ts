@@ -25,6 +25,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import { forceFreshSignIn, isSessionExpiryError } from "@/lib/session-expiry";
 import { fromBase64 } from "@mysten/sui/utils";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import {
@@ -142,6 +143,12 @@ export function useEarnAction() {
         }
 
         return { digest: exec.digest };
+      } catch (e) {
+        if (isSessionExpiryError(e)) {
+          void forceFreshSignIn({ reauthNow: true });
+          throw new ApiError(401, "Your session expired — signing you in again…", "SESSION_EXPIRED");
+        }
+        throw e;
       } finally {
         inFlight.current = false;
         setWorking(false);

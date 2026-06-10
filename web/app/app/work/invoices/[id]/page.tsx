@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { publicOrigin } from "@/lib/public-origin";
 import { useParams, useRouter } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -43,7 +44,7 @@ type OwnerInvoice = {
   paidByAddress: string | null;
 };
 
-const ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
+const ORIGIN = publicOrigin();
 
 /** SuiVision tx explorer link for an on-chain receipt digest. */
 const suiVisionTx = (digest: string) =>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { publicOrigin } from "@/lib/public-origin";
 import { useRouter } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -43,8 +44,7 @@ type Invoice = {
   createdAt: number;
 };
 
-const ORIGIN =
-  typeof window !== "undefined" ? window.location.origin : "";
+const ORIGIN = publicOrigin();
 
 export function InvoicesTab() {
   const router = useRouter();

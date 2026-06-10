@@ -37,6 +37,15 @@ enum ScanPayload {
             return deep
         }
 
+        // 1b. https://…talise.io/pay/<handle>?amount=… — the share/QR links
+        //     the web app generates (www.talise.io, app.talise.io, or the
+        //     bare apex; RequestPanel/ReceiveSheet encode the page origin).
+        //     Without this branch a QR made on app.talise.io scans as "not a
+        //     Talise payment code".
+        if let web = parseWebPayUrl(trimmed) {
+            return web
+        }
+
         // 2. `sui:` / `sui://` payment URI — the exact form our own Receive
         //    QR encodes (`sui:<address>`) and the de-facto scheme other Sui
         //    wallets emit. Without this branch the scanner reads our QR but
@@ -80,6 +89,45 @@ enum ScanPayload {
         if let addr = SuiAddress(rawToken) {
             recipient = addr.raw
         } else if let handle = parseHandle(rawToken) {
+            recipient = handle
+        } else {
+            return nil
+        }
+
+        let amount = comps.queryItems?
+            .first(where: { $0.name == "amount" })?
+            .value
+            .flatMap(Double.init)
+
+        return Recipient(recipient: recipient, amount: amount)
+    }
+
+    // MARK: - Web pay URL
+
+    /// Parses `https://<any>.talise.io/pay/<handle>` (and the bare apex),
+    /// including the app-subdomain form `…/app/pay/<handle>` just in case,
+    /// with optional `?amount=`. Only the /pay tree routes — other Talise
+    /// URLs (cheque claims, invoices) have their own surfaces and should NOT
+    /// silently become a Send.
+    private static func parseWebPayUrl(_ s: String) -> Recipient? {
+        guard let comps = URLComponents(string: s),
+              let scheme = comps.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = comps.host?.lowercased(),
+              host == "talise.io" || host.hasSuffix(".talise.io") else {
+            return nil
+        }
+
+        // Path → ["pay", "<handle>"] (tolerating a leading "app" segment).
+        var parts = comps.path.split(separator: "/").map(String.init)
+        if parts.first == "app" { parts.removeFirst() }
+        guard parts.count == 2, parts[0].lowercased() == "pay" else { return nil }
+        let token = parts[1].removingPercentEncoding ?? parts[1]
+
+        let recipient: String
+        if let addr = SuiAddress(token) {
+            recipient = addr.raw
+        } else if let handle = parseHandle(token) {
             recipient = handle
         } else {
             return nil

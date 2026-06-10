@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import { forceFreshSignIn, isSessionExpiryError } from "@/lib/session-expiry";
 import { fromBase64 } from "@mysten/sui/utils";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { triggerOauthSignIn, readEphemeralForT2000, writeCachedProof } from "@/lib/zkclient";
@@ -109,6 +110,15 @@ export function useSignAndSend() {
       }
 
       return { digest: exec.digest };
+    } catch (e) {
+      // Expired signing session (server 401 / stale binding): tear down and
+      // send the user straight back through Google so they can finish what
+      // they started in a fresh session.
+      if (isSessionExpiryError(e)) {
+        void forceFreshSignIn({ reauthNow: true });
+        throw new ApiError(401, "Your session expired — signing you in again…", "SESSION_EXPIRED");
+      }
+      throw e;
     } finally {
       inFlight.current = false;
       setSending(false);

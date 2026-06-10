@@ -23,6 +23,11 @@ import {
 } from "@mysten/sui/zklogin";
 
 const ZK_STORAGE_KEY = "talise:zk:eph";
+// Metadata-only expiry marker (a timestamp — NO key material) kept in
+// localStorage so EVERY tab can tell "the signing session expired" apart
+// from "this tab never had a key" (sessionStorage is per-tab). Written at
+// sign-in, cleared at sign-out.
+const ZK_EXPIRY_MARKER = "talise:zk:expiresAt";
 // Match Google's default JWT lifetime so the key never outlives its proof.
 const EPHEMERAL_TTL_MS = 55 * 60 * 1000;
 
@@ -97,6 +102,35 @@ export function clearStored() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(ZK_STORAGE_KEY);
   sessionStorage.removeItem(ZK_STORAGE_KEY);
+}
+
+/** Remove the cross-tab expiry marker (full sign-out). */
+export function clearExpiryMarker() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(ZK_EXPIRY_MARKER);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * True when a signing session WAS minted on this browser and its ephemeral
+ * window has lapsed — the cue to sign the user out for a clean re-sign-in
+ * (cookies may still be valid for days, but the wallet can no longer sign).
+ * False when there's no marker at all (never signed in here / already
+ * signed out) or the session is still inside its window.
+ */
+export function signingSessionExpired(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = localStorage.getItem(ZK_EXPIRY_MARKER);
+    if (!raw) return false;
+    const at = Number(raw);
+    return Number.isFinite(at) && Date.now() > at;
+  } catch {
+    return false;
+  }
 }
 
 export function hasEphemeralKey(): boolean {
@@ -283,6 +317,11 @@ export async function provisionEphemeralAuth(): Promise<{ nonce: string }> {
     maxEpoch,
     createdAt: Date.now(),
   });
+  try {
+    localStorage.setItem(ZK_EXPIRY_MARKER, String(Date.now() + EPHEMERAL_TTL_MS));
+  } catch {
+    /* storage blocked — the per-send bounce still covers expiry */
+  }
 
   return { nonce };
 }

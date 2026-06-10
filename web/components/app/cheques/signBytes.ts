@@ -17,6 +17,7 @@
  */
 
 import { fromBase64 } from "@mysten/sui/utils";
+import { forceFreshSignIn, isSessionExpiryError } from "@/lib/session-expiry";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import {
   triggerOauthSignIn,
@@ -51,18 +52,28 @@ export async function signSponsorReadyBytes(
     fromBase64(bytesB64)
   );
 
-  const exec = await api<ExecuteResponse>("/api/zk/sponsor-execute", {
-    method: "POST",
-    body: {
-      bytesB64,
-      ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
-      maxEpoch: eph.maxEpoch,
-      randomness: eph.randomness,
-      userSignature,
-      cachedProof: eph.cachedProof,
-      meta,
-    },
-  });
+  let exec: ExecuteResponse;
+  try {
+    exec = await api<ExecuteResponse>("/api/zk/sponsor-execute", {
+      method: "POST",
+      body: {
+        bytesB64,
+        ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
+        maxEpoch: eph.maxEpoch,
+        randomness: eph.randomness,
+        userSignature,
+        cachedProof: eph.cachedProof,
+        meta,
+      },
+    });
+  } catch (e) {
+    // Expired signing session: tear down + re-auth through Google.
+    if (isSessionExpiryError(e)) {
+      void forceFreshSignIn({ reauthNow: true });
+      throw new ApiError(401, "Your session expired — signing you in again…", "SESSION_EXPIRED");
+    }
+    throw e;
+  }
 
   if (exec.freshProof) {
     try {

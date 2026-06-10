@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { publicOrigin } from "@/lib/public-origin";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Copy01Icon,
@@ -12,11 +13,7 @@ import { GlassCard, MicroLabel, PrimaryButton, useToast } from "@/components/app
 
 /** Build the shareable invite URL for a code, using the live origin. */
 function inviteUrl(code: string): string {
-  const origin =
-    typeof window !== "undefined" && window.location?.origin
-      ? window.location.origin
-      : "https://talise.io";
-  return `${origin}/r/${code}`;
+  return `${publicOrigin()}/r/${code}`;
 }
 
 /**

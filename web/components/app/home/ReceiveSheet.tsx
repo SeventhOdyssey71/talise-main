@@ -7,6 +7,7 @@
  */
 
 import { useState } from "react";
+import { publicOrigin } from "@/lib/public-origin";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { Sheet, QrImage, useToast, type Me } from "@/components/app";
@@ -31,7 +32,7 @@ export function ReceiveSheet({
 
   // The friendly, on-brand way to get paid: a public pay link to your @handle
   // (the /pay/[handle] page), not a raw 0x address.
-  const origin = typeof window !== "undefined" ? window.location.origin : "https://talise.io";
+  const origin = publicOrigin();
   const payLink = handle ? `${origin}/pay/${handle}` : "";
   const payLinkShort = handle ? `${origin.replace(/^https?:\/\//, "")}/pay/${handle}` : "";
 
