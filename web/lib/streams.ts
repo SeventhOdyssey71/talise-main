@@ -3,7 +3,7 @@ import "server-only";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
-import { db, ensureSchema } from "@/lib/db";
+import { db, ensureSchema, schemaVersionGate } from "@/lib/db";
 import { sui } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { onara } from "@/lib/onara";
@@ -115,11 +115,18 @@ export function streamEscrowAddress(): string {
 // ON CONFLICT). Schema per the design (§5).
 let _schemaReadyP: Promise<void> | null = null;
 
+// Bump whenever ANY DDL below changes — the one-SELECT version gate skips the
+// replay (~8 round-trips) on every cold start while the marker matches.
+const STREAMS_SCHEMA_VERSION = "2026-06-10.1";
+
 export function ensureStreamsSchema(): Promise<void> {
   if (_schemaReadyP) return _schemaReadyP;
   _schemaReadyP = (async () => {
     await ensureSchema();
     const c = db();
+
+    const gate = await schemaVersionGate("streams_schema_version", STREAMS_SCHEMA_VERSION);
+    if (gate.upToDate) return;
     // One row per stream. The escrow holds the undistributed funds; this
     // row is the scheduler index + UI cache. `id` is the stream id — the
     // on-chain Stream object id when STREAM_PACKAGE_ID is live, otherwise a
@@ -180,6 +187,8 @@ export function ensureStreamsSchema(): Promise<void> {
       `CREATE UNIQUE INDEX IF NOT EXISTS uniq_stream_tranche
          ON stream_tranches (stream_id, tranche_index)`
     );
+
+    await gate.stamp();
   })().catch((err) => {
     _schemaReadyP = null;
     throw err;

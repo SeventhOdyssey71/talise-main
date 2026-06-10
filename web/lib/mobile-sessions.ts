@@ -1,6 +1,6 @@
 import { randomBytes, createHash } from "node:crypto";
 import { sign, verify } from "./auth";
-import { db, ensureSchema } from "./db";
+import { db, ensureSchema, schemaVersionGate } from "./db";
 
 /**
  * Bearer tokens for the iOS app. The Talise web flow continues to use
@@ -31,9 +31,22 @@ const MOBILE_SESSION_TTL_MS = 1000 * 60 * 60 * 24;
 // reset on failure lets a transient error retry on the next call.
 let _mobileSchemaReadyP: Promise<void> | null = null;
 
+// Bump whenever ANY DDL below changes — the one-SELECT version gate skips the
+// replay (~7 round-trips, several on purpose-failing ALTERs) on every cold
+// start. This schema is on the AUTH path of every API request, so the skip
+// directly speeds up the first authenticated call of each cold instance.
+const MOBILE_SESSIONS_SCHEMA_VERSION = "2026-06-10.1";
+
 async function doEnsureMobileSessionsSchema(): Promise<void> {
   await ensureSchema();
   const client = db();
+
+  const gate = await schemaVersionGate(
+    "mobile_sessions_schema_version",
+    MOBILE_SESSIONS_SCHEMA_VERSION
+  );
+  if (gate.upToDate) return;
+
   await client.execute(`
     CREATE TABLE IF NOT EXISTS mobile_sessions (
       token_hash TEXT PRIMARY KEY,
@@ -66,6 +79,8 @@ async function doEnsureMobileSessionsSchema(): Promise<void> {
       await client.execute(sql);
     } catch {}
   }
+
+  await gate.stamp();
 }
 
 export async function ensureMobileSessionsSchema(): Promise<void> {
