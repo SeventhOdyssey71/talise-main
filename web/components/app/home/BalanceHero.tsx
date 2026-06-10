@@ -10,20 +10,18 @@
  * live chain state without making the user wait on cold open.
  */
 
-import { useEffect, useRef } from "react";
 import { useBalances, useCurrency, GlassCard, Eyebrow } from "@/components/app";
 
 export function BalanceHero({ inline = false }: { inline?: boolean }) {
   const { data, loading, error, refreshFresh } = useBalances();
   const { formatLocal } = useCurrency();
-  const pulled = useRef(false);
 
-  useEffect(() => {
-    if (pulled.current) return;
-    pulled.current = true;
-    const t = window.setTimeout(() => void refreshFresh(), 120);
-    return () => window.clearTimeout(t);
-  }, [refreshFresh]);
+  // NOTE: no forced fresh=1 read on mount. The balance loads instantly from the
+  // display-only snapshot (useBalances → useResource revalidates in the
+  // background), and a completed transaction force-refreshes via the global
+  // `talise:tx` listener. Forcing a live chain read on every home visit blocked
+  // the page for seconds when the RPC was slow. The tap targets below still
+  // offer an explicit fresh refresh.
 
   const showSkeleton = loading && !data;
   const showError = !!error && !data;

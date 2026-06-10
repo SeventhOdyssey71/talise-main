@@ -318,14 +318,39 @@ export async function GET(req: Request) {
     }
   }
 
+  // BOUNDED live scan. The on-chain tx-history walk can crawl on a struggling
+  // RPC (we saw ~47s). The feed is display-only, so never make the user wait:
+  // cap the scan and fall back to the freshest snapshot. The in-flight scan
+  // keeps running and write-throughs the monotonic snapshot floor, so it
+  // self-heals for the next load.
+  const LIVE_BUDGET_MS = 7000;
+  const TIMED_OUT = Symbol("timeout");
   try {
-    const entries = await computeLiveActivity(
+    const livePromise = computeLiveActivity(
       { id: user.id, sui_address: user.sui_address, talise_vault_id: user.talise_vault_id ?? null },
       limit,
       bypassCache
     );
+    livePromise.catch(() => {}); // abandoned slow scan must not reject unhandled
+    const raced = await Promise.race([
+      livePromise,
+      new Promise<typeof TIMED_OUT>((r) => setTimeout(() => r(TIMED_OUT), LIVE_BUDGET_MS)),
+    ]);
+    if (raced !== TIMED_OUT) {
+      return NextResponse.json(
+        { entries: raced, refreshedAt: Date.now(), stale: false, source: "chain" },
+        { headers: { "Cache-Control": "private, no-store" } }
+      );
+    }
+    // Scan blew the budget — serve the freshest snapshot (any age beats a spinner).
+    const snap = await readActivitySnapshot(userId).catch(() => null);
     return NextResponse.json(
-      { entries, refreshedAt: Date.now(), stale: false, source: "chain" },
+      {
+        entries: snap ? (snap.entries as SerializedEntry[]).slice(0, limit) : [],
+        refreshedAt: snap?.refreshedAt ?? 0,
+        stale: true,
+        source: "snapshot-timeout",
+      },
       { headers: { "Cache-Control": "private, no-store" } }
     );
   } catch (err) {
