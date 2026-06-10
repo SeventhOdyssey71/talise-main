@@ -3,15 +3,15 @@ import UIKit
 
 /// Rewards tab — the points + perks hub.
 ///
-/// Rewards = points + perks. The money-management surfaces (Round-up,
-/// Goals, Insights) moved to the Invest tab where they semantically
-/// belong — Round-up auto-supplies to NAVI, Goals are savings buckets,
-/// Insights are spend/save analytics. Rewards stays deliberately spare:
-/// tier progression, how-you-earn rules, and referrals. Nothing else.
-///
-/// Section ordering:
-///   Hero (tier + points + progress) → How you earn → Your referral code
-///   → inline error.
+/// Structure (2026-06-10 refresh, modeled on the reference points-hub
+/// layout the founder shared, in Talise greens):
+///   1. HERO — one solid forest card: points balance + tier + honest
+///      progress to the next tier.
+///   2. STAT TILES — two-up: Referrals · Sent with Talise.
+///   3. SHARE CTA — the big referral action (code row + share button).
+///   4. INFO STRIP — one quiet line on how referrals earn.
+///   5. EARNING HISTORY — recent point events from the server ledger.
+///   6. HOW YOU EARN — the rate rules, last (reference, not action).
 struct RewardsView: View {
     @State private var summary: RewardsSummary?
     @State private var loading = true
@@ -19,10 +19,13 @@ struct RewardsView: View {
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 24) {
                 heroCard
+                statTiles
+                shareSection
+                infoStrip
+                historySection
                 earnRulesSection
-                referralCard
                 if let error {
                     Text(error)
                         .font(TaliseFont.body(12, weight: .light))
@@ -39,66 +42,256 @@ struct RewardsView: View {
         .task { await load() }
     }
 
-    // MARK: - Hero card
+    // MARK: - 1. Hero — points balance on a solid forest card
 
-    /// The one tinted card on the screen: tier eyebrow, the big points
-    /// figure (white — the green is the card wash + progress, not the
-    /// number), then an honest progress bar to the next tier. Tier info
-    /// is server-computed (lib/rewards/earn.ts → TIERS) so iOS doesn't
-    /// drift from the canonical thresholds.
     @ViewBuilder
     private var heroCard: some View {
         let tier = summary?.tier
         let points = summary?.pointsTotal ?? 0
 
-        VStack(alignment: .leading, spacing: 18) {
-            HeroAmount(
-                eyebrow: tier?.label.uppercased() ?? "BRONZE",
-                value: "\(points)",
-                unit: "pts",
-                loading: loading
-            )
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Reward points")
+                    .font(TaliseFont.mono(11, weight: .regular))
+                    .kerning(1.6)
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color.white.opacity(0.75))
+                Spacer()
+                // Tier chip — quiet, top-right (Bronze/Silver/Gold/Plat).
+                Text(tier?.label ?? "Bronze")
+                    .font(TaliseFont.mono(10, weight: .regular))
+                    .kerning(0.8)
+                    .foregroundStyle(TaliseColor.greenMint)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color.white.opacity(0.12)))
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(points.formatted())")
+                    .font(TaliseFont.heading(44, weight: .semibold))
+                    .kerning(-1.2)
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                Text("pts")
+                    .font(TaliseFont.heading(17, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.65))
+            }
+            .redacted(reason: loading && summary == nil ? .placeholder : [])
+
             tierProgress(tier: tier, points: points)
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .earnHeroGlass(cornerRadius: 24)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: 0x3A6E2A), Color(hex: 0x224417)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        )
     }
 
-    /// Honest progress to the next tier — no fake minimum fill, so a
-    /// brand-new user at 4 of 500 points sees a near-empty rail (which
-    /// is the truth). Collapses to a single accent line on top tier.
+    /// Honest progress to the next tier — no fake minimum fill. Rendered
+    /// in white-on-forest inside the hero.
     @ViewBuilder
     private func tierProgress(tier: RewardsTier?, points: Int) -> some View {
         if let nextLabel = tier?.nextLabel, let toNext = tier?.pointsToNext, toNext > 0 {
             let total = points + toNext
             let progress = total > 0 ? Double(points) / Double(total) : 0
-            VStack(alignment: .leading, spacing: 10) {
-                QuietProgressBar(progress: progress)
-                HStack(alignment: .firstTextBaseline) {
-                    Text("\(toNext.formatted()) to \(nextLabel)")
-                        .font(TaliseFont.mono(11, weight: .regular))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                    Spacer(minLength: 8)
-                    Text("\(points.formatted()) / \(total.formatted())")
-                        .font(TaliseFont.mono(10, weight: .regular))
-                        .foregroundStyle(TaliseColor.fgDim)
+            VStack(alignment: .leading, spacing: 8) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.16))
+                        Capsule()
+                            .fill(TaliseColor.greenMint)
+                            .frame(width: max(4, geo.size.width * progress))
+                    }
                 }
+                .frame(height: 5)
+                Text("\(toNext.formatted()) pts to \(nextLabel)")
+                    .font(TaliseFont.mono(10.5, weight: .regular))
+                    .foregroundStyle(Color.white.opacity(0.7))
             }
         } else if tier != nil {
             Text("Top tier — every point still counts toward perks")
-                .font(TaliseFont.mono(11, weight: .regular))
-                .foregroundStyle(TaliseColor.accent)
+                .font(TaliseFont.mono(10.5, weight: .regular))
+                .foregroundStyle(TaliseColor.greenMint)
         }
     }
 
-    // MARK: - How you earn
+    // MARK: - 2. Stat tiles
+
+    private var statTiles: some View {
+        HStack(spacing: 12) {
+            statTile(
+                icon: "person.2",
+                value: "\(summary?.referralCount ?? 0)",
+                label: "Referrals"
+            )
+            statTile(
+                icon: "paperplane",
+                value: TaliseFormat.local2(summary?.lifetimeSentUsd ?? 0),
+                label: "Sent with Talise"
+            )
+        }
+    }
+
+    private func statTile(icon: String, value: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(TaliseColor.greenMint)
+                .frame(width: 34, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(TaliseColor.greenMint.opacity(0.12))
+                )
+            Text(value)
+                .font(TaliseFont.heading(22, weight: .semibold))
+                .kerning(-0.5)
+                .foregroundStyle(TaliseColor.fg)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(label)
+                .font(TaliseFont.body(12, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
+        )
+    }
+
+    // MARK: - 3. Share CTA (referral code + the one big action)
+
+    @ViewBuilder
+    private var shareSection: some View {
+        if let code = summary?.code {
+            VStack(spacing: 12) {
+                HStack {
+                    Text(code)
+                        .font(TaliseFont.mono(15, weight: .regular))
+                        .kerning(1.0)
+                        .foregroundStyle(TaliseColor.fg)
+                    Spacer(minLength: 8)
+                    LiquidGlassPill(title: "Copy", icon: "doc.on.doc", compact: true) {
+                        UIPasteboard.general.string = "https://talise.io/r/\(code)"
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(TaliseColor.surface)
+                )
+
+                LiquidGlassButton(
+                    title: "Share Talise",
+                    icon: "square.and.arrow.up",
+                    size: .lg
+                ) {
+                    share(text: "Join me on Talise: https://talise.io/r/\(code)")
+                }
+            }
+        }
+    }
+
+    // MARK: - 4. Info strip
+
+    private var infoStrip: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(TaliseColor.greenMint)
+                .padding(.top, 1)
+            Text("Invite friends — you earn points when they join and start moving money.")
+                .font(TaliseFont.body(12.5, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(TaliseColor.surface.opacity(0.6))
+        )
+    }
+
+    // MARK: - 5. Earning history
+
+    @ViewBuilder
+    private var historySection: some View {
+        let events = summary?.recentEvents ?? []
+        if !events.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader("Earning history")
+                VStack(spacing: 0) {
+                    ForEach(Array(events.prefix(6).enumerated()), id: \.element.id) { i, ev in
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(historyTitle(ev.kind))
+                                    .font(TaliseFont.body(14, weight: .regular))
+                                    .foregroundStyle(TaliseColor.fg)
+                                Text(historyDate(ev.createdAt))
+                                    .font(TaliseFont.mono(10, weight: .regular))
+                                    .foregroundStyle(TaliseColor.fgDim)
+                            }
+                            Spacer(minLength: 8)
+                            Text("+\(ev.points)")
+                                .font(TaliseFont.heading(15, weight: .medium))
+                                .foregroundStyle(TaliseColor.accent)
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        if i < min(events.count, 6) - 1 {
+                            RowDivider()
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+                .earnHeroGlass(cornerRadius: 20)
+            }
+        }
+    }
+
+    private func historyTitle(_ kind: String) -> String {
+        switch kind {
+        case "send":            return "Sent money"
+        case "invest":          return "Saved to yield"
+        case "roundup":         return "Round-up auto-save"
+        case "goal", "goal_deposit": return "Added to a goal"
+        case "referral":        return "Friend joined"
+        default:                return "Points earned"
+        }
+    }
+
+    private func historyDate(_ iso: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "d MMM yyyy"
+        return fmt.string(from: date)
+    }
+
+    // MARK: - 6. How you earn
 
     /// Transparent "how points work" explainer as one grouped card of
     /// rows. Reads the server's `pointRates` so the numbers always match
     /// the engine; falls back to documented defaults on older builds.
-    /// The rate value is the only green thing per row (rates ARE the
-    /// financial figure) — titles and glyphs read uniform.
     @ViewBuilder
     private var earnRulesSection: some View {
         let rates = summary?.pointRates
@@ -120,8 +313,6 @@ struct RewardsView: View {
     }
 
     private func earnRow(icon: String, title: String, rate: Int) -> some View {
-        // Neutral (quiet) glyphs so the ROW reads uniform — the green rate
-        // value is the only accent per row, not a column of green discs.
         PremiumListRow(icon: icon, kind: .neutral, title: title) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(rate)")
@@ -130,42 +321,6 @@ struct RewardsView: View {
                 Text(rate == 1 ? "pt / $1" : "pts / $1")
                     .font(TaliseFont.mono(10, weight: .regular))
                     .foregroundStyle(TaliseColor.fgDim)
-            }
-        }
-    }
-
-    // MARK: - Referral card
-
-    @ViewBuilder
-    private var referralCard: some View {
-        if let code = summary?.code {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionHeader("Your referral code")
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        Text(code)
-                            .font(TaliseFont.mono(15, weight: .regular))
-                            .foregroundStyle(TaliseColor.fg)
-                        Spacer(minLength: 8)
-                        LiquidGlassPill(title: "Copy", icon: "doc.on.doc", compact: true) {
-                            UIPasteboard.general.string = "https://talise.io/r/\(code)"
-                        }
-                    }
-                    if (summary?.referralCount ?? 0) > 0 {
-                        Text("\(summary?.referralCount ?? 0) friends joined with your code")
-                            .font(TaliseFont.mono(11, weight: .regular))
-                            .foregroundStyle(TaliseColor.fgMuted)
-                    }
-                    LiquidGlassButton(
-                        title: "Share Talise",
-                        icon: "square.and.arrow.up",
-                        size: .lg
-                    ) {
-                        share(text: "Join me on Talise: https://talise.io/r/\(code)")
-                    }
-                }
-                .padding(20)
-                .earnHeroGlass(cornerRadius: 20)
             }
         }
     }

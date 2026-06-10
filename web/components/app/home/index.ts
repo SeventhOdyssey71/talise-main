@@ -2,6 +2,7 @@
 
 export { BalanceHero } from "./BalanceHero";
 export { ActionPills } from "./ActionPills";
+export { SecondaryActions } from "./SecondaryActions";
 export { DoMoreCard } from "./DoMoreCard";
 export { QuickActions } from "./QuickActions";
 export { IdentityCard } from "./IdentityCard";

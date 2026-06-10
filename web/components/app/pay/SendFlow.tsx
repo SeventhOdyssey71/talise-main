@@ -115,7 +115,7 @@ function FlowStepper({ step }: { step: Step }) {
   const filled = step === "success" || step === "failure" ? 4 : active;
 
   return (
-    <div className="mb-6" aria-label="Send progress">
+    <div className="mb-4 sm:mb-5" aria-label="Send progress">
       {/* Progress bar */}
       <div className="relative h-0.5 w-full overflow-hidden rounded-full bg-surface-2">
         <div
@@ -123,20 +123,21 @@ function FlowStepper({ step }: { step: Step }) {
           style={{ width: `${(filled / (FLOW_STEPS.length - 1)) * 100}%` }}
         />
       </div>
-      {/* Step labels */}
-      <div className="mt-2.5 flex items-center justify-between">
+      {/* Step labels — only the current step reads at full weight; the others
+          sit back as quiet 9px markers so the row stops competing for attention. */}
+      <div className="mt-2 flex items-center justify-between">
         {FLOW_STEPS.map((s, i) => {
           const done = i < filled;
           const current = i === active && step !== "success" && step !== "failure";
           return (
             <span
               key={s.key}
-              className={`font-mono text-[10px] tracking-[0.08em] transition-colors ${
+              className={`font-mono tracking-[0.08em] transition-colors ${
                 current
-                  ? "text-fg font-medium"
+                  ? "text-[10px] font-medium text-fg"
                   : done
-                    ? "text-accent"
-                    : "text-fg-dim"
+                    ? "text-[9px] text-accent"
+                    : "text-[9px] text-fg-dim/70"
               }`}
             >
               {s.label}
@@ -429,9 +430,13 @@ export function SendFlow() {
 
   return (
     <div className="mx-auto w-full max-w-md">
-      {/* Back / Cancel nav row — sits above the stepper */}
+      {/* Back / Close nav row — sits above the stepper. The centered mono step
+          title used to live here, but it just repeated the active Pay tab
+          (Send) and the stepper below already names every step, so it's gone.
+          On the amount step there's no Back, so the row collapses to a single
+          right-aligned Close. On later steps Back carries real navigation. */}
       {showStepper && (
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between">
           {step !== "amount" ? (
             <button
               type="button"
@@ -445,25 +450,17 @@ export function SendFlow() {
               <HugeiconsIcon icon={ArrowLeft01Icon} size={18} strokeWidth={2} />
             </button>
           ) : (
-            <span className="size-9" />
+            <span />
           )}
 
-          <span className="font-mono text-[11px] font-medium tracking-[0.06em] text-fg-muted">
-            {step === "amount" ? "Send" : step === "recipient" ? "Send to" : "Review"}
-          </span>
-
-          {step === "amount" ? (
-            <button
-              type="button"
-              onClick={() => router.push("/app")}
-              aria-label="Cancel"
-              className="flex size-9 items-center justify-center rounded-full border border-line bg-surface text-fg-muted transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2} />
-            </button>
-          ) : (
-            <span className="size-9" />
-          )}
+          <button
+            type="button"
+            onClick={() => router.push("/app")}
+            aria-label="Close"
+            className="flex size-9 items-center justify-center rounded-full border border-line bg-surface text-fg-muted transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2} />
+          </button>
         </div>
       )}
 
@@ -603,7 +600,7 @@ function AmountStep({
   return (
     <div>
       {/* Big ink amount — Wise layout: currency chip inline with the number */}
-      <div className="flex flex-col items-center py-6 text-center">
+      <div className="flex flex-col items-center py-3 text-center sm:py-6">
         <div className="flex items-baseline justify-center gap-2">
           {/* Currency chip */}
           <span className="mb-1 self-end rounded-full bg-surface-2 px-2.5 py-1 font-mono text-[13px] font-medium text-fg-muted">
@@ -631,7 +628,7 @@ function AmountStep({
       </div>
 
       {/* Wallet pill + MAX */}
-      <div className="mb-5 flex items-center justify-center gap-2">
+      <div className="mb-4 flex items-center justify-center gap-2 sm:mb-5">
         <span className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-1.5">
           <span className="size-1.5 rounded-full bg-accent" />
           <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-fg">
@@ -655,7 +652,7 @@ function AmountStep({
         Type an amount, then press Enter to continue.
       </p>
 
-      <div className="mt-6">
+      <div className="mt-4 sm:mt-6">
         <PrimaryButton full disabled={!canReview} onClick={onNext}>
           Continue
         </PrimaryButton>

@@ -16,9 +16,8 @@
 import { useMe } from "@/components/app";
 import {
   BalanceHero,
-  ActionPills,
+  SecondaryActions,
   DoMoreCard,
-  IdentityCard,
   RecentActivity,
 } from "@/components/app/home";
 
@@ -33,16 +32,16 @@ export default function HomePage() {
         <p className="text-[13px] text-fg-dim">Welcome back, {first}.</p>
       ) : null}
 
-      {/* Balance + primary actions — the Wise lead. One action row, no
-          redundant tiles. Receive opens its sheet from the pill. */}
-      <section className="space-y-5">
-        <BalanceHero inline />
-        <ActionPills me={me} />
-      </section>
-
-      {/* Two tiles: payable identity + do-more. */}
-      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2 lg:items-stretch">
-        <IdentityCard me={me} />
+      {/* The lead: one calm balance card (eyebrow → balance → identity row →
+          Send/Request inline). The remaining quick actions sit in a compact
+          secondary row just beneath it. The card carries identity, so the old
+          standalone identity card is gone. On lg the card pairs with the
+          do-more tile so the row still reads intentional on desktop. */}
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2 lg:items-start">
+        <section className="space-y-3.5">
+          <BalanceHero inline me={me} />
+          <SecondaryActions me={me} />
+        </section>
         <DoMoreCard />
       </div>
 
