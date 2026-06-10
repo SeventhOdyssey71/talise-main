@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { denyUnlessAppApproved } from "@/lib/app-access";
 
 import { userById } from "@/lib/db";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
@@ -27,6 +28,10 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
+  // Private-beta guardrail: signed-in is not enough — the account must be on
+  // the app allowlist before it can originate any value-moving call.
+  const denied = await denyUnlessAppApproved(userId);
+  if (denied) return denied;
   // Throttle bank name-enquiry (each call hits Linq + the bank network).
   const rl = await rateLimitAsync({ key: `offramp-linq-quote:user:${userId}`, limit: 12, windowSec: 60 });
   if (!rl.ok) {

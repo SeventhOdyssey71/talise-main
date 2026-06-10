@@ -25,6 +25,14 @@ import { shinamiCreateProof, shinamiEnabled } from "./shinami";
 
 const JWT_COOKIE = "talise_jwt";
 
+/** Cookie Domain attribute. Set COOKIE_DOMAIN=.talise.io in production so the
+ *  signing cookie travels with the session across www.talise.io and
+ *  app.talise.io. Unset locally and on previews. */
+function cookieDomain(): string | undefined {
+  const d = process.env.COOKIE_DOMAIN?.trim();
+  return d || undefined;
+}
+
 /**
  * Prover endpoint resolution order:
  *   1. ZK_PROVER_URL env (our self-hosted prover — required for mainnet
@@ -115,6 +123,7 @@ export async function setSigningCookie(jwt: string, salt: string) {
   const payload = Buffer.from(JSON.stringify({ jwt, salt }), "utf8").toString("base64url");
   jar.set(JWT_COOKIE, sign(payload), {
     httpOnly: true,
+    domain: cookieDomain(),
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
@@ -124,7 +133,7 @@ export async function setSigningCookie(jwt: string, salt: string) {
 
 export async function clearSigningCookie() {
   const jar = await cookies();
-  jar.delete(JWT_COOKIE);
+  jar.delete({ name: JWT_COOKIE, domain: cookieDomain(), path: "/" });
 }
 
 export async function readSigningCookie(): Promise<{ jwt: string; salt: string } | null> {

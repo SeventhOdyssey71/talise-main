@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { denyUnlessAppApproved } from "@/lib/app-access";
 import { randomUUID } from "node:crypto";
 
 import { db, ensureSchema, userById } from "@/lib/db";
@@ -31,6 +32,10 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
+  // Private-beta guardrail: signed-in is not enough — the account must be on
+  // the app allowlist before it can originate any value-moving call.
+  const denied = await denyUnlessAppApproved(userId);
+  if (denied) return denied;
   // Tighter cap on order creation than on quoting — each creates a real Linq
   // order. Defense-in-depth on top of Linq's own 10/min/key limit.
   const rl = await rateLimitAsync({ key: `offramp-linq-create:user:${userId}`, limit: 6, windowSec: 60 });

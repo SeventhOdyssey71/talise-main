@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { denyUnlessAppApproved } from "@/lib/app-access";
 import {
   readEntryIdFromRequest,
   mobileSigningContext,
@@ -100,6 +101,10 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
+  // Private-beta guardrail: signed-in is not enough — the account must be on
+  // the app allowlist before it can originate any value-moving call.
+  const denied = await denyUnlessAppApproved(userId);
+  if (denied) return denied;
 
   // Rate-limit: 30 sponsored executions per hour per user. Money-moving
   // route. Keyed on userId ALONE (F7): mixing in a client-controllable IP

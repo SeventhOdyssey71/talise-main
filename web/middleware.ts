@@ -53,9 +53,39 @@ const SECURITY_HEADERS: Record<string, string> = {
 // through to the route's own parse — no regression.
 const MAX_API_BODY_BYTES = 1_048_576;
 
+/**
+ * Host-based routing — the wallet lives on its own subdomain.
+ *
+ *   app.talise.io/…      → internally REWRITTEN onto the /app tree, so the
+ *                          subdomain serves the product at its root
+ *                          (app.talise.io/ramps → /app/ramps). Paths that are
+ *                          real top-level trees (api, auth, _next, the public
+ *                          receive surfaces, /app itself) pass through so
+ *                          in-app links (`/app/pay`) and OAuth keep working.
+ *   talise.io/app/…      → 308 to app.talise.io/… (the marketing domain no
+ *   www.talise.io/app/…    longer serves the product; one canonical app host).
+ *
+ * Auth works across hosts because every auth cookie is issued with
+ * Domain=.talise.io (COOKIE_DOMAIN env — see lib/session.ts): Google's
+ * callback still lands on www, and the session it mints is readable on app.
+ */
+const APP_HOST = "app.talise.io";
+const MARKETING_HOSTS = new Set(["talise.io", "www.talise.io"]);
+// Top-level trees that must NOT be re-rooted under /app on the app host.
+const APP_HOST_PASSTHROUGH =
+  /^\/(app|api|auth|business|admin|c|i|u|pay|_next|_vercel)(\/|$)/;
+
+function withSecurityHeaders(res: NextResponse): NextResponse {
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
+    res.headers.set(k, v);
+  }
+  return res;
+}
+
 export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
   if (
-    req.nextUrl.pathname.startsWith("/api/") &&
+    pathname.startsWith("/api/") &&
     (req.method === "POST" || req.method === "PUT" || req.method === "PATCH")
   ) {
     const len = Number(req.headers.get("content-length") ?? "0");
@@ -63,6 +93,29 @@ export function middleware(req: NextRequest) {
       return NextResponse.json({ error: "payload too large" }, { status: 413 });
     }
   }
+
+  const host = (req.headers.get("host") ?? "").toLowerCase().split(":")[0];
+
+  // app.talise.io → serve the /app tree at the subdomain root.
+  if (host === APP_HOST && !APP_HOST_PASSTHROUGH.test(pathname)) {
+    const url = req.nextUrl.clone();
+    url.pathname = pathname === "/" ? "/app" : `/app${pathname}`;
+    return withSecurityHeaders(NextResponse.rewrite(url));
+  }
+
+  // talise.io/app/* → the canonical app host (strip the /app prefix).
+  if (
+    MARKETING_HOSTS.has(host) &&
+    (pathname === "/app" || pathname.startsWith("/app/"))
+  ) {
+    const url = req.nextUrl.clone();
+    url.protocol = "https:";
+    url.host = APP_HOST;
+    url.port = "";
+    url.pathname = pathname.slice("/app".length) || "/";
+    return withSecurityHeaders(NextResponse.redirect(url, 308));
+  }
+
   // Note: we deliberately do NOT redirect www→apex here. The Vercel
   // project's primary domain is www.talise.io and Vercel already 307s
   // the apex over to www. A second redirect in the opposite direction
@@ -70,11 +123,7 @@ export function middleware(req: NextRequest) {
   // the browser follows the redirect — breaking the waitlist form. The
   // OAuth redirect_uri mismatch is solved on the Google Cloud Console
   // side instead by registering both variants.
-  const res = NextResponse.next();
-  for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
-    res.headers.set(k, v);
-  }
-  return res;
+  return withSecurityHeaders(NextResponse.next());
 }
 
 export const config = {

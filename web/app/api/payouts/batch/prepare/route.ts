@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { denyUnlessAppApproved } from "@/lib/app-access";
 import { randomUUID } from "node:crypto";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
@@ -49,6 +50,9 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
+  // Private-beta guardrail: account must be on the app allowlist.
+  const denied = await denyUnlessAppApproved(userId);
+  if (denied) return denied;
   // Per-user rate limit on this money route (anti-abuse / anti-DDoS).
   const rl = await rateLimitAsync({
     key: `payouts-batch-prepare:user:${userId}`,

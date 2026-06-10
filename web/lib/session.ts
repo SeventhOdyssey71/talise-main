@@ -1,6 +1,16 @@
 import { cookies } from "next/headers";
 import { sign, verify } from "./auth";
 
+
+/** Cookie Domain attribute. Set COOKIE_DOMAIN=.talise.io in production so the
+ *  auth cookies (session / signing / oauth state / returnTo / referral) are
+ *  shared across talise.io, www.talise.io AND app.talise.io — the OAuth
+ *  callback runs on www, the app lives on the app subdomain. Unset locally and
+ *  on previews (a mismatched Domain gets the cookie silently rejected). */
+function cookieDomain(): string | undefined {
+  const d = process.env.COOKIE_DOMAIN?.trim();
+  return d || undefined;
+}
 const SESSION_COOKIE = "talise_session";
 const STATE_COOKIE = "talise_oauth_state";
 
@@ -8,6 +18,7 @@ export async function setStateCookie(state: string) {
   const jar = await cookies();
   jar.set(STATE_COOKIE, sign(state), {
     httpOnly: true,
+    domain: cookieDomain(),
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
@@ -24,7 +35,7 @@ export async function readStateCookie(): Promise<string | null> {
 
 export async function clearStateCookie() {
   const jar = await cookies();
-  jar.delete(STATE_COOKIE);
+  jar.delete({ name: STATE_COOKIE, domain: cookieDomain(), path: "/" });
 }
 
 // Session lifetime. The old design signed JUST the user id with a 1-year
@@ -51,6 +62,7 @@ export async function setSessionCookie(entryId: number, iat?: number) {
   const jar = await cookies();
   jar.set(SESSION_COOKIE, sign(`${entryId}|${issued}|${exp}`), {
     httpOnly: true,
+    domain: cookieDomain(),
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
@@ -104,7 +116,7 @@ export async function refreshSessionCookie(): Promise<boolean> {
 
 export async function clearSession() {
   const jar = await cookies();
-  jar.delete(SESSION_COOKIE);
+  jar.delete({ name: SESSION_COOKIE, domain: cookieDomain(), path: "/" });
 }
 
 const REFERRAL_COOKIE = "talise_ref";
@@ -118,6 +130,7 @@ export async function setReferralCookie(code: string) {
   const jar = await cookies();
   jar.set(REFERRAL_COOKIE, sign(code), {
     httpOnly: true,
+    domain: cookieDomain(),
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
@@ -134,7 +147,7 @@ export async function readReferralCookie(): Promise<string | null> {
 
 export async function clearReferralCookie() {
   const jar = await cookies();
-  jar.delete(REFERRAL_COOKIE);
+  jar.delete({ name: REFERRAL_COOKIE, domain: cookieDomain(), path: "/" });
 }
 
 const RETURN_TO_COOKIE = "talise_return_to";
@@ -172,6 +185,7 @@ export async function setReturnTo(path: string) {
   const jar = await cookies();
   jar.set(RETURN_TO_COOKIE, sign(safe), {
     httpOnly: true,
+    domain: cookieDomain(),
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
@@ -184,7 +198,7 @@ export async function consumeReturnTo(): Promise<string | null> {
   const raw = jar.get(RETURN_TO_COOKIE)?.value;
   if (!raw) return null;
   const v = verify(raw);
-  jar.delete(RETURN_TO_COOKIE);
+  jar.delete({ name: RETURN_TO_COOKIE, domain: cookieDomain(), path: "/" });
   // Re-validate on read too — defence in depth against a cookie minted
   // before this validation existed (or by any other writer).
   return safeReturnPath(v);

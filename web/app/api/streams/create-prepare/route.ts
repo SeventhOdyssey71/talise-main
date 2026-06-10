@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { denyUnlessAppApproved } from "@/lib/app-access";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 import { rateLimitAsync } from "@/lib/rate-limit";
@@ -55,6 +56,9 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
+  // Private-beta guardrail: account must be on the app allowlist.
+  const denied = await denyUnlessAppApproved(userId);
+  if (denied) return denied;
 
   // App Attest on mobile money routes (structural gate).
   const attest = requireAppAttestStructural(req);

@@ -101,7 +101,7 @@ function Hero() {
             Open dashboard
           </Link>
           <Link
-            href="/waitlist"
+            href="https://www.talise.io/waitlist"
             className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-7 text-[15px] font-medium text-[var(--color-fg)] transition-colors hover:border-[var(--color-accent-deep)] hover:text-[var(--color-accent-deep)] sm:w-auto"
           >
             Join the waitlist
@@ -281,7 +281,7 @@ function FinalCta() {
             Open dashboard
           </Link>
           <Link
-            href="/waitlist"
+            href="https://www.talise.io/waitlist"
             className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-7 text-[15px] font-medium text-[var(--color-fg)] transition-colors hover:border-[var(--color-accent-deep)] hover:text-[var(--color-accent-deep)] sm:w-auto"
           >
             Join the waitlist

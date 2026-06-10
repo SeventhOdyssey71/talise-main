@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { denyUnlessAppApproved } from "@/lib/app-access";
 import { randomUUID } from "node:crypto";
 
 import { db, ensureSchema, userById, userBySuiAddress } from "@/lib/db";
@@ -37,6 +38,10 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
+  // Private-beta guardrail: signed-in is not enough — the account must be on
+  // the app allowlist before it can originate any value-moving call.
+  const denied = await denyUnlessAppApproved(userId);
+  if (denied) return denied;
   // Same tight cap as /create — each call creates a real Linq order.
   const rl = await rateLimitAsync({
     key: `offramp-linq-to-user:user:${userId}`,

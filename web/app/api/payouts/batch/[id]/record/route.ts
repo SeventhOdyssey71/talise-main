@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { denyUnlessAppApproved } from "@/lib/app-access";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { db, userById } from "@/lib/db";
@@ -31,6 +32,9 @@ export async function POST(
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
+  // Private-beta guardrail: account must be on the app allowlist.
+  const denied = await denyUnlessAppApproved(userId);
+  if (denied) return denied;
 
   const rl = await rateLimitAsync({
     key: `payouts-batch-record:user:${userId}`,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { denyUnlessAppApproved } from "@/lib/app-access";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { fromBase64, toBase64 } from "@mysten/sui/utils";
@@ -35,6 +36,10 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
+  // Private-beta guardrail: signed-in is not enough — the account must be on
+  // the app allowlist before it can originate any value-moving call.
+  const denied = await denyUnlessAppApproved(userId);
+  if (denied) return denied;
   const user = await userById(userId);
   if (!user) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });

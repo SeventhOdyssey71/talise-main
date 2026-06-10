@@ -93,7 +93,7 @@ function WaitingRoom({ email, name }: { email: string; name: string | null }) {
             the moment your access unlocks.
           </p>
           <a
-            href="/waitlist"
+            href="https://www.talise.io/waitlist"
             className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-accent-deep px-5 py-3 text-[14px] font-semibold text-white transition-transform active:scale-[0.98]"
           >
             Claim your @handle while you wait

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { denyUnlessAppApproved } from "@/lib/app-access";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { userById } from "@/lib/db";
@@ -39,6 +40,9 @@ export async function POST(req: Request) {
   }
   const userId = await readEntryIdFromRequest(req);
   if (!userId) return NextResponse.json({ error: "not authenticated" }, { status: 401 });
+  // Private-beta guardrail: account must be on the app allowlist.
+  const denied = await denyUnlessAppApproved(userId);
+  if (denied) return denied;
 
   const rl = await rateLimitAsync({ key: `cheques-create:user:${userId}`, limit: 30, windowSec: 3600 });
   if (!rl.ok) {
