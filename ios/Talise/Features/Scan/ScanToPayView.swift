@@ -196,10 +196,8 @@ struct ScanToPayView: View {
             Color.black.opacity(0.7)
                 .ignoresSafeArea()
             VStack(spacing: 14) {
-                ProgressView()
-                    .controlSize(.large)
-                    .tint(.white)
-                Text("Resolving recipient…")
+                TaliseLoadingRing(size: 44, lineWidth: 3)
+                Text("Finding who to pay…")
                     .font(TaliseFont.body(13, weight: .regular))
                     .foregroundStyle(.white)
             }
@@ -230,13 +228,20 @@ struct ScanToPayView: View {
 
             // Center: viewfinder corner brackets, floated over the full-bleed
             // camera. Sits independently so it stays vertically centered
-            // regardless of the top/bottom overlay chrome.
-            ScanFrame(
-                size: viewfinderSize,
-                cornerRadius: 28,
-                bracketLength: 34,
-                lineWidth: 3
-            )
+            // regardless of the top/bottom overlay chrome. Mint brackets + a
+            // sweeping scan line make the window unmistakably Talise.
+            ZStack {
+                ScanFrame(
+                    size: viewfinderSize,
+                    cornerRadius: 28,
+                    bracketLength: 34,
+                    lineWidth: 3,
+                    color: TaliseColor.greenMint
+                )
+                if cameraState == .scanning {
+                    ScanSweep(size: viewfinderSize)
+                }
+            }
             .frame(width: viewfinderSize, height: viewfinderSize)
 
             // Top + bottom chrome float over the edge-to-edge camera. A
@@ -254,45 +259,55 @@ struct ScanToPayView: View {
         }
     }
 
-    /// Top overlay block: close button + balance + title + mode toggle,
-    /// sitting in the top safe area over a dark gradient scrim.
+    /// Top overlay block: close button + title + mode toggle, sitting in the
+    /// top safe area over a dark gradient scrim. The balance deliberately does
+    /// NOT live up here (that's every super-app's scanner) — it sits in a
+    /// quiet chip above the caption instead.
     private var topChrome: some View {
         VStack(spacing: 0) {
             topStatusBar
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
 
-            // The "Scan to pay" title sits just below the status bar.
-            // Kerning ratio matches the design language (-size × 0.03).
-            Text("Scan to pay")
-                .font(TaliseFont.heading(18, weight: .semibold))
-                .kerning(-18 * 0.03)
+            // Title sits just below the status bar. Kerning ratio matches the
+            // design language (-size × 0.03).
+            Text("Point & pay")
+                .font(TaliseFont.heading(20, weight: .semibold))
+                .kerning(-20 * 0.03)
                 .foregroundStyle(.white)
-                .padding(.top, 28)
+                .padding(.top, 26)
+
+            Text("QR codes, account numbers — one camera.")
+                .font(TaliseFont.body(12.5, weight: .light))
+                .foregroundStyle(.white.opacity(0.65))
+                .padding(.top, 4)
 
             modeToggle
-                .padding(.top, 18)
+                .padding(.top, 16)
                 .padding(.horizontal, 40)
                 .padding(.bottom, 24)
         }
     }
 
-    /// Bottom overlay block: the instruction caption (or "unrecognized" pill)
-    /// over a dark gradient scrim, anchored above the home indicator.
+    /// Bottom overlay block: balance chip + instruction caption (or the
+    /// "unrecognized" pill) over a dark gradient scrim, anchored above the
+    /// home indicator.
     private var bottomChrome: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 14) {
+            balanceChip
+
             if showUnrecognized {
                 unrecognizedPill
                     .transition(.opacity)
             } else {
-                Text("Point at a Talise QR code, or a bank account number, to pay.")
+                Text("Frame a Talise code or a bank account number — Talise reads it and sets up the payment.")
                     .font(TaliseFont.body(13, weight: .regular))
                     .foregroundStyle(.white.opacity(0.9))
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 56)
+                    .padding(.horizontal, 52)
             }
         }
-        .padding(.top, 40)
+        .padding(.top, 36)
         .padding(.bottom, 40)
     }
 
@@ -355,33 +370,59 @@ struct ScanToPayView: View {
 
     // MARK: - Mode toggle
 
-    /// "Scan to pay / Enter manually" segmented control, glassy over the dark
-    /// scanner backdrop. Switching to manual stops feeding the camera (the
-    /// scanner is unmounted in `body`) and reveals the bank form.
+    /// "Camera / Type it in" segmented control, glassy over the dark scanner
+    /// backdrop with the active segment in brand mint. Switching to manual
+    /// stops feeding the camera (the scanner is unmounted in `body`) and
+    /// reveals the bank form.
     private var modeToggle: some View {
         HStack(spacing: 4) {
-            toggleSegment(title: "Scan to pay", isOn: mode == .scan) { mode = .scan }
-            toggleSegment(title: "Enter manually", isOn: mode == .manual) {
+            toggleSegment(title: "Camera", icon: "viewfinder", isOn: mode == .scan) { mode = .scan }
+            toggleSegment(title: "Type it in", icon: "keyboard", isOn: mode == .manual) {
                 flashOn = false
                 mode = .manual
             }
         }
         .padding(4)
-        .background(Capsule().fill(Color.white.opacity(0.14)))
+        .background(Capsule().fill(Color.white.opacity(0.12)))
     }
 
-    private func toggleSegment(title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+    private func toggleSegment(title: String, icon: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(TaliseFont.heading(13, weight: .medium))
-                .foregroundStyle(isOn ? TaliseColor.bg : .white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 9)
-                .background(
-                    Capsule().fill(isOn ? Color.white : Color.clear)
-                )
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title)
+                    .font(TaliseFont.heading(13, weight: .medium))
+            }
+            .foregroundStyle(isOn ? TaliseColor.bg : .white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(
+                Capsule().fill(isOn ? TaliseColor.greenMint : Color.clear)
+            )
         }
         .buttonStyle(.plain)
+    }
+
+    /// Quiet balance chip above the caption — what you can spend, where your
+    /// eye already is, instead of the super-app top-corner figure.
+    private var balanceChip: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(TaliseColor.greenMint)
+                .frame(width: 6, height: 6)
+            Text("Balance")
+                .font(TaliseFont.mono(10, weight: .regular))
+                .kerning(1.1)
+                .foregroundStyle(.white.opacity(0.65))
+            Text(balanceFormatted)
+                .font(TaliseFont.heading(14, weight: .semibold))
+                .kerning(-0.3)
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Capsule().fill(Color.white.opacity(0.12)))
     }
 
     // MARK: - Manual entry
@@ -395,14 +436,19 @@ struct ScanToPayView: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
 
-            Text("Scan to pay")
-                .font(TaliseFont.heading(18, weight: .semibold))
-                .kerning(-18 * 0.03)
+            Text("Pay a bank account")
+                .font(TaliseFont.heading(20, weight: .semibold))
+                .kerning(-20 * 0.03)
                 .foregroundStyle(.white)
-                .padding(.top, 28)
+                .padding(.top, 26)
+
+            Text("We confirm the account name before anything moves.")
+                .font(TaliseFont.body(12.5, weight: .light))
+                .foregroundStyle(.white.opacity(0.65))
+                .padding(.top, 4)
 
             modeToggle
-                .padding(.top, 18)
+                .padding(.top, 16)
                 .padding(.horizontal, 40)
 
             VStack(alignment: .leading, spacing: 18) {
@@ -450,7 +496,7 @@ struct ScanToPayView: View {
                         .foregroundStyle(TaliseColor.bg)
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .background(manualReady ? Color.white : Color.white.opacity(0.35))
+                        .background(manualReady ? TaliseColor.greenMint : Color.white.opacity(0.3))
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -515,14 +561,12 @@ struct ScanToPayView: View {
 
     // MARK: - Top status bar
 
-    /// Three-up row: a glass dismiss disc on the leading edge, the
-    /// balance pill anchored top-leading per the design, and the flash
-    /// toggle on the trailing edge. The dismiss button is not in the
-    /// reference screenshot but a full-screen sheet MUST be dismissible.
+    /// Two-up row: a glass dismiss disc on the leading edge and the flash
+    /// toggle on the trailing edge. The balance moved to the bottom chip
+    /// (`balanceChip`) so the top stays uncluttered.
     private var topStatusBar: some View {
         HStack(alignment: .center, spacing: 12) {
             dismissButton
-            balancePill
             Spacer()
             // Only paint the flash toggle when the active device actually
             // has a torch (hidden on the simulator + front-only devices).
@@ -541,21 +585,6 @@ struct ScanToPayView: View {
                 .background(Circle().fill(TaliseColor.surface2))
         }
         .buttonStyle(.plain)
-    }
-
-    /// Inline balance block — eyebrow + amount sit directly on the
-    /// scanner background per the design reference. No glass pill, no
-    /// border. Reads as a status overlay rather than a chip.
-    private var balancePill: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Balance")
-                .font(TaliseFont.mono(10, weight: .regular))
-                .foregroundStyle(Color.white.opacity(0.7))
-            Text(balanceFormatted)
-                .font(TaliseFont.heading(22, weight: .semibold))
-                .kerning(-0.66)
-                .foregroundStyle(.white)
-        }
     }
 
     private var flashToggle: some View {
@@ -789,6 +818,8 @@ private struct ScanFrame: View {
     let bracketLength: CGFloat
     /// Bracket stroke thickness.
     let lineWidth: CGFloat
+    /// Bracket stroke colour — brand mint on the live scanner.
+    var color: Color = .white
 
     var body: some View {
         Canvas { ctx, _ in
@@ -814,7 +845,7 @@ private struct ScanFrame: View {
                 clockwise: false
             )
             p.addLine(to: CGPoint(x: minX + r + L, y: minY))
-            ctx.stroke(p, with: .color(.white), style: bracketStyle)
+            ctx.stroke(p, with: .color(color), style: bracketStyle)
 
             // Top-right.
             p = Path()
@@ -828,7 +859,7 @@ private struct ScanFrame: View {
                 clockwise: false
             )
             p.addLine(to: CGPoint(x: maxX, y: minY + r + L))
-            ctx.stroke(p, with: .color(.white), style: bracketStyle)
+            ctx.stroke(p, with: .color(color), style: bracketStyle)
 
             // Bottom-right.
             p = Path()
@@ -842,7 +873,7 @@ private struct ScanFrame: View {
                 clockwise: false
             )
             p.addLine(to: CGPoint(x: maxX - r - L, y: maxY))
-            ctx.stroke(p, with: .color(.white), style: bracketStyle)
+            ctx.stroke(p, with: .color(color), style: bracketStyle)
 
             // Bottom-left.
             p = Path()
@@ -856,12 +887,41 @@ private struct ScanFrame: View {
                 clockwise: false
             )
             p.addLine(to: CGPoint(x: minX, y: maxY - r - L))
-            ctx.stroke(p, with: .color(.white), style: bracketStyle)
+            ctx.stroke(p, with: .color(color), style: bracketStyle)
         }
     }
 
     private var bracketStyle: StrokeStyle {
         StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+    }
+}
+
+
+// MARK: - Scan sweep
+
+/// Animated mint sweep line gliding up and down inside the viewfinder —
+/// signals "live and reading" and gives the window a Talise signature the
+/// plain bracket frame lacked.
+private struct ScanSweep: View {
+    let size: CGFloat
+    @State private var down = false
+
+    var body: some View {
+        LinearGradient(
+            colors: [
+                TaliseColor.greenMint.opacity(0),
+                TaliseColor.greenMint.opacity(0.9),
+                TaliseColor.greenMint.opacity(0),
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        .frame(width: size - 44, height: 2.5)
+        .shadow(color: TaliseColor.greenMint.opacity(0.55), radius: 6)
+        .offset(y: down ? size / 2 - 30 : -(size / 2 - 30))
+        .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: down)
+        .onAppear { down = true }
+        .allowsHitTesting(false)
     }
 }
 
