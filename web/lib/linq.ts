@@ -260,3 +260,8 @@ export function parseLinqWebhook(json: Record<string, unknown>): LinqWebhookEven
     status: typeof json.status === "string" ? json.status : null,
   };
 }
+
+// ─── Beta off-ramp cap ────────────────────────────────────────────────────
+/** Per-withdrawal USD cap during beta. Enforced server-side in every Linq
+ *  entry point (quote / create / to-user). */
+export const OFFRAMP_MAX_USD = 200;

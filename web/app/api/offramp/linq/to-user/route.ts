@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { db, ensureSchema, userById, userBySuiAddress } from "@/lib/db";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { createOrder, getRate, linqConfigured } from "@/lib/linq";
+import { createOrder, getRate, linqConfigured, OFFRAMP_MAX_USD } from "@/lib/linq";
 import { resolveLinqBank } from "@/lib/linq-banks";
 import { resolveRecipient } from "@/lib/suins";
 import { getPrimaryBankAccount, last4 } from "@/lib/bank-accounts";
@@ -122,6 +122,18 @@ export async function POST(req: Request) {
     initialUsdsui = r6(reqNgn / rateNow);
   } catch {
     return NextResponse.json({ error: "rate_unavailable" }, { status: 503 });
+  }
+
+  // Beta cap: $200 per withdrawal (server-enforced in quote + create + to-user).
+  if (initialUsdsui > OFFRAMP_MAX_USD) {
+    return NextResponse.json(
+      {
+        error: `Cash-outs are capped at $${OFFRAMP_MAX_USD} per withdrawal during beta.`,
+        code: "OFFRAMP_CAP",
+        maxUsd: OFFRAMP_MAX_USD,
+      },
+      { status: 400 }
+    );
   }
 
   const id = randomUUID(); // our row id; doubles as the idempotency key
