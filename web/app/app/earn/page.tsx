@@ -23,14 +23,18 @@ import { InsightsSection } from "@/components/app/earn/InsightsSection";
 export default function EarnPage() {
   return (
     <div className="space-y-6">
+      {/* min-w-0 on the grid columns: grid items default to min-width:auto and
+          refuse to shrink below their widest child, which pushed every card
+          past the phone viewport (clipped right edges on mobile). min-w-0 lets
+          the columns — and therefore the cards — actually fit the screen. */}
       <div className="grid gap-6 lg:grid-cols-2 lg:items-start lg:gap-8">
         {/* Invest */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <SupplyCard />
         </div>
 
         {/* Spend & Save */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <RewardsLink />
           <RoundupCard />
           <GoalsSection />

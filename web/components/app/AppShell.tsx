@@ -13,7 +13,7 @@
  * Mounts <CurrencyProvider> + <ToastProvider> for everything beneath it.
  */
 
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -208,7 +208,10 @@ function CurrencySelect() {
 
 function Avatar({ me, size = 28 }: { me: Me; size?: number }) {
   const initial = (me.name ?? me.email ?? "?").trim().charAt(0).toUpperCase();
-  if (me.picture) {
+  // Google avatar URLs (lh3.googleusercontent.com) regularly 403/expire —
+  // without an error fallback the chip rendered as a broken-image glyph.
+  const [imgFailed, setImgFailed] = useState(false);
+  if (me.picture && !imgFailed) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
@@ -216,6 +219,8 @@ function Avatar({ me, size = 28 }: { me: Me; size?: number }) {
         alt={me.name ?? "Account"}
         width={size}
         height={size}
+        referrerPolicy="no-referrer"
+        onError={() => setImgFailed(true)}
         className="rounded-full object-cover"
         style={{ width: size, height: size }}
       />
@@ -364,7 +369,7 @@ function AccountMenu({
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href={rampsHref}>
-            <HugeiconsIcon icon={CreditCardIcon} size={18} strokeWidth={1.8} /> Ramps
+            <HugeiconsIcon icon={CreditCardIcon} size={18} strokeWidth={1.8} /> Add money & cash out
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -461,10 +466,13 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
       <div className="relative z-10 lg:pl-60">
         {/* Mobile mini-bar — transparent, sits on the mint gradient and scrolls
             away with the content (no bar background / border). */}
-        {/* Just the wordmark — the balance chip + avatar were removed (balance
-            lives on the page itself; account actions live in Settings). */}
-        <header className="relative z-30 flex items-center px-4 pb-1 pt-3 lg:hidden">
+        {/* Wordmark + a single profile chip (Avatar with initials fallback —
+            the dropdown carries Ramps, Settings, and sign-out, which is how
+            those surfaces stay reachable on mobile). The balance chip stays
+            removed — the balance lives on the page itself. */}
+        <header className="relative z-30 flex items-center justify-between px-4 pb-1 pt-3 lg:hidden">
           <Logo homeHref={nav.brandHref} />
+          <AccountMenu me={me} settingsHref={nav.settingsHref} rampsHref={nav.rampsHref} />
         </header>
 
         {/* Content column. overflow-x-clip: belt-and-braces — no child (wide
