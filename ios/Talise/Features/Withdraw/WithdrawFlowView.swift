@@ -38,28 +38,28 @@ struct WithdrawFlowView: View {
             VStack(spacing: 0) {
                 inlineHeader
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 14) {
                         // ── Primary actions: a clean 2×2 grid ──
                         LazyVGrid(
-                            columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
-                            spacing: 12
+                            columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)],
+                            spacing: 14
                         ) {
                             NavigationLink {
                                 BankWithdrawView()
                             } label: {
-                                ActionTile(icon: "building.columns", title: "Bank transfer", caption: "Cash out in NGN")
+                                ActionTile(icon: "hi.bank", title: "Bank transfer", caption: "Cash out in NGN")
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(TilePress())
 
                             Button { handOff(.taliseRequestSendCover) } label: {
-                                ActionTile(icon: "paperplane", title: "Send", caption: "@handle or address")
+                                ActionTile(icon: "hi.send", title: "Send", caption: "@handle or address")
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(TilePress())
 
                             Button { handOff(.taliseRequestCrossBorderCover) } label: {
-                                ActionTile(icon: "globe", title: "Send abroad", caption: "Paid in their currency")
+                                ActionTile(icon: "hi.globe", title: "Send abroad", caption: "Paid in their currency")
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(TilePress())
 
                             Button {
                                 withAnimation(.snappy(duration: 0.24)) {
@@ -67,26 +67,26 @@ struct WithdrawFlowView: View {
                                 }
                             } label: {
                                 ActionTile(
-                                    icon: "doc.text",
+                                    icon: "hi.cheque",
                                     title: "Cheques",
                                     caption: "Money, in a link",
                                     expandable: true,
                                     isExpanded: expanded == .cheques
                                 )
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(TilePress())
                         }
 
                         // ── Cheques group, expanded inline under the grid ──
                         if expanded == .cheques {
                             SubActionList(rows: [
-                                .init(icon: "square.and.pencil", title: "Write a cheque") {
+                                .init(icon: "hi.write", title: "Write a cheque") {
                                     handOff(.taliseRequestChequeWriteCover)
                                 },
-                                .init(icon: "tray.and.arrow.down", title: "Cash a cheque") {
+                                .init(icon: "hi.cash", title: "Cash a cheque") {
                                     handOff(.taliseRequestChequeClaimCover)
                                 },
-                                .init(icon: "list.bullet.rectangle.portrait", title: "My cheques") {
+                                .init(icon: "hi.list", title: "My cheques") {
                                     handOff(.taliseRequestMyChequesCover)
                                 },
                             ])
@@ -100,23 +100,23 @@ struct WithdrawFlowView: View {
                             }
                         } label: {
                             GroupRow(
-                                icon: "briefcase",
+                                icon: "hi.briefcase",
                                 title: "Work",
                                 caption: "Streams · Invoices · Contracts",
                                 isExpanded: expanded == .work
                             )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(TilePress())
 
                         if expanded == .work {
                             SubActionList(rows: [
-                                .init(icon: "dot.radiowaves.left.and.right", title: "Stream a payment") {
+                                .init(icon: "hi.stream", title: "Stream a payment") {
                                     handOff(.taliseRequestStreamCover)
                                 },
-                                .init(icon: "doc.plaintext", title: "Invoices") {
+                                .init(icon: "hi.invoice", title: "Invoices") {
                                     handOff(.taliseRequestInvoicesCover)
                                 },
-                                .init(icon: "doc.text.below.ecg", title: "Contracts") {
+                                .init(icon: "hi.contract", title: "Contracts") {
                                     handOff(.taliseRequestContractsCover)
                                 },
                             ])
@@ -124,7 +124,8 @@ struct WithdrawFlowView: View {
                         }
                     }
                     .padding(.horizontal, 20)
-                    .padding(.top, 4)
+                    .padding(.top, 10)
+                    .padding(.bottom, 32)
                 }
             }
             .background(TaliseColor.bg.ignoresSafeArea())
@@ -156,8 +157,52 @@ struct WithdrawFlowView: View {
     }
 }
 
-// MARK: - Action tiles + groups (quiet, monochrome — no badge pills, no
-// colored icon discs; the surface + type carry the hierarchy)
+// MARK: - Action tiles + groups
+//
+// CashApp-grammar: generous tiles, one squircle icon chip in a SUBTLE brand
+// green per action, confident type, soft hairline ring — no badge pills, no
+// loud filled discs. Icons are the Hugeicons set (Assets.xcassets/HugeIcons,
+// template-rendered SVGs extracted from the same @hugeicons set the web app
+// uses), so web + iOS finally share one icon language.
+
+/// Hugeicon image, template-tinted.
+private struct HugeIcon: View {
+    let name: String
+    var size: CGFloat = 20
+    var tint: Color = TaliseColor.greenMint
+
+    var body: some View {
+        Image(name)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .foregroundStyle(tint)
+    }
+}
+
+/// The squircle icon chip — soft mint wash, mint glyph.
+private struct IconChip: View {
+    let icon: String
+    var side: CGFloat = 42
+    var iconSize: CGFloat = 20
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: side * 0.32, style: .continuous)
+            .fill(TaliseColor.greenMint.opacity(0.12))
+            .frame(width: side, height: side)
+            .overlay(HugeIcon(name: icon, size: iconSize))
+    }
+}
+
+/// Press feedback for the big tiles — a gentle scale, CashApp-style.
+private struct TilePress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.965 : 1)
+            .animation(.snappy(duration: 0.18), value: configuration.isPressed)
+    }
+}
 
 /// One square-ish primary tile in the 2×2 grid.
 private struct ActionTile: View {
@@ -169,37 +214,40 @@ private struct ActionTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Image(systemName: icon)
-                    .font(.system(size: 19, weight: .regular))
-                    .foregroundStyle(TaliseColor.fg)
+            HStack(alignment: .top) {
+                IconChip(icon: icon)
                 Spacer()
                 if expandable {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(TaliseColor.fgDim)
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                        .padding(.top, 4)
                 }
             }
-            Spacer(minLength: 14)
+            Spacer(minLength: 16)
             Text(title)
-                .font(TaliseFont.heading(15, weight: .medium))
-                .kerning(-0.2)
+                .font(TaliseFont.heading(16, weight: .semibold))
+                .kerning(-0.3)
                 .foregroundStyle(TaliseColor.fg)
             Text(caption)
-                .font(TaliseFont.body(12, weight: .light))
-                .foregroundStyle(TaliseColor.fgDim)
+                .font(TaliseFont.body(12.5, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
                 .lineLimit(1)
-                .padding(.top, 2)
+                .padding(.top, 3)
         }
-        .padding(16)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 108)
+        .frame(height: 132)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(TaliseColor.surface)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }
 
@@ -211,18 +259,16 @@ private struct GroupRow: View {
     var isExpanded = false
 
     var body: some View {
-        HStack(spacing: 13) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(TaliseColor.fg)
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 14) {
+            IconChip(icon: icon)
+            VStack(alignment: .leading, spacing: 2.5) {
                 Text(title)
-                    .font(TaliseFont.heading(15, weight: .medium))
+                    .font(TaliseFont.heading(16, weight: .semibold))
+                    .kerning(-0.3)
                     .foregroundStyle(TaliseColor.fg)
                 Text(caption)
-                    .font(TaliseFont.body(12, weight: .light))
-                    .foregroundStyle(TaliseColor.fgDim)
+                    .font(TaliseFont.body(12.5, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
             }
             Spacer()
             Image(systemName: "chevron.down")
@@ -230,13 +276,17 @@ private struct GroupRow: View {
                 .foregroundStyle(TaliseColor.fgDim)
                 .rotationEffect(.degrees(isExpanded ? 180 : 0))
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(TaliseColor.surface)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }
 
@@ -254,32 +304,34 @@ private struct SubActionList: View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
                 Button(action: row.action) {
-                    HStack(spacing: 13) {
-                        Image(systemName: row.icon)
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(TaliseColor.fgMuted)
-                            .frame(width: 22)
+                    HStack(spacing: 14) {
+                        IconChip(icon: row.icon, side: 34, iconSize: 16)
                         Text(row.title)
-                            .font(TaliseFont.body(14.5, weight: .regular))
+                            .font(TaliseFont.body(15, weight: .regular))
                             .foregroundStyle(TaliseColor.fg)
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(TaliseColor.fgDim)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 18)
                     .padding(.vertical, 13)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 if i < rows.count - 1 {
-                    Divider().overlay(TaliseColor.fg.opacity(0.06)).padding(.leading, 51)
+                    Divider().overlay(TaliseColor.fg.opacity(0.06)).padding(.leading, 66)
                 }
             }
         }
+        .padding(.vertical, 4)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(TaliseColor.surface.opacity(0.6))
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(TaliseColor.surface.opacity(0.55))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
         )
     }
 }
