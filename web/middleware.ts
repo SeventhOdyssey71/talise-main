@@ -192,7 +192,10 @@ export function middleware(req: NextRequest) {
     return withSecurityHeaders(NextResponse.rewrite(url));
   }
 
-  // talise.io/app/* → the canonical app host (strip the /app prefix).
+  // talise.io/app/* → the canonical app host. Subpaths KEEP the /app prefix
+  // (the /app tree passes through on the subdomain, and stripping it would
+  // collide with the public top-level trees: /app/pay ≠ /pay/[handle]).
+  // Only the bare /app drops it for the clean app.talise.io/ entry.
   if (
     MARKETING_HOSTS.has(host) &&
     (pathname === "/app" || pathname.startsWith("/app/"))
@@ -201,7 +204,7 @@ export function middleware(req: NextRequest) {
     url.protocol = "https:";
     url.host = APP_HOST;
     url.port = "";
-    url.pathname = pathname.slice("/app".length) || "/";
+    url.pathname = pathname === "/app" ? "/" : pathname;
     return withSecurityHeaders(NextResponse.redirect(url, 308));
   }
 
