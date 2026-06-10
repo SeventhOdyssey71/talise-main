@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { getMonthInsights } from "@/lib/rewards/insights";
+import { memoTtl } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +24,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
   try {
-    const insights = await getMonthInsights(user.sui_address, 50);
+    // Insights derive from a tx-history walk (the slow leg). They don't change
+    // second-to-second, so cache per-address for 60s — the first load pays the
+    // walk, repeat loads (Rewards tab re-mounts, tab churn) are instant.
+    const insights = await memoTtl(
+      `insights:${user.sui_address}`,
+      60_000,
+      () => getMonthInsights(user.sui_address, 50)
+    );
     return NextResponse.json({
       spentUsd: insights.spentUsd,
       receivedUsd: insights.receivedUsd,
