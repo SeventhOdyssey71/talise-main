@@ -508,9 +508,22 @@ export async function markFunded(input: {
 
   // ── On-chain rail: parse the created Cheque object id from the digest ──
   if (chequeOnchainEnabled()) {
-    const parsed = await parseCreatedChequeObjectId(input.digest, {
+    // The client confirms the instant sponsor-execute returns the digest —
+    // usually BEFORE the fullnode has indexed the tx's objectChanges. Retry the
+    // parse with backoff so indexing lag (the dominant cause of a 409 here)
+    // resolves instead of failing a perfectly-good funding tx. Terminal reasons
+    // (sender mismatch, misconfig) don't change on retry, so we stop early.
+    const TERMINAL = /sender_mismatch|onchain_disabled|missing_digest/i;
+    let parsed = await parseCreatedChequeObjectId(input.digest, {
       expectedSender: input.creatorAddress,
     });
+    for (let attempt = 0; !parsed.ok && attempt < 6; attempt++) {
+      if (parsed.reason && TERMINAL.test(parsed.reason)) break;
+      await new Promise((r) => setTimeout(r, 1200));
+      parsed = await parseCreatedChequeObjectId(input.digest, {
+        expectedSender: input.creatorAddress,
+      });
+    }
     if (!parsed.ok || !parsed.chequeObjectId) {
       return { ok: false, reason: parsed.reason ?? "cheque_object_not_found" };
     }
