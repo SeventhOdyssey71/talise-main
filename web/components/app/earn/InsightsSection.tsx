@@ -92,8 +92,12 @@ function Tile({
   loading?: boolean;
 }) {
   return (
-    <GlassCard radius={12} className="px-3 py-3">
-      <span className="block font-mono text-[10px] uppercase tracking-[0.16em] text-fg-dim">
+    // min-w-0: grid items default to min-width:auto and refuse to shrink below
+    // their content, which let long formatted amounts push this 3-up row wider
+    // than the phone viewport (horizontal page scroll). min-w-0 lets the tile
+    // shrink so the truncate below actually engages.
+    <GlassCard radius={12} className="min-w-0 px-3 py-3">
+      <span className="block truncate font-mono text-[10px] uppercase tracking-[0.16em] text-fg-dim">
         {label}
       </span>
       {loading ? (
