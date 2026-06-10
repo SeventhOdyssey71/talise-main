@@ -354,12 +354,45 @@ export async function GET(req: Request) {
     }
   }
 
-  // No usable snapshot (or ?fresh=1): live chain read, write-through, return.
-  const payload = await computeLiveBalances({
+  // No usable snapshot (or ?fresh=1): BOUNDED live chain read. The headline
+  // balance is display-only (sends are validated on-chain at build/broadcast,
+  // not by this number), so we never let a slow/unhealthy RPC make the user
+  // wait — cap the live read and fall back to the freshest snapshot. The live
+  // promise keeps running and write-throughs the snapshot, so it self-heals.
+  const LIVE_BUDGET_MS = 4500;
+  const livePromise = computeLiveBalances({
     id: user.id,
     sui_address: user.sui_address,
     talise_vault_id: user.talise_vault_id ?? null,
   });
+  livePromise.catch(() => {}); // don't let an abandoned slow read reject unhandled
+  const live = await withTimeout(livePromise, LIVE_BUDGET_MS, null);
+  if (live) {
+    return NextResponse.json(
+      { ...live, refreshedAt: Date.now(), stale: false, source: "chain" },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
+  }
+  // Live read blew the budget — serve the freshest snapshot we have (ANY age
+  // beats a 40s spinner). The in-flight live read above will write it through.
+  const snap = await readBalanceSnapshot(userId);
+  if (snap) {
+    return NextResponse.json(
+      {
+        address: snap.suiAddress || user.sui_address,
+        usdsui: snap.usdsui,
+        sui: snap.sui,
+        suiPriceUsd: snap.suiPriceUsd,
+        totalUsd: snap.totalUsd,
+        refreshedAt: snap.refreshedAt,
+        stale: true,
+        source: "snapshot-timeout",
+      },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
+  }
+  // Brand-new user with no snapshot at all — we have to wait for the live read.
+  const payload = await livePromise;
   return NextResponse.json(
     { ...payload, refreshedAt: Date.now(), stale: false, source: "chain" },
     { headers: { "Cache-Control": "private, no-store" } }

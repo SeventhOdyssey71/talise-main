@@ -236,9 +236,14 @@ export function buildClientForEndpoint(
  * never triggers the fallback — the await just blocks, and a single bad
  * provider hangs the whole request for tens of seconds. With it, a slow
  * endpoint is treated as transient and we fail over to the next. Env-tunable
- * via SUI_GRPC_ENDPOINT_TIMEOUT_MS (default 4s — healthy gRPC reads are <1s).
+ * via SUI_GRPC_ENDPOINT_TIMEOUT_MS.
+ *
+ * With 7 endpoints in the chain, a generous value stacks: a 4s deadline gave
+ * ~28-40s worst-case reads when several nodes were unhealthy (the slow balance
+ * loads). 2.2s is ample for a healthy node to answer ONE read; an unhealthy one
+ * is abandoned fast so the chain advances quickly to a node that works.
  */
-const PER_ENDPOINT_TIMEOUT_MS = Number(process.env.SUI_GRPC_ENDPOINT_TIMEOUT_MS) || 4000;
+const PER_ENDPOINT_TIMEOUT_MS = Number(process.env.SUI_GRPC_ENDPOINT_TIMEOUT_MS) || 2200;
 
 class GrpcEndpointTimeout extends Error {
   constructor() {
