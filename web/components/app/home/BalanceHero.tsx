@@ -236,14 +236,14 @@ function BalanceCard({
       <div className="mt-4 grid grid-cols-2 gap-2.5">
         <Link
           href="/app/pay"
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-accent-deep px-5 py-2.5 text-[14px] font-medium text-white shadow-[0_6px_18px_-8px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-accent-deep px-5 py-2.5 text-[14px] font-medium text-white shadow-[0_6px_18px_-8px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_55%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]"
         >
           <HugeiconsIcon icon={SentIcon} size={17} strokeWidth={2} color="currentColor" />
           Send
         </Link>
         <Link
           href="/app/pay/request"
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-accent-soft px-5 py-2.5 text-[14px] font-medium text-accent transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_14%,#ffffff)] active:scale-[0.98]"
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-accent-soft px-5 py-2.5 text-[14px] font-medium text-accent transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_14%,#ffffff)] active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]"
         >
           <HugeiconsIcon icon={MoneyReceive02Icon} size={17} strokeWidth={2} color="currentColor" />
           Request

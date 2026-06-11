@@ -140,7 +140,7 @@ export default function StreamPage() {
           }}
         />
       ) : (
-        <ListTab reloadSignal={listReload} />
+        <ListTab reloadSignal={listReload} onNew={() => setTab("setup")} />
       )}
     </div>
   );
@@ -428,7 +428,7 @@ function ChipRow({
 
 // ── LIST ─────────────────────────────────────────────────────────────────
 
-function ListTab({ reloadSignal }: { reloadSignal: number }) {
+function ListTab({ reloadSignal, onNew }: { reloadSignal: number; onNew: () => void }) {
   const [streams, setStreams] = useState<ProjectedStream[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -535,6 +535,7 @@ function ListTab({ reloadSignal }: { reloadSignal: number }) {
         icon={<HugeiconsIcon icon={RadioIcon} size={26} />}
         title="No streams yet"
         subtitle="Start one to drip money over time — fund once, it settles on schedule."
+        action={<PrimaryButton onClick={onNew}>New stream</PrimaryButton>}
       />
     );
   }

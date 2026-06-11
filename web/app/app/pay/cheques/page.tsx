@@ -147,7 +147,11 @@ export default function ChequesPage() {
       {tab === "write" && <WriteTab onIssued={() => setMineReload((n) => n + 1)} />}
       {tab === "cash" && <CashTab />}
       {tab === "mine" && (
-        <MineTab reloadSignal={mineReload} onReclaimed={() => setMineReload((n) => n + 1)} />
+        <MineTab
+          reloadSignal={mineReload}
+          onReclaimed={() => setMineReload((n) => n + 1)}
+          onWrite={() => setTab("write")}
+        />
       )}
     </div>
   );
@@ -743,30 +747,57 @@ function CashTab() {
 function MineTab({
   reloadSignal,
   onReclaimed,
+  onWrite,
 }: {
   reloadSignal: number;
   onReclaimed: () => void;
+  onWrite: () => void;
 }) {
   const [rows, setRows] = useState<MyChequeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reclaiming, setReclaiming] = useState<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // Stale-while-revalidate: paint the last-known list from sessionStorage
+  // INSTANTLY (no skeleton on revisit), then refresh quietly. The list is
+  // display-only here — every mutating action re-validates server-side.
+  const CACHE_KEY = "talise:cheques:mine";
+
+  const load = useCallback(async (background = false) => {
+    if (!background) setLoading(true);
     setError(null);
     try {
       const r = await api<{ cheques: MyChequeRow[] }>("/api/cheques/mine");
-      setRows(r.cheques ?? []);
+      const next = r.cheques ?? [];
+      setRows(next);
+      try {
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify(next));
+      } catch {
+        /* storage blocked — non-fatal */
+      }
     } catch (e) {
-      setError(friendlyError(e, "Couldn't load your cheques right now.", "Cheques"));
+      if (!background) {
+        setError(friendlyError(e, "Couldn't load your cheques right now.", "Cheques"));
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
+    // Seed from the session cache, then revalidate in the background.
+    let seeded = false;
+    try {
+      const raw = sessionStorage.getItem(CACHE_KEY);
+      if (raw) {
+        setRows(JSON.parse(raw) as MyChequeRow[]);
+        setLoading(false);
+        seeded = true;
+      }
+    } catch {
+      /* corrupt cache — fall through to a foreground load */
+    }
+    void load(seeded);
   }, [load, reloadSignal]);
 
   const reclaim = useCallback(
@@ -827,6 +858,9 @@ function MineTab({
         icon={<HugeiconsIcon icon={Invoice01Icon} size={26} />}
         title="No cheques yet"
         subtitle="Cheques you write show up here so you can track and reclaim them."
+        action={
+          <PrimaryButton onClick={onWrite}>Write a cheque</PrimaryButton>
+        }
       />
     );
   }

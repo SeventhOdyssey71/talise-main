@@ -540,3 +540,19 @@ input[type="number"] {
     animation: none;
   }
 }
+
+/*
+ * Launch polish — global corner-rounding dial-down, scoped to the app shell.
+ * The app over-used rounded-3xl (24px) / rounded-2xl (16px), which read a touch
+ * too soft. This single-point override tightens them everywhere inside
+ * `.talise-appshell` without touching the marketing site (`.landing-mint`,
+ * which never carries this class) or any rounded-full pills/buttons.
+ *   rounded-3xl: 24px -> 18px
+ *   rounded-2xl: 16px -> 14px
+ */
+.talise-appshell .rounded-3xl {
+  border-radius: 1.125rem;
+}
+.talise-appshell .rounded-2xl {
+  border-radius: 0.875rem;
+}

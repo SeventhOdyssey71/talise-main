@@ -16,7 +16,7 @@ import { type Me } from "@/components/app";
 import { ReceiveSheet } from "./ReceiveSheet";
 
 const BTN =
-  "inline-flex items-center justify-center gap-2 rounded-full border border-line bg-surface px-5 py-2.5 text-[13px] font-medium text-fg-muted transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_35%,var(--color-line))] hover:text-fg active:scale-[0.98]";
+  "inline-flex items-center justify-center gap-2 rounded-full border border-line bg-surface px-5 py-2.5 text-[13px] font-medium text-fg-muted transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_35%,var(--color-line))] hover:text-fg active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]";
 
 export function SecondaryActions({ me }: { me: Me | null }) {
   const [receiveOpen, setReceiveOpen] = useState(false);

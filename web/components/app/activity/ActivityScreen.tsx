@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { InboxIcon } from "@hugeicons/core-free-icons";
-import { useActivity, Eyebrow, EmptyState, GlassCard } from "@/components/app";
+import { useActivity, Eyebrow, EmptyState, GlassCard, PrimaryButton } from "@/components/app";
 import { HistoryRow } from "./HistoryRow";
 import { ReceiptSheet } from "./ReceiptSheet";
 import {
@@ -118,6 +118,11 @@ export function ActivityScreen() {
               filter === "all"
                 ? "Your sends, receipts, earnings and swaps will appear here."
                 : "Nothing here yet — try a different filter."
+            }
+            action={
+              filter === "all" ? (
+                <PrimaryButton href="/app/pay">Send money</PrimaryButton>
+              ) : undefined
             }
           />
         </div>

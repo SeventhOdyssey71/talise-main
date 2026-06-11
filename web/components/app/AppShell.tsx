@@ -35,7 +35,15 @@ import { CurrencyProvider, useCurrency } from "./data/currency";
 import { Flag } from "./ui";
 import { ToastProvider } from "./data/toast";
 import { useBalances, seedResource, type Me, type Balances } from "./data";
-import { triggerOauthSignIn, clearStored, clearExpiryMarker } from "@/lib/zkclient";
+import {
+  triggerOauthSignIn,
+  clearStored,
+  clearExpiryMarker,
+  readEphemeralForT2000,
+  writeCachedProof,
+  type StoredZkProof,
+} from "@/lib/zkclient";
+import { api } from "./data/api";
 import { forceFreshSignIn, signingSessionExpired } from "@/lib/session-expiry";
 import { Diamond } from "@/components/Diamond";
 import { ScanSheet } from "./scan/ScanSheet";
@@ -573,6 +581,36 @@ export function AppShell({ me, initialBalances, nav = CONSUMER_NAV, children }: 
       document.removeEventListener("visibilitychange", onVis);
       window.clearInterval(t);
     };
+  }, [signedIn]);
+
+  // ── Send-path warmers (launch-day perf, 2026-06-11) ────────────────
+  // iOS hits /api/zk/warmup at dashboard load; the web never did — so a
+  // web user's FIRST send paid the full cold path inline: Onara status,
+  // gas price, NAVI pools, payment registry, epoch/chain memos, AND the
+  // 2–4s Shinami proof mint. Warm all of it once per app mount:
+  //   1. /api/zk/warmup — server-side caches (fire-and-forget).
+  //   2. /api/zk/proof — pre-mints the zkLogin proof and stores it next
+  //      to the ephemeral key, so sponsor-execute skips the prover hop.
+  useEffect(() => {
+    if (!signedIn) return;
+    void fetch("/api/zk/warmup", { method: "POST" }).catch(() => {});
+    const eph = readEphemeralForT2000();
+    if (eph && !eph.cachedProof) {
+      void api<{ proof: StoredZkProof }>("/api/zk/proof", {
+        method: "POST",
+        body: {
+          ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
+          maxEpoch: eph.maxEpoch,
+          randomness: eph.randomness,
+        },
+      })
+        .then((r) => {
+          if (r?.proof) writeCachedProof(r.proof);
+        })
+        .catch(() => {
+          /* best-effort — the send path mints inline as before */
+        });
+    }
   }, [signedIn]);
 
   if (!me) {

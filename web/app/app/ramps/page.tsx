@@ -46,7 +46,7 @@ export default function RampsPage() {
       {/* Hero */}
       <header className="space-y-3">
         <Eyebrow>Cash out</Eyebrow>
-        <h1 className="max-w-xl text-[26px] font-semibold leading-[1.15] tracking-[-0.03em] text-fg">
+        <h1 className="max-w-xl font-display text-[26px] font-medium leading-[1.15] tracking-[-0.03em] text-fg">
           Turn USDsui into cash, at the real rate.
         </h1>
         <p className="max-w-md text-[15px] leading-relaxed text-fg-muted">
@@ -110,7 +110,7 @@ export default function RampsPage() {
           <button
             type="button"
             onClick={() => setWithdrawOpen(true)}
-            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-accent-deep px-6 text-[15px] font-semibold text-white shadow-[0_8px_22px_-8px_rgba(35,78,20,0.5)] transition-[transform,background,box-shadow] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_90%,white)] hover:shadow-[0_10px_26px_-8px_rgba(35,78,20,0.55)] active:scale-[0.985]"
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-accent-deep px-6 text-[15px] font-semibold text-white shadow-[0_8px_22px_-8px_rgba(35,78,20,0.5)] transition-[transform,background,box-shadow] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_90%,white)] hover:shadow-[0_10px_26px_-8px_rgba(35,78,20,0.55)] active:scale-[0.985] outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_55%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]"
           >
             Cash out to your bank
           </button>
@@ -179,11 +179,7 @@ function OnRampStrip({ onBuy }: { onBuy: () => void }) {
           >
             Add money with a card
           </span>
-          {!ONRAMP_ENABLED && (
-            <span className="rounded-full bg-black/[0.04] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-fg-dim">
-              Soon
-            </span>
-          )}
+          {!ONRAMP_ENABLED && <StatusPill label="Soon" tone="neutral" />}
         </div>
         <p className="mt-0.5 truncate text-[12.5px] text-fg-dim">
           Top up your balance — card &amp; bank.

@@ -40,6 +40,8 @@ export function venueLabel(v: string): string {
   return VENUE_LABELS[v as EarnVenue] ?? v.charAt(0).toUpperCase() + v.slice(1);
 }
 
+const YIELD_CACHE_KEY = "talise:yield:comparison";
+
 export function useYieldComparison() {
   const [data, setData] = useState<YieldComparison | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,6 +60,11 @@ export function useYieldComparison() {
       if (!mounted.current) return;
       setData(res);
       setError(null);
+      try {
+        sessionStorage.setItem(YIELD_CACHE_KEY, JSON.stringify(res));
+      } catch {
+        /* storage blocked — non-fatal */
+      }
     } catch (e) {
       if (!mounted.current) return;
       setError(e instanceof ApiError ? e : new ApiError(0, String(e)));
@@ -68,6 +75,18 @@ export function useYieldComparison() {
 
   useEffect(() => {
     mounted.current = true;
+    // Stale-while-revalidate: paint the last-known comparison instantly on
+    // revisit (display-only — supply/withdraw flows revalidate server-side),
+    // then refresh quietly underneath.
+    try {
+      const raw = sessionStorage.getItem(YIELD_CACHE_KEY);
+      if (raw) {
+        setData(JSON.parse(raw) as YieldComparison);
+        setLoading(false);
+      }
+    } catch {
+      /* corrupt cache — foreground load below covers it */
+    }
     void load();
     const onTx = () => void load();
     window.addEventListener("talise:tx", onTx);

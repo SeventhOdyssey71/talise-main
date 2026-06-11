@@ -29,7 +29,7 @@ export function PrimaryButton({
   type = "button",
 }: PrimaryButtonProps) {
   const base =
-    "relative inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-[15px] font-semibold transition-[transform,background,border-color,opacity] duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
+    "relative inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-[15px] font-semibold transition-[transform,background,border-color,opacity] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_55%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
   const width = full ? "w-full" : "";
 
   const variantCls =
