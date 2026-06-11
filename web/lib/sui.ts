@@ -263,7 +263,10 @@ export async function getSuiBalance(address: string): Promise<{
     const mistStr = res.balance.balance;
     const suiNum = Number(BigInt(mistStr)) / 1e9;
     return { mist: mistStr, sui: suiNum };
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[sui] getSuiBalance failed for ${address.slice(0, 10)}…: ${(err as Error)?.message ?? err}`
+    );
     return { mist: "0", sui: 0 };
   }
 }
@@ -295,16 +298,36 @@ export async function getUsdsuiBalance(address: string): Promise<{
   usdsui: number;
 }> {
   try {
-    const res = await sui().getBalance({
-      owner: address,
-      coinType: USDSUI_TYPE,
-    });
-    const raw = res.balance.balance;
-    const usdsui = Number(BigInt(raw)) / Math.pow(10, USDSUI_DECIMALS);
-    return { raw, usdsui };
-  } catch {
+    return await getUsdsuiBalanceStrict(address);
+  } catch (err) {
+    // Soft-fail variant for non-display callers. Never let a swallowed
+    // failure be MISTAKEN for a genuine $0 in anything user-facing —
+    // display paths should use the strict variant and handle the throw.
+    console.warn(
+      `[sui] getUsdsuiBalance failed for ${address.slice(0, 10)}…: ${(err as Error)?.message ?? err}`
+    );
     return { raw: "0", usdsui: 0 };
   }
+}
+
+/**
+ * Like `getUsdsuiBalance` but THROWS on a failed read instead of returning 0.
+ * The headline-balance path must distinguish "the chain says zero" from "we
+ * couldn't read the chain" — on 2026-06-11 a transient gRPC failure was
+ * swallowed to 0, write-through'd into the balance snapshot as source="chain",
+ * and displayed as ₦0 to a user holding $22.84.
+ */
+export async function getUsdsuiBalanceStrict(address: string): Promise<{
+  raw: string;
+  usdsui: number;
+}> {
+  const res = await sui().getBalance({
+    owner: address,
+    coinType: USDSUI_TYPE,
+  });
+  const raw = res.balance.balance;
+  const usdsui = Number(BigInt(raw)) / Math.pow(10, USDSUI_DECIMALS);
+  return { raw, usdsui };
 }
 
 /** Format MIST string as human-readable SUI with up to 4 decimals. */

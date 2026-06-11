@@ -3,10 +3,11 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import {
   getSuiBalance,
-  getUsdsuiBalance,
+  getUsdsuiBalanceStrict,
   USDSUI_DECIMALS,
   USDSUI_TYPE,
 } from "@/lib/sui";
+import { suiGrpcBroadcast } from "@/lib/sui-endpoints";
 import { getSuiUsdcPrice } from "@/lib/deepbook";
 import { memoTtl } from "@/lib/perf-cache";
 import {
@@ -242,19 +243,53 @@ async function resolveSuiPrice(): Promise<number> {
 }
 
 /**
+ * Headline USDsui read with two integrity rules (2026-06-11 incident: a
+ * transient gRPC failure was swallowed to 0, snapshotted as source="chain",
+ * and displayed as ₦0 to a user holding $22.84):
+ *
+ *   1. FAILURE THROWS. A failed read must never be mistaken for "the chain
+ *      says zero" — the caller skips the snapshot write-through and serves
+ *      the freshest prior snapshot instead.
+ *   2. ZERO-CONFIRMATION. If the read says 0 but the previous snapshot was
+ *      meaningfully nonzero, re-verify against a DIRECT fullnode before
+ *      believing it (the primary read rides Hayabusa, a caching proxy —
+ *      a stale cached zero must not zero out a funded account).
+ */
+async function readHeadlineUsdsui(
+  address: string,
+  prevUsdsui: number | null
+): Promise<{ usdsui: number; raw: string }> {
+  const read = await getUsdsuiBalanceStrict(address);
+  if (read.usdsui !== 0 || !prevUsdsui || prevUsdsui <= 0.01) return read;
+  const direct = await suiGrpcBroadcast((c) =>
+    c.getBalance({ owner: address, coinType: USDSUI_TYPE })
+  );
+  const raw = direct.balance.balance;
+  const confirmed = Number(BigInt(raw)) / Math.pow(10, USDSUI_DECIMALS);
+  if (confirmed !== 0) {
+    console.warn(
+      `[balances] zero-confirmation MISMATCH for ${address.slice(0, 10)}…: primary read said 0, direct fullnode says ${confirmed}`
+    );
+  }
+  return { usdsui: confirmed, raw };
+}
+
+/**
  * The live wallet+vault balance read (the slow path). Folds the vault and
  * resolves the global price, then write-throughs the snapshot so the next
- * load is instant.
+ * load is instant. THROWS when the headline USDsui read fails (secondary
+ * slots — SUI, price, vault — still soft-fail to 0).
  */
 async function computeLiveBalances(user: {
   id: number;
   sui_address: string;
   talise_vault_id: string | null;
+  prevUsdsui?: number | null;
 }): Promise<BalancesPayload> {
-  const usdsuiPromise = getUsdsuiBalance(user.sui_address).catch(() => ({
-    usdsui: 0,
-    raw: "0",
-  }));
+  const usdsuiPromise = readHeadlineUsdsui(
+    user.sui_address,
+    user.prevUsdsui ?? null
+  );
   const suiPromise = withTimeout(
     getSuiBalance(user.sui_address).catch(() => ({ sui: 0, mist: "0" })),
     600,
@@ -323,10 +358,13 @@ export async function GET(req: Request) {
 
   const fresh = new URL(req.url).searchParams.get("fresh") === "1";
 
+  // One snapshot read serves every path below: the snapshot-first response,
+  // the zero-confirmation reference (prevUsdsui), and the timeout fallback.
+  const snap = await readBalanceSnapshot(userId).catch(() => null);
+
   // Snapshot-first: serve a reasonably-fresh last-known value instantly and
   // refresh from chain in the background. Skip entirely on ?fresh=1.
   if (!fresh) {
-    const snap = await readBalanceSnapshot(userId);
     if (snap && Date.now() - snap.refreshedAt <= SNAPSHOT_SERVE_MAX_MS) {
       const ageMs = Date.now() - snap.refreshedAt;
       if (ageMs > SNAPSHOT_BG_REFRESH_MS) {
@@ -335,6 +373,7 @@ export async function GET(req: Request) {
             id: user.id,
             sui_address: user.sui_address,
             talise_vault_id: user.talise_vault_id ?? null,
+            prevUsdsui: snap.usdsui,
           });
         });
       }
@@ -359,23 +398,31 @@ export async function GET(req: Request) {
   // not by this number), so we never let a slow/unhealthy RPC make the user
   // wait — cap the live read and fall back to the freshest snapshot. The live
   // promise keeps running and write-throughs the snapshot, so it self-heals.
+  // A FAILED live read (rejection) also falls back to the snapshot — a stale
+  // honest number always beats a fabricated $0.
   const LIVE_BUDGET_MS = 4500;
   const livePromise = computeLiveBalances({
     id: user.id,
     sui_address: user.sui_address,
     talise_vault_id: user.talise_vault_id ?? null,
+    prevUsdsui: snap?.usdsui ?? null,
   });
-  livePromise.catch(() => {}); // don't let an abandoned slow read reject unhandled
-  const live = await withTimeout(livePromise, LIVE_BUDGET_MS, null);
+  const liveGuarded = livePromise.catch((err) => {
+    console.warn(
+      `[balances] live read failed user=${userId}: ${(err as Error)?.message ?? err}`
+    );
+    return null;
+  });
+  const live = await withTimeout(liveGuarded, LIVE_BUDGET_MS, null);
   if (live) {
     return NextResponse.json(
       { ...live, refreshedAt: Date.now(), stale: false, source: "chain" },
       { headers: { "Cache-Control": "private, no-store" } }
     );
   }
-  // Live read blew the budget — serve the freshest snapshot we have (ANY age
-  // beats a 40s spinner). The in-flight live read above will write it through.
-  const snap = await readBalanceSnapshot(userId);
+  // Live read blew the budget or failed — serve the freshest snapshot we have
+  // (ANY age beats a 40s spinner or a fake zero). A still-in-flight live read
+  // will write the snapshot through when it lands.
   if (snap) {
     return NextResponse.json(
       {
@@ -391,10 +438,27 @@ export async function GET(req: Request) {
       { headers: { "Cache-Control": "private, no-store" } }
     );
   }
-  // Brand-new user with no snapshot at all — we have to wait for the live read.
-  const payload = await livePromise;
+  // Brand-new user with no snapshot at all — wait for the live read. If even
+  // that fails, return zeros explicitly marked source="chain-error" (NOT
+  // snapshotted) so the client can treat it as unknown rather than gospel.
+  const payload = await liveGuarded;
+  if (payload) {
+    return NextResponse.json(
+      { ...payload, refreshedAt: Date.now(), stale: false, source: "chain" },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
+  }
   return NextResponse.json(
-    { ...payload, refreshedAt: Date.now(), stale: false, source: "chain" },
+    {
+      address: user.sui_address,
+      usdsui: 0,
+      sui: 0,
+      suiPriceUsd: 0,
+      totalUsd: 0,
+      refreshedAt: Date.now(),
+      stale: true,
+      source: "chain-error",
+    },
     { headers: { "Cache-Control": "private, no-store" } }
   );
 }
