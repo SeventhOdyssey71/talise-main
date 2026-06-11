@@ -108,16 +108,19 @@ export function BalanceHero({ inline = false, me = null }: { inline?: boolean; m
           className="self-center text-fg-dim transition-colors group-hover:text-fg-muted"
         />
       </button>
-      {flagCode && (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2 py-0.5">
-          <Flag code={flagCode} size={18} />
-          <span className="font-mono text-[11px] font-medium tracking-[0.02em] text-fg-muted">
-            {currency}
-          </span>
-        </span>
-      )}
     </div>
   );
+
+  // Currency chip — rendered beside the EYEBROW (not the figure) so the big
+  // number keeps clean air around it.
+  const currencyChip = flagCode ? (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2 py-0.5">
+      <Flag code={flagCode} size={16} />
+      <span className="font-mono text-[11px] font-medium tracking-[0.02em] text-fg-muted">
+        {currency}
+      </span>
+    </span>
+  ) : null;
 
   const meta = showError ? (
     <button
@@ -160,6 +163,7 @@ export function BalanceHero({ inline = false, me = null }: { inline?: boolean; m
     <BalanceCard
       me={me}
       eyebrow="Your balance"
+      trailing={currencyChip}
       figure={balanceFigure}
       meta={meta}
     />
@@ -171,11 +175,14 @@ export function BalanceHero({ inline = false, me = null }: { inline?: boolean; m
 function BalanceCard({
   me,
   eyebrow,
+  trailing,
   figure,
   meta,
 }: {
   me: Me | null;
   eyebrow: string;
+  /** Right-aligned chip on the eyebrow row (the currency flag). */
+  trailing?: React.ReactNode;
   figure: React.ReactNode;
   meta: React.ReactNode;
 }) {
@@ -200,7 +207,10 @@ function BalanceCard({
 
   return (
     <div className="rounded-3xl bg-surface p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_28px_-18px_rgba(35,78,20,0.18)] ring-1 ring-line/70 sm:p-7">
-      <Eyebrow>{eyebrow}</Eyebrow>
+      <div className="flex items-center justify-between gap-3">
+        <Eyebrow>{eyebrow}</Eyebrow>
+        {trailing}
+      </div>
       <div className="mt-2">{figure}</div>
       {meta}
 

@@ -37,7 +37,7 @@ export default function HomePage() {
           secondary row just beneath it. The card carries identity, so the old
           standalone identity card is gone. On lg the card pairs with the
           do-more tile so the row still reads intentional on desktop. */}
-      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2 lg:items-start">
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2 lg:items-stretch">
         <section className="space-y-3.5">
           <BalanceHero inline me={me} />
           <SecondaryActions me={me} />
