@@ -102,10 +102,20 @@ export function useYieldComparison() {
       /* corrupt cache — foreground load below covers it */
     }
     void load();
-    const onTx = () => void load();
+    // A tx fires an instant reload PLUS two settle-in re-polls: right after a
+    // supply confirms, the fullnode position read often still returns the
+    // pre-supply figure (indexing lag), so the instant refresh alone left
+    // "Supplied ₦x" stale until the next visit.
+    const timers: number[] = [];
+    const onTx = () => {
+      void load();
+      timers.push(window.setTimeout(() => void load(), 2_500));
+      timers.push(window.setTimeout(() => void load(), 6_000));
+    };
     window.addEventListener("talise:tx", onTx);
     return () => {
       mounted.current = false;
+      timers.forEach((t) => window.clearTimeout(t));
       window.removeEventListener("talise:tx", onTx);
     };
   }, [load]);

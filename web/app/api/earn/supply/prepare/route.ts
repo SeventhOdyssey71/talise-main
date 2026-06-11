@@ -59,6 +59,7 @@ export async function POST(req: Request) {
   }
 
   try {
+    const t0 = Date.now();
     const tx = new Transaction();
     tx.setSender(user.sui_address);
 
@@ -95,6 +96,7 @@ export async function POST(req: Request) {
       refs: { venue },
     });
 
+    const tAppend = Date.now();
     const kind = await tx.build({
       client: sui() as never,
       onlyTransactionKind: true,
@@ -105,8 +107,13 @@ export async function POST(req: Request) {
     // in /api/zk/sponsor (which logs the full `mode=sponsored sponsor=<addr>
     // gasPrice=<n>` shape). Emitting `mode=sponsored` here lets us greppably
     // confirm the prepare→sponsor handoff for the earn supply leg.
+    // append/build timings split the venue SDK's RPC chain from coin
+    // resolution — the data needed to tell a slow venue from a slow node
+    // (a 21s dev prepare turned out to be Lagos→us-east amplification of
+    // the SDK's serial reads).
     console.log(
-      `[earn/supply/prepare] mode=sponsored venue=${venue} amount=${amount}`
+      `[earn/supply/prepare] mode=sponsored venue=${venue} amount=${amount} ` +
+        `append=${tAppend - t0}ms build=${Date.now() - tAppend}ms`
     );
 
     return NextResponse.json({
