@@ -353,12 +353,12 @@ function SignInScreen({ returnTo = "/app" }: { returnTo?: string }) {
 function AccountMenu({
   me,
   size = 32,
-  settingsHref = "/app/settings",
+  activityHref = "/app/activity",
   rampsHref = "/app/ramps",
 }: {
   me: Me;
   size?: number;
-  settingsHref?: string;
+  activityHref?: string;
   rampsHref?: string;
 }) {
   return (
@@ -378,9 +378,11 @@ function AccountMenu({
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {/* Activity ⇄ Settings swap (mobile): Settings now sits in the bottom
+            tab bar; Activity lives here instead. */}
         <DropdownMenuItem asChild>
-          <Link href={settingsHref}>
-            <HugeiconsIcon icon={Settings01Icon} size={18} strokeWidth={1.8} /> Settings
+          <Link href={activityHref}>
+            <HugeiconsIcon icon={Analytics01Icon} size={18} strokeWidth={1.8} /> Activity
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
@@ -504,7 +506,13 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
             >
               <HugeiconsIcon icon={BarcodeScanIcon} size={17} strokeWidth={1.9} />
             </button>
-            <AccountMenu me={me} settingsHref={nav.settingsHref} rampsHref={nav.rampsHref} />
+            <AccountMenu
+              me={me}
+              activityHref={
+                nav.primary.find((i) => i.label === "Activity")?.href ?? "/app/activity"
+              }
+              rampsHref={nav.rampsHref}
+            />
           </div>
         </header>
         <ScanSheet open={scanOpen} onClose={() => setScanOpen(false)} />
@@ -518,9 +526,18 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
       </div>
 
       {/* ── Mobile bottom nav ── */}
+      {/* Activity ⇄ Settings swap (mobile only): Settings takes Activity's
+          tab slot here; Activity moves into the avatar dropdown (AccountMenu).
+          The desktop sidebar keeps Activity in the primary list. */}
       <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4 lg:hidden">
         <div className="talise-glass flex items-center gap-1 rounded-full px-2 py-2" style={{ borderRadius: 999 }}>
-          {nav.primary.map((item) => {
+          {nav.primary
+            .map((item) =>
+              item.label === "Activity"
+                ? { label: "Settings", href: nav.settingsHref, icon: Settings01Icon as IconSvgElement }
+                : item
+            )
+            .map((item) => {
             const active = isActive(pathname, item.href, nav.brandHref);
             return (
               <Link
