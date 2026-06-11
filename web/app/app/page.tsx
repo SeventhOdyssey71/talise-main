@@ -37,12 +37,20 @@ export default function HomePage() {
           secondary row just beneath it. The card carries identity, so the old
           standalone identity card is gone. On lg the card pairs with the
           do-more tile so the row still reads intentional on desktop. */}
+      {/* Flat grid: the two CARDS are direct siblings on row one, so
+          items-stretch makes them EXACTLY equal height; the secondary pills
+          span the full width underneath on desktop. On mobile the order
+          stays balance → pills → do-more (order utilities). */}
       <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2 lg:items-stretch">
-        <section className="space-y-3.5">
+        <div className="order-1 h-full lg:order-none">
           <BalanceHero inline me={me} />
+        </div>
+        <div className="order-3 h-full lg:order-none">
+          <DoMoreCard />
+        </div>
+        <div className="order-2 lg:order-none lg:col-span-2">
           <SecondaryActions me={me} />
-        </section>
-        <DoMoreCard />
+        </div>
       </div>
 
       {/* Recent activity. */}
