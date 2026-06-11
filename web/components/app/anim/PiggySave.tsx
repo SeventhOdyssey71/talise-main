@@ -87,12 +87,11 @@ export function PiggySave({
       <motion.div
         style={{ width: size, height: size, transformOrigin: "50% 90%", willChange: "transform, opacity" }}
         initial={{ y: -28, scale: 1.16, rotate: -7, opacity: 0 }}
-        animate={{
-          y: [-28, 0, 0],
-          scale: [1.16, 1, 1],
-          rotate: [-7, 0, 0],
-          opacity: [0, 1, 1],
-        }}
+        // Springs accept exactly TWO keyframes (from → to) — the old
+        // 3-keyframe arrays ([-28, 0, 0]) hard-crashed framer-motion at
+        // runtime. `initial` carries the from-pose; animate to the rest
+        // pose and let the spring overshoot do the settling.
+        animate={{ y: 0, scale: 1, rotate: 0, opacity: 1 }}
         transition={settleSpring}
       >
         <motion.div
