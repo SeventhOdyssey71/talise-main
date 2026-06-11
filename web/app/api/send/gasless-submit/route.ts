@@ -36,19 +36,24 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
-  // Private-beta guardrail: signed-in is not enough — the account must be on
-  // the app allowlist before it can originate any value-moving call.
-  const denied = await denyUnlessAppApproved(userId);
+  // Gate reads run CONCURRENTLY — app-access, rate limit and the user row
+  // are independent lookups; serial they stacked 3 DB round-trips on the
+  // submit critical path. Denial precedence is unchanged.
+  const [denied, rl, user] = await Promise.all([
+    // Private-beta guardrail: signed-in is not enough — the account must be
+    // on the app allowlist before it can originate any value-moving call.
+    denyUnlessAppApproved(userId),
+    // Per-user global rate limit on this money route (anti-abuse / anti-DDoS).
+    rateLimitAsync({ key: `gasless-submit:user:${userId}`, limit: 30, windowSec: 3600 }),
+    userById(userId),
+  ]);
   if (denied) return denied;
-  // Per-user global rate limit on this money route (anti-abuse / anti-DDoS).
-  const rl = await rateLimitAsync({ key: `gasless-submit:user:${userId}`, limit: 30, windowSec: 3600 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "rate_limited" },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 3600) } }
     );
   }
-  const user = await userById(userId);
   if (!user) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }

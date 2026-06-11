@@ -20,20 +20,62 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   ]);
 }
 
+/** Serve a cached venue APY without blocking for up to this long. APYs move
+ *  slowly (basis points per hour), so 10 minutes of staleness is invisible
+ *  on the Earn page while turning the hot path into one indexed PK read. */
+const APY_SERVE_TTL_MS = 10 * 60_000;
+/** Past this age, a served cached APY also kicks off a background live
+ *  refresh (Next `after()`), so the cache converges on fresh within one
+ *  page view of going stale. */
+const APY_BG_REFRESH_MS = 2 * 60_000;
+
 /**
- * A venue APY backed by a durable global cache. If the live read produced a
- * usable value, return it and warm the cache in the background; otherwise
- * fall back to the last-known cached value so a slow/failed RPC leg never
- * drops the venue (the "No live venues" regression). Returns null only when
- * we have neither a live nor a cached APY for this venue.
+ * A venue APY backed by the durable global cache, mirroring
+ * `resolveSuiPrice()` in /api/balances: serve the cached value INSTANTLY
+ * when it's recent enough (refreshing in the background once it passes the
+ * refresh horizon), and only block on the live venue read when the cache is
+ * empty or too old to serve blind. Previously this always blocked on the
+ * live legs (NAVI open API + DeepBook on-chain stats, each capped at 5s) and
+ * used the cache only as a failure fallback — that's where the 4-6s
+ * /api/yield/comparison responses came from.
+ *
+ * Stale-honest beats blank (2026-06-11 ₦0-balance incident): if the live
+ * read fails or times out but ANY cached APY exists — however old — serve
+ * it rather than dropping the venue. Returns null only when we have neither
+ * a live nor a cached APY.
  */
-async function resolveApy(key: string, live: number | null | undefined): Promise<number | null> {
+async function resolveVenueApy(
+  key: string,
+  liveFetch: () => Promise<number | null>
+): Promise<number | null> {
+  const g = await getGlobalNum(key).catch(() => null);
+  const age = g ? Date.now() - g.refreshedAt : Number.POSITIVE_INFINITY;
+
+  if (g && g.value > 0 && age <= APY_SERVE_TTL_MS) {
+    if (age > APY_BG_REFRESH_MS) {
+      refreshInBackground(async () => {
+        const fresh = await liveFetch().catch(() => null);
+        if (typeof fresh === "number" && Number.isFinite(fresh) && fresh > 0) {
+          await setGlobalNum(key, fresh);
+        }
+      });
+    }
+    return g.value;
+  }
+
+  // No usable row (or too old to serve blind) — pay the capped live read
+  // once, then persist after the response flushes.
+  const live = await withTimeout(
+    liveFetch().catch(() => null),
+    YIELD_LEG_TIMEOUT_MS,
+    null
+  );
   if (typeof live === "number" && Number.isFinite(live) && live > 0) {
     refreshInBackground(async () => setGlobalNum(key, live));
     return live;
   }
-  const cached = await getGlobalNum(key).catch(() => null);
-  return cached && cached.value > 0 ? cached.value : null;
+
+  return g && g.value > 0 ? g.value : null;
 }
 
 /** Per-leg cap so one slow venue read can't hang the whole comparison.
@@ -110,29 +152,26 @@ export type YieldComparison = {
 export async function getYieldComparison(
   address: string
 ): Promise<YieldComparison> {
-  // Every leg is timeout-capped AND failure-tolerant so one slow/flaky
-  // venue read can't stall (or empty) the comparison. The fast Navi open
-  // API (~1s) carries the APY; the direct NAVI position read (one cached
-  // open-API hop + a per-user `devInspect`, ~1–2s) only adds the user's
-  // supplied balance — so the Navi venue shows even if that leg is slow or
-  // down. Each APY is cached in global_kv, so cold serverless instances and
-  // transient RPC outages still return last-known venues.
-  const [naviSnap, dbApy, dbSupply, naviApyLive] = await Promise.all([
-    withTimeout(getEarnSnapshot(address).catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
-    withTimeout(fetchUsdsuiMarginApy().catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
+  // Two kinds of legs run in parallel here:
+  //
+  //   APYs (global, same for every user) — resolved through the durable
+  //   global_kv cache via `resolveVenueApy`, so the common case is a
+  //   ~10-50ms DB read instead of a 1-5s NAVI open-API / DeepBook on-chain
+  //   round trip. Cold serverless instances and transient RPC outages still
+  //   return last-known APYs.
+  //
+  //   Positions (per-user) — must stay live (one NAVI `devInspect` + one
+  //   DeepBook SupplierCap lookup), but each is timeout-capped and
+  //   failure-tolerant so a slow/flaky read degrades to supplied=0 rather
+  //   than stalling or emptying the comparison.
+  const [naviApy, deepbookApy, naviSupplied, dbSupply] = await Promise.all([
+    resolveVenueApy("navi_usdsui_apy", () => fetchNaviUsdsuiSupplyApy()),
+    resolveVenueApy(
+      "deepbook_usdsui_apy",
+      async () => (await fetchUsdsuiMarginApy())?.apy ?? null
+    ),
+    withTimeout(readNaviUsdsuiSupply(address).catch(() => 0), YIELD_LEG_TIMEOUT_MS, 0),
     withTimeout(fetchUserUsdsuiSupply(address).catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
-    // Live USDsui supply APY from Navi's open API — the same
-    // portal-accurate value `getEarnSnapshot` already uses. Fetched
-    // separately here so the venue's APY survives even if the snapshot
-    // (position) leg times out.
-    withTimeout(fetchNaviUsdsuiSupplyApy().catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
-  ]);
-
-  // Resolve each APY against the durable cache (live → cache it; else fall
-  // back to last-known) so a timed-out/failed leg doesn't drop the venue.
-  const [naviApy, deepbookApy] = await Promise.all([
-    resolveApy("navi_usdsui_apy", naviApyLive ?? naviSnap?.apy),
-    resolveApy("deepbook_usdsui_apy", dbApy?.apy),
   ]);
 
   const venues: YieldVenue[] = [];
@@ -141,8 +180,10 @@ export async function getYieldComparison(
       id: "navi",
       name: "NAVI lending",
       apy: naviApy,
-      supplied: naviSnap?.supplied ?? 0,
-      meta: { pendingUsd: naviSnap?.totalPendingUsd ?? 0 },
+      supplied: naviSupplied,
+      // Pending rewards aren't surfaced from the direct NAVI read — see the
+      // module note above. Kept in `meta` so consumers don't change shape.
+      meta: { pendingUsd: 0 },
     });
   }
   if (deepbookApy != null) {
@@ -152,7 +193,6 @@ export async function getYieldComparison(
       apy: deepbookApy,
       supplied: dbSupply?.amount ?? 0,
       meta: {
-        utilization: dbApy?.utilization ?? 0,
         supplierCapId: dbSupply?.supplierCapId,
       },
     });

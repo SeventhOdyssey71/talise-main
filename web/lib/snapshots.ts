@@ -176,6 +176,78 @@ export async function writeActivitySnapshot(s: {
   }
 }
 
+// ─── Insights snapshot ───────────────────────────────────────────────────
+
+export type InsightsSnapshot = {
+  userId: number;
+  address: string;
+  /** The exact MonthInsights payload /api/rewards/insights serialises. */
+  insights: unknown;
+  source: string;
+  refreshedAt: number;
+};
+
+export async function readInsightsSnapshot(userId: number): Promise<InsightsSnapshot | null> {
+  try {
+    await ensureSchema();
+    const r = await db().execute({
+      sql: `SELECT user_id, address, insights_json, source, refreshed_at
+              FROM user_insights_snapshot WHERE user_id = $1 LIMIT 1`,
+      args: [userId],
+    });
+    const row = r.rows[0];
+    if (!row) return null;
+    let insights: unknown;
+    try {
+      insights = JSON.parse(String(row.insights_json ?? ""));
+    } catch {
+      return null;
+    }
+    if (!insights || typeof insights !== "object") return null;
+    return {
+      userId: Number(row.user_id),
+      address: String(row.address ?? ""),
+      insights,
+      source: String(row.source ?? "chain"),
+      refreshedAt: Number(row.refreshed_at) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist the last-known-good month insights. Callers must only write
+ * snapshots computed from a COMPLETE activity read — a timed-out read's
+ * zeros must never become the value we later serve as "last known".
+ */
+export async function writeInsightsSnapshot(s: {
+  userId: number;
+  address: string;
+  insights: unknown;
+  source?: string;
+}): Promise<void> {
+  try {
+    await ensureSchema();
+    const t = Date.now();
+    const json = JSON.stringify(s.insights ?? {});
+    await db().execute({
+      sql: `INSERT INTO user_insights_snapshot
+              (user_id, address, insights_json, source, refreshed_at, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$5)
+            ON CONFLICT (user_id) DO UPDATE SET
+              address = EXCLUDED.address,
+              insights_json = EXCLUDED.insights_json,
+              source = EXCLUDED.source,
+              refreshed_at = EXCLUDED.refreshed_at,
+              updated_at = EXCLUDED.updated_at`,
+      args: [s.userId, s.address, json, s.source ?? "chain", t],
+    });
+  } catch (e) {
+    console.warn(`[snapshots] writeInsightsSnapshot failed: ${(e as Error)?.message ?? e}`);
+  }
+}
+
 // ─── Global key/value (shared across users + instances) ──────────────────
 
 export async function getGlobalNum(

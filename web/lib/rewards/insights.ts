@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getRecentActivity, type ActivityEntry } from "@/lib/activity";
+import { getRecentActivityWithMeta, type ActivityEntry } from "@/lib/activity";
 
 /**
  * Talise Rewards — Month Insights (Phase 3).
@@ -44,6 +44,15 @@ export type MonthInsights = {
   monthStartMs: number;
   /** Number of activity entries that contributed (debugging aid). */
   sampleSize: number;
+  /**
+   * False when the underlying tx-history read timed out or failed — the
+   * totals above were computed from a PARTIAL (possibly empty) view of
+   * the chain and must NOT be cached or presented as truth. Same
+   * integrity principle as the 2026-06-11 balances incident: a failed
+   * read is never a genuine zero. The route serves the last-known-good
+   * snapshot (or marks the response `partial`) when this is false.
+   */
+  complete: boolean;
 };
 
 /** Start-of-month UTC for a given timestamp. */
@@ -68,8 +77,9 @@ function usdValue(e: ActivityEntry): number {
 /**
  * Aggregate the last `sampleSize` activity entries for `address` into a
  * month-to-date insights summary. Falls back gracefully if the activity
- * fetch fails — returns zeros + an empty counterparty list so the iOS
- * Insights section can render an empty state without erroring.
+ * fetch fails — returns zeros + an empty counterparty list, but ALWAYS
+ * with `complete: false` so the caller knows these zeros came from a
+ * failed read, not from a genuinely quiet month.
  */
 export async function getMonthInsights(
   address: string,
@@ -77,12 +87,16 @@ export async function getMonthInsights(
 ): Promise<MonthInsights> {
   const monthStartMs = startOfMonth();
   let entries: ActivityEntry[] = [];
+  let complete = true;
   try {
-    entries = await getRecentActivity(address, sampleSize, {
+    const r = await getRecentActivityWithMeta(address, sampleSize, {
       includeNonTalise: true,
     });
+    entries = r.entries;
+    complete = r.complete;
   } catch {
     // Soft fail — the Insights section is decorative, not load-bearing.
+    // `complete: false` keeps the zeros from being mistaken for truth.
     return {
       spentUsd: 0,
       receivedUsd: 0,
@@ -90,6 +104,7 @@ export async function getMonthInsights(
       topCounterparties: [],
       monthStartMs,
       sampleSize: 0,
+      complete: false,
     };
   }
 
@@ -148,5 +163,6 @@ export async function getMonthInsights(
     topCounterparties,
     monthStartMs,
     sampleSize: contributed,
+    complete,
   };
 }

@@ -19,34 +19,8 @@
 import { useEffect } from "react";
 import { motion, useReducedMotion, type Transition } from "framer-motion";
 
-// ── Palette (warm gold coin + the two Talise greens) ───────────────────────
-const GOLD = "#E8B23A";
-const GOLD_LIGHT = "#F6D17A";
-const GOLD_DEEP = "#C8902A";
-const FOREST = "#3d7a29"; // accent-deep — coin rim
-const MINT = "#caffb8"; // accent-light — highlight + bloom (FILL only)
-
-/**
- * Where each coin settles, as an offset (in px) from the cluster center, plus
- * its final scale and resting tilt. Hand-tuned so the pile reads as scattered
- * gold rather than a neat stack. The first/center coin is the largest "hero".
- */
-const COINS: Array<{
-  x: number;
-  y: number;
-  scale: number;
-  rot: number;
-  delay: number;
-  /** Each coin drops in from a little above + an outward fan. */
-  fromX: number;
-  fromY: number;
-}> = [
-  { x: 0, y: 4, scale: 1.0, rot: -6, delay: 0.0, fromX: 0, fromY: -54 },
-  { x: -34, y: 14, scale: 0.82, rot: 10, delay: 0.06, fromX: -20, fromY: -48 },
-  { x: 32, y: 12, scale: 0.86, rot: -12, delay: 0.05, fromX: 22, fromY: -50 },
-  { x: -18, y: -22, scale: 0.7, rot: 14, delay: 0.12, fromX: -10, fromY: -46 },
-  { x: 22, y: -26, scale: 0.66, rot: -8, delay: 0.14, fromX: 14, fromY: -44 },
-];
+// ── Palette ────────────────────────────────────────────────────────────────
+const MINT = "#caffb8"; // accent-light — bloom + sparkles (FILL only)
 
 /** Sparkle positions around the cluster (px from center). */
 const SPARKLES: Array<{ x: number; y: number; size: number; delay: number }> = [
@@ -76,7 +50,7 @@ export function CoinBurst({
     return () => window.clearTimeout(t);
   }, [onDone, reduce]);
 
-  // Reduced motion: a single, already-settled coin. No drop, no scatter.
+  // Reduced motion: the already-settled coin pile. No drop, no scatter.
   if (reduce) {
     return (
       <div
@@ -84,12 +58,12 @@ export function CoinBurst({
         className="relative grid place-items-center"
         style={{ width: size, height: size }}
       >
-        <Coin px={size * 0.46} />
+        <CoinPile px={size * 0.92} />
       </div>
     );
   }
 
-  const coinPx = size * 0.46;
+  const pilePx = size * 0.92;
 
   return (
     <div
@@ -109,23 +83,19 @@ export function CoinBurst({
         transition={{ duration: 1.1, times: [0, 0.4, 1], ease: [0.22, 1, 0.36, 1] }}
       />
 
-      {/* Coins — back of the pile first so the hero coin lands on top. */}
-      {COINS.map((c, i) => (
-        <motion.div
-          key={i}
-          className="absolute"
-          style={{ width: coinPx, height: coinPx, willChange: "transform, opacity" }}
-          initial={{ x: c.fromX, y: c.fromY, scale: c.scale * 1.18, rotate: c.rot + 18, opacity: 0 }}
-          animate={{ x: c.x, y: c.y, scale: c.scale, rotate: c.rot, opacity: 1 }}
-          transition={{
-            ...settleSpring,
-            delay: c.delay,
-            opacity: { duration: 0.2, delay: c.delay },
-          }}
-        >
-          <Coin px={coinPx} />
-        </motion.div>
-      ))}
+      {/* The mobile app's coin-pile art drops in and settles with the same
+          scrapbook wobble. (The old per-coin scatter rendered the iOS
+          SuiCoinMark — pure WHITE on transparent — invisible on the light
+          theme; the green SuccessCoins pile is the actual iOS success art.) */}
+      <motion.div
+        className="absolute"
+        style={{ width: pilePx, willChange: "transform, opacity" }}
+        initial={{ y: -54, scale: 1.16, rotate: 8, opacity: 0 }}
+        animate={{ y: 4, scale: 1, rotate: 0, opacity: 1 }}
+        transition={{ ...settleSpring, opacity: { duration: 0.2 } }}
+      >
+        <CoinPile px={pilePx} />
+      </motion.div>
 
       {/* Sparkles — a brief one-shot twinkle once the pile has mostly settled. */}
       {SPARKLES.map((s, i) => (
@@ -145,22 +115,20 @@ export function CoinBurst({
 }
 
 /**
- * A single gold coin face: radial gradient body, a forest rim, a mint
- * specular highlight, and an embossed "$" glyph. Drawn at a unit viewBox so it
- * scales cleanly with the `px` frame.
+ * The mobile app's SuccessCoins pile (green halftone coin stacks) — the same
+ * art iOS shows on SuccessfulTxView. NOT the SuiCoinMark (that asset is pure
+ * white on transparent and disappears on the light theme).
  */
-function Coin({ px }: { px: number }) {
-  // The REAL mobile-app coin (ios SuiCoinMark asset) — same art on both
-  // platforms, scattered by the same settle springs as before.
+function CoinPile({ px }: { px: number }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src="/anim/sui-coin.png"
+      src="/anim/success-coins.png"
       alt=""
       width={px}
       height={px}
       draggable={false}
-      style={{ display: "block", width: px, height: px, objectFit: "contain" }}
+      style={{ display: "block", width: px, height: "auto", objectFit: "contain" }}
     />
   );
 }

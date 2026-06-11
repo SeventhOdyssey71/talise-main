@@ -5,7 +5,7 @@
  * scan can only ADD rows, never delete them. These tests mock the chain scan +
  * snapshot store so they run fast and offline (no mainnet).
  *
- * See web/app/api/activity/route.ts (`mergeMonotonic` / `computeLiveActivity`).
+ * See web/lib/activity-snapshot.ts (`mergeMonotonic` / `computeLiveActivity`).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 

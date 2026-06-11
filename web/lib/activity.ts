@@ -1470,6 +1470,23 @@ export async function getRecentActivity(
   limit = 12,
   opts: { includeNonTalise?: boolean; vaultId?: string | null } = {}
 ): Promise<ActivityEntry[]> {
+  return (await getRecentActivityWithMeta(address, limit, opts)).entries;
+}
+
+/**
+ * Same as `getRecentActivity`, plus a `complete` flag: false when the
+ * tx-history leg timed out or failed and the entries are therefore a
+ * PARTIAL (possibly empty) view of the chain. Feed-style callers can
+ * ignore it — a short feed is still a feed — but AGGREGATING callers
+ * (rewards insights) must not present sums computed from an incomplete
+ * read as truth (same integrity principle as the 2026-06-11 balances
+ * incident: a failed read is not a genuine zero).
+ */
+export async function getRecentActivityWithMeta(
+  address: string,
+  limit = 12,
+  opts: { includeNonTalise?: boolean; vaultId?: string | null } = {}
+): Promise<{ entries: ActivityEntry[]; complete: boolean }> {
   // We filter out non-Talise transactions client-side, so over-fetch by a
   // healthy margin to avoid an empty feed when a user has lots of unrelated
   // chain activity (NFT mints, random transfers, etc).
@@ -1525,7 +1542,17 @@ export async function getRecentActivity(
     }
     return collected;
   };
-  const raw: RawTx[] = await withTimeout(txHistoryWalk(), 6_000, "tx-history", []);
+  // Sentinel fallback: `withTimeout` resolves this exact array on BOTH
+  // timeout and rejection, so a reference compare distinguishes "the walk
+  // finished (maybe genuinely empty)" from "the walk never finished".
+  const TX_HISTORY_INCOMPLETE: RawTx[] = [];
+  const raw: RawTx[] = await withTimeout(
+    txHistoryWalk(),
+    6_000,
+    "tx-history",
+    TX_HISTORY_INCOMPLETE
+  );
+  const complete = raw !== TX_HISTORY_INCOMPLETE;
 
   // Resolve the talise registry id once. If this throws (e.g. payment-kit
   // not initialized in this environment) we either show a fully-open feed
@@ -1536,7 +1563,7 @@ export async function getRecentActivity(
     registryId = globalRegistryId();
     namespaceId = namespaceObjectId();
   } catch {
-    if (!opts.includeNonTalise) return [];
+    if (!opts.includeNonTalise) return { entries: [], complete };
   }
 
   // Dedupe by digest. A tx can appear in both filters (e.g. a self-send).
@@ -1880,5 +1907,5 @@ export async function getRecentActivity(
     if (e.counterparty) e.counterpartyName = nameCache.get(e.counterparty) ?? null;
   }
 
-  return limited;
+  return { entries: limited, complete };
 }

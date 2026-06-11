@@ -147,19 +147,36 @@ function Piggy({ size }: { size: number }) {
   );
 }
 
-/** Gold coin (shared idiom with CoinBurst — small face for the slot drop). */
+/**
+ * The coin that drops into the slot: the mobile app's SuiCoinMark on a green
+ * disc. The mark itself is pure WHITE on transparent — bare, it's invisible
+ * on the light theme — so it rides a forest coin face, which is also how the
+ * droplet reads as a "coin" at this size.
+ */
 function Coin({ px }: { px: number }) {
-  // Mobile-app coin (SuiCoinMark) for the drop — see Piggy above.
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src="/anim/sui-coin.png"
-      alt=""
-      width={px}
-      height={px}
-      draggable={false}
-      style={{ display: "block", width: px, height: px, objectFit: "contain" }}
-    />
+    <span
+      aria-hidden
+      style={{
+        display: "grid",
+        placeItems: "center",
+        width: px,
+        height: px,
+        borderRadius: "50%",
+        background: "#3d7a29",
+        boxShadow: "inset 0 -1.5px 0 rgba(0,0,0,0.18), inset 0 1.5px 0 rgba(255,255,255,0.22)",
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/anim/sui-coin.png"
+        alt=""
+        width={px * 0.5}
+        height={px * 0.5}
+        draggable={false}
+        style={{ display: "block", width: px * 0.5, height: px * 0.5, objectFit: "contain" }}
+      />
+    </span>
   );
 }
 

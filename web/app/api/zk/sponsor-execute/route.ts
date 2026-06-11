@@ -101,30 +101,33 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
-  // Private-beta guardrail: signed-in is not enough — the account must be on
-  // the app allowlist before it can originate any value-moving call.
-  const denied = await denyUnlessAppApproved(userId);
+  // Gate reads run CONCURRENTLY — app-access, rate limit and the user row
+  // are independent lookups; serial they stacked 3 DB round-trips on the
+  // execute critical path. Denial precedence is unchanged.
+  const [denied, rl, user] = await Promise.all([
+    // Private-beta guardrail: signed-in is not enough — the account must be
+    // on the app allowlist before it can originate any value-moving call.
+    denyUnlessAppApproved(userId),
+    // Rate-limit: 30 sponsored executions per hour per user. Money-moving
+    // route. Keyed on userId ALONE (F7): mixing in a client-controllable IP
+    // (x-forwarded-for) let an attacker rotate buckets to blow past the cap.
+    // Uses the GLOBAL Upstash limiter (F6) so the cap holds across all
+    // serverless instances, not per-lambda (falls back to in-memory if Redis
+    // is unset).
+    rateLimitAsync({
+      key: `zk-sponsor-execute:user:${userId}`,
+      limit: 30,
+      windowSec: 3600,
+    }),
+    userById(userId),
+  ]);
   if (denied) return denied;
-
-  // Rate-limit: 30 sponsored executions per hour per user. Money-moving
-  // route. Keyed on userId ALONE (F7): mixing in a client-controllable IP
-  // (x-forwarded-for) let an attacker rotate buckets to blow past the cap.
-  // Uses the GLOBAL Upstash limiter (F6) so the cap holds across all
-  // serverless instances, not per-lambda (falls back to in-memory if Redis
-  // is unset).
-  const rl = await rateLimitAsync({
-    key: `zk-sponsor-execute:user:${userId}`,
-    limit: 30,
-    windowSec: 3600,
-  });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "rate_limited" },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 3600) } }
     );
   }
-
-  const user = await userById(userId);
   if (!user) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }

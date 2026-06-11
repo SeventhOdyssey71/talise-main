@@ -18,6 +18,13 @@ export function InsightsSection() {
 
   const monthLabel = data?.monthStartMs ? MONTH.format(new Date(data.monthStartMs)) : "This month";
 
+  // A `partial` response (server tx-history read timed out, no snapshot) or a
+  // failed fetch (data still null after loading) means we DON'T KNOW the
+  // totals — render "—" rather than a confident ₦0.00 that looks like truth.
+  const trusted = data && !data.partial;
+  const tileValue = (v: number | undefined) =>
+    trusted ? formatUsd(v ?? 0, { fixed: true }) : "—";
+
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
@@ -29,11 +36,11 @@ export function InsightsSection() {
 
       {/* 3-tile stat row — compact, no large empty voids */}
       <div className="grid grid-cols-3 gap-2.5">
-        <Tile label="Spent" value={formatUsd(data?.spentUsd ?? 0, { fixed: true })} loading={loading && !data} />
-        <Tile label="Received" value={formatUsd(data?.receivedUsd ?? 0, { fixed: true })} loading={loading && !data} />
+        <Tile label="Spent" value={tileValue(data?.spentUsd)} loading={loading && !data} />
+        <Tile label="Received" value={tileValue(data?.receivedUsd)} loading={loading && !data} />
         <Tile
           label="Saved"
-          value={formatUsd(data?.savedUsd ?? 0, { fixed: true })}
+          value={tileValue(data?.savedUsd)}
           accent
           loading={loading && !data}
         />
@@ -66,7 +73,9 @@ export function InsightsSection() {
         </GlassCard>
       )}
 
-      {data && data.topCounterparties.length === 0 && !loading && (
+      {/* Empty state only when the data is trustworthy — a partial read's
+          empty list doesn't mean the user hasn't sent anything. */}
+      {trusted && data.topCounterparties.length === 0 && !loading && (
         <GlassCard radius={14} className="flex items-center gap-3 px-4 py-3.5">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
             <HugeiconsIcon icon={Analytics02Icon} size={17} strokeWidth={1.6} />

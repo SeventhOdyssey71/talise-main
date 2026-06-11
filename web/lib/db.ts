@@ -860,6 +860,19 @@ async function doEnsureSchema(): Promise<void> {
       refreshed_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL
     )`,
+    // insights_json mirrors the exact MonthInsights payload /api/rewards/
+    // insights serialises, so serving from cache is a verbatim replay. Only
+    // ever written from a COMPLETE activity read (complete: true) — a
+    // timed-out read must never become the last-known value (2026-06-11
+    // incident principle: a failed read is not a genuine zero).
+    `CREATE TABLE IF NOT EXISTS user_insights_snapshot (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id),
+      address TEXT NOT NULL,
+      insights_json TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'chain',
+      refreshed_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
     // Tiny global key/value cache for values that are the SAME for every user
     // (e.g. the SUI/USDC spot price). Shared across instances so a cold
     // function never pays the 800-2000ms DeepBook quote on the hot path.

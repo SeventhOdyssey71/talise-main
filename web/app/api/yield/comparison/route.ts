@@ -28,6 +28,24 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
   try {
+    // Start the activity scan ALONGSIDE the venue reads. The replay only
+    // needs the rows once we know the NAVI position, so overlapping the two
+    // turns sum-of-latencies into max-of-latencies (this route used to run
+    // them back-to-back and clock 4-6s for suppliers). For non-suppliers the
+    // unused scan is typically one GraphQL page and resolves quietly.
+    // Capped at 4s so a slow chain scan can't stall the Earn response — the
+    // breakdown is a nice-to-have, the APY/venue is not.
+    const activityPromise = Promise.race([
+      getRecentActivity(user.sui_address, 200, { includeNonTalise: false }),
+      new Promise<Awaited<ReturnType<typeof getRecentActivity>>>((r) =>
+        setTimeout(() => r([]), 4_000)
+      ),
+    ]).catch(
+      // Never reject — an unawaited rejection (non-supplier path) would
+      // surface as an unhandled-rejection warning.
+      () => [] as Awaited<ReturnType<typeof getRecentActivity>>
+    );
+
     const cmp = await getYieldComparison(user.sui_address);
 
     // For Navi, additionally compute `earned` (current − principal)
@@ -43,14 +61,7 @@ export async function GET(req: Request) {
     const naviVenue = cmp.venues.find((v) => v.id === "navi");
     if (naviVenue && (naviVenue.supplied ?? 0) > 0) {
       try {
-        // Cap the 200-tx replay so a slow chain scan can't stall the Earn
-        // response — the breakdown is a nice-to-have, the APY/venue is not.
-        const activity = await Promise.race([
-          getRecentActivity(user.sui_address, 200, { includeNonTalise: false }),
-          new Promise<Awaited<ReturnType<typeof getRecentActivity>>>((r) =>
-            setTimeout(() => r([]), 4_000)
-          ),
-        ]);
+        const activity = await activityPromise;
         const naviRows = activity
           .filter((a) => (a.venue ?? "").toLowerCase() === "navi")
           .map((a) => ({

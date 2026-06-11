@@ -58,12 +58,26 @@ export function useYieldComparison() {
     try {
       const res = await api<YieldComparison>("/api/yield/comparison", { fresh: true });
       if (!mounted.current) return;
-      setData(res);
+      // Stale-honest beats blank: the server returns an EMPTY comparison
+      // (200, venues: []) when every venue read flakes. If we already hold
+      // venues, keep the last-known cards instead of collapsing the headline
+      // APY + venue list to "No live venues" mid-session (same principle as
+      // the 2026-06-11 ₦0-balance incident).
+      let kept = false;
+      setData((cur) => {
+        if (res.venues.length === 0 && cur && cur.venues.length > 0) {
+          kept = true;
+          return cur;
+        }
+        return res;
+      });
       setError(null);
-      try {
-        sessionStorage.setItem(YIELD_CACHE_KEY, JSON.stringify(res));
-      } catch {
-        /* storage blocked — non-fatal */
+      if (!kept) {
+        try {
+          sessionStorage.setItem(YIELD_CACHE_KEY, JSON.stringify(res));
+        } catch {
+          /* storage blocked — non-fatal */
+        }
       }
     } catch (e) {
       if (!mounted.current) return;
@@ -194,6 +208,12 @@ export type MonthInsights = {
   monthStartMs: number;
   sampleSize: number;
   topCounterparties: TopCounterparty[];
+  /**
+   * True when the server's tx-history read timed out and it had no
+   * last-known snapshot to serve — the zeros in this payload are NOT
+   * truth. Keep the previous value / render "—", never a confident ₦0.00.
+   */
+  partial?: boolean;
 };
 
 export function useInsights() {
@@ -204,7 +224,11 @@ export function useInsights() {
   const load = useCallback(async () => {
     try {
       const res = await api<MonthInsights>("/api/rewards/insights");
-      if (mounted.current) setData(res);
+      // A partial response carries fabricated zeros (server activity read
+      // timed out, no snapshot) — never overwrite a real value with it.
+      if (mounted.current) {
+        setData((cur) => (res.partial && cur && !cur.partial ? cur : res));
+      }
     } catch {
       /* keep last-good */
     } finally {
