@@ -490,7 +490,14 @@ export async function buildClaimAccruedSponsored(input: {
  *
  * Reads via `getNormalizedTransaction(digest)` (gRPC, with objectTypes) so we
  * don't depend on the sponsor-execute response carrying objectChanges (it
- * doesn't on the gRPC build). Returns null if no Stream object is found (the
+ * doesn't on the gRPC build).
+ *
+ * The record call lands milliseconds after execution returns the digest, and
+ * fullnode reads often lag indexing by 1–3s — so a single read here used to
+ * 409 every freshly-funded stream ("Couldn't confirm the on-chain stream
+ * yet") even though the money had already moved. We now retry the read with
+ * short backoff (~7s budget) before giving up. Returns null only if the tx
+ * stays unreadable, genuinely failed, or created no Stream object (the
  * caller surfaces a clean error instead of persisting a synthetic id).
  */
 export async function parseCreatedStreamObjectId(
@@ -500,23 +507,34 @@ export async function parseCreatedStreamObjectId(
   if (!pkg) return null;
   const prefix = streamObjectTypePrefix(pkg).toLowerCase();
 
-  let tx;
-  try {
-    tx = await getNormalizedTransaction(digest);
-  } catch (err) {
-    console.warn(
-      `[streams] parseCreatedStreamObjectId getTransaction failed digest=${digest}: ${(err as Error).message}`
-    );
-    return null;
-  }
-  if (tx.status !== "success") return null;
-
-  for (const oc of tx.objectChanges) {
-    if (oc.kind !== "created") continue;
-    const ty = (oc.objectType ?? "").toLowerCase();
-    if (ty.startsWith(prefix)) {
-      return oc.objectId;
+  const DELAYS_MS = [0, 800, 1200, 2000, 3000];
+  for (let attempt = 0; attempt < DELAYS_MS.length; attempt++) {
+    if (DELAYS_MS[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, DELAYS_MS[attempt]));
     }
+
+    let tx;
+    try {
+      tx = await getNormalizedTransaction(digest);
+    } catch (err) {
+      // Most likely "not found" — the node hasn't indexed the digest yet.
+      console.warn(
+        `[streams] parseCreatedStreamObjectId getTransaction failed (attempt ${attempt + 1}/${DELAYS_MS.length}) digest=${digest}: ${(err as Error).message}`
+      );
+      continue;
+    }
+    // A readable failed tx will never produce the object — stop retrying.
+    if (tx.status !== "success") return null;
+
+    for (const oc of tx.objectChanges) {
+      if (oc.kind !== "created") continue;
+      const ty = (oc.objectType ?? "").toLowerCase();
+      if (ty.startsWith(prefix)) {
+        return oc.objectId;
+      }
+    }
+    // Readable + successful but no Stream object — retrying won't change it.
+    return null;
   }
   return null;
 }

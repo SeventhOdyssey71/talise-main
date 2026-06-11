@@ -478,19 +478,30 @@ function CreateContractSheet({
 
     // 3) Record the stream — the server parses the created on-chain Stream
     //    object id from the funding digest and returns it as the stream id.
-    const rec = await api<{ id: string }>("/api/streams/record", {
-      method: "POST",
-      body: {
-        fundingDigest,
-        recipientAddress: resolved.address,
-        recipientHandle: resolved.displayName || null,
-        totalMicros: prep.plan.totalMicros,
-        trancheMicros: prep.plan.trancheMicros,
-        numTranches: prep.plan.numTranches,
-        startMs: prep.plan.startMs,
-        intervalMs: prep.plan.intervalMs,
-      },
-    });
+    //    The funding tx is already on-chain here; if the server's read lags
+    //    indexing (409 STREAM_OBJECT_UNCONFIRMED), retry rather than fail.
+    let rec: { id: string };
+    for (let attempt = 0; ; attempt++) {
+      try {
+        rec = await api<{ id: string }>("/api/streams/record", {
+          method: "POST",
+          body: {
+            fundingDigest,
+            recipientAddress: resolved.address,
+            recipientHandle: resolved.displayName || null,
+            totalMicros: prep.plan.totalMicros,
+            trancheMicros: prep.plan.trancheMicros,
+            numTranches: prep.plan.numTranches,
+            startMs: prep.plan.startMs,
+            intervalMs: prep.plan.intervalMs,
+          },
+        });
+        break;
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 409 && attempt < 2)) throw e;
+        await new Promise((r) => setTimeout(r, 2500));
+      }
+    }
 
     // 4) Persist the contract metadata wrapping that stream.
     await api("/api/contracts", {

@@ -166,6 +166,11 @@ function Logo({ compact = false, homeHref = "/app" }: { compact?: boolean; homeH
           talise
         </span>
       )}
+      {/* Private-beta marker — a small square chip so testers always know
+          they're on the beta surface. */}
+      <span className="rounded-[6px] bg-accent-soft px-1.5 py-[3px] font-mono text-[9px] font-semibold uppercase leading-none tracking-[0.12em] text-accent ring-1 ring-inset ring-[color-mix(in_srgb,var(--color-accent)_22%,transparent)]">
+        Beta
+      </span>
     </Link>
   );
 }

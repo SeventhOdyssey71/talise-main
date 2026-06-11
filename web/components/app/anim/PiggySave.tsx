@@ -11,7 +11,7 @@
  * outlines so it reads cleanly on the white lifted cards.
  *
  * Plays exactly once on mount, ~1.6s, then calls `onDone`. Self-contained SVG;
- * no image assets. Respects prefers-reduced-motion (renders a static, settled
+ * the mobile app's piggy + coin assets (public/anim/). Respects prefers-reduced-motion (renders a static, settled
  * piggy with the coin already deposited and fires onDone immediately).
  */
 
@@ -132,87 +132,34 @@ export function PiggySave({
  * the `size` frame.
  */
 function Piggy({ size }: { size: number }) {
+  // The REAL mobile-app piggy (ios SavingsPiggy asset) — same art on both
+  // platforms; the drop-in spring + squash gulp around it are unchanged.
   return (
-    <svg
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/anim/savings-piggy.png"
+      alt=""
       width={size}
       height={size}
-      viewBox="0 0 100 100"
-      fill="none"
-      style={{ display: "block", filter: "drop-shadow(0 8px 14px rgba(35,78,20,0.2))" }}
-    >
-      <defs>
-        <radialGradient id="piggy-body" cx="42%" cy="34%" r="78%">
-          <stop offset="0%" stopColor={MINT} />
-          <stop offset="70%" stopColor={MINT} />
-          <stop offset="100%" stopColor={MINT_DEEP} />
-        </radialGradient>
-      </defs>
-
-      {/* Back leg + front leg trotters */}
-      <rect x="24" y="68" width="11" height="14" rx="4.5" fill={MINT_DEEP} stroke={FOREST} strokeWidth="2" />
-      <rect x="63" y="68" width="11" height="14" rx="4.5" fill={MINT_DEEP} stroke={FOREST} strokeWidth="2" />
-
-      {/* Body */}
-      <ellipse cx="50" cy="52" rx="34" ry="27" fill="url(#piggy-body)" stroke={FOREST} strokeWidth="2.4" />
-
-      {/* Ear */}
-      <path d="M30 30 q-6 -10 6 -12 q3 7 -1 14 Z" fill={MINT_DEEP} stroke={FOREST} strokeWidth="2" strokeLinejoin="round" />
-
-      {/* Coin slot on the back */}
-      <rect x="42" y="26.5" width="20" height="4" rx="2" fill={FOREST} opacity="0.85" />
-
-      {/* Snout */}
-      <ellipse cx="80" cy="54" rx="11" ry="9" fill={MINT_DEEP} stroke={FOREST} strokeWidth="2.2" />
-      <circle cx="77" cy="54" r="1.7" fill={FOREST} />
-      <circle cx="83" cy="54" r="1.7" fill={FOREST} />
-
-      {/* Eye */}
-      <circle cx="64" cy="44" r="2.6" fill={FOREST} />
-      <circle cx="65" cy="43" r="0.9" fill="#ffffff" opacity="0.85" />
-
-      {/* Cheek blush */}
-      <ellipse cx="68" cy="52" rx="4" ry="2.6" fill={FOREST_SOFT} opacity="0.3" />
-
-      {/* Curly tail */}
-      <path
-        d="M16 50 q-7 -1 -6 -7 q1 -5 6 -3"
-        fill="none"
-        stroke={FOREST}
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-    </svg>
+      draggable={false}
+      style={{ display: "block", width: size, height: size, objectFit: "contain" }}
+    />
   );
 }
 
 /** Gold coin (shared idiom with CoinBurst — small face for the slot drop). */
 function Coin({ px }: { px: number }) {
-  const id = `pcoin-${Math.round(px)}`;
+  // Mobile-app coin (SuiCoinMark) for the drop — see Piggy above.
   return (
-    <svg width={px} height={px} viewBox="0 0 48 48" fill="none" style={{ display: "block" }}>
-      <defs>
-        <radialGradient id={`${id}-face`} cx="38%" cy="32%" r="72%">
-          <stop offset="0%" stopColor={GOLD_LIGHT} />
-          <stop offset="55%" stopColor={GOLD} />
-          <stop offset="100%" stopColor={GOLD_DEEP} />
-        </radialGradient>
-      </defs>
-      <circle cx="24" cy="24" r="23" fill={FOREST} opacity="0.9" />
-      <circle cx="24" cy="24" r="21" fill={`url(#${id}-face)`} />
-      <ellipse cx="17" cy="15" rx="7.5" ry="4.6" fill={MINT} opacity="0.5" transform="rotate(-28 17 15)" />
-      <text
-        x="24"
-        y="32.5"
-        textAnchor="middle"
-        fontFamily="ui-sans-serif, system-ui, sans-serif"
-        fontSize="20"
-        fontWeight="700"
-        fill={GOLD_DEEP}
-        opacity="0.75"
-      >
-        $
-      </text>
-    </svg>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/anim/sui-coin.png"
+      alt=""
+      width={px}
+      height={px}
+      draggable={false}
+      style={{ display: "block", width: px, height: px, objectFit: "contain" }}
+    />
   );
 }
 

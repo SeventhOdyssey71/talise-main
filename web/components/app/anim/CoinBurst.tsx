@@ -12,7 +12,7 @@
  * white lifted cards — never gaudy, never cartoonish.
  *
  * Plays exactly once on mount, ~1.5s, then calls `onDone`. Self-contained SVG;
- * no image assets. Respects prefers-reduced-motion (renders a single static,
+ * the mobile app's coin asset (public/anim/sui-coin.png). Respects prefers-reduced-motion (renders a single static,
  * already-settled coin and fires onDone immediately).
  */
 
@@ -150,47 +150,18 @@ export function CoinBurst({
  * scales cleanly with the `px` frame.
  */
 function Coin({ px }: { px: number }) {
-  const id = `coin-${Math.round(px)}`;
+  // The REAL mobile-app coin (ios SuiCoinMark asset) — same art on both
+  // platforms, scattered by the same settle springs as before.
   return (
-    <svg
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/anim/sui-coin.png"
+      alt=""
       width={px}
       height={px}
-      viewBox="0 0 48 48"
-      fill="none"
-      style={{
-        display: "block",
-        filter: "drop-shadow(0 6px 10px rgba(35,78,20,0.22))",
-      }}
-    >
-      <defs>
-        <radialGradient id={`${id}-face`} cx="38%" cy="32%" r="72%">
-          <stop offset="0%" stopColor={GOLD_LIGHT} />
-          <stop offset="55%" stopColor={GOLD} />
-          <stop offset="100%" stopColor={GOLD_DEEP} />
-        </radialGradient>
-      </defs>
-      {/* Forest rim */}
-      <circle cx="24" cy="24" r="23" fill={FOREST} opacity="0.9" />
-      {/* Coin face */}
-      <circle cx="24" cy="24" r="21" fill={`url(#${id}-face)`} />
-      {/* Inner bevel ring */}
-      <circle cx="24" cy="24" r="17.5" fill="none" stroke={GOLD_DEEP} strokeWidth="1.1" opacity="0.55" />
-      {/* Mint specular highlight, upper-left */}
-      <ellipse cx="17" cy="15" rx="7.5" ry="4.6" fill={MINT} opacity="0.5" transform="rotate(-28 17 15)" />
-      {/* Embossed currency glyph */}
-      <text
-        x="24"
-        y="32.5"
-        textAnchor="middle"
-        fontFamily="ui-sans-serif, system-ui, sans-serif"
-        fontSize="20"
-        fontWeight="700"
-        fill={GOLD_DEEP}
-        opacity="0.75"
-      >
-        $
-      </text>
-    </svg>
+      draggable={false}
+      style={{ display: "block", width: px, height: px, objectFit: "contain" }}
+    />
   );
 }
 

@@ -257,21 +257,32 @@ function SetupTab({ onStarted }: { onStarted: () => void }) {
       // so the stored row matches the on-chain Stream object exactly — never
       // the client's locally-recomputed figures.
       const plan = prep.plan;
-      await api("/api/streams/record", {
-        method: "POST",
-        body: {
-          fundingDigest,
-          recipientAddress: prep.recipient?.address ?? resolved.address,
-          recipientHandle: prep.recipient?.displayName ?? resolved.displayName,
-          totalMicros: plan?.totalMicros ?? String(Math.round(totalUsd * 1_000_000)),
-          trancheMicros:
-            plan?.trancheMicros ??
-            String(Math.floor(Math.round(totalUsd * 1_000_000) / numTranches)),
-          numTranches: plan?.numTranches ?? numTranches,
-          startMs: plan?.startMs ?? Date.now(),
-          intervalMs: plan?.intervalMs ?? intervalMs,
-        },
-      });
+      const recordBody = {
+        fundingDigest,
+        recipientAddress: prep.recipient?.address ?? resolved.address,
+        recipientHandle: prep.recipient?.displayName ?? resolved.displayName,
+        totalMicros: plan?.totalMicros ?? String(Math.round(totalUsd * 1_000_000)),
+        trancheMicros:
+          plan?.trancheMicros ??
+          String(Math.floor(Math.round(totalUsd * 1_000_000) / numTranches)),
+        numTranches: plan?.numTranches ?? numTranches,
+        startMs: plan?.startMs ?? Date.now(),
+        intervalMs: plan?.intervalMs ?? intervalMs,
+      };
+      // The funding tx is already on-chain at this point — if the server's
+      // read of the digest lags indexing (409 STREAM_OBJECT_UNCONFIRMED),
+      // retry the record itself rather than telling the user it failed.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await api("/api/streams/record", { method: "POST", body: recordBody });
+          break;
+        } catch (e) {
+          const unconfirmed =
+            e instanceof ApiError && e.status === 409 && attempt < 2;
+          if (!unconfirmed) throw e;
+          await new Promise((r) => setTimeout(r, 2500));
+        }
+      }
 
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("talise:tx", { detail: { kind: "stream-start" } }));
