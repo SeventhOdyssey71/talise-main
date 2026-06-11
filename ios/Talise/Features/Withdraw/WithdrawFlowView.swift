@@ -1014,7 +1014,14 @@ private struct BankWithdrawView: View {
                 digest: sent.digest, direction: "sent", amountUsdsui: order.amountUsdsui,
                 counterparty: order.walletAddress, counterpartyName: "Bank withdrawal", venue: nil))
 
-            statusText = "Sending the money to \(order.amountNgn > 0 ? "₦\(ngnGrouped(order.amountNgn))" : "your bank")…"
+            // "Sending ₦100 to EROMONSELE ODIGIE…" — amount AND the resolved
+            // account holder (the old string put the amount after "to", which
+            // read as "sending the money to 100"). Falls back to "your bank"
+            // if the name-enquiry didn't resolve.
+            let payee = quote?.accountName ?? resolvedName ?? "your bank"
+            statusText = order.amountNgn > 0
+                ? "Sending ₦\(ngnGrouped(order.amountNgn)) to \(payee)…"
+                : "Sending the money to \(payee)…"
             withAnimation { step = .sending }
             await pollStatus(order.orderId)
         } catch APIError.status(let code, let msg) {
