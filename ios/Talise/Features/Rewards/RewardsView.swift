@@ -10,8 +10,9 @@ import UIKit
 ///   2. STAT TILES — two-up: Referrals · Sent with Talise.
 ///   3. SHARE CTA — the big referral action (code row + share button).
 ///   4. INFO STRIP — one quiet line on how referrals earn.
-///   5. EARNING HISTORY — recent point events from the server ledger.
-///   6. HOW YOU EARN — the rate rules, last (reference, not action).
+///   5. EARNING HISTORY — the 5 most recent point events + See all.
+/// ("How you earn" rate rules removed 2026-06-11 per founder — the rates
+/// live in the docs; the page stays action-first.)
 struct RewardsView: View {
     @State private var summary: RewardsSummary?
     @State private var loading = true
@@ -25,7 +26,6 @@ struct RewardsView: View {
                 shareSection
                 infoStrip
                 historySection
-                earnRulesSection
                 if let error {
                     Text(error)
                         .font(TaliseFont.body(12, weight: .light))
@@ -234,14 +234,19 @@ struct RewardsView: View {
 
     // MARK: - 5. Earning history
 
+    /// Collapsed: the 5 most recent point events + a "See all" row that
+    /// expands the full server ledger inline.
+    @State private var showAllHistory = false
+
     @ViewBuilder
     private var historySection: some View {
         let events = summary?.recentEvents ?? []
         if !events.isEmpty {
+            let shown = showAllHistory ? events : Array(events.prefix(5))
             VStack(alignment: .leading, spacing: 12) {
                 SectionHeader("Earning history")
                 VStack(spacing: 0) {
-                    ForEach(Array(events.prefix(6).enumerated()), id: \.element.id) { i, ev in
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { i, ev in
                         HStack(alignment: .center, spacing: 12) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(historyTitle(ev.kind))
@@ -258,9 +263,33 @@ struct RewardsView: View {
                         }
                         .padding(.horizontal, 18)
                         .padding(.vertical, 12)
-                        if i < min(events.count, 6) - 1 {
+                        if i < shown.count - 1 {
                             RowDivider()
                         }
+                    }
+
+                    // "See all" — only when there's more than the fold.
+                    if !showAllHistory && events.count > 5 {
+                        RowDivider()
+                        Button {
+                            withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
+                                showAllHistory = true
+                            }
+                        } label: {
+                            HStack {
+                                Text("See all")
+                                    .font(TaliseFont.body(13.5, weight: .regular))
+                                    .foregroundStyle(TaliseColor.greenMint)
+                                Spacer()
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(TaliseColor.fgDim)
+                            }
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 13)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.vertical, 4)
@@ -271,58 +300,39 @@ struct RewardsView: View {
 
     private func historyTitle(_ kind: String) -> String {
         switch kind {
-        case "send":            return "Sent money"
-        case "invest":          return "Saved to yield"
-        case "roundup":         return "Round-up auto-save"
-        case "goal", "goal_deposit": return "Added to a goal"
-        case "referral":        return "Friend joined"
-        default:                return "Points earned"
+        case "send", "send_tx":          return "Sent money"
+        case "invest", "supply":         return "Saved to yield"
+        case "roundup", "roundup_sweep": return "Round-up auto-save"
+        case "goal", "goal_deposit":     return "Added to a goal"
+        case "referral", "referee", "referrer": return "Friend joined"
+        default:
+            // Unknown kind — humanize the slug instead of a generic label
+            // so new server event kinds still read sensibly.
+            let words = kind.replacingOccurrences(of: "_", with: " ")
+            return words.prefix(1).uppercased() + words.dropFirst()
         }
     }
+
+    /// Server timestamps carry fractional seconds ("…T19:31:59.142Z") —
+    /// a default ISO8601DateFormatter rejects those, which is why raw ISO
+    /// strings leaked into the UI. Try fractional first, then plain.
+    private static let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let isoPlain = ISO8601DateFormatter()
+    private static let historyDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "d MMM yyyy"
+        return f
+    }()
 
     private func historyDate(_ iso: String) -> String {
-        guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
-        let fmt = DateFormatter()
-        fmt.dateFormat = "d MMM yyyy"
-        return fmt.string(from: date)
-    }
-
-    // MARK: - 6. How you earn
-
-    /// Transparent "how points work" explainer as one grouped card of
-    /// rows. Reads the server's `pointRates` so the numbers always match
-    /// the engine; falls back to documented defaults on older builds.
-    @ViewBuilder
-    private var earnRulesSection: some View {
-        let rates = summary?.pointRates
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader("How you earn")
-            VStack(spacing: 0) {
-                earnRow(icon: "paperplane", title: "Send money", rate: rates?.send ?? 1)
-                RowDivider()
-                earnRow(icon: "leaf.fill", title: "Save to yield", rate: rates?.invest ?? 3)
-                RowDivider()
-                earnRow(icon: "arrow.triangle.2.circlepath", title: "Round-up auto-save", rate: rates?.roundup ?? 5)
-                RowDivider()
-                earnRow(icon: "target", title: "Add to a goal", rate: rates?.goal ?? 4)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 4)
-            .earnHeroGlass(cornerRadius: 20)
+        guard let date = Self.isoFractional.date(from: iso) ?? Self.isoPlain.date(from: iso) else {
+            return ""
         }
-    }
-
-    private func earnRow(icon: String, title: String, rate: Int) -> some View {
-        PremiumListRow(icon: icon, kind: .neutral, title: title) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text("\(rate)")
-                    .font(TaliseFont.heading(15, weight: .medium))
-                    .foregroundStyle(TaliseColor.accent)
-                Text(rate == 1 ? "pt / $1" : "pts / $1")
-                    .font(TaliseFont.mono(10, weight: .regular))
-                    .foregroundStyle(TaliseColor.fgDim)
-            }
-        }
+        return Self.historyDateFormatter.string(from: date)
     }
 
     // MARK: - Data
