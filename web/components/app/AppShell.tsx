@@ -95,6 +95,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/app/pay/cheques": "Cheques",
   "/app/pay/stream": "Stream",
   "/app/earn": "Earn",
+  "/app/rewards": "Rewards",
   "/app/work": "Work",
   "/app/activity": "Activity",
   "/app/ramps": "Ramps",

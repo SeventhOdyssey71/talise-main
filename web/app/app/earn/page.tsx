@@ -5,7 +5,7 @@
  *
  *   • Invest idle cash (NAVI) — live venue cards, supply, withdraw.
  *   • Spend & Save — round-up, savings goals, month-to-date insights.
- *   • A clear entry into Rewards & Referrals (/app/earn/rewards).
+ *   • A clear entry into Rewards & Referrals (/app/rewards).
  *
  * Desktop is a two-column layout (Invest on the left, Spend & Save on the
  * right); mobile stacks everything in a single column.
@@ -77,7 +77,7 @@ function RewardsLink() {
   return (
     <GlassCard as="div" interactive radius={14} className="!p-0">
       <Link
-        href="/app/earn/rewards"
+        href="/app/rewards"
         className="group flex items-center gap-3.5 px-4 py-3.5"
       >
         <span
