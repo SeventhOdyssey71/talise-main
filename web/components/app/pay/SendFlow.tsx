@@ -115,7 +115,9 @@ function FlowStepper({ step }: { step: Step }) {
   const filled = step === "success" || step === "failure" ? 4 : active;
 
   return (
-    <div className="mb-4 sm:mb-5" aria-label="Send progress">
+    // Slightly inset on mobile (88%, centered) — full-bleed it ran edge to
+    // edge under the sheet's close button and read too wide.
+    <div className="mx-auto mb-4 w-[88%] sm:mb-5 sm:w-full" aria-label="Send progress">
       {/* Progress bar */}
       <div className="relative h-0.5 w-full overflow-hidden rounded-full bg-surface-2">
         <div

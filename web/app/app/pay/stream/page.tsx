@@ -26,6 +26,7 @@ import {
 } from "@/components/app";
 import type { StatusTone } from "@/components/app";
 import { signSponsorReadyBytes, friendlyError } from "@/components/app/cheques/signBytes";
+import { PaySubNav } from "@/components/app/pay/PaySubNav";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -90,6 +91,10 @@ export default function StreamPage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6">
+      {/* Keep the Pay sub-nav visible on this sibling route too — without it
+          mobile users who tapped into Stream lost the way back to
+          Send/Request/Cheques. */}
+      <PaySubNav />
       <header className="space-y-1.5">
         <Eyebrow>Streaming</Eyebrow>
         <h1

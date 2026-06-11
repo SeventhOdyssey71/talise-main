@@ -33,13 +33,13 @@ import {
   Eyebrow,
   PrimaryButton,
   Spinner,
+  StatusPill,
   api,
   useMe,
   useToast,
 } from "@/components/app";
 import { HandleClaimCard } from "./HandleClaimCard";
 import { CurrencyPicker } from "./CurrencyPicker";
-import { BusinessAccountCard } from "./BusinessAccountCard";
 
 // Talise's live + near-term corridor countries. `country` is stored as an
 // ISO code (the settings route caps it at 8 chars); we show full names.
@@ -259,8 +259,9 @@ export function SettingsScreen() {
         </GlassCard>
       </section>
 
-      {/* ── Business account ─────────────────────────────────────────────── */}
-      <BusinessAccountCard />
+      {/* Business account switch — pulled from the beta surface for now
+          (2026-06-11). Re-add <BusinessAccountCard /> here when the business
+          workspace is ready for testers. */}
 
       {/* ── Preferences ──────────────────────────────────────────────────── */}
       <section className="space-y-3">
@@ -314,12 +315,12 @@ export function SettingsScreen() {
             </span>
           </label>
 
-          {/* Notify on receive */}
-          <div className="flex w-full items-center gap-3.5 px-5 py-3.5">
-            <span
-              className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-              style={{ background: "var(--color-accent-soft)" }}
-            >
+          {/* Notify on receive — UNAVAILABLE for now (2026-06-11): greyed,
+              Soon-pilled, toggle disabled. Restore the live Toggle (on={notify}
+              busy={savingNotify} onChange={toggleNotify}) when receive emails
+              are back on. */}
+          <div className="flex w-full items-center gap-3.5 px-5 py-3.5 opacity-90">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-fg-dim">
               <HugeiconsIcon
                 icon={Notification01Icon}
                 size={20}
@@ -327,18 +328,15 @@ export function SettingsScreen() {
               />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-[15px] font-medium text-fg">
+              <span className="flex items-center gap-2 text-[15px] font-medium text-fg-muted">
                 Email me when I receive
+                <StatusPill label="Soon" tone="neutral" />
               </span>
               <span className="block truncate text-[13px] text-fg-dim">
                 One short email per incoming transfer.
               </span>
             </span>
-            <Toggle
-              on={notify}
-              busy={savingNotify}
-              onChange={(v) => void toggleNotify(v)}
-            />
+            <Toggle on={false} busy={false} disabled onChange={() => {}} />
           </div>
 
         </GlassCard>
@@ -452,10 +450,13 @@ export function SettingsScreen() {
 function Toggle({
   on,
   busy,
+  disabled,
   onChange,
 }: {
   on: boolean;
   busy?: boolean;
+  /** Hard-unavailable (feature not live) — distinct from a transient busy. */
+  disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
@@ -464,7 +465,7 @@ function Toggle({
       role="switch"
       aria-checked={on}
       aria-label="Email me when I receive"
-      disabled={busy}
+      disabled={busy || disabled}
       onClick={() => onChange(!on)}
       className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
         on ? "bg-accent-deep" : "border border-line bg-surface-2"

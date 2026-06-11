@@ -520,7 +520,10 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
         {/* Content column. overflow-x-clip: belt-and-braces — no child (wide
             grid item, unbreakable number, slider) can ever drag the page into
             horizontal scroll on mobile. */}
-        <main className="mx-auto w-full min-w-0 max-w-[1040px] overflow-x-clip px-4 pb-32 pt-4 sm:px-6 lg:px-8 lg:pb-12 lg:pt-16">
+        {/* pt-7 on mobile: a deliberate, consistent breath between the mini
+            header and every page's first element (Earn/Work/Settings sat too
+            tight at pt-4). Desktop keeps its taller lg:pt-16. */}
+        <main className="mx-auto w-full min-w-0 max-w-[1040px] overflow-x-clip px-4 pb-32 pt-7 sm:px-6 lg:px-8 lg:pb-12 lg:pt-16">
           {children}
         </main>
       </div>

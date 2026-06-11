@@ -32,6 +32,7 @@ import {
 } from "@/components/app";
 import type { StatusTone } from "@/components/app";
 import { ChequeCard } from "@/components/app/cheques/ChequeCard";
+import { PaySubNav } from "@/components/app/pay/PaySubNav";
 import { signSponsorReadyBytes, friendlyError } from "@/components/app/cheques/signBytes";
 import { Turnstile, turnstileEnabled } from "@/components/app/cheques/Turnstile";
 
@@ -101,6 +102,10 @@ export default function ChequesPage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6">
+      {/* Keep the Pay sub-nav visible on this sibling route too — without it
+          mobile users who tapped into Cheques lost the way back to
+          Send/Request/Stream. */}
+      <PaySubNav />
       <header className="space-y-1.5">
         <Eyebrow>Cheques</Eyebrow>
         <h1
