@@ -2,9 +2,8 @@
 
 /**
  * Recent activity preview — the top 5 entries from useActivity rendered as
- * compact glass rows (heraldic counterparty crest — or a direction disc for
- * venue/system rows — title + counterparty, relative time, and a signed
- * localized amount). "View all" routes to the full Activity page.
+ * compact glass rows (direction disc, title + counterparty, relative time, and
+ * a signed localized amount). "View all" routes to the full Activity page.
  *
  * useActivity already listens for the global `talise:tx` event and re-pulls
  * fresh, so a send/receive made elsewhere in the app reflects here without a
@@ -29,7 +28,6 @@ import {
   GlassCard,
   Eyebrow,
   EmptyState,
-  HeraldicAvatar,
   type ActivityEntry,
 } from "@/components/app";
 import {
@@ -115,33 +113,22 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
   const amt = formatLocal(entry.amountUsdsui, { fixed: true });
   const signed = `${received ? "+" : "−"}${hidden ? MASK_AMOUNT : amt}`;
 
-  // Person-to-person rows get the counterparty's heraldic crest (seeded by
-  // address so it matches everywhere); venue/system rows keep the direction
-  // arrow disc.
-  const crestSeed = entry.venue
-    ? null
-    : entry.counterparty || entry.counterpartyName || null;
-
   return (
     <div
       className="talise-history-row flex items-center gap-3.5 px-3.5 py-3"
       data-direction={entry.direction}
     >
-      {crestSeed ? (
-        <HeraldicAvatar seed={crestSeed} size={36} />
-      ) : (
-        <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-full"
-          style={{ background: "color-mix(in srgb, var(--row-tint, #ffffff) 14%, transparent)" }}
-        >
-          <HugeiconsIcon
-            icon={received ? ArrowDownLeft01Icon : ArrowUpRight01Icon}
-            size={17}
-            strokeWidth={2}
-            color="var(--row-tint, var(--color-fg))"
-          />
-        </span>
-      )}
+      <span
+        className="flex size-9 shrink-0 items-center justify-center rounded-full"
+        style={{ background: "color-mix(in srgb, var(--row-tint, #ffffff) 14%, transparent)" }}
+      >
+        <HugeiconsIcon
+          icon={received ? ArrowDownLeft01Icon : ArrowUpRight01Icon}
+          size={17}
+          strokeWidth={2}
+          color="var(--row-tint, var(--color-fg))"
+        />
+      </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[14px] font-medium text-fg">{titleFor(entry)}</span>
         <span className="block truncate text-[12px] text-fg-dim">{counterpartyLabel(entry)}</span>

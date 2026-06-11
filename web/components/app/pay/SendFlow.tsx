@@ -40,7 +40,6 @@ import {
   SlideToConfirm,
   Spinner,
   Numpad,
-  HeraldicAvatar,
   useBalances,
   useContacts,
   useMe,
@@ -666,6 +665,16 @@ function AmountStep({
 
 // ── Step 2: Recipient ───────────────────────────────────────────────────────────
 
+function contactInitials(c: Contact): string {
+  const src = (c.name ?? c.address).replace(/@?talise\.sui|\.sui/gi, "");
+  const parts = src.trim().split(/\s+/);
+  if (parts.length >= 2 && parts[0][0] && parts[1][0]) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  const trimmed = src.replace(/^0x/i, "");
+  return trimmed.slice(0, 2).toUpperCase();
+}
+
 function RecipientStep({
   value,
   resolving,
@@ -778,9 +787,9 @@ function RecipientStep({
                   i < contacts.length - 1 ? "border-b border-line" : ""
                 }`}
               >
-                {/* Heraldic crest — seeded by address so the contact's crest
-                    matches their crest in the activity lists */}
-                <HeraldicAvatar seed={c.address} size={36} />
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-[12px] font-semibold text-fg">
+                  {contactInitials(c)}
+                </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] font-medium text-fg">
                     {c.name ?? `${c.address.slice(0, 8)}…${c.address.slice(-6)}`}
@@ -907,7 +916,7 @@ function ReviewStep({
           last={false}
         />
         <ReviewRow
-          chip={<HeraldicAvatar seed={to.address} size={40} />}
+          chip={<ReviewChip letter={to.displayName[0]?.toUpperCase() ?? "?"} accent />}
           title="To"
           sub={`${to.address.slice(0, 10)}…${to.address.slice(-8)}`}
           value={to.displayName}
