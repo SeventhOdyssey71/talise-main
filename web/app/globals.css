@@ -100,6 +100,31 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/*
+ * Overscroll must never flash the dark root. The light themes (.app-clean,
+ * .landing-mint) live on INNER wrappers, so rubber-band overscroll used to
+ * reveal the near-black html background above/below the page. Tint the root
+ * itself to match whichever theme is mounted (`:has()` — supported in every
+ * browser we target).
+ */
+html:has(.app-clean),
+html:has(.app-clean) body {
+  background: #fafdf8; /* .app-clean --color-bg */
+}
+html:has(.landing-mint),
+html:has(.landing-mint) body {
+  background: #f7fcf2; /* .landing-mint gradient floor */
+}
+
+/* Desktop (precise pointer): no scroll bounce at all — the page sits fixed.
+   Mobile keeps native pull/bounce, which now lands on the light tint above. */
+@media (hover: hover) and (pointer: fine) {
+  html,
+  body {
+    overscroll-behavior-y: none;
+  }
+}
+
 ::selection {
   background: var(--color-accent);
   color: var(--color-bg);

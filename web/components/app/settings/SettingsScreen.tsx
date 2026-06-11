@@ -242,12 +242,15 @@ export function SettingsScreen() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-medium text-fg">Your handle</p>
+                  {/* Talise handles display as name@talise everywhere; the
+                      minted SuiNS name (name.talise.sui) only appears in the
+                      explanatory line below. */}
                   <p className="mt-0.5 break-all font-mono text-[13px] text-fg-muted">
-                    @{me.taliseHandle}.talise.sui
+                    {me.taliseHandle}@talise
                   </p>
                   <p className="mt-1 text-[12px] leading-relaxed text-fg-dim">
-                    Anyone can pay you at this name. Handles are minted on SuiNS
-                    and can&apos;t be changed.
+                    Anyone can pay you at this name. It&apos;s minted on SuiNS as{" "}
+                    {me.taliseHandle}.talise.sui and can&apos;t be changed.
                   </p>
                 </div>
               </div>

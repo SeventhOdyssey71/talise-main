@@ -44,12 +44,14 @@ export default async function PublicInvoicePage({ params }: RouteParams) {
   const issuer = await userById(invoice.userId);
   if (!issuer) notFound();
 
+  // Issuer identity renders as `name@talise` on the document (the .sui form
+  // is reserved for SuiNS explanations, never the headline).
   const issuerHandle = issuer.talise_username
-    ? `@${issuer.talise_username}`
+    ? `${issuer.talise_username}@talise`
     : issuer.suins_subname
-      ? issuer.suins_subname
+      ? `${issuer.suins_subname.replace(/\.talise\.sui$/i, "")}@talise`
       : issuer.business_handle
-        ? `@${issuer.business_handle}`
+        ? `${issuer.business_handle}@talise`
         : issuer.business_name || issuer.name || "A Talise user";
 
   // Resolve the absolute origin so the "open in app" links are absolute even

@@ -12,6 +12,7 @@ import {
   workInvoicesFor,
   sanitizeLineItems,
   normalizeCurrency,
+  autoSettleOpenInvoices,
 } from "@/lib/invoices";
 
 export const runtime = "nodejs";
@@ -187,7 +188,18 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
 
-  const invoices = await workInvoicesFor(userId);
+  let invoices = await workInvoicesFor(userId);
+
+  // Auto-settle: detect direct payments against open invoices (matching
+  // incoming credits, verified on-chain by the settle core) so paid status
+  // reflects automatically — there's no manual "Mark paid". Bounded to a few
+  // RPC verifications per load; re-fetch only when something closed.
+  try {
+    const settled = await autoSettleOpenInvoices(userId, invoices);
+    if (settled > 0) invoices = await workInvoicesFor(userId);
+  } catch (err) {
+    console.warn(`[invoices] auto-settle sweep failed user=${userId}: ${(err as Error).message}`);
+  }
 
   // Business accounts keep visibility into their legacy checkout invoices —
   // surfaced under a separate key so the Work UI can render the rich list and

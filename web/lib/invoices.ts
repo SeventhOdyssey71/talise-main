@@ -3,6 +3,7 @@ import "server-only";
 import { db, ensureSchema, userById } from "@/lib/db";
 import { getNormalizedTransaction } from "@/lib/sui-shapes";
 import { isUsdsui } from "@/lib/usdsui";
+import { readActivitySnapshot } from "@/lib/snapshots";
 
 /**
  * Invoices v2 — the Work hub's "get paid for work" backend.
@@ -475,6 +476,96 @@ export async function settleInvoiceByDigest(
   }
 
   return { ok: true, status: "paid", digest };
+}
+
+// ── Auto-settle sweep ────────────────────────────────────────────────────────
+
+/**
+ * Cap on on-chain verifications per sweep — each is one RPC round-trip, and
+ * the sweep runs inline on the owner's invoice-list load.
+ */
+const AUTO_SETTLE_MAX_VERIFICATIONS = 4;
+
+/**
+ * Detect direct payments against OPEN invoices automatically — there is no
+ * manual "Mark paid" anymore (founder directive, 2026-06-11: "if it's paid,
+ * it should automatically reflect that").
+ *
+ * A payer who settles through the public /i/<id> page already closes the
+ * invoice trustlessly (the page submits the digest). This sweep covers the
+ * payer who paid the issuer DIRECTLY (handle/address send) and never touched
+ * the invoice page: it scans the issuer's activity snapshot for incoming
+ * USDsui credits that match an open invoice — same amount (the settle core's
+ * exact-amount ±0.5% bound), received after the invoice was created — and
+ * runs each candidate through `settleInvoiceByDigest`, which re-verifies the
+ * tx ON-CHAIN and enforces the one-digest-one-invoice replay guard. A wrong
+ * candidate simply fails verification; nothing here trusts the snapshot.
+ *
+ * Oldest invoice first (deterministic when two open invoices share an
+ * amount), bounded to a few verifications per call. Returns the number of
+ * invoices settled — callers re-fetch the list when > 0.
+ */
+export async function autoSettleOpenInvoices(
+  userId: number,
+  invoices: WorkInvoice[]
+): Promise<number> {
+  const open = invoices
+    .filter((i) => i.status === "open")
+    .sort((a, b) => a.createdAt - b.createdAt);
+  if (open.length === 0) return 0;
+
+  const snap = await readActivitySnapshot(userId).catch(() => null);
+  if (!snap || !Array.isArray(snap.entries)) return 0;
+
+  type CreditEntry = {
+    digest?: unknown;
+    direction?: unknown;
+    amountUsdsui?: unknown;
+    timestampMs?: unknown;
+  };
+  const credits = (snap.entries as CreditEntry[]).filter(
+    (e) =>
+      e.direction === "received" &&
+      typeof e.digest === "string" &&
+      typeof e.amountUsdsui === "number" &&
+      e.amountUsdsui > 0 &&
+      typeof e.timestampMs === "number"
+  ) as { digest: string; amountUsdsui: number; timestampMs: number }[];
+  if (credits.length === 0) return 0;
+
+  let verifications = 0;
+  let settled = 0;
+  const used = new Set<string>();
+  for (const inv of open) {
+    if (verifications >= AUTO_SETTLE_MAX_VERIFICATIONS) break;
+    // Mirror the settle core's bound (expected ≤ paid ≤ expected + 0.5%) so
+    // we only spend RPC on candidates that can actually pass.
+    const min = inv.amountUsd - 1e-6;
+    const max = inv.amountUsd * 1.005 + 1e-6;
+    for (const c of credits) {
+      if (used.has(c.digest)) continue;
+      if (c.timestampMs < inv.createdAt) continue;
+      if (c.amountUsdsui < min || c.amountUsdsui > max) continue;
+      verifications++;
+      try {
+        const r = await settleInvoiceByDigest(inv.id, c.digest);
+        if (r.ok) {
+          used.add(c.digest);
+          settled++;
+          break; // this invoice is closed — next invoice
+        }
+      } catch (err) {
+        console.warn(
+          `[invoices] auto-settle verify failed inv=${inv.id} digest=${c.digest}: ${(err as Error).message}`
+        );
+      }
+      if (verifications >= AUTO_SETTLE_MAX_VERIFICATIONS) break;
+    }
+  }
+  if (settled > 0) {
+    console.log(`[invoices] auto-settled ${settled} invoice(s) for user=${userId}`);
+  }
+  return settled;
 }
 
 /**

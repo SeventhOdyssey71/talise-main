@@ -7,7 +7,7 @@
 
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Analytics02Icon } from "@hugeicons/core-free-icons";
-import { GlassCard, Eyebrow, useCurrency } from "@/components/app";
+import { GlassCard, Eyebrow, HeraldicAvatar, useCurrency } from "@/components/app";
 import { useInsights } from "./earn-data";
 
 const MONTH = new Intl.DateTimeFormat("en-US", { month: "long" });
@@ -53,9 +53,9 @@ export function InsightsSection() {
             <div key={c.address}>
               {i > 0 && <div className="mx-4 h-px bg-line" />}
               <div className="flex items-center gap-3 px-4 py-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft font-mono text-[11px] font-medium text-accent">
-                  {initials(c.name, c.address)}
-                </span>
+                {/* Heraldic crest — seeded by address so it matches the
+                    counterparty's crest in the activity lists */}
+                <HeraldicAvatar seed={c.address} size={36} />
                 <div className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-medium text-fg">
                     {c.name ?? shortAddr(c.address)}
@@ -126,12 +126,4 @@ function Tile({
 
 function shortAddr(a: string): string {
   return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
-}
-
-function initials(name: string | null, address: string): string {
-  if (name && name.trim()) {
-    const parts = name.trim().split(/\s+/);
-    return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || name[0].toUpperCase();
-  }
-  return address.slice(2, 4).toUpperCase();
 }

@@ -2,7 +2,7 @@
 
 import { HugeiconsIcon } from "@hugeicons/react";
 import { BankIcon } from "@hugeicons/core-free-icons";
-import { useCurrency, useHiddenAmounts, MASK_AMOUNT } from "@/components/app";
+import { useCurrency, useHiddenAmounts, MASK_AMOUNT, HeraldicAvatar } from "@/components/app";
 import { DirectionBadge } from "./DirectionBadge";
 import {
   type ActivityRow,
@@ -26,8 +26,9 @@ import {
  * directional fill (warm red = sent, forest = received/invest/swap) via the
  * `.talise-history-row` rule in globals.css.
  *
- * Wise-style layout: circular direction chip (size-9, accent-soft disc) left,
- * title + grey sublabel middle, big tabular amount right.
+ * Wise-style layout: circular chip left (a heraldic counterparty crest for
+ * person-to-person rows, otherwise the categorical direction disc), title +
+ * grey sublabel middle, big tabular amount right.
  */
 export function HistoryRow({
   row,
@@ -107,6 +108,14 @@ export function HistoryRow({
 
   const sub = counterpartyLabel(row);
 
+  // Person-to-person sends/receives carry the counterparty's heraldic crest
+  // (seeded by address, so the same person gets the same crest everywhere);
+  // earn/swap/system rows keep their categorical direction disc.
+  const crestSeed =
+    (category === "sent" || category === "received") && !row.venue
+      ? row.counterparty || row.counterpartyName || null
+      : null;
+
   return (
     <button
       type="button"
@@ -114,8 +123,12 @@ export function HistoryRow({
       data-direction={directionAttr(category)}
       className="talise-history-row group relative flex w-full items-center gap-3 px-3 py-3 text-left transition-[transform,background-color,border-color] duration-150 ease-out active:scale-[0.995]"
     >
-      {/* Direction chip — circular, size-9 (36px) */}
-      <DirectionBadge category={category} />
+      {/* Counterparty crest, or the categorical direction chip — size-9 (36px) */}
+      {crestSeed ? (
+        <HeraldicAvatar seed={crestSeed} size={36} />
+      ) : (
+        <DirectionBadge category={category} />
+      )}
 
       {/* Title + sublabel */}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">

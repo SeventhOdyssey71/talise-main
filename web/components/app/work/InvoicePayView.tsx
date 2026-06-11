@@ -36,10 +36,12 @@ export type InvoicePayViewProps = {
 };
 
 /**
- * The public invoice page body. Renders the invoice like a real bill — issuer,
- * line items, totals — then a single "Pay this invoice" CTA that deep-links
- * into /app/pay with the amount + recipient prefilled. Standalone (no AppShell
- * / CurrencyProvider) so it formats its own currency locally.
+ * The public invoice page body. Renders the invoice as a classic document —
+ * big "Invoice" heading with the issuer underneath, date / invoice-no / due
+ * meta, a proper line-items table, totals bottom-right, payment terms + notes
+ * — then a single "Pay" CTA that deep-links into /app/pay with the amount +
+ * recipient prefilled. Standalone (no AppShell / CurrencyProvider) so it
+ * formats its own currency locally.
  */
 export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps) {
   const [copied, setCopied] = useState(false);
@@ -121,6 +123,18 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
     }
   };
 
+  const hasItems = invoice.lineItems.length > 0;
+  // Subtotal is the sum of line rows (per-row rounded, same as the table);
+  // the authoritative figure is always amountUsd — never recompute the total.
+  const subtotalUsd = invoice.lineItems.reduce(
+    (sum, li) => sum + Math.round(li.qty * li.unitUsd * 100) / 100,
+    0
+  );
+
+  // Shared cell typography for the line-items table header.
+  const thCls =
+    "py-2.5 font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim";
+
   return (
     <main className="landing-mint talise-appshell relative min-h-dvh overflow-hidden bg-bg px-5 py-10 text-fg sm:py-16">
       {/* Background glow lives in its own absolutely-positioned layer — putting
@@ -137,124 +151,191 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
         </div>
 
         <GlassCard className="overflow-hidden p-0">
-          {/* Invoice header — issuer + amount */}
-          <div className="border-b border-line px-6 pb-5 pt-5">
-            <Eyebrow>Invoice from</Eyebrow>
-            <h1 className="mt-1.5 text-[20px] font-medium tracking-tight text-fg">
-              {issuer.name || issuer.handle}
-            </h1>
-            <p className="mt-0.5 font-mono text-[12px] text-fg-dim">{issuer.handle}</p>
+          {/* Diagonal status stamp — classic rubber-stamp treatment for settled
+              documents. Decorative only; the StatusPill above is the a11y label. */}
+          {invoice.status !== "open" && (
+            <div
+              className="pointer-events-none absolute right-5 top-6 z-10 select-none sm:right-8"
+              aria-hidden
+            >
+              <span
+                className="inline-block -rotate-12 rounded-md border-2 px-3 py-1 font-mono text-[16px] font-bold uppercase opacity-45 sm:text-[18px]"
+                style={{
+                  letterSpacing: "0.28em",
+                  color: invoice.status === "paid" ? "var(--color-accent)" : "#b3473b",
+                  borderColor: invoice.status === "paid" ? "var(--color-accent)" : "#b3473b",
+                }}
+              >
+                {invoice.status === "paid" ? "Paid" : "Void"}
+              </span>
+            </div>
+          )}
 
-            <div className="mt-5 flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <MicroLabel>Amount due</MicroLabel>
-                <div
-                  className="mt-1 text-[38px] font-semibold leading-none text-fg"
-                  style={{ letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}
-                >
-                  {money(invoice.amountUsd)}
+          {/* Document header — big heading, issuer underneath */}
+          <div className="px-5 pb-6 pt-7 sm:px-8">
+            <h1
+              className="font-display text-[34px] font-semibold leading-none tracking-tight text-fg sm:text-[40px]"
+              style={{ letterSpacing: "-0.03em" }}
+            >
+              Invoice
+            </h1>
+            <p className="mt-2.5 text-[15px] font-medium text-fg">
+              {issuer.name || issuer.handle}
+            </p>
+            {issuer.name && issuer.name !== issuer.handle && (
+              <p className="mt-0.5 font-mono text-[12px] text-fg-dim">{issuer.handle}</p>
+            )}
+
+            {/* Meta — date / invoice no / due on the left, prepared-for on the right */}
+            <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+              <dl className="space-y-1.5 text-[13px]">
+                <div className="flex gap-2">
+                  <dt className="w-[88px] shrink-0 font-mono text-[10px] font-medium uppercase leading-[1.7] tracking-wider text-fg-dim">
+                    Date
+                  </dt>
+                  <dd className="text-fg">{createdLabel}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="w-[88px] shrink-0 font-mono text-[10px] font-medium uppercase leading-[1.7] tracking-wider text-fg-dim">
+                    Invoice no.
+                  </dt>
+                  <dd className="break-all font-mono text-[12px] leading-[1.6] text-fg-muted">
+                    {invoice.id}
+                  </dd>
+                </div>
+                {dueLabel && (
+                  <div className="flex gap-2">
+                    <dt className="w-[88px] shrink-0 font-mono text-[10px] font-medium uppercase leading-[1.7] tracking-wider text-fg-dim">
+                      Due date
+                    </dt>
+                    <dd className="text-fg">{dueLabel}</dd>
+                  </div>
+                )}
+              </dl>
+              {invoice.customerName && (
+                <div className="sm:max-w-[45%] sm:text-right">
+                  <Eyebrow>Prepared for</Eyebrow>
+                  <p className="mt-1 text-[15px] font-medium text-fg">{invoice.customerName}</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Line items — a proper document table. When the invoice has no
+              itemisation, a single description row (the memo) keeps the shape. */}
+          <div className="px-5 sm:px-8">
+            <table className="w-full text-left text-[14px]">
+              <thead>
+                <tr className="border-y border-line">
+                  <th className={`${thCls} pr-3`}>Description</th>
+                  {hasItems && (
+                    <>
+                      <th className={`${thCls} px-2 text-right sm:px-3`}>Qty</th>
+                      <th className={`${thCls} px-2 text-right sm:px-3`}>Unit price</th>
+                    </>
+                  )}
+                  <th className={`${thCls} pl-3 text-right`}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {hasItems ? (
+                  invoice.lineItems.map((li, i) => (
+                    <tr key={i} className="border-b border-line">
+                      <td className="py-3 pr-3 text-fg">{li.description}</td>
+                      <td
+                        className="px-2 py-3 text-right text-fg-muted sm:px-3"
+                        style={{ fontVariantNumeric: "tabular-nums" }}
+                      >
+                        {li.qty}
+                      </td>
+                      <td
+                        className="whitespace-nowrap px-2 py-3 text-right text-fg-muted sm:px-3"
+                        style={{ fontVariantNumeric: "tabular-nums" }}
+                      >
+                        {money(li.unitUsd)}
+                      </td>
+                      <td
+                        className="whitespace-nowrap py-3 pl-3 text-right font-medium text-fg"
+                        style={{ fontVariantNumeric: "tabular-nums" }}
+                      >
+                        {money(Math.round(li.qty * li.unitUsd * 100) / 100)}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr className="border-b border-line">
+                    <td className="py-3 pr-3 text-fg">{invoice.memo || "Amount due"}</td>
+                    <td
+                      className="whitespace-nowrap py-3 pl-3 text-right font-medium text-fg"
+                      style={{ fontVariantNumeric: "tabular-nums" }}
+                    >
+                      {money(invoice.amountUsd)}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+
+            {/* Totals — bottom-right. No tax on Talise invoices, so it's just
+                subtotal + total (or total alone for un-itemised invoices). */}
+            <div className="flex justify-end py-4">
+              <div className="w-full max-w-[260px] space-y-2">
+                {hasItems && (
+                  <div className="flex items-baseline justify-between gap-6">
+                    <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim">
+                      Subtotal
+                    </span>
+                    <span
+                      className="text-[14px] text-fg-muted"
+                      style={{ fontVariantNumeric: "tabular-nums" }}
+                    >
+                      {money(subtotalUsd)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-baseline justify-between gap-6 border-t border-line pt-2">
+                  <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-fg">
+                    Total
+                  </span>
+                  <span
+                    className="text-[22px] font-semibold text-fg"
+                    style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
+                  >
+                    {money(invoice.amountUsd)}
+                  </span>
                 </div>
                 {invoice.currency !== "USD" && (
-                  <p className="mt-1.5 font-mono text-[11px] text-fg-dim">
+                  <p className="text-right font-mono text-[11px] text-fg-dim">
                     Settles as {invoice.amountUsd.toFixed(2)} USDsui · 1:1 USD
                   </p>
                 )}
               </div>
-              <div className="text-right text-[12px] text-fg-dim">
-                <p>Issued {createdLabel}</p>
-                {dueLabel && <p className="mt-0.5">Due {dueLabel}</p>}
+            </div>
+
+            {/* Document footer — payment terms + notes */}
+            <div className="grid grid-cols-1 gap-4 border-t border-line py-5 sm:grid-cols-2">
+              <div>
+                <Eyebrow>Payment terms</Eyebrow>
+                <p className="mt-1.5 text-[13px] text-fg-muted">
+                  {dueLabel ? `Due by ${dueLabel}` : "Due on receipt"}
+                </p>
               </div>
+              {hasItems && invoice.memo && (
+                <div>
+                  <Eyebrow>Notes</Eyebrow>
+                  <p className="mt-1.5 text-[13px] text-fg-muted">{invoice.memo}</p>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Bill-to + line items */}
-          <div className="px-6 py-5">
-            {invoice.customerName && (
-              <div className="mb-4">
-                <MicroLabel>Billed to</MicroLabel>
-                <p className="mt-1 text-[15px] text-fg">{invoice.customerName}</p>
-              </div>
-            )}
-
-            {invoice.lineItems.length > 0 ? (
-              <div className="overflow-hidden rounded-xl border border-line">
-                <table className="w-full text-left text-[14px]">
-                  <thead>
-                    <tr className="border-b border-line bg-surface-2">
-                      <th className="px-4 py-2.5 font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim">
-                        Description
-                      </th>
-                      <th className="px-3 py-2.5 text-right font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim">
-                        Qty
-                      </th>
-                      <th className="px-3 py-2.5 text-right font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim">
-                        Unit
-                      </th>
-                      <th className="px-4 py-2.5 text-right font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim">
-                        Amount
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {invoice.lineItems.map((li, i) => (
-                      <tr key={i} className="border-b border-line last:border-0">
-                        <td className="px-4 py-3 text-fg">{li.description}</td>
-                        <td
-                          className="px-3 py-3 text-right text-fg-muted"
-                          style={{ fontVariantNumeric: "tabular-nums" }}
-                        >
-                          {li.qty}
-                        </td>
-                        <td
-                          className="px-3 py-3 text-right text-fg-muted"
-                          style={{ fontVariantNumeric: "tabular-nums" }}
-                        >
-                          {money(li.unitUsd)}
-                        </td>
-                        <td
-                          className="px-4 py-3 text-right font-medium text-fg"
-                          style={{ fontVariantNumeric: "tabular-nums" }}
-                        >
-                          {money(Math.round(li.qty * li.unitUsd * 100) / 100)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              invoice.memo && (
-                <div className="rounded-xl border border-line px-4 py-3.5">
-                  <MicroLabel>For</MicroLabel>
-                  <p className="mt-1 text-[14px] text-fg">{invoice.memo}</p>
-                </div>
-              )
-            )}
-
-            {invoice.lineItems.length > 0 && (
-              <div className="mt-4 flex items-center justify-between border-t border-line pt-4">
-                <span className="text-[14px] font-medium text-fg-muted">Total</span>
-                <span
-                  className="text-[18px] font-semibold text-fg"
-                  style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}
-                >
-                  {money(invoice.amountUsd)}
-                </span>
-              </div>
-            )}
-
-            {invoice.lineItems.length > 0 && invoice.memo && (
-              <p className="mt-3 text-[13px] text-fg-dim">{invoice.memo}</p>
-            )}
-          </div>
-
           {/* Pay CTA / status block */}
-          <div className="border-t border-line px-6 py-5">
+          <div className="border-t border-line px-5 py-5 sm:px-8">
             {invoice.status === "open" ? (
               <>
                 <PrimaryButton href={payHref} full>
                   <HugeiconsIcon icon={ArrowRight02Icon} size={18} strokeWidth={2} />
-                  Pay this invoice
+                  Pay {money(invoice.amountUsd)}
                 </PrimaryButton>
                 <p className="mt-3 text-center text-[12px] text-fg-dim">
                   Sign in with Google to pay — no gas, no wallet setup. Money moves as USDsui.

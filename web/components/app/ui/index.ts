@@ -44,3 +44,6 @@ export type { FieldProps } from "./Field";
 
 export { Flag } from "./Flag";
 export type { FlagProps } from "./Flag";
+
+export { HeraldicAvatar } from "./HeraldicAvatar";
+export type { HeraldicAvatarProps } from "./HeraldicAvatar";

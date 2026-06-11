@@ -9,7 +9,6 @@ import {
   Delete02Icon,
   Invoice01Icon,
   Copy01Icon,
-  CheckmarkCircle02Icon,
   Cancel01Icon,
   PlusSignIcon,
   ArrowRight02Icon,
@@ -53,8 +52,10 @@ export function InvoicesTab() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
-  // The invoice currently targeted by the mark-paid / void confirmation sheets.
-  const [markPaidFor, setMarkPaidFor] = useState<Invoice | null>(null);
+  // The invoice currently targeted by the void confirmation sheet. (There is
+  // no manual mark-paid — settlement is detected automatically: the public
+  // pay page settles trustlessly, and /api/invoices runs an on-chain-verified
+  // auto-settle sweep for direct payments.)
   const [voidFor, setVoidFor] = useState<Invoice | null>(null);
 
   const load = useCallback(async () => {
@@ -123,7 +124,6 @@ export function InvoicesTab() {
               formatUsd={formatUsd}
               onOpen={() => open(inv.id)}
               onCopy={() => copyLink(inv.id)}
-              onMarkPaid={() => setMarkPaidFor(inv)}
               onVoid={() => setVoidFor(inv)}
               divider={i < invoices.length - 1}
             />
@@ -140,15 +140,6 @@ export function InvoicesTab() {
         }}
       />
 
-      <MarkPaidSheet
-        invoice={markPaidFor}
-        onClose={() => setMarkPaidFor(null)}
-        onDone={() => {
-          setMarkPaidFor(null);
-          void load();
-        }}
-      />
-
       <VoidSheet
         invoice={voidFor}
         onClose={() => setVoidFor(null)}
@@ -158,75 +149,6 @@ export function InvoicesTab() {
         }}
       />
     </div>
-  );
-}
-
-// ── Mark-paid sheet (replaces window.prompt) ───────────────────────────────
-
-function MarkPaidSheet({
-  invoice,
-  onClose,
-  onDone,
-}: {
-  invoice: Invoice | null;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const { toast } = useToast();
-  const [digest, setDigest] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  // Reset the field whenever a fresh invoice is targeted.
-  useEffect(() => {
-    if (invoice) setDigest("");
-  }, [invoice]);
-
-  const submit = async () => {
-    if (!invoice) return;
-    const d = digest.trim();
-    if (!d) {
-      toast("Paste the transaction digest", "danger");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await api(`/api/invoices/${invoice.id}`, {
-        method: "POST",
-        body: { action: "mark-paid", digest: d },
-      });
-      toast("Invoice marked paid", "success");
-      onDone();
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Couldn't mark paid", "danger");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Sheet open={!!invoice} onClose={onClose} title="Mark paid">
-      <div className="space-y-4">
-        <p className="text-[14px] text-fg-muted">
-          Paste the on-chain transaction digest of a payment you received off-platform.
-          It&apos;s verified on Sui — it must have credited your address — before the
-          invoice is marked paid.
-        </p>
-        <Field label="Transaction digest" hint="The base58 digest from the Sui explorer">
-          <input
-            value={digest}
-            onChange={(e) => setDigest(e.target.value)}
-            placeholder="9xR…"
-            autoComplete="off"
-            spellCheck={false}
-            className="talise-glass w-full rounded-xl px-3.5 py-2.5 font-mono text-[13px] text-fg outline-none placeholder:text-fg-dim"
-          />
-        </Field>
-        <PrimaryButton onClick={submit} loading={submitting} disabled={!digest.trim()} full>
-          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} strokeWidth={2} />
-          Verify &amp; mark paid
-        </PrimaryButton>
-      </div>
-    </Sheet>
   );
 }
 
@@ -287,7 +209,6 @@ function InvoiceRow({
   formatUsd,
   onOpen,
   onCopy,
-  onMarkPaid,
   onVoid,
   divider,
 }: {
@@ -295,7 +216,6 @@ function InvoiceRow({
   formatUsd: (usd: number, o?: { fixed?: boolean }) => string;
   onOpen: () => void;
   onCopy: () => void;
-  onMarkPaid: () => void;
   onVoid: () => void;
   divider: boolean;
 }) {
@@ -367,14 +287,6 @@ function InvoiceRow({
           >
             <HugeiconsIcon icon={Copy01Icon} size={12} strokeWidth={2} />
             Copy link
-          </button>
-          <button
-            type="button"
-            onClick={guard(onMarkPaid)}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-accent transition-colors hover:bg-accent-soft"
-          >
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={12} strokeWidth={2} />
-            Mark paid
           </button>
           <button
             type="button"
