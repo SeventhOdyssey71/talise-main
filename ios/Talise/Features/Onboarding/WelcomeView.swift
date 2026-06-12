@@ -116,7 +116,7 @@ struct WelcomeView: View {
                 .minimumScaleFactor(0.85)
 
             Text(
-                "Moving money across the world is complex, Talise brings simplicity to this. Free transactions, smart money movement."
+                "Moving money across the world is complex, Talise brings simplicity to this. No network fees, smart money movement."
             )
             .font(TaliseFont.body(13, weight: .light))
             .kerning(kern(13))

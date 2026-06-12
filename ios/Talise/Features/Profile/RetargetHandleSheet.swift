@@ -80,7 +80,7 @@ struct RetargetHandleSheet: View {
                 .font(TaliseFont.heading(22, weight: .medium))
                 .kerning(-0.6)
                 .foregroundStyle(TaliseColor.fg)
-            Text("Re-targets every *.talise.sui subname you own at your current Sui address. Free — Talise sponsors the gas.")
+            Text("Re-targets every *.talise.sui subname you own at your current Sui address. No network fee — Talise sponsors the gas.")
                 .font(TaliseFont.body(13, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .padding(.top, 2)
@@ -208,7 +208,7 @@ struct RetargetHandleSheet: View {
         LiquidGlassButton(
             title: submitting
                 ? "Updating…"
-                : "Update target(s) — free, sponsored by Talise",
+                : "Update target(s) — Talise sponsors the gas",
             icon: submitting ? nil : "arrow.uturn.right.circle.fill",
             tint: TaliseColor.greenMint,
             loading: submitting

@@ -5,15 +5,18 @@ export const dynamic = "force-static";
 
 /**
  * Universal Links manifest. Apple fetches this at install time to learn
- * which paths the Talise app handles. We claim:
- *   - /p/<handle>   — payment links (currently `talise.io/p/<merchant>`)
- *   - /r/<code>     — referral links
+ * which paths the Talise app handles. We claim the real public link
+ * surfaces:
+ *   - /pay/<handle>  — payment links
+ *   - /c/<id>        — cheques (claimable money links)
+ *   - /i/<id>        — invoices
  *
- * Replace TEAMID with the App ID prefix from developer.apple.com before
- * first ship. The path bundle ID below uses the same value as
+ * The team ID defaults to the real App ID prefix (5N8DU2A9WH — the
+ * DEVELOPMENT_TEAM in the Xcode project / ExportOptions.plist);
+ * APPLE_TEAM_ID still overrides it if set. The bundle ID matches
  * `ios/project.yml` (io.talise.app).
  */
-const TEAM_ID = process.env.APPLE_TEAM_ID ?? "TEAMID";
+const TEAM_ID = process.env.APPLE_TEAM_ID ?? "5N8DU2A9WH";
 const BUNDLE_ID = "io.talise.app";
 
 export async function GET() {
@@ -23,7 +26,7 @@ export async function GET() {
       details: [
         {
           appID: `${TEAM_ID}.${BUNDLE_ID}`,
-          paths: ["/p/*", "/r/*"],
+          paths: ["/pay/*", "/c/*", "/i/*"],
         },
       ],
     },

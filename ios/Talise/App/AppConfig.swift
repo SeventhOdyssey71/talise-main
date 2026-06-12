@@ -30,15 +30,17 @@ struct AppConfig {
         let plist = Bundle.main.infoDictionary ?? [:]
         let env = ProcessInfo.processInfo.environment
 
-        // Canonical host is www.talise.io. The apex (talise.io) 307-redirects
-        // to www, and URLSession STRIPS the Authorization bearer on that
-        // cross-host hop — which silently 401s every authed read (balance,
-        // activity, recipient resolve) while cached UI still shows the handle.
-        // Always target www directly so there is no redirect to lose auth on.
+        // Canonical app host is app.talise.io (the beta web app — the
+        // plist value is authoritative and points there too; this string
+        // is only the last-resort fallback). Always target the final
+        // host directly: URLSession STRIPS the Authorization bearer on a
+        // cross-host redirect hop — which silently 401s every authed read
+        // (balance, activity, recipient resolve) while cached UI still
+        // shows the handle.
         self.apiBaseURL =
             env["TALISE_API_BASE_URL"]
             ?? (plist["TaliseAPIBaseURL"] as? String)
-            ?? "https://www.talise.io"
+            ?? "https://app.talise.io"
 
         self.googleClientID =
             env["TALISE_GOOGLE_CLIENT_ID"]

@@ -73,6 +73,16 @@ struct SignInScreen: View {
                 continueWithGoogleButton
                     .padding(.horizontal, 24)
 
+                // Beta honesty — non-allowlisted testers hit an access
+                // gate after sign-in, so say up front that the gate is
+                // expected rather than letting it read as a broken app.
+                Text("Talise is in private beta — access is invite-only.")
+                    .font(TaliseFont.body(11, weight: .light))
+                    .kerning(kern(11))
+                    .foregroundStyle(TaliseColor.fgDim)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 12)
+
                 Text("By continuing you agree to our Terms and Privacy.")
                     .font(TaliseFont.body(11, weight: .light))
                     .kerning(kern(11))

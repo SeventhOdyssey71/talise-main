@@ -30,7 +30,7 @@ struct SignInView: View {
                 .offset(y: appeared ? 0 : 8)
 
                 // Big confident hero headline.
-                Text("Send money\nacross the globe.\nFor free.")
+                Text("Send money\nacross the globe.\nIn seconds.")
                     .font(TaliseFont.display(40, weight: .medium))
                     .kerning(-1.2)
                     .foregroundStyle(TaliseColor.fg)
@@ -89,6 +89,14 @@ struct SignInView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(signingIn)
+
+                    // Beta honesty — non-allowlisted testers hit an access
+                    // gate after sign-in; flag it up front so the gate
+                    // reads as expected, not broken.
+                    Text("Talise is in private beta — access is invite-only.")
+                        .font(TaliseFont.body(11))
+                        .foregroundStyle(TaliseColor.fgDim)
+                        .frame(maxWidth: .infinity, alignment: .center)
 
                     Text("By continuing you agree to our Terms and Privacy.")
                         .font(TaliseFont.body(11))

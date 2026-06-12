@@ -235,7 +235,7 @@ struct StreamSetupView: View {
             Text("one every \(intervalLabel), finishing in \(durationLabel). First payment fires now.")
                 .font(TaliseFont.body(12, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Every payment is gasless — \(TaliseFormat.usd2(totalUsd)) total, $0 in fees.")
+            Text("\(TaliseFormat.usd2(totalUsd)) total — no network fee, Talise sponsors the gas.")
                 .font(TaliseFont.mono(9)).foregroundStyle(TaliseColor.accent)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)

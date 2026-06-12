@@ -18,7 +18,7 @@ struct BrandIntroCarousel: View {
         Slide(
             step: .intro2,
             asset: "OnboardingHero_2",
-            headline: "Earn while you save — your dollars work at ~5% APY by default."
+            headline: "Earn while you save — put idle dollars to work, withdraw anytime."
         ),
         Slide(
             step: .intro3,
