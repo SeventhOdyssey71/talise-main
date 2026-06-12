@@ -564,17 +564,24 @@ struct LegacySendView: View {
 // these are now SOLID flat fills (surface2 disc / capsule), no material,
 // no blur, no specular gradient stroke.
 
-/// A flat solid disc for circular chrome buttons (close / back / arrow).
+/// A glassmorphic disc for circular chrome buttons (close / back / arrow).
 struct GlassCircle: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(Circle().fill(TaliseColor.surface2))
+            // True glass, not a flat disc: ultraThinMaterial samples the
+            // green gradient behind it so the chrome blends into whatever
+            // it floats over (the old solid surface2 fill read as an
+            // opaque dark puck on the Send screens — founder report,
+            // 2026-06-12). A whisper of white hairline keeps the edge
+            // legible on dark fields.
+            .background(.ultraThinMaterial, in: Circle())
+            .overlay(Circle().strokeBorder(.white.opacity(0.10), lineWidth: 1))
             .clipShape(Circle())
     }
 }
 
 extension View {
-    /// Wrap a circular chrome glyph in a flat solid disc.
+    /// Wrap a circular chrome glyph in a glassmorphic disc.
     func glassCircle() -> some View { modifier(GlassCircle()) }
 }
 

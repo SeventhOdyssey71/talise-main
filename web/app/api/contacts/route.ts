@@ -44,6 +44,12 @@ function contactsFrom(entries: SerializedEntry[]): Contact[] {
   const seen = new Map<string, Contact>();
   for (const e of entries) {
     if (!e.counterparty) continue;
+    // Off-ramp deposit wallets are NOT contacts. A cash-out's on-chain
+    // leg pays a Linq deposit address whose enriched counterpartyName is
+    // the destination BANK ("OPay", "Moniepoint MFB", …) — surfacing
+    // those as recents read like Talise thinks your bank is a person,
+    // and each cash-out mints a fresh deposit address so they multiply.
+    if (e.offramp) continue;
     const addr = e.counterparty.toLowerCase();
     const existing = seen.get(addr);
     if (existing) {
