@@ -38,6 +38,9 @@ final class GoogleSignInService: NSObject, ASWebAuthenticationPresentationContex
         case configMissing
         case malformedRedirect
         case oauth(String)
+        /// Apple-flow failure (shared error enum so both providers'
+        /// UIs catch the SAME `.cancelled` case for quiet dismissal).
+        case apple(String)
 
         var errorDescription: String? {
             switch self {
@@ -45,6 +48,7 @@ final class GoogleSignInService: NSObject, ASWebAuthenticationPresentationContex
             case .configMissing: return "Backend URL is not configured."
             case .malformedRedirect: return "Sign-in redirect was malformed."
             case .oauth(let s): return "Google: \(s)"
+            case .apple(let s): return "Apple: \(s)"
             }
         }
     }
@@ -122,6 +126,109 @@ final class GoogleSignInService: NSObject, ASWebAuthenticationPresentationContex
     }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow } ?? ASPresentationAnchor()
+    }
+}
+
+/// Native Sign in with Apple.
+///
+/// Unlike the Google flow above, there is NO web session: Apple sign-in
+/// runs the system `ASAuthorizationController` sheet and hands back the
+/// identity token (a JWT signed by Apple) directly on-device. The
+/// zkLogin nonce is set on the request — Apple embeds it VERBATIM into
+/// the JWT's `nonce` claim, which is what lets the prover later verify
+///
+///     jwt.nonce == poseidonHash(extendedEphemeralPublicKey,
+///                               maxEpoch, jwtRandomness)
+///
+/// exactly like the Google path (where /api/auth/mobile/start sets the
+/// same nonce on the Google OAuth request).
+///
+/// Lives in this file rather than its own — the old-style Xcode project
+/// requires pbxproj surgery for new Swift files.
+@MainActor
+final class AppleSignInService: NSObject {
+
+    private var continuation: CheckedContinuation<String, Error>?
+    /// Keeps the in-flight controller alive until a delegate callback
+    /// fires — ASAuthorizationController is not retained by the system.
+    private var controller: ASAuthorizationController?
+
+    /// Presents the system Sign in with Apple sheet and returns the raw
+    /// identity-token JWT string.
+    ///
+    /// `nonce` MUST be the zkLogin nonce — the Poseidon hash binding
+    /// (ephemeralPubKey, maxEpoch, randomness) — passed as-is. Apple
+    /// copies it verbatim into the id token's `nonce` claim (no
+    /// hashing on our side; SHA-256-the-nonce is a Firebase-ism that
+    /// would break the prover's equality check).
+    func identityToken(nonce: String) async throws -> String {
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = nonce
+
+        return try await withCheckedThrowingContinuation { cont in
+            self.continuation = cont
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            self.controller = controller
+            controller.performRequests()
+        }
+    }
+}
+
+extension AppleSignInService: ASAuthorizationControllerDelegate,
+                              ASAuthorizationControllerPresentationContextProviding {
+
+    func authorizationController(
+        controller: ASAuthorizationController,
+        didCompleteWithAuthorization authorization: ASAuthorization
+    ) {
+        defer {
+            continuation = nil
+            self.controller = nil
+        }
+        guard let cred = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let tokenData = cred.identityToken,
+              let token = String(data: tokenData, encoding: .utf8),
+              !token.isEmpty else {
+            continuation?.resume(
+                throwing: GoogleSignInService.SignInError.apple(
+                    "no identity token in Apple credential"
+                )
+            )
+            return
+        }
+        continuation?.resume(returning: token)
+    }
+
+    func authorizationController(
+        controller: ASAuthorizationController,
+        didCompleteWithError error: Error
+    ) {
+        defer {
+            continuation = nil
+            self.controller = nil
+        }
+        let ns = error as NSError
+        if ns.domain == ASAuthorizationError.errorDomain,
+           ns.code == ASAuthorizationError.canceled.rawValue {
+            // Same quiet-cancel contract as the Google flow — the
+            // sign-in screens catch GoogleSignInService.SignInError
+            // .cancelled specifically and show no error toast.
+            continuation?.resume(throwing: GoogleSignInService.SignInError.cancelled)
+        } else {
+            continuation?.resume(
+                throwing: GoogleSignInService.SignInError.apple(error.localizedDescription)
+            )
+        }
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }

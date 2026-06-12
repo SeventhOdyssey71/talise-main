@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 
 /// Continue-with-Google screen used as step 1 of the onboarding flow.
 /// Sits over the shared `OnboardingBackground` so the green wash and
@@ -14,7 +15,12 @@ struct SignInScreen: View {
     /// flag from the auth callback (false on older server deploys).
     let onSignedIn: (UserDTO, _ existing: Bool) -> Void
     @State private var signingIn = false
+    @State private var signingInApple = false
     @State private var error: String?
+
+    /// Either provider's flow is in flight — both CTAs disable together
+    /// so the user can't run two OAuth dances at once.
+    private var anySignInBusy: Bool { signingIn || signingInApple }
 
     /// True once the user has completed at least one successful sign-in on
     /// this device. Drives the "Welcome back" copy for returning users; a
@@ -70,8 +76,14 @@ struct SignInScreen: View {
                         .padding(.bottom, 8)
                 }
 
-                continueWithGoogleButton
-                    .padding(.horizontal, 24)
+                // Provider CTAs — Apple first (HIG asks Sign in with
+                // Apple to be at least as prominent as the others),
+                // identical 54pt capsule footprint as Google below.
+                VStack(spacing: 12) {
+                    continueWithAppleButton
+                    continueWithGoogleButton
+                }
+                .padding(.horizontal, 24)
 
                 // Beta honesty — non-allowlisted testers hit an access
                 // gate after sign-in, so say up front that the gate is
@@ -126,7 +138,43 @@ struct SignInScreen: View {
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-        .disabled(signingIn)
+        .disabled(anySignInBusy)
+    }
+
+    /// Sign in with Apple — the system `SignInWithAppleButton` renders
+    /// the HIG-blessed mark/label, clipped to the same 54pt capsule as
+    /// the Google CTA. The system button's `onRequest` closure is
+    /// synchronous, but our flow needs an async server round-trip (the
+    /// zkLogin nonce) BEFORE the request is configured — so the system
+    /// button is hit-test-disabled (pure rendering) and a transparent
+    /// Button on top drives the real `ASAuthorizationController` flow
+    /// via `ZkLoginCoordinator.signInWithApple()`.
+    private var continueWithAppleButton: some View {
+        ZStack {
+            SignInWithAppleButton(.signIn, onRequest: { _ in }, onCompletion: { _ in })
+                .signInWithAppleButtonStyle(.white)
+                .allowsHitTesting(false)
+
+            Button {
+                Task { await beginAppleSignIn() }
+            } label: {
+                Color.clear
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Sign in with Apple")
+            .disabled(anySignInBusy)
+
+            if signingInApple {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(.black)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 54)
+        .clipShape(Capsule())
+        .opacity(anySignInBusy ? 0.75 : 1)
     }
 
     // ── Hero (Talise pinwheel) ─────────────────────────────────────
@@ -169,6 +217,21 @@ struct SignInScreen: View {
             onSignedIn(result.user, result.existing)
         } catch GoogleSignInService.SignInError.cancelled {
             // Quiet — the user explicitly backed out of the OAuth sheet.
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func beginAppleSignIn() async {
+        signingInApple = true
+        error = nil
+        defer { signingInApple = false }
+        do {
+            let result = try await ZkLoginCoordinator.shared.signInWithApple()
+            UserDefaults.standard.set(true, forKey: Self.hasSignedInBeforeKey)
+            onSignedIn(result.user, result.existing)
+        } catch GoogleSignInService.SignInError.cancelled {
+            // Quiet — the user dismissed the Apple sheet.
         } catch {
             self.error = error.localizedDescription
         }

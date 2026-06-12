@@ -8,6 +8,11 @@ const GOOGLE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/oauth2/v3/certs")
 );
 
+// Apple's published signing keys — same fetch+cache+rotate idiom as Google's.
+const APPLE_JWKS = createRemoteJWKSet(
+  new URL("https://appleid.apple.com/auth/keys")
+);
+
 type GoogleClaims = {
   sub: string;
   email: string;
@@ -37,6 +42,47 @@ export async function verifyGoogleIdToken(
     audience: audiences,
   });
   return payload as unknown as GoogleClaims;
+}
+
+type AppleClaims = {
+  sub: string;
+  /** May be an @privaterelay.appleid.com relay address. Present whenever the
+   *  user granted the email scope (Apple includes it on every identity token,
+   *  not just the first sign-in). */
+  email?: string;
+  /** Apple sends this as a boolean OR the string "true"/"false". */
+  email_verified?: boolean | string;
+  /** Only present when iOS requested .fullName AND it's the first sign-in. */
+  name?: string;
+  /** The OAuth nonce iOS passed to ASAuthorization — for zkLogin this MUST be
+   *  the Poseidon nonce derived from (ephemeralPubKey, maxEpoch, randomness). */
+  nonce?: string;
+  aud: string;
+  iss: string;
+  exp: number;
+};
+
+/**
+ * Verify a native Sign in with Apple identity token: RS256 signature against
+ * Apple's JWKS, `iss` === https://appleid.apple.com, `aud` === our bundle id,
+ * `exp` still valid (jose enforces it). Same trust posture as
+ * `verifyGoogleIdToken` — the token is CLIENT-SUBMITTED, so the signature
+ * check is what stops a forged `sub` from taking over a victim's wallet.
+ *
+ * NOTE: Apple identity tokens expire ~10 minutes after issuance. Callers must
+ * verify promptly (the exchange route runs within seconds of the native
+ * sheet completing, so this is fine).
+ */
+export async function verifyAppleIdToken(
+  idToken: string,
+  audiences: string[]
+): Promise<AppleClaims> {
+  const { payload } = await jwtVerify(idToken, APPLE_JWKS, {
+    issuer: "https://appleid.apple.com",
+    audience: audiences,
+    algorithms: ["RS256"],
+  });
+  return payload as unknown as AppleClaims;
 }
 
 /**

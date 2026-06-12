@@ -75,6 +75,8 @@ targets:
     entitlements:
       path: Talise/Resources/Talise.entitlements
       properties:
+        com.apple.developer.applesignin:
+          - Default
         com.apple.developer.devicecheck.appattest-environment: production
         com.apple.developer.associated-domains:
           - applinks:talise.io

@@ -1387,6 +1387,87 @@ export async function userByGoogleSub(sub: string): Promise<User | null> {
   return (r.rows[0] as unknown as User) ?? null;
 }
 
+// ───────────────────────────────────────────────────────────────────
+// Apple zkLogin salts — LOCAL fallback for Sign in with Apple.
+//
+// The primary salt source is Shinami's zkLogin Wallet service (keyed per
+// iss+sub on their side). If Shinami rejects an apple-issuer JWT (unknown
+// audience/issuer), we fall back to this table. The salt determines the
+// user's Sui address, so it is written ONCE per subject and never changes:
+// INSERT ... ON CONFLICT DO NOTHING, then SELECT the canonical row.
+//
+// Self-bootstrapping schema, same memoized-promise + version-gate idiom as
+// mobile-sessions (this is NOT on the hot auth path — only the Apple
+// sign-in exchange touches it).
+
+const APPLE_SALTS_DDL = `
+  CREATE TABLE IF NOT EXISTS apple_salts (
+    iss_sub TEXT PRIMARY KEY,
+    salt TEXT NOT NULL,
+    created_at BIGINT
+  )
+`;
+
+let _appleSaltsReadyP: Promise<void> | null = null;
+
+async function ensureAppleSaltsSchema(): Promise<void> {
+  if (!_appleSaltsReadyP) {
+    _appleSaltsReadyP = (async () => {
+      await ensureSchema();
+      const gate = await schemaVersionGate(
+        "apple_salts_schema_version",
+        APPLE_SALTS_DDL
+      );
+      if (gate.upToDate) return;
+      await db().execute(APPLE_SALTS_DDL);
+      await gate.stamp();
+    })().catch((e) => {
+      _appleSaltsReadyP = null; // retry on next call instead of caching failure
+      throw e;
+    });
+  }
+  return _appleSaltsReadyP;
+}
+
+/** Read the locally-stored Apple salt for `iss_sub` (null if none yet). */
+export async function localAppleSalt(issSub: string): Promise<string | null> {
+  await ensureAppleSaltsSchema();
+  const r = await db().execute({
+    sql: "SELECT salt FROM apple_salts WHERE iss_sub = ? LIMIT 1",
+    args: [issSub],
+  });
+  return (r.rows[0]?.salt as string | undefined) ?? null;
+}
+
+/**
+ * Store `candidateSalt` for `iss_sub` ONLY if no salt exists yet, then return
+ * the canonical stored salt. Concurrent first sign-ins race safely: ON
+ * CONFLICT DO NOTHING means exactly one INSERT wins and both callers read
+ * back the same winning row — the salt for a subject can never change.
+ */
+export async function getOrCreateLocalAppleSalt(
+  issSub: string,
+  candidateSalt: string
+): Promise<string> {
+  await ensureAppleSaltsSchema();
+  const c = db();
+  await c.execute({
+    sql: `INSERT INTO apple_salts (iss_sub, salt, created_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT (iss_sub) DO NOTHING`,
+    args: [issSub, candidateSalt, Date.now()],
+  });
+  const r = await c.execute({
+    sql: "SELECT salt FROM apple_salts WHERE iss_sub = ? LIMIT 1",
+    args: [issSub],
+  });
+  const stored = r.rows[0]?.salt as string | undefined;
+  if (!stored) {
+    throw new Error(`apple_salts insert/select failed for ${issSub}`);
+  }
+  return stored;
+}
+
 /**
  * Look up a user by their Sui address (UNIQUE). Case-insensitive — send
  * paths lowercase the recipient, but the stored address may be mixed case.

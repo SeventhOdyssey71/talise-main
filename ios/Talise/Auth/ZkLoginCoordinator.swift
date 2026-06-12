@@ -159,6 +159,140 @@ final class ZkLoginCoordinator {
         return SignInResult(user: me, existing: signed.existingAccount)
     }
 
+    /// Native Sign in with Apple — mirrors `signIn()` but with the
+    /// OAuth leg fully on-device (no ASWebAuthenticationSession).
+    ///
+    /// Flow:
+    ///   1. Ephemeral key + randomness + maxEpoch (same pre-auth setup
+    ///      as Google, except WE generate the binding triple — the
+    ///      Google flow lets /api/auth/mobile/start do it server-side).
+    ///   2. Fetch the zkLogin nonce for that triple (Poseidon hash —
+    ///      iOS has no BN254 Poseidon, so the server computes it).
+    ///   3. System Apple sheet with `request.nonce = zkNonce`; Apple
+    ///      embeds it verbatim into the identity token's `nonce` claim.
+    ///   4. POST /api/auth/mobile/exchange { provider: "apple", idToken,
+    ///      ephemeralPubKeyB64, maxEpoch, randomness } → { bearer,
+    ///      user/userId, proof?, existing }.
+    ///   5. Identical post-auth bootstrap to the Google path: bearer →
+    ///      Keychain, App Attest kickoff, /api/me, proof warm-up.
+    ///
+    /// Crucially the (pubKey, maxEpoch, randomness) triple stored in
+    /// ProofCache is the SAME one the JWT nonce committed to — the
+    /// prover's nonce equality check requires it.
+    func signInWithApple() async throws -> SignInResult {
+        // 1. Pre-auth binding material.
+        let key = try EphemeralKeyStore.shared.loadOrCreate()
+        let pubKeyB64 = key.publicKey.rawRepresentation.base64EncodedString()
+        let randomness = SuiRandomness.generate()
+        guard let maxEpoch = await fetchMaxEpoch() else {
+            throw CoordinatorError.exchangeFailed("Could not read the current Sui epoch. Check your connection and try again.")
+        }
+
+        // 2. zkLogin nonce for the triple.
+        let nonce = try await fetchZkNonce(
+            ephemeralPubKeyB64: pubKeyB64,
+            maxEpoch: maxEpoch,
+            randomness: randomness
+        )
+
+        // 3. Native Apple sheet. User-cancel surfaces as the shared
+        //    GoogleSignInService.SignInError.cancelled, which the
+        //    sign-in screens swallow quietly.
+        let idToken = try await AppleSignInService().identityToken(nonce: nonce)
+
+        // 4. Exchange the Apple identity token for a mobile bearer.
+        let resp = try await postUnauthenticated(
+            path: "/api/auth/mobile/exchange",
+            body: [
+                "provider": "apple",
+                "idToken": idToken,
+                "ephemeralPubKeyB64": pubKeyB64,
+                "maxEpoch": maxEpoch,
+                "randomness": randomness,
+            ]
+        )
+        if let err = resp["error"] as? String, !err.isEmpty {
+            throw CoordinatorError.exchangeFailed(err)
+        }
+        // The exchange returns the bearer as `bearer` (current server)
+        // — accept `token` too for forward/backward tolerance.
+        guard let bearer = (resp["bearer"] as? String) ?? (resp["token"] as? String),
+              !bearer.isEmpty else {
+            throw CoordinatorError.exchangeFailed("no bearer in exchange response")
+        }
+        let existing = (resp["existing"] as? Bool) ?? false
+        try SecureSessionStore.shared.save(token: bearer)
+
+        // Same App Attest kickoff as the Google path (P1-5).
+        Task.detached { [bearer] in
+            try? await AppAttestService.shared.bootstrap(
+                bearer: bearer,
+                apiBaseURL: AppConfig.shared.apiBaseURL
+            )
+        }
+
+        // 5. Authoritative user record — identical to the Google path.
+        let me: UserDTO = try await APIClient.shared.get("/api/me")
+
+        // Proof cache: persist the EXACT triple the JWT nonce bound.
+        // If the exchange pre-minted a proof, keep it; otherwise warm
+        // one in the background like signIn() does.
+        ProofCache.shared.jwtRandomness = randomness
+        ProofCache.shared.maxEpoch = maxEpoch
+        if let proof = resp["proof"],
+           JSONSerialization.isValidJSONObject(proof),
+           let proofDict = proof as? [String: Any],
+           proofDict["proofPoints"] is [String: Any] {
+            ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: proofDict)
+        } else {
+            Task { await warmProof(
+                pubKeyB64: pubKeyB64,
+                randomness: randomness,
+                maxEpoch: maxEpoch
+            ) }
+        }
+
+        return SignInResult(user: me, existing: existing)
+    }
+
+    /// Server-computed zkLogin nonce for a (ephemeralPubKey, maxEpoch,
+    /// randomness) triple. The nonce is `poseidonHash(extEphPubKey,
+    /// maxEpoch, randomness)` over BN254 — iOS has no Poseidon
+    /// implementation, and `/api/auth/mobile/start` computes it only to
+    /// redirect to Google, so the native Apple flow needs it as JSON.
+    ///
+    /// TODO(server-lane): needs a tiny new endpoint —
+    ///   POST /api/auth/mobile/nonce
+    ///   body:     { ephemeralPubKeyB64: string (standard base64, 32-byte
+    ///               Ed25519 pubkey), maxEpoch: number, randomness: string
+    ///               (decimal bigint, same format as /start generates) }
+    ///   response: { nonce: string }
+    ///   impl:     new Ed25519PublicKey(fromBase64(ephemeralPubKeyB64))
+    ///             → generateNonce(pk, maxEpoch, randomness) from
+    ///             @mysten/sui/zklogin — the same call /start makes at
+    ///             web/app/api/auth/mobile/start/route.ts:107. Pure
+    ///             function, no auth needed, rate-limit like /start.
+    /// This function already speaks that contract; once the route
+    /// exists, no iOS change is needed.
+    private func fetchZkNonce(
+        ephemeralPubKeyB64: String,
+        maxEpoch: Int,
+        randomness: String
+    ) async throws -> String {
+        let resp = try await postUnauthenticated(
+            path: "/api/auth/mobile/nonce",
+            body: [
+                "ephemeralPubKeyB64": ephemeralPubKeyB64,
+                "maxEpoch": maxEpoch,
+                "randomness": randomness,
+            ]
+        )
+        guard let nonce = resp["nonce"] as? String, !nonce.isEmpty else {
+            throw CoordinatorError.exchangeFailed("no nonce in response")
+        }
+        return nonce
+    }
+
     /// Idempotent warm-up. Called from AppSession.bootstrap so a
     /// returning user (bearer in Keychain, no fresh signIn this launch)
     /// still gets a usable ProofCache before they tap Send.

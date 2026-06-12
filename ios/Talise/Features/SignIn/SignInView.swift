@@ -1,10 +1,14 @@
 import SwiftUI
+import AuthenticationServices
 
 struct SignInView: View {
     @Environment(AppSession.self) private var session
     @State private var signingIn = false
+    @State private var signingInApple = false
     @State private var error: String?
     @State private var appeared = false
+
+    private var anySignInBusy: Bool { signingIn || signingInApple }
 
     var body: some View {
         ZStack {
@@ -59,6 +63,39 @@ struct SignInView: View {
                             .transition(.opacity)
                     }
 
+                    // Sign in with Apple — same footprint as the Google
+                    // CTA below (HIG: at least as prominent). System
+                    // button for rendering; transparent overlay drives
+                    // the async nonce-then-sheet flow (the system
+                    // button's onRequest is synchronous and can't await
+                    // the zkLogin nonce fetch).
+                    ZStack {
+                        SignInWithAppleButton(.signIn, onRequest: { _ in }, onCompletion: { _ in })
+                            .signInWithAppleButtonStyle(.white)
+                            .allowsHitTesting(false)
+
+                        Button {
+                            Task { await beginAppleSignIn() }
+                        } label: {
+                            Color.clear
+                                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Sign in with Apple")
+                        .disabled(anySignInBusy)
+
+                        if signingInApple {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .controlSize(.small)
+                                .tint(.black)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .opacity(anySignInBusy ? 0.75 : 1)
+
                     // Flat solid primary CTA — green fill, dark ink, no glass.
                     Button {
                         Task { await beginSignIn() }
@@ -88,7 +125,7 @@ struct SignInView: View {
                         .opacity(signingIn ? 0.85 : 1.0)
                     }
                     .buttonStyle(.plain)
-                    .disabled(signingIn)
+                    .disabled(anySignInBusy)
 
                     // Beta honesty — non-allowlisted testers hit an access
                     // gate after sign-in; flag it up front so the gate
@@ -123,6 +160,20 @@ struct SignInView: View {
             session.handleSignedIn(user: result.user)
         } catch GoogleSignInService.SignInError.cancelled {
             // user backed out — no error toast
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func beginAppleSignIn() async {
+        signingInApple = true
+        error = nil
+        defer { signingInApple = false }
+        do {
+            let result = try await ZkLoginCoordinator.shared.signInWithApple()
+            session.handleSignedIn(user: result.user)
+        } catch GoogleSignInService.SignInError.cancelled {
+            // user dismissed the Apple sheet — no error toast
         } catch {
             self.error = error.localizedDescription
         }
