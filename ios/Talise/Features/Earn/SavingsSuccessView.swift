@@ -21,16 +21,16 @@ struct SavingsSuccessView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // One calm hero: the accent checkmark settles in on a FLAT
-                // solid accent-tinted disc — no material, no specular ring.
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 64, weight: .medium))
-                    .foregroundStyle(TaliseColor.accent)
-                    .padding(26)
-                    .background(
-                        Circle().fill(TaliseColor.accent.opacity(0.14))
-                    )
-                    .scrapbookFadeUp(delay: 0.05)
+                // The piggy IS the hero — the SavingsPiggy art drops in
+                // with the scrapbook wobble (tilted opposite to the send
+                // screen's coin stack so the two screens feel hand-placed).
+                // Replaces the old checkmark-on-a-disc per the founder's
+                // "have the piggy come up on successful save".
+                Image("SavingsPiggy")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 300, height: 240)
+                    .scrapbookEntry(delay: 0.05, tilt: -6)
 
                 Spacer().frame(height: 30)
 

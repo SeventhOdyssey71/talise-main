@@ -113,6 +113,10 @@ struct SendSuccess: Equatable {
     let recipientAddress: String
     /// Display name (handle or short address) for the recipient.
     let recipientDisplay: String
+    /// Round-up & Save amount auto-set-aside with this send (USD).
+    /// 0 when Spend + Save is off. Drives the "You saved" pop on the
+    /// success screen.
+    var savedUsd: Double = 0
 }
 
 // `TaliseTxEvent` + `Notification.Name.taliseTxCompleted` are declared

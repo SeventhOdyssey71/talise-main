@@ -157,7 +157,16 @@ struct EarnView: View {
         let apyText = live ? String(format: "%.2f%%", v.apy * 100) : "—"
         // Localized subtitle — Nigerian user sees ₦, US user sees $, UK
         // sees £, etc. Routes through TaliseFormat / CurrencySettings.
-        let subtitle = hasPosition ? "Supplied \(TaliseFormat.local2(v.supplied ?? 0))" : "Tap to add money"
+        // With a position, lead with what the user has EARNED (the number
+        // they actually care about) next to the supplied principal.
+        let subtitle: String = {
+            guard hasPosition else { return "Tap to add money" }
+            let suppliedText = "Supplied \(TaliseFormat.local2(v.supplied ?? 0))"
+            if let earned = v.earned, earned > 0 {
+                return suppliedText + " · Earned +\(TaliseFormat.local2(earned))"
+            }
+            return suppliedText
+        }()
 
         Button {
             // Always opens the combined Add money / Withdraw sheet — idle
@@ -272,6 +281,12 @@ private struct EarnManageSheet: View {
     @State private var withdrawing = false
     @State private var error: String?
     @State private var success: String?
+    /// Forces the slide-to-confirm knob back to start after a failed /
+    /// disclosure-gated attempt (the control stays mounted here).
+    @State private var slideReset = false
+    /// Pre-formatted amount for the full-screen piggy success cover.
+    /// Non-nil presents it.
+    @State private var savedAmountText: String?
 
     /// Plural "money word" for the user's display currency, for the
     /// disclosure copy ("earn on your naira"). Falls back to "money".
@@ -408,6 +423,19 @@ private struct EarnManageSheet: View {
         // Host the PIN sheet inside this sheet's own presentation context so
         // deposit + withdraw confirmations surface from here.
         .pinGateHost()
+        // Piggy success cover for a completed save. Dismissing returns to
+        // the Earn screen with the sheet closed.
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { savedAmountText != nil },
+                set: { if !$0 { savedAmountText = nil; dismiss() } }
+            )
+        ) {
+            SavingsSuccessView(amountText: savedAmountText ?? "") {
+                savedAmountText = nil
+                dismiss()
+            }
+        }
         // One-time opt-in disclosure before the FIRST deposit — presented
         // from inside this sheet so, on accept, the supply continues in
         // context. The supply NEVER runs without this explicit acceptance.
@@ -685,16 +713,36 @@ private struct EarnManageSheet: View {
     }
 
     private var depositActionBar: some View {
+        // Slide to complete — replaces the PIN prompt on the save flow.
+        // The slide is the *intent* gesture (same trust model as Send's
+        // SlideToConfirm); zkLogin still signs the tx underneath. Until
+        // an amount is typed we show a quiet disabled pill instead of a
+        // draggable track that would dead-end.
         VStack(spacing: 12) {
-            LiquidGlassButton(
-                title: depositing ? "Adding…" : depositLabel,
-                tint: TaliseColor.accent,
-                size: .lg,
-                loading: depositing
-            ) {
-                depositTapped()
+            if canDeposit {
+                SlideToConfirm(
+                    title: "Slide to start earning",
+                    tint: TaliseColor.accent,
+                    reset: $slideReset
+                ) {
+                    if EarnView.hasAcceptedEarnDisclosure() {
+                        await deposit()
+                    } else {
+                        // First supply: surface the one-time disclosure and
+                        // spring the knob back — accepting it runs deposit().
+                        showDisclosure = true
+                        slideReset = true
+                    }
+                }
+            } else {
+                LiquidGlassButton(
+                    title: depositing ? "Adding…" : depositLabel,
+                    tint: TaliseColor.accent,
+                    size: .lg,
+                    loading: depositing
+                ) {}
+                .disabled(true)
             }
-            .disabled(!canDeposit)
         }
         .padding(.horizontal, 22)
         .padding(.top, 12)
@@ -802,10 +850,8 @@ private struct EarnManageSheet: View {
                 body: Body(venue: venue.venue, amount: usd)
             )
             let symbol = CurrencySettings.shared.current.symbol
-            let amountForPrompt = String(format: "$%.2f", usd)
-            try await PinGate.shared.requireUserPresence(
-                reason: "Start earning on \(amountForPrompt)"
-            )
+            // No PIN here anymore — the slide-to-complete track IS the
+            // confirmation gesture (mirrors the Send flow's SlideToConfirm).
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
                 transactionKindB64: built.transactionKindB64,
                 intent: "Earn \(symbol)\(depositText)",
@@ -829,15 +875,14 @@ private struct EarnManageSheet: View {
             )
             depositText = ""
             onClose()
-            // Brief beat to read the success state, then close.
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            dismiss()
-        } catch PinError.cancelled {
-            self.error = nil
-        } catch PinError.forgotSignOut {
-            self.error = "Sign in again to set a new PIN."
+            // Full-screen piggy celebration — dismissing it closes the
+            // sheet (see fullScreenCover below).
+            savedAmountText = TaliseFormat.local2(usd)
         } catch {
             self.error = error.localizedDescription
+            // Spring the slide-to-complete knob back so the user can
+            // retry without reopening the sheet.
+            slideReset = true
         }
     }
 

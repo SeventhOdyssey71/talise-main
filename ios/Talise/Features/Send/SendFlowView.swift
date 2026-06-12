@@ -176,7 +176,8 @@ struct SendFlowView: View {
                 currency: draft.currency,
                 usdsui: draft.amountUsdsui,
                 recipientAddress: resolved.address,
-                recipientDisplay: resolved.displayName ?? shortAddress(resolved.address)
+                recipientDisplay: resolved.displayName ?? shortAddress(resolved.address),
+                savedUsd: result.roundupUsd
             )
             draft.success = success
 

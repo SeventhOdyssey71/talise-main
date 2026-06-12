@@ -15,12 +15,16 @@ struct SendCompleteView: View {
         // local2 mirrors what the rest of the app shows so a ₦ user
         // sees ₦ here, a $ user sees $.
         let amountText = TaliseFormat.local2(draft.success?.usdsui ?? draft.amountUsdsui)
+        // Spend + Save pop: surface the server-blessed round-up amount
+        // that auto-saved with this send (0 / nil → no pop).
+        let savedUsd = draft.success?.savedUsd ?? 0
         SuccessfulTxView(
             amountText: amountText,
             title: successTitle,
             subtitle: successSubtitle,
             onShareReceipt: shareReceipt,
-            onDone: onDone
+            onDone: onDone,
+            savedText: savedUsd > 0 ? TaliseFormat.local2(savedUsd) : nil
         )
         .toolbar(.hidden, for: .navigationBar)
     }

@@ -7,6 +7,7 @@ import {
   type NaviPositionDetail,
 } from "@/lib/navi-supply";
 import { getRecentActivity } from "@/lib/activity";
+import { readActivitySnapshot } from "@/lib/snapshots";
 
 export const runtime = "nodejs";
 
@@ -61,7 +62,19 @@ export async function GET(req: Request) {
     const naviVenue = cmp.venues.find((v) => v.id === "navi");
     if (naviVenue && (naviVenue.supplied ?? 0) > 0) {
       try {
-        const activity = await activityPromise;
+        let activity = await activityPromise;
+        // The live walk times out at 4s (and the underlying tx-history
+        // read flakes under RPC pressure) — when it comes back empty,
+        // fall back to the persisted activity snapshot Home maintains.
+        // Without this, `earned` silently vanished from the Earn screen
+        // whenever the walk was slow, which read as "Talise lost my
+        // earnings" (founder report, 2026-06-12).
+        if (activity.length === 0) {
+          const snap = await readActivitySnapshot(userId).catch(() => null);
+          if (snap && Array.isArray(snap.entries)) {
+            activity = snap.entries as typeof activity;
+          }
+        }
         const naviRows = activity
           .filter((a) => (a.venue ?? "").toLowerCase() === "navi")
           .map((a) => ({

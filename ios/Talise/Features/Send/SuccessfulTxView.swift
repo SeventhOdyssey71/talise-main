@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Full-screen "Transaction Successful!" celebration shown after a
 /// payment lands. Implements Figma node 141:18 — dark theme: black field
@@ -30,8 +31,14 @@ struct SuccessfulTxView: View {
     var subtitle: String = "gas cost = 0, money arrives < 1s"
     var onShareReceipt: (() -> Void)? = nil
     let onDone: () -> Void
+    /// Pre-formatted Round-up & Save amount (e.g. "₦120.00") auto-saved
+    /// alongside this payment. Nil/empty → no pop. When set, a piggy
+    /// chip springs up under the subtitle a beat after the celebration
+    /// lands, so Spend + Save users SEE the save happen.
+    var savedText: String? = nil
 
     private let mintGreen = Color(hex: 0xB1F49A)
+    @State private var showSavedPop = false
 
     var body: some View {
         ZStack {
@@ -80,6 +87,42 @@ struct SuccessfulTxView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 8)
                     .scrapbookFadeUp(delay: 0.34)
+
+                // Spend + Save pop — the auto-saved slice, springing up a
+                // beat after the celebration so the save reads as its own
+                // moment. Piggy + amount in a quiet pill; no claims, just
+                // the fact.
+                if let savedText, !savedText.isEmpty {
+                    HStack(spacing: 10) {
+                        Image("SavingsPiggy")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 30, height: 30)
+                        Text("Saved \(savedText)")
+                            .font(TaliseFont.body(14, weight: .medium))
+                            .kerning(-0.3)
+                            .foregroundStyle(mintGreen)
+                        Text("· Spend + Save")
+                            .font(TaliseFont.mono(11, weight: .regular))
+                            .foregroundStyle(TaliseColor.fgDim)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(mintGreen.opacity(0.12)))
+                    .overlay(Capsule().strokeBorder(mintGreen.opacity(0.25), lineWidth: 1))
+                    .padding(.top, 18)
+                    .scaleEffect(showSavedPop ? 1 : 0.6)
+                    .opacity(showSavedPop ? 1 : 0)
+                    .onAppear {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.62).delay(0.7)) {
+                            showSavedPop = true
+                        }
+                        // A soft success tick when the pop lands.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+                            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                        }
+                    }
+                }
 
                 Spacer()
 

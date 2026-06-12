@@ -64,6 +64,10 @@ final class ZkLoginCoordinator {
 
     struct SignedSubmission {
         let digest: String
+        /// Server-blessed Round-up & Save amount attached to this tx
+        /// (USD). 0 when round-up is off / not applicable. The Send
+        /// success screen uses it for the "You saved" pop.
+        var roundupUsd: Double = 0
     }
 
     enum CoordinatorError: LocalizedError {
@@ -540,7 +544,7 @@ final class ZkLoginCoordinator {
                     "[ios/send] prepare=\(tPrepareMs)ms sign=\(tSignMs)ms assemble=\(direct.assembleMs)ms broadcast=\(direct.broadcastMs)ms confirm=\(direct.confirmMs)ms total=\(tTotalMs)ms mode=gasless-direct provider=\(direct.provider)"
                 )
                 _ = intent
-                return SignedSubmission(digest: direct.digest)
+                return SignedSubmission(digest: direct.digest, roundupUsd: serverRoundupUsd)
             } catch {
                 // Direct-broadcast failed at assemble or broadcast.
                 // Log + fall through to the legacy gasless-submit path
@@ -582,7 +586,7 @@ final class ZkLoginCoordinator {
             "[ios/send] prepare=\(tPrepareMs)ms sign=\(tSignMs)ms execute=\(tExecuteMs)ms total=\(tTotalMs)ms mode=\(mode)"
         )
         _ = intent // currently unused server-side; kept in signature for parity with signAndSubmit
-        return SignedSubmission(digest: digestStr)
+        return SignedSubmission(digest: digestStr, roundupUsd: serverRoundupUsd)
     }
 
     /// Result of a one-time accumulator consolidation. `alreadyGasless`
