@@ -425,6 +425,9 @@ private struct OfframpBank: Identifiable, Hashable {
 /// slide to confirm (creates a Linq order, then signs a USDsui transfer to
 /// the Linq deposit wallet) → POLL status until completed/failed.
 private struct BankWithdrawView: View {
+    /// Session-expiry path: an unrecoverable zkLogin session routes to a
+    /// clean sign-out → re-auth (mirrors Send) instead of a dead-end error.
+    @Environment(AppSession.self) private var session
     @State private var accountNumber: String = ""
     @State private var selectedBank: OfframpBank? = nil
     @State private var amount: String = ""
@@ -1028,6 +1031,9 @@ private struct BankWithdrawView: View {
             error = friendlyOfframpError(code: code, message: msg)
         } catch APIError.unauthorized {
             error = "Please sign in again."
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = APIError.honestMoneyError(

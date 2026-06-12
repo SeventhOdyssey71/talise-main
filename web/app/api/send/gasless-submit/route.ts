@@ -91,26 +91,53 @@ export async function POST(req: Request) {
 
   try {
     const t0 = Date.now();
-    const { signature: zkLoginSignature, proof, isFresh } =
-      await assembleZkLoginSignature({
-        ephemeralPubKeyB64: body.ephemeralPubKeyB64,
-        maxEpoch: body.maxEpoch,
-        randomness: body.randomness,
-        userSignature: body.userSignature,
-        cachedProof: body.cachedProof,
+    const assemble = (useCachedProof: boolean) =>
+      assembleZkLoginSignature({
+        ephemeralPubKeyB64: body.ephemeralPubKeyB64!,
+        maxEpoch: body.maxEpoch!,
+        randomness: body.randomness!,
+        userSignature: body.userSignature!,
+        cachedProof: useCachedProof ? body.cachedProof : undefined,
         jwt: signing.jwt,
         salt: signing.salt,
       });
+    let assembled = await assemble(true);
     const tProof = Date.now();
 
     // Submit directly to the fullnode. Gasless txs need only the
     // user's zkLogin signature — no sponsor signature involved. The
     // gRPC client auto-detects gasless eligibility, so no extra flag
     // needed here (prepare already set gasPrice=0 on the build).
-    const result = (await sui().executeTransaction({
-      transaction: fromBase64(body.bytesB64),
-      signatures: [zkLoginSignature],
-    })) as Record<string, unknown>;
+    const submit = (sig: string) =>
+      sui().executeTransaction({
+        transaction: fromBase64(body.bytesB64!),
+        signatures: [sig],
+      }) as Promise<Record<string, unknown>>;
+
+    let result: Record<string, unknown>;
+    try {
+      result = await submit(assembled.signature);
+    } catch (err) {
+      // Stale client proof (cached proof minted against a previous
+      // ephemeral key) → "Groth16 proof verify failed" at the node.
+      // Re-mint fresh from the server-held jwt+salt and retry once —
+      // mirrors zk/sponsor-execute's recovery.
+      const m = ((err as Error)?.message ?? "").toLowerCase();
+      const staleProof =
+        m.includes("groth16") ||
+        m.includes("invalid user signature") ||
+        m.includes("signature is not valid");
+      if (!assembled.isFresh && body.cachedProof && staleProof) {
+        console.warn(
+          `[send/gasless-submit] stale cached proof rejected on-chain (user=${userId}) — re-minting fresh and retrying once`
+        );
+        assembled = await assemble(false);
+        result = await submit(assembled.signature);
+      } else {
+        throw err;
+      }
+    }
+    const { proof, isFresh } = assembled;
     const tDone = Date.now();
 
     console.log(
@@ -208,6 +235,18 @@ export async function POST(req: Request) {
   } catch (err) {
     const msg = (err as Error).message ?? "submit failed";
     console.warn(`[send/gasless-submit] user=${userId} failed: ${msg}`);
+    // A fresh proof mint failing with "Invalid params" (-32602) means the
+    // JWT can no longer prove (expired id_token / nonce mismatch) — a
+    // session problem: route the client to a clean re-sign-in.
+    if (/-32602|invalid params/i.test(msg)) {
+      return NextResponse.json(
+        {
+          error: "Sign in again — your session needs a refresh.",
+          code: "session_rebind_required",
+        },
+        { status: 401 }
+      );
+    }
     const status = msg.includes("No active sign-in") ? 401 : 500;
     return NextResponse.json({ error: msg }, { status });
   }

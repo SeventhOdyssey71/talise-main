@@ -60,6 +60,13 @@ final class ZkLoginCoordinator {
 
     struct SignInResult {
         let user: UserDTO
+        /// Server-asserted flag from the auth exchange: true when this
+        /// Google account already had a Talise user row BEFORE this
+        /// sign-in (returning user), false when the exchange just
+        /// created it (genuinely new) — or when an older server deploy
+        /// didn't send the flag. Use to ENHANCE routing (welcome-back
+        /// moment), never as the sole gate.
+        let existing: Bool
     }
 
     struct SignedSubmission {
@@ -149,7 +156,7 @@ final class ZkLoginCoordinator {
             ) }
         }
 
-        return SignInResult(user: me)
+        return SignInResult(user: me, existing: signed.existingAccount)
     }
 
     /// Idempotent warm-up. Called from AppSession.bootstrap so a

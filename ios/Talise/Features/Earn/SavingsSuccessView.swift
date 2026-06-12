@@ -44,7 +44,7 @@ struct SavingsSuccessView: View {
                     .padding(.horizontal, 24)
                     .scrapbookFadeUp(delay: 0.22)
 
-                Text("\(amountText) is now earning interest in your wallet.")
+                Text("\(amountText) is now earning on your idle balance.")
                     .font(TaliseFont.mono(13, weight: .regular))
                     .kerning(-0.26)
                     .foregroundStyle(TaliseColor.fgMuted)

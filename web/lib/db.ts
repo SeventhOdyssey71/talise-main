@@ -382,6 +382,12 @@ async function doEnsureSchema(): Promise<void> {
     // getUserTier() reads this column and treats NULL as 0. Default 0 so
     // fresh inserts (which don't set it) land at the floor tier.
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_tier INTEGER DEFAULT 0`,
+    // Account deletion (App Store Guideline 5.1.1(v)). Set by
+    // markUserDeleted() when the user deletes their Talise account
+    // in-app. PII columns are redacted at the same time; financial
+    // records (tx_history / transfers / linq_offramps / KYC artifacts)
+    // are retained for bookkeeping + AML record-keeping obligations.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at BIGINT`,
     // Indexes on hot read paths. UNIQUE constraints above already cover
     // google_sub / sui_address / business_handle / talise_username
     // lookups; these add coverage for the non-unique reads.
@@ -1093,6 +1099,8 @@ export type User = {
   talise_vault_id?: string | null;
   talise_vault_subname_repointed?: number | null;
   kyc_tier?: number | null;
+  /** Epoch ms the user deleted their account in-app (null = active). */
+  deleted_at?: number | null;
 };
 
 /**
@@ -1346,6 +1354,27 @@ export async function userById(id: number): Promise<User | null> {
     sql: "SELECT * FROM users WHERE id = ? LIMIT 1",
     args: [id],
   });
+  const u = (r.rows[0] as unknown as User) ?? null;
+  // A deleted account no longer exists for any authed surface. The web
+  // session cookie is stateless (no server-side store to revoke), but every
+  // authed route resolves the user through here — so filtering deleted rows
+  // is the chokepoint that retires any still-circulating cookie after an
+  // in-app account deletion (markUserDeleted). Mobile bearers are revoked
+  // explicitly in the delete route.
+  if (u?.deleted_at) return null;
+  return u;
+}
+
+/**
+ * Raw row read that does NOT filter deleted accounts — needed by
+ * markUserDeleted's idempotency check (and any future admin tooling).
+ */
+export async function userByIdIncludingDeleted(id: number): Promise<User | null> {
+  await ensureSchema();
+  const r = await db().execute({
+    sql: "SELECT * FROM users WHERE id = ? LIMIT 1",
+    args: [id],
+  });
   return (r.rows[0] as unknown as User) ?? null;
 }
 
@@ -1371,6 +1400,92 @@ export async function userBySuiAddress(address: string): Promise<User | null> {
     args: [address],
   });
   return (r.rows[0] as unknown as User) ?? null;
+}
+
+/**
+ * In-app account deletion (App Store Guideline 5.1.1(v)).
+ *
+ * Soft delete + PII redaction, NOT a row drop — dozens of financial tables
+ * FK onto users(id) and those records must survive for bookkeeping + AML
+ * record-keeping obligations. What happens:
+ *
+ *   • google_sub  → `deleted:<id>:<ts>`  — breaks the Google→account link,
+ *     so a future sign-in with the same Google account creates a FRESH row
+ *     instead of resurrecting this one. (The wallet is self-custodial: the
+ *     same Google identity re-derives the same zkLogin address via Shinami,
+ *     so funds are never lost — only the Talise profile is gone.)
+ *   • sui_address → `deleted:<id>:<addr>` — frees the UNIQUE constraint for
+ *     that fresh re-signup row while keeping the address inside the value
+ *     for audit. Lookups (userBySuiAddress) no longer match.
+ *   • email/name/picture + business profile + talise_username → redacted.
+ *     Clearing talise_username releases the server-side handle mapping
+ *     (the on-chain SuiNS subname stays with the user's wallet).
+ *   • salt → 'deleted' — Shinami remains the salt source of truth.
+ *   • PII side tables — linked bank accounts, push tokens, display
+ *     snapshots, savings goals — are deleted outright.
+ *
+ * KEPT: tx_history, transfers, invoices, linq_offramps, rewards ledger,
+ * KYC/travel-rule artifacts (legally retained), cheques/streams escrows
+ * (claimable by recipients independent of the issuer's profile).
+ *
+ * Idempotent — a second call on an already-deleted row is a no-op.
+ * Callers must also revoke sessions (revokeAllMobileSessions + cookie).
+ */
+export async function markUserDeleted(userId: number): Promise<void> {
+  await ensureSchema();
+  const c = db();
+  const u = await userByIdIncludingDeleted(userId);
+  if (!u) return;
+  if (u.deleted_at || u.google_sub.startsWith("deleted:")) return;
+
+  const now = Date.now();
+  await c.execute({
+    sql: `UPDATE users SET
+            google_sub = ?,
+            sui_address = ?,
+            email = ?,
+            name = NULL,
+            picture = NULL,
+            salt = 'deleted',
+            country = NULL,
+            business_name = NULL,
+            business_handle = NULL,
+            business_industry = NULL,
+            interests = NULL,
+            talise_username = NULL,
+            notify_on_receive = 0,
+            deleted_at = ?
+          WHERE id = ?`,
+    args: [
+      `deleted:${userId}:${now}`,
+      `deleted:${userId}:${u.sui_address}`,
+      `deleted:${userId}@redacted.invalid`,
+      now,
+      userId,
+    ],
+  });
+
+  // PII side tables — hard-delete. Each is independent; a failure on one
+  // (e.g. a table that predates this feature) must not abort the rest.
+  const cleanups: Array<{ sql: string; args: (string | number)[] }> = [
+    // Linked NGN bank accounts (account numbers + names). TEXT user_id.
+    { sql: `DELETE FROM user_bank_accounts WHERE user_id = ?`, args: [String(userId)] },
+    // APNs push tokens — device must stop receiving pushes post-delete.
+    { sql: `DELETE FROM device_token WHERE user_id = ?`, args: [userId] },
+    // Display-only snapshot caches.
+    { sql: `DELETE FROM user_balance_snapshot WHERE user_id = ?`, args: [userId] },
+    { sql: `DELETE FROM user_activity_snapshot WHERE user_id = ?`, args: [userId] },
+    { sql: `DELETE FROM user_insights_snapshot WHERE user_id = ?`, args: [userId] },
+    // User-authored savings buckets (free-text names).
+    { sql: `DELETE FROM savings_goals WHERE user_id = ?`, args: [userId] },
+  ];
+  for (const stmt of cleanups) {
+    try {
+      await c.execute(stmt);
+    } catch {
+      /* best-effort PII cleanup — never abort the deletion itself */
+    }
+  }
 }
 
 /**

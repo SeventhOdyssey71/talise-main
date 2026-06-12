@@ -9,7 +9,10 @@ import SwiftUI
 /// auth. On success the resulting `UserDTO` is passed up to
 /// `OnboardingRoot` so the rest of the onboarding flow can run.
 struct SignInScreen: View {
-    let onSignedIn: (UserDTO) -> Void
+    /// `(user, existing)` — `existing` is the server-asserted "this
+    /// Google account already had a Talise row before this exchange"
+    /// flag from the auth callback (false on older server deploys).
+    let onSignedIn: (UserDTO, _ existing: Bool) -> Void
     @State private var signingIn = false
     @State private var error: String?
 
@@ -153,7 +156,7 @@ struct SignInScreen: View {
             // Remember this device has signed in at least once so the next
             // visit greets returning users with "Welcome back".
             UserDefaults.standard.set(true, forKey: Self.hasSignedInBeforeKey)
-            onSignedIn(result.user)
+            onSignedIn(result.user, result.existing)
         } catch GoogleSignInService.SignInError.cancelled {
             // Quiet — the user explicitly backed out of the OAuth sheet.
         } catch {

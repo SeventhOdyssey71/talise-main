@@ -126,7 +126,7 @@ export async function POST(req: Request) {
   }
 
   const country = req.headers.get("x-vercel-ip-country");
-  const { user } = await upsertUser({
+  const { user, isNew } = await upsertUser({
     googleSub: claims.sub,
     email: claims.email,
     name: claims.name ?? null,
@@ -214,5 +214,9 @@ export async function POST(req: Request) {
     bearer,
     proof,
     maxEpoch: body.maxEpoch,
+    // Additive: true when this Google account already had a Talise user
+    // row before this exchange (returning sign-in). Old clients that
+    // don't know the field simply ignore it.
+    existing: !isNew,
   });
 }

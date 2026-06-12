@@ -277,7 +277,7 @@ struct CrossBorderReviewView: View {
                     .foregroundStyle(TaliseColor.accent)
             }
 
-            Text("Guaranteed at the held rate. Talise settles this as digital dollars, 1:1, then pays out locally.")
+            Text("Locked at the held rate. Talise settles this as digital dollars, 1:1, then pays out locally.")
                 .font(TaliseFont.mono(10, weight: .light))
                 .foregroundStyle(TaliseColor.fgDim)
                 .frame(maxWidth: .infinity, alignment: .leading)

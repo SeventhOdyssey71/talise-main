@@ -11,7 +11,7 @@ settings:
     SWIFT_VERSION: "5.10"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
 
 # SPM deps:
@@ -44,6 +44,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        # iPhone-only (TARGETED_DEVICE_FAMILY 1), portrait-only.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         CFBundleURLTypes:
@@ -51,7 +54,6 @@ targets:
             CFBundleURLSchemes:
               - talise
               - com.googleusercontent.apps.786432206940-rnvri4af4ek2btleebt43i8ovc4h2lod
-        LSApplicationQueriesSchemes: [googlechromes, googlechrome]
         NSCameraUsageDescription: "Talise uses the camera to scan payment QR codes."
         NSFaceIDUsageDescription: "Confirm sends and signatures with Face ID."
         ITSAppUsesNonExemptEncryption: false
@@ -77,6 +79,7 @@ targets:
         com.apple.developer.associated-domains:
           - applinks:talise.io
           - applinks:www.talise.io
+          - applinks:app.talise.io
         keychain-access-groups:
           - $(AppIdentifierPrefix)io.talise.app
         aps-environment: production

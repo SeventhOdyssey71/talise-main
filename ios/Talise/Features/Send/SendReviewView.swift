@@ -277,7 +277,7 @@ struct SendReviewView: View {
                     .foregroundStyle(TaliseColor.greenMint)
             }
 
-            Text("Guaranteed for the held rate. Talise moves this as digital dollars, 1:1.")
+            Text("Locked at the held rate. Talise moves this as digital dollars, 1:1.")
                 .font(TaliseFont.mono(10, weight: .light))
                 .foregroundStyle(TaliseColor.fgDim)
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -373,6 +373,11 @@ struct ChequeWriteView: View {
             withAnimation { issued = created }
         } catch APIError.status(let code, let msg) {
             self.error = chequeError(code: code, message: msg, verb: "issue")
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            // Unrecoverable session — retrying here would fail forever.
+            // Route to the clean sign-out → re-auth path (mirrors Send).
+            self.error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = "Couldn't issue the cheque right now."
@@ -402,6 +407,7 @@ private struct ChequeIssuedView: View {
     let memo: String
     let signature: String
     var onDone: () -> Void
+    @Environment(AppSession.self) private var session
     @State private var sharing = false
     @State private var reclaiming = false
     @State private var reclaimed = false
@@ -490,6 +496,9 @@ private struct ChequeIssuedView: View {
             withAnimation { reclaimed = true }
         } catch APIError.status(let code, let msg) {
             reclaimError = chequeError(code: code, message: msg, verb: "reclaim")
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            reclaimError = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
             reclaimError = "Couldn't claim this cheque back right now."
@@ -508,6 +517,7 @@ private struct ChequeIssuedView: View {
 /// executeSponsorReady, then a confirm POST with the digest.
 struct MyChequesView: View {
     var onDone: () -> Void
+    @Environment(AppSession.self) private var session
     @State private var rows: [MyChequeRow] = []
     @State private var loading = true
     @State private var error: String?
@@ -735,6 +745,9 @@ struct MyChequesView: View {
             await load()
         } catch APIError.status(let code, let msg) {
             error = chequeError(code: code, message: msg, verb: "reclaim")
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = "Couldn't claim this cheque back right now."

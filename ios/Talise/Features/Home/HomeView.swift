@@ -55,8 +55,6 @@ struct HomeView: View {
     @State private var walletSweepAlertVisible = false
     @State private var walletSweepAlertMessage = ""
     @State private var walletSweeping = false
-    private let apyHeadline: Double = 0.11
-
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -289,7 +287,7 @@ struct HomeView: View {
                     Text("·")
                         .font(TaliseFont.mono(10, weight: .light))
                         .foregroundStyle(TaliseColor.fgDim)
-                    Text(String(format: "Earn up to %.0f%%", apyHeadline * 100))
+                    Text("Earn on your idle balance")
                         .font(TaliseFont.mono(10, weight: .light))
                         .kerning(-0.4)
                         .foregroundStyle(TaliseColor.accent)
@@ -1006,7 +1004,7 @@ struct HomeView: View {
                         .font(TaliseFont.body(13, weight: .light))
                         .foregroundStyle(TaliseColor.fg)
                     MicroLabel(
-                        text: "Onara-sponsored · No fee",
+                        text: "Onara-sponsored · Network fee $0.00",
                         color: TaliseColor.fgDim
                     ).kerning(0.8)
                 }
@@ -1083,6 +1081,10 @@ struct HomeView: View {
         } catch APIError.status(_, let msg) {
             sweepAlertMessage = msg ?? "Conversion couldn't be built right now."
             sweepAlertVisible = true
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            // Unrecoverable session — route to the clean re-auth path
+            // instead of an opaque retry-forever alert (mirrors Send).
+            session.signOut()
         } catch {
             sweepAlertMessage = error.localizedDescription
             sweepAlertVisible = true
@@ -1179,6 +1181,9 @@ struct HomeView: View {
         } catch APIError.status(_, let msg) {
             walletSweepAlertMessage = msg ?? "Conversion couldn't be built right now."
             walletSweepAlertVisible = true
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            // Unrecoverable session — clean re-auth (mirrors Send).
+            session.signOut()
         } catch {
             walletSweepAlertMessage = error.localizedDescription
             walletSweepAlertVisible = true

@@ -129,7 +129,7 @@ struct RoundupCard: View {
     /// toggle is off we still show the default 2% to telegraph what
     /// the user is opting INTO — same copy the prompt called out.
     private var subtitleCopy: String {
-        "Auto-save \(percentage)% of every send and earn ~5% APY"
+        "Auto-save \(percentage)% of every send and earn on the saved balance"
     }
 
     // MARK: - Slider (% picker)

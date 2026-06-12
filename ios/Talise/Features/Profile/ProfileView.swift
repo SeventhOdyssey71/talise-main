@@ -38,6 +38,12 @@ struct ProfileView: View {
     /// Drives the `BankAccountsView` presentation — off-ramp Phase 2
     /// "link a bank account to your @handle" management screen.
     @State private var showBankAccounts = false
+    /// Account deletion (App Store Guideline 5.1.1(v)) — confirmation
+    /// alert flag, in-flight spinner, and a failure message surfaced in
+    /// its own alert so the user knows the account is still live.
+    @State private var deleteConfirm = false
+    @State private var deletingAccount = false
+    @State private var deleteError: String?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -50,6 +56,7 @@ struct ProfileView: View {
                 securitySection
                 helpSection
                 signOutButton
+                deleteAccountButton
                 versionFooter
                 Color.clear.frame(height: 140)
             }
@@ -67,6 +74,22 @@ struct ProfileView: View {
             Button("Sign out", role: .destructive) { session.signOut() }
         } message: {
             Text("Your wallet stays safe. Sign in with the same Google account to come back.")
+        }
+        // Account deletion (Guideline 5.1.1(v)). A confirm alert is the
+        // gate; the message spells out what deletion does and does NOT do
+        // (the wallet is self-custodial — Talise never holds the funds).
+        .alert("Delete your account?", isPresented: $deleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete account", role: .destructive) {
+                Task { await deleteAccount() }
+            }
+        } message: {
+            Text(Self.deleteConfirmMessage)
+        }
+        .alert("Couldn't delete account", isPresented: deleteErrorVisible) {
+            Button("OK", role: .cancel) { deleteError = nil }
+        } message: {
+            Text(deleteError ?? "")
         }
         .sheet(isPresented: $showRetarget) {
             RetargetHandleSheet()
@@ -551,16 +574,25 @@ struct ProfileView: View {
     private var helpSection: some View {
         section(title: "Help") {
             VStack(spacing: 0) {
+                // The product web app lives on app.talise.io (host-routed);
+                // www.talise.io/home does not exist, so link the app host
+                // directly rather than apiBaseURL + a dead path.
                 linkRow(icon: "arrow.up.right.square", label: "Open on web") {
-                    open(AppConfig.shared.apiBaseURL + "/home")
+                    open("https://app.talise.io")
                 }
                 sectionDivider
                 linkRow(icon: "questionmark.circle", label: "Support") {
                     open("mailto:hello@talise.io")
                 }
                 sectionDivider
-                linkRow(icon: "doc.text", label: "Terms & Privacy") {
-                    open(AppConfig.shared.apiBaseURL + "/legal")
+                // App Review requires Privacy Policy + Terms reachable
+                // in-app as distinct destinations (Guidelines 5.1.1 / 5.1.2).
+                linkRow(icon: "hand.raised", label: "Privacy Policy") {
+                    open("https://talise.io/privacy")
+                }
+                sectionDivider
+                linkRow(icon: "doc.text", label: "Terms of Service") {
+                    open("https://talise.io/terms")
                 }
             }
         }
@@ -607,6 +639,50 @@ struct ProfileView: View {
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+    }
+
+    /// Confirmation copy for account deletion — extracted to a constant so
+    /// the `body` modifier chain stays cheap for the type-checker.
+    private static let deleteConfirmMessage =
+        "This permanently deletes your Talise profile, releases your @handle, and removes linked bank accounts. Your wallet is self-custodial — withdraw or transfer your balance FIRST, because you'll need to create a new account to use it here again. Some transaction records are retained where required by law. This can't be undone."
+
+    /// Bool binding over the optional `deleteError` for the failure alert.
+    /// Extracted from `body` (an inline `Binding(get:set:)` there pushed
+    /// the expression past the type-checker's budget).
+    private var deleteErrorVisible: Binding<Bool> {
+        Binding(
+            get: { deleteError != nil },
+            set: { if !$0 { deleteError = nil } }
+        )
+    }
+
+    /// "Delete account" — quieter than Sign out (plain text row, no card)
+    /// but unmistakably destructive. Required in-app entry point for full
+    /// account deletion (App Store Guideline 5.1.1(v)).
+    private var deleteAccountButton: some View {
+        Button {
+            deleteConfirm = true
+        } label: {
+            HStack(spacing: 8) {
+                Spacer()
+                if deletingAccount {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(TaliseColor.danger)
+                } else {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Delete account")
+                        .font(TaliseFont.body(13, weight: .regular))
+                }
+                Spacer()
+            }
+            .foregroundStyle(TaliseColor.danger)
+            .frame(height: 36)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(deletingAccount)
     }
 
     private var versionFooter: some View {
@@ -714,6 +790,36 @@ struct ProfileView: View {
             )
         } catch {
             settingsError = "Couldn't save preference. \(error.localizedDescription)"
+        }
+    }
+
+    /// POST /api/account/delete → server redacts the profile, releases the
+    /// @handle mapping, deletes linked bank accounts / push tokens, and
+    /// revokes every mobile bearer. On success we run the same local wipe
+    /// as sign-out (bearer, ephemeral zk keys, proof cache, snapshots) and
+    /// land on the sign-in screen.
+    private func deleteAccount() async {
+        guard !deletingAccount else { return }
+        deletingAccount = true
+        defer { deletingAccount = false }
+        struct EmptyBody: Encodable {}
+        struct Resp: Decodable { let ok: Bool }
+        do {
+            let resp: Resp = try await APIClient.shared.post(
+                "/api/account/delete",
+                body: EmptyBody()
+            )
+            guard resp.ok else {
+                deleteError = "The server couldn't delete your account. Please try again."
+                return
+            }
+            session.signOut()
+        } catch APIError.unauthorized {
+            // Session already dead server-side — locally the account is
+            // unreachable; finish the sign-out so the user isn't stuck.
+            session.signOut()
+        } catch {
+            deleteError = "Couldn't reach Talise to delete your account. Check your connection and try again."
         }
     }
 

@@ -261,19 +261,33 @@ export async function POST(req: Request) {
     }, ROUTE_CAP_MS);
   });
 
+  // On-chain zkLogin signature rejection signature. Seen when the CLIENT's
+  // cached proof was minted for a different ephemeral key / randomness than
+  // the one that just signed (e.g. a stale ProofCache surviving a re-sign-in
+  // on iOS): "Invalid user signature: Signature is not valid: General
+  // cryptographic error: Groth16 proof verify failed".
+  const isStaleProofError = (err: unknown): boolean => {
+    const m = ((err as Error)?.message ?? "").toLowerCase();
+    return (
+      m.includes("groth16") ||
+      m.includes("invalid user signature") ||
+      m.includes("signature is not valid")
+    );
+  };
+
   const work = (async () => {
     const t0 = Date.now();
     // Proof mint: cached path ~250ms, fresh Shinami ~2-4s, fresh GPU
     // ~400ms. 12s ceiling is 3x the worst hot path — anything beyond
     // means Shinami/GPU is wedged and we should fail fast.
-    const { signature: zkLoginSignature, proof, isFresh, source } =
-      await withLegTimeout(
+    const assemble = (useCachedProof: boolean) =>
+      withLegTimeout(
         assembleZkLoginSignature({
           ephemeralPubKeyB64,
           maxEpoch: maxEpochToUse,
           randomness: randomnessToUse,
           userSignature: userSignature,
-          cachedProof: body.cachedProof,
+          cachedProof: useCachedProof ? body.cachedProof : undefined,
           jwt: signing.jwt,
           salt: signing.salt,
         }),
@@ -281,18 +295,20 @@ export async function POST(req: Request) {
         "proof",
         "PROOF_TIMEOUT"
       );
+    let assembled = await assemble(true);
     const tProof = Date.now();
     // Tag the freshness with the prover backend so we can grep
     // "FRESH-GPU" vs "FRESH-SHINAMI" vs "FRESH-CANARY" in production
     // logs. Confirms ZK_PROVER_PRIMARY routing is actually winning —
     // critical signal during the GPU cutover.
-    const freshTag = isFresh
-      ? source
-        ? `FRESH-${source.canary ? "CANARY-" : ""}${source.backend.toUpperCase()}${
-            source.role === "fallback" ? "-FALLBACK" : ""
-          }`
-        : "FRESH"
-      : "CACHED";
+    const freshTagFor = (a: typeof assembled) =>
+      a.isFresh
+        ? a.source
+          ? `FRESH-${a.source.canary ? "CANARY-" : ""}${a.source.backend.toUpperCase()}${
+              a.source.role === "fallback" ? "-FALLBACK" : ""
+            }`
+          : "FRESH"
+        : "CACHED";
 
     const onaraClient = onara();
     // Optimistic broadcast: return the digest as soon as Onara ACKs
@@ -306,25 +322,50 @@ export async function POST(req: Request) {
     // 8s leg cap. The Onara client now also enforces an 8s
     // AbortController internally — this withLegTimeout is belt-and-
     // braces in case a future Onara client revision drops the abort.
-    const result = (await withLegTimeout(
-      onaraClient.sponsor({
-        sender: user.sui_address,
-        txBytes: bytesB64,
-        txSignature: zkLoginSignature,
-        waitForExecution: false,
-        timeoutMs: 8_000,
-      }),
-      8_000,
-      "onara",
-      "ONARA_TIMEOUT"
-    )) as Record<string, unknown>;
+    const broadcast = (sig: string) =>
+      withLegTimeout(
+        onaraClient.sponsor({
+          sender: user.sui_address,
+          txBytes: bytesB64,
+          txSignature: sig,
+          waitForExecution: false,
+          timeoutMs: 8_000,
+        }),
+        8_000,
+        "onara",
+        "ONARA_TIMEOUT"
+      ) as Promise<Record<string, unknown>>;
+
+    let result: Record<string, unknown>;
+    try {
+      result = await broadcast(assembled.signature);
+    } catch (err) {
+      // Stale client proof: the cached proof was minted against a previous
+      // ephemeral key, so the chain rejects the assembled signature with a
+      // Groth16 verify failure. The server holds the jwt+salt — re-mint a
+      // FRESH proof and retry ONCE instead of dead-ending the send (the
+      // response's freshProof then replaces the client's stale cache). If
+      // the JWT itself is too old to prove, the mint throws and the proof-
+      // leg error mapping below converts it to session_rebind_required.
+      if (!assembled.isFresh && body.cachedProof && isStaleProofError(err)) {
+        console.warn(
+          `[zk/sponsor-execute] stale cached proof rejected on-chain (user=${userId}) — re-minting fresh and retrying once`
+        );
+        assembled = await assemble(false);
+        result = await broadcast(assembled.signature);
+      } else {
+        throw err;
+      }
+    }
+    const { signature: zkLoginSignature, proof, isFresh } = assembled;
+    void zkLoginSignature; // consumed by broadcast above; kept for shape parity
     const tDone = Date.now();
 
     // Per-leg timing so we can see exactly where the latency goes.
     // Logged on EVERY successful response (defense in depth) — grep
     // `[zk/sponsor-execute]` to see proof/onara/total breakdown.
     console.log(
-      `[zk/sponsor-execute] proof=${tProof - t0}ms (${freshTag}) · onara=${tDone - tProof}ms · total=${tDone - t0}ms`
+      `[zk/sponsor-execute] proof=${tProof - t0}ms (${freshTagFor(assembled)}) · onara=${tDone - tProof}ms · total=${tDone - t0}ms`
     );
     recordSendLatency({
       leg: "execute",
@@ -333,10 +374,10 @@ export async function POST(req: Request) {
       extras: {
         proofMs: tProof - t0,
         onaraMs: tDone - tProof,
-        proverSource: freshTag,
-        proverBackend: source?.backend,
-        proverRole: source?.role,
-        proverCanary: source?.canary,
+        proverSource: freshTagFor(assembled),
+        proverBackend: assembled.source?.backend,
+        proverRole: assembled.source?.role,
+        proverCanary: assembled.source?.canary,
       },
     });
 
@@ -499,10 +540,24 @@ export async function POST(req: Request) {
       );
     }
 
-    // Proof mint threw (network glitch, Shinami 5xx, GPU down). The
-    // zksigner already exhausted its primary→fallback chain — we're
-    // out of options for this request. 502 distinguishes from timeout.
+    // Proof mint threw. An "Invalid params" (-32602) from the prover means
+    // the JWT can no longer mint a proof (expired id_token / nonce-binding
+    // mismatch) — that's a SESSION problem, not a prover outage: route the
+    // client to a clean re-sign-in instead of an opaque 502 it would retry
+    // forever (the iOS money flows all handle session_rebind_required).
     if (e.leg === "proof") {
+      if (/-32602|invalid params/i.test(msg)) {
+        return NextResponse.json(
+          {
+            error: "Sign in again — your session needs a refresh.",
+            code: "session_rebind_required",
+          },
+          { status: 401 }
+        );
+      }
+      // Network glitch, Shinami 5xx, GPU down. The zksigner already
+      // exhausted its primary→fallback chain — we're out of options for
+      // this request. 502 distinguishes from timeout.
       return NextResponse.json(
         { error: msg, code: "PROOF_FAILED" },
         { status: 502 }

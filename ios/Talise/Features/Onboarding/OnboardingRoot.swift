@@ -28,6 +28,11 @@ enum OnboardingStep: String, Hashable {
     case intro2
     case intro3
     case signIn
+    /// Brief "Welcome back, <name>" interstitial shown when a sign-in
+    /// resolves to an account that ALREADY completed onboarding
+    /// (server returned accountType != nil). Auto-advances into the
+    /// authenticated app — never persisted, never resumable.
+    case welcomeBack
     case kycTier      // legacy — not in active flow
     case handlePicker
     case pinSetup
@@ -91,24 +96,44 @@ struct OnboardingRoot: View {
                     // real new-user onboarding (handle picker / PIN /
                     // permissions), each of which renders its own bar. A
                     // returning user signs straight in and never sees them.
-                    SignInScreen(onSignedIn: { user in
+                    SignInScreen(onSignedIn: { user, existing in
                         signedInUser = user
                         // Returning users: the backend already knows
                         // the account is set up (accountType != nil →
                         // same signal AppSession uses everywhere). Sign
                         // them STRAIGHT into the app instead of walking
-                        // the create-handle / PIN / permissions steps.
+                        // the create-handle / PIN / permissions steps —
+                        // this also covers a returning user who tapped
+                        // "Get Started" instead of "I have an account".
                         // A genuinely new Google account has
                         // accountType == nil, so it still falls into
-                        // the full onboarding flow below.
+                        // the full onboarding flow below. (A returning-
+                        // but-never-onboarded row — `existing == true`,
+                        // accountType nil — also re-enters onboarding:
+                        // it never picked a handle or PIN.)
                         if user.accountType != nil {
                             UserDefaults.standard.removeObject(forKey: Self.stepKey)
-                            session.handleSignedIn(user: user)
+                            if existing {
+                                // Brief "Welcome back, <name>" beat
+                                // before Home. Gated on the server's
+                                // explicit `existing` flag so an older
+                                // backend (no flag) degrades to the
+                                // previous instant hand-off.
+                                advance(to: .welcomeBack)
+                            } else {
+                                session.handleSignedIn(user: user)
+                            }
                         } else {
                             advance(to: .handlePicker)
                         }
                     })
                     .transition(.slide)
+                case .welcomeBack:
+                    WelcomeBackInterstitial(
+                        name: signedInUser?.name,
+                        onFinished: { finish() }
+                    )
+                    .transition(.opacity)
                 case .kycTier:
                     // Legacy — defensive jump to the new flow if hit.
                     KycTierPicker(onFreeChosen: { advance(to: .handlePicker) })
@@ -148,7 +173,10 @@ struct OnboardingRoot: View {
 
     private func persist(step: OnboardingStep) {
         switch step {
-        case .done, .splash:
+        case .done, .splash, .welcomeBack:
+            // welcomeBack is a transient beat for an ALREADY-onboarded
+            // account — resuming into it after a relaunch would strand
+            // the user, so it's never written.
             UserDefaults.standard.removeObject(forKey: Self.stepKey)
         default:
             UserDefaults.standard.set(step.rawValue, forKey: Self.stepKey)
@@ -201,5 +229,90 @@ struct OnboardingRoot: View {
     /// back to whatever AppSession holds (rare — defensive).
     private var pinUserId: String {
         signedInUser?.id ?? session.currentUser?.id ?? ""
+    }
+}
+
+/// Brief "Welcome back, <name>" beat shown between a returning user's
+/// sign-in and Home. Auto-advances after ~1.4s (or on tap, for the
+/// impatient). Lives in this file rather than its own — the old-style
+/// Xcode project requires pbxproj surgery for new Swift files.
+private struct WelcomeBackInterstitial: View {
+    /// Full display name from the server user record; we greet with the
+    /// first word ("Eromonsele Odigie" → "Eromonsele").
+    let name: String?
+    let onFinished: () -> Void
+
+    @State private var appeared = false
+    @State private var finished = false
+
+    private func kern(_ size: CGFloat) -> CGFloat { -size * 0.03 }
+
+    private var firstName: String? {
+        guard let name = name?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let first = name.split(separator: " ").first,
+              !first.isEmpty else { return nil }
+        return String(first)
+    }
+
+    var body: some View {
+        ZStack {
+            OnboardingBackground()
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                logoMark
+                    .frame(width: 96, height: 96)
+                    .scaleEffect(appeared ? 1 : 0.85)
+
+                Text(firstName.map { "Welcome back, \($0)" } ?? "Welcome back")
+                    .font(TaliseFont.heading(26, weight: .semibold))
+                    .kerning(kern(26))
+                    .foregroundStyle(TaliseColor.fg)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 28)
+                    .padding(.horizontal, 32)
+
+                Text("Taking you to your money.")
+                    .font(TaliseFont.body(14, weight: .light))
+                    .kerning(kern(14))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .padding(.top, 10)
+
+                Spacer()
+            }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 10)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { complete() }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.45)) { appeared = true }
+        }
+        .task {
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            complete()
+        }
+    }
+
+    /// Idempotent — the tap-to-skip and the timed auto-advance can race.
+    private func complete() {
+        guard !finished else { return }
+        finished = true
+        onFinished()
+    }
+
+    @ViewBuilder
+    private var logoMark: some View {
+        if UIImage(named: "TaliseLogo") != nil {
+            Image("TaliseLogo")
+                .resizable()
+                .scaledToFit()
+        } else {
+            Image(systemName: "checkmark.circle.fill")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(TaliseColor.fg)
+        }
     }
 }

@@ -57,6 +57,9 @@ private struct CtrStreamCancelResp: Decodable {
 
 struct ContractsView: View {
     var onDone: () -> Void
+    /// Session-expiry path: an unrecoverable zkLogin session routes to a
+    /// clean sign-out → re-auth (mirrors Send) instead of a dead-end error.
+    @Environment(AppSession.self) private var session
     @State private var rows: [ContractDTO] = []
     @State private var loading = true
     @State private var error: String?
@@ -102,7 +105,7 @@ struct ContractsView: View {
                 Eyebrow(text: "Contracts")
                 Text("Hire & pay over time")
                     .font(TaliseFont.heading(24, weight: .medium)).kerning(-0.8).foregroundStyle(TaliseColor.fg)
-                Text("Set a rate and a number of periods. Payments drip automatically — free.")
+                Text("Set a rate and a number of periods. Payments drip automatically — no network fee.")
                     .font(TaliseFont.body(13, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
             }
             Spacer()
@@ -245,6 +248,9 @@ struct ContractsView: View {
             await load()
         } catch APIError.status(let code, let msg) {
             error = friendlyWorkError(code: code, message: msg, noun: "contract")
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = "Couldn't cancel the contract right now."
@@ -256,6 +262,7 @@ struct ContractsView: View {
 
 private struct CreateContractView: View {
     var onClose: () -> Void
+    @Environment(AppSession.self) private var session
     @State private var recipientQuery = ""
     @State private var resolved: RecipientResolution?
     @State private var resolving = false
@@ -393,7 +400,7 @@ private struct CreateContractView: View {
                 Text("\(periods) payments of \(TaliseFormat.usd2(rateUsd))")
                     .font(TaliseFont.heading(15, weight: .medium)).foregroundStyle(TaliseColor.fg)
             }
-            Text("\(TaliseFormat.usd2(totalUsd)) total, funded upfront and released one period at a time. Free — gas is on us.")
+            Text("\(TaliseFormat.usd2(totalUsd)) total, funded upfront and released one period at a time. No network fee — Talise sponsors the gas.")
                 .font(TaliseFont.body(12, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -529,6 +536,9 @@ private struct CreateContractView: View {
             withAnimation { created = true }
         } catch APIError.status(let code, let msg) {
             error = friendlyWorkError(code: code, message: msg, noun: "contract")
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = "Couldn't create the contract right now."

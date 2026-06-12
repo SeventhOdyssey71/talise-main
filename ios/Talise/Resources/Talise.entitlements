@@ -8,6 +8,7 @@
     <array>
         <string>applinks:talise.io</string>
         <string>applinks:www.talise.io</string>
+        <string>applinks:app.talise.io</string>
     </array>
     <key>aps-environment</key>
     <string>production</string>

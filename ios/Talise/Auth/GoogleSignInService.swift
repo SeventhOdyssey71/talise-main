@@ -25,6 +25,12 @@ final class GoogleSignInService: NSObject, ASWebAuthenticationPresentationContex
     struct Result {
         let bearer: String
         let userId: String
+        /// Server-asserted "this Google account already had a Talise user
+        /// row before this exchange" flag, carried on the talise://
+        /// callback as `existing=1`. Defaults to false when the server
+        /// doesn't send the param (older deploys) — routing must never
+        /// REQUIRE it, only enhance (e.g. the welcome-back moment).
+        let existingAccount: Bool
     }
 
     enum SignInError: LocalizedError {
@@ -102,7 +108,11 @@ final class GoogleSignInService: NSObject, ASWebAuthenticationPresentationContex
                     cont.resume(throwing: SignInError.malformedRedirect)
                     return
                 }
-                cont.resume(returning: Result(bearer: bearer, userId: userId))
+                cont.resume(returning: Result(
+                    bearer: bearer,
+                    userId: userId,
+                    existingAccount: pairs["existing"] == "1"
+                ))
             }
             session.presentationContextProvider = self
             session.prefersEphemeralWebBrowserSession = false

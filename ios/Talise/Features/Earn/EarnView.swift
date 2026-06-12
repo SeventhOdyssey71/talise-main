@@ -273,6 +273,10 @@ private struct EarnManageSheet: View {
     private enum Mode: Equatable { case add, withdraw }
 
     @Environment(\.dismiss) private var dismiss
+    /// For the session-expiry path: an unrecoverable zkLogin session
+    /// (rebind required) routes to a clean sign-out → re-auth, the same
+    /// way the Send flow does — instead of an opaque retry-forever error.
+    @Environment(AppSession.self) private var session
     @State private var mode: Mode = .add
     @State private var depositText = ""
     @State private var depositing = false
@@ -516,7 +520,7 @@ private struct EarnManageSheet: View {
                     value: localAmount(heroUsd),
                     symbol: symbol,
                     caption: earnedSoFar != nil
-                        ? "Interest accrued on \(TaliseFormat.local2(supplied))"
+                        ? "Earnings accrued on \(TaliseFormat.local2(supplied))"
                         : "Supplied and earning"
                 )
             }
@@ -558,7 +562,7 @@ private struct EarnManageSheet: View {
     /// "You'll earn a year" band — year is the hero, day/month sit beneath.
     private func projectionBand(_ annual: Double) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("YOU'LL EARN A YEAR")
+            Text("ESTIMATED EARNINGS / YEAR")
                 .font(TaliseFont.mono(10, weight: .regular)).tracking(2.0)
                 .foregroundStyle(TaliseColor.fgMuted)
             Text(TaliseFormat.local(annual))
@@ -878,6 +882,12 @@ private struct EarnManageSheet: View {
             // Full-screen piggy celebration — dismissing it closes the
             // sheet (see fullScreenCover below).
             savedAmountText = TaliseFormat.local2(usd)
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            // Session can't sign transactions anymore — retrying in this
+            // sheet would fail forever. Route to the clean re-auth path
+            // (same as Send).
+            self.error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             self.error = error.localizedDescription
             // Spring the slide-to-complete knob back so the user can
@@ -957,6 +967,9 @@ private struct EarnManageSheet: View {
             self.error = nil
         } catch PinError.forgotSignOut {
             self.error = "Sign in again to set a new PIN."
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            self.error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             self.error = error.localizedDescription
         }
@@ -1011,6 +1024,9 @@ private struct EarnManageSheet: View {
             onClose()
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             dismiss()
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            self.error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             self.error = error.localizedDescription
         }

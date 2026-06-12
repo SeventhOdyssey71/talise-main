@@ -360,6 +360,9 @@ private struct CreateInvoiceView: View {
 struct PayInvoiceView: View {
     let invoiceId: String
     var onDone: () -> Void
+    /// Session-expiry path: an unrecoverable zkLogin session routes to a
+    /// clean sign-out → re-auth (mirrors Send) instead of a dead-end error.
+    @Environment(AppSession.self) private var session
     @State private var invoice: PublicInvoiceDTO?
     @State private var loading = true
     @State private var paying = false
@@ -457,6 +460,9 @@ struct PayInvoiceView: View {
             if r.ok { withAnimation { paid = true } }
         } catch APIError.status(let code, let msg) {
             error = friendlyWorkError(code: code, message: msg, noun: "invoice")
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = "Couldn't pay this invoice right now."

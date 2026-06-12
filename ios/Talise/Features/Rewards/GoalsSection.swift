@@ -538,7 +538,12 @@ private struct NewGoalSheet: View {
 private enum GoalsAPI {
     @MainActor
     static func patch<B: Encodable>(id: String, body: B) async throws -> SavingsGoalMutationResponse {
-        let url = URL(string: AppConfig.shared.apiBaseURL + "/api/rewards/goals/\(id)")!
+        // Defensive: goal ids are server-generated, but never force-unwrap
+        // a URL built from interpolated data — a malformed id should error,
+        // not crash.
+        guard let url = URL(string: AppConfig.shared.apiBaseURL + "/api/rewards/goals/\(id)") else {
+            throw APIError.invalidResponse
+        }
         var req = URLRequest(url: url)
         req.httpMethod = "PATCH"
         req.httpBody = try JSONEncoder().encode(body)

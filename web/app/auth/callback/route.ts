@@ -83,7 +83,7 @@ export async function GET(req: Request) {
     if (!result.ok) {
       return redirectAuthError(req, state, result.err);
     }
-    const { user, idToken } = result;
+    const { user, idToken, isNew } = result;
 
     // Read the (ephPubKey, maxEpoch, randomness) triple stashed by
     // /api/auth/mobile/start. These are the EXACT values that bound
@@ -126,6 +126,10 @@ export async function GET(req: Request) {
     const callback = new URL("talise://auth/callback");
     callback.searchParams.set("token", bearer);
     callback.searchParams.set("userId", String(user.id));
+    // Additive: tells iOS whether this Google account already had a
+    // Talise user row (returning sign-in) vs was created by this
+    // exchange (genuinely new). Old clients ignore unknown params.
+    callback.searchParams.set("existing", isNew ? "0" : "1");
     return NextResponse.redirect(callback.toString());
   } catch (err) {
     // Log the real cause server-side; never reflect raw exception text (it can

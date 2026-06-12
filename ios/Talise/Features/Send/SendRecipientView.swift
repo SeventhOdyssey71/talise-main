@@ -221,7 +221,7 @@ struct SendRecipientView: View {
     /// linked bank: [On-chain · instant] vs [Their bank · NGN].
     private var payModeToggle: some View {
         HStack(spacing: 4) {
-            payModeTab(.onchain, title: "On-chain", sub: "instant")
+            payModeTab(.onchain, title: "On-chain", sub: "in seconds")
             payModeTab(.bank, title: "Their bank", sub: "NGN")
         }
         .padding(4)

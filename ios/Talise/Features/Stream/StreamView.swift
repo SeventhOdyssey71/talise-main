@@ -47,6 +47,9 @@ private struct StreamsResp: Decodable { let streams: [StreamDTO] }
 
 struct StreamSetupView: View {
     var onDone: () -> Void
+    /// Session-expiry path: an unrecoverable zkLogin session routes to a
+    /// clean sign-out → re-auth (mirrors Send) instead of a dead-end error.
+    @Environment(AppSession.self) private var session
     @State private var recipientQuery = ""
     @State private var resolved: RecipientResolution?
     @State private var resolving = false
@@ -96,7 +99,7 @@ struct StreamSetupView: View {
             Eyebrow(text: "Stream a payment")
             Text("Money over time")
                 .font(TaliseFont.heading(24, weight: .medium)).kerning(-0.8).foregroundStyle(TaliseColor.fg)
-            Text("Drip a salary, an allowance, a payout — free, because gas is free.")
+            Text("Drip a salary, an allowance, a payout — no network fee, Talise sponsors the gas.")
                 .font(TaliseFont.body(13, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
         }
     }
@@ -378,6 +381,9 @@ struct StreamSetupView: View {
             withAnimation { started = true }
         } catch APIError.status(let code, let msg) {
             self.error = Self.friendlyStreamError(code: code, message: msg)
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            self.error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = "Couldn't start the stream right now."
@@ -403,6 +409,7 @@ struct StreamSetupView: View {
 
 struct StreamsListView: View {
     var onDone: () -> Void
+    @Environment(AppSession.self) private var session
     @State private var streams: [StreamDTO] = []
     @State private var loading = true
     @State private var cancellingId: String?
@@ -513,6 +520,9 @@ struct StreamsListView: View {
             await load()
         } catch APIError.status(let code, let msg) {
             cancelError = StreamSetupView.friendlyStreamError(code: code, message: msg)
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            cancelError = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
             cancelError = "Couldn't cancel the stream right now."
