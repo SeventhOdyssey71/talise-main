@@ -141,40 +141,44 @@ struct SignInScreen: View {
         .disabled(anySignInBusy)
     }
 
-    /// Sign in with Apple — the system `SignInWithAppleButton` renders
-    /// the HIG-blessed mark/label, clipped to the same 54pt capsule as
-    /// the Google CTA. The system button's `onRequest` closure is
-    /// synchronous, but our flow needs an async server round-trip (the
-    /// zkLogin nonce) BEFORE the request is configured — so the system
-    /// button is hit-test-disabled (pure rendering) and a transparent
-    /// Button on top drives the real `ASAuthorizationController` flow
-    /// via `ZkLoginCoordinator.signInWithApple()`.
+    /// Sign in with Apple — a CUSTOM capsule, pixel-matched to the
+    /// Google CTA (same 54pt height, white fill, 15pt medium label,
+    /// 20pt leading mark). The system `SignInWithAppleButton` scales
+    /// its label to the button height, which rendered comically large
+    /// next to the Google button. Apple's HIG explicitly permits
+    /// custom buttons that show the Apple logo with the standard
+    /// title and adequate contrast — which this does — and the real
+    /// auth runs through `ASAuthorizationController` in the
+    /// coordinator either way.
     private var continueWithAppleButton: some View {
-        ZStack {
-            SignInWithAppleButton(.signIn, onRequest: { _ in }, onCompletion: { _ in })
-                .signInWithAppleButtonStyle(.white)
-                .allowsHitTesting(false)
-
-            Button {
-                Task { await beginAppleSignIn() }
-            } label: {
-                Color.clear
-                    .contentShape(Capsule())
+        Button {
+            Task { await beginAppleSignIn() }
+        } label: {
+            HStack(spacing: 10) {
+                if signingInApple {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(TaliseColor.bg)
+                        .frame(width: 20, height: 20)
+                } else {
+                    Image(systemName: "apple.logo")
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(TaliseColor.bg)
+                        .frame(width: 20, height: 20)
+                }
+                Text("Sign in with Apple")
+                    .font(TaliseFont.body(15, weight: .medium))
+                    .kerning(kern(15))
+                    .foregroundStyle(TaliseColor.bg)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Sign in with Apple")
-            .disabled(anySignInBusy)
-
-            if signingInApple {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .tint(.black)
-            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(TaliseColor.fg)
+            .clipShape(Capsule())
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 54)
-        .clipShape(Capsule())
-        .opacity(anySignInBusy ? 0.75 : 1)
+        .buttonStyle(.plain)
+        .accessibilityLabel("Sign in with Apple")
+        .disabled(anySignInBusy)
     }
 
     // ── Hero (Talise pinwheel) ─────────────────────────────────────

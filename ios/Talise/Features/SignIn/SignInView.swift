@@ -63,38 +63,42 @@ struct SignInView: View {
                             .transition(.opacity)
                     }
 
-                    // Sign in with Apple — same footprint as the Google
-                    // CTA below (HIG: at least as prominent). System
-                    // button for rendering; transparent overlay drives
-                    // the async nonce-then-sheet flow (the system
-                    // button's onRequest is synchronous and can't await
-                    // the zkLogin nonce fetch).
-                    ZStack {
-                        SignInWithAppleButton(.signIn, onRequest: { _ in }, onCompletion: { _ in })
-                            .signInWithAppleButtonStyle(.white)
-                            .allowsHitTesting(false)
-
-                        Button {
-                            Task { await beginAppleSignIn() }
-                        } label: {
-                            Color.clear
-                                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    // Sign in with Apple — CUSTOM button pixel-matched to
+                    // the Google CTA below (same height/radius/type scale;
+                    // the system SignInWithAppleButton scales its label to
+                    // the button height and dwarfed the Google text). HIG
+                    // permits custom buttons with the Apple logo + standard
+                    // title; the real auth runs through
+                    // ASAuthorizationController in the coordinator.
+                    Button {
+                        Task { await beginAppleSignIn() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if signingInApple {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .controlSize(.small)
+                                    .tint(.black)
+                            } else {
+                                Image(systemName: "apple.logo")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .frame(width: 18, height: 18)
+                                Text("Sign in with Apple")
+                                    .font(TaliseFont.heading(16, weight: .medium))
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Sign in with Apple")
-                        .disabled(anySignInBusy)
-
-                        if signingInApple {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                                .controlSize(.small)
-                                .tint(.black)
-                        }
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(.white)
+                        )
+                        .opacity(signingInApple ? 0.85 : 1.0)
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .opacity(anySignInBusy ? 0.75 : 1)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Sign in with Apple")
+                    .disabled(anySignInBusy)
 
                     // Flat solid primary CTA — green fill, dark ink, no glass.
                     Button {
