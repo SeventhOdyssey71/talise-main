@@ -167,7 +167,14 @@ struct ProfileView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 handleLine
-                Text(currentUser?.email ?? "")
+                // Apple hide-my-email users get `c7zh9mf9zz@privaterelay.
+                // appleid.com` — showing that gibberish under the name reads
+                // like a bug. Label the sign-in method instead.
+                Text(
+                    (currentUser?.email.lowercased().hasSuffix("@privaterelay.appleid.com") ?? false)
+                        ? "Signed in with Apple · private email"
+                        : (currentUser?.email ?? "")
+                )
                     .font(TaliseFont.mono(11, weight: .light))
                     .foregroundStyle(Color.white.opacity(0.6))
                     .lineLimit(1)

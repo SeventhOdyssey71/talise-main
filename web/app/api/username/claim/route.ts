@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
-import { userById } from "@/lib/db";
+import { db, userById } from "@/lib/db";
 import { normalizeHandle, RESERVED_USERNAMES } from "@/lib/handle";
 import { mintSubname, suins, suinsOperatorEnabled, LowOperatorGasError } from "@/lib/suins-operator";
 import { findTaliseSubnameForOwner } from "@/lib/suins-lookup";
@@ -33,17 +33,19 @@ export async function POST(req: Request) {
   }
 
   // One handle per user. If they already own a `*.talise.sui` subname NFT,
-  // refuse to mint another. The check is authoritative — it reads the chain,
-  // not a DB row.
+  // don't mint another — but treat the claim as a SUCCESS for the name they
+  // own (idempotent). This is the recovery path for the 2026-06-12 Apple
+  // sign-in incident: the first claim's mint LANDED on-chain but the
+  // response was lost, so every retry 409'd "already minted" while the
+  // client believed the claim never happened and the DB binding never ran.
   const existing = await findTaliseSubnameForOwner(user.sui_address);
   if (existing) {
-    return NextResponse.json(
-      {
-        error: `You already own ${existing.fullName}. Only one handle per account.`,
-        existing: existing.fullName,
-      },
-      { status: 409 }
-    );
+    await backfillTaliseUsername(userId, existing.username);
+    return NextResponse.json({
+      ok: true,
+      username: existing.username,
+      existing: true,
+    });
   }
 
   let body: { username?: string };
@@ -70,6 +72,17 @@ export async function POST(req: Request) {
   try {
     const taken = await suins().getNameRecord(`${username}.talise.sui`);
     if (taken) {
+      // Idempotency: "taken" by THE CALLER is a success, not a conflict —
+      // the earlier ownership check can miss a just-minted NFT behind a
+      // caching read layer, but the name record's target is authoritative.
+      const target = (taken as { targetAddress?: string | null }).targetAddress;
+      if (
+        typeof target === "string" &&
+        target.toLowerCase() === user.sui_address.toLowerCase()
+      ) {
+        await backfillTaliseUsername(userId, username);
+        return NextResponse.json({ ok: true, username, existing: true });
+      }
       return NextResponse.json(
         { error: "that username is already minted on SuiNS" },
         { status: 409 }
@@ -100,6 +113,10 @@ export async function POST(req: Request) {
         username,
         userAddress: user.sui_address,
       });
+      // Bind into Postgres so /api/me's fast path knows the handle even if
+      // the reverse-SuiNS lookup lags behind a caching read layer (the
+      // mint-succeeded-but-profile-says-claim-your-name gap).
+      await backfillTaliseUsername(userId, username);
       return NextResponse.json({ ok: true, username, digest, subnameNftId });
     } catch (err) {
       // Low operator gas: not a real failure — tell the user to retry shortly
@@ -124,6 +141,26 @@ export async function POST(req: Request) {
       );
     }
   });
+}
+
+/// Write the claimed bare handle into `users.talise_username` — the column
+/// /api/me's fast path reads. COALESCE keeps an already-bound handle; never
+/// throws (the on-chain mint is the source of truth, a DB hiccup must not
+/// fail the claim).
+async function backfillTaliseUsername(userId: number, username: string): Promise<void> {
+  try {
+    await db().execute({
+      sql: `UPDATE users
+              SET talise_username = COALESCE(talise_username, $1),
+                  suins_subname = COALESCE(suins_subname, $2)
+            WHERE id = $3`,
+      args: [username, `${username}.talise.sui`, userId],
+    });
+  } catch (e) {
+    console.warn(
+      `[username/claim] talise_username backfill failed user=${userId}: ${(e as Error).message}`
+    );
+  }
 }
 
 /// Single-flight gate keyed by user id. Subsequent calls for the same

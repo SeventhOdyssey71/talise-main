@@ -242,13 +242,18 @@ struct KYCView: View {
 
     private func candidateHandle() -> String {
         // Prefer first word of display name; fall back to the email local-part.
+        // NEVER suggest from a hide-my-email relay address — Apple sign-in
+        // users get `c7zh9mf9zz@privaterelay.appleid.com` shapes, and the
+        // gibberish local-part autotyped into the field read as a bug (and
+        // got CLAIMED on-chain by one tester). Empty is better than noise.
         let source: String = {
             let name = (user.name ?? "").trimmingCharacters(in: .whitespaces)
             if !name.isEmpty,
                let first = name.split(separator: " ").first {
                 return String(first)
             }
-            if let local = user.email.split(separator: "@").first {
+            if !user.email.lowercased().hasSuffix("@privaterelay.appleid.com"),
+               let local = user.email.split(separator: "@").first {
                 return String(local)
             }
             return ""
