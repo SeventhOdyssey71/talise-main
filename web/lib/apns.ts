@@ -60,19 +60,50 @@ async function providerToken(
  */
 export async function sendApnsPush(
   deviceToken: string,
-  payload: { title: string; body: string; data?: Record<string, unknown> }
+  payload: {
+    title: string;
+    body: string;
+    /** Optional bold second line under the title (above the body). */
+    subtitle?: string;
+    /** Groups related notifications into one stack in the shade. */
+    threadId?: string;
+    /** Registered category id (enables actions + a future Notification
+     *  Content Extension to brand the expanded view). */
+    category?: string;
+    /** iOS 15+ delivery prominence. Money-in is "time-sensitive" so it
+     *  surfaces promptly even in a Focus. */
+    interruptionLevel?: "passive" | "active" | "time-sensitive" | "critical";
+    /** iOS 15+ ranking within the thread (0–1); 1 floats the latest
+     *  credit to the top of the Talise stack. */
+    relevanceScore?: number;
+    /** App-icon badge count. */
+    badge?: number;
+    /** mutable-content:1 — lets a Notification Service Extension attach a
+     *  branded image later without another server change. */
+    mutableContent?: boolean;
+    data?: Record<string, unknown>;
+  }
 ): Promise<ApnsResult> {
   const c = creds();
   if (!c) return { ok: false, skipped: true, reason: "APNs not configured" };
   try {
     const jwt = await providerToken(c);
-    const body = JSON.stringify({
-      aps: {
-        alert: { title: payload.title, body: payload.body },
-        sound: "default",
+    const aps: Record<string, unknown> = {
+      alert: {
+        title: payload.title,
+        ...(payload.subtitle ? { subtitle: payload.subtitle } : {}),
+        body: payload.body,
       },
-      ...(payload.data ?? {}),
-    });
+      sound: "default",
+    };
+    if (payload.threadId) aps["thread-id"] = payload.threadId;
+    if (payload.category) aps.category = payload.category;
+    if (payload.interruptionLevel) aps["interruption-level"] = payload.interruptionLevel;
+    if (typeof payload.relevanceScore === "number")
+      aps["relevance-score"] = payload.relevanceScore;
+    if (typeof payload.badge === "number") aps.badge = payload.badge;
+    if (payload.mutableContent) aps["mutable-content"] = 1;
+    const body = JSON.stringify({ aps, ...(payload.data ?? {}) });
     return await new Promise<ApnsResult>((resolve) => {
       const client = http2.connect(c.host);
       let settled = false;
