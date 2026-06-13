@@ -88,6 +88,9 @@ targets:
     dependencies:
       - package: SuiGrpcKit
         product: SuiGrpcKit
+      # Embed the Notification Service Extension so it ships inside the app.
+      # xcodegen auto-embeds app-extension targets into the host app.
+      - target: TaliseNotificationService
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.talise.app
@@ -95,6 +98,35 @@ targets:
         INFOPLIST_KEY_UIRequiresFullScreen: NO
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  # Notification Service Extension — intercepts mutable-content pushes and
+  # attaches the branded mint card (see NotificationService.swift). Lets a
+  # credit notification show Talise's theme in its expanded view, which the
+  # OS-owned banner chrome otherwise can't.
+  TaliseNotificationService:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: TaliseNotificationService
+        excludes:
+          - "**/.DS_Store"
+    info:
+      path: TaliseNotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: Talise Notifications
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.talise.app.NotificationService
+        TARGETED_DEVICE_FAMILY: "1"
+        # The card is fetched over https from app.talise.io — no localhost
+        # exception needed here, so the extension keeps ATS fully on.
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
 
   # Unit test bundle. Hosted by the Talise app target so it can link
   # against the app's internal types. App deployment target is iOS 18

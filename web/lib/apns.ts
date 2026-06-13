@@ -81,6 +81,11 @@ export async function sendApnsPush(
     /** mutable-content:1 — lets a Notification Service Extension attach a
      *  branded image later without another server change. */
     mutableContent?: boolean;
+    /** Absolute URL of a branded card image. Rides as the top-level
+     *  `talise-image` key; the Notification Service Extension downloads it
+     *  and attaches it so the expanded notification shows our theme.
+     *  Requires `mutableContent: true` (set automatically when present). */
+    imageUrl?: string;
     data?: Record<string, unknown>;
   }
 ): Promise<ApnsResult> {
@@ -102,8 +107,14 @@ export async function sendApnsPush(
     if (typeof payload.relevanceScore === "number")
       aps["relevance-score"] = payload.relevanceScore;
     if (typeof payload.badge === "number") aps.badge = payload.badge;
-    if (payload.mutableContent) aps["mutable-content"] = 1;
-    const body = JSON.stringify({ aps, ...(payload.data ?? {}) });
+    // A branded image implies mutable-content: the NSE only runs when iOS
+    // sees mutable-content:1, so force it on whenever an image is attached.
+    if (payload.mutableContent || payload.imageUrl) aps["mutable-content"] = 1;
+    const body = JSON.stringify({
+      aps,
+      ...(payload.imageUrl ? { "talise-image": payload.imageUrl } : {}),
+      ...(payload.data ?? {}),
+    });
     return await new Promise<ApnsResult>((resolve) => {
       const client = http2.connect(c.host);
       let settled = false;

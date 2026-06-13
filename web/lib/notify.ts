@@ -20,6 +20,22 @@ function currencyForCountry(country: string | null | undefined): Currency {
   return "USD";
 }
 
+/**
+ * Absolute URL of the branded notification card the iOS Notification Service
+ * Extension downloads and attaches. Same origin the rest of the app/emails
+ * use; defaults to the iOS API host. `amount` is the already-localized
+ * display string so the card matches the banner copy exactly.
+ */
+function creditCardImageUrl(amountText: string, sender: string): string {
+  const base = (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    "https://app.talise.io"
+  ).replace(/\/+$/, "");
+  const qs = new URLSearchParams({ amount: amountText, from: sender });
+  return `${base}/api/notify/card?${qs.toString()}`;
+}
+
 /** "caleb" / "caleb.sui" → "caleb@talise"; leaves real display names alone. */
 function senderLabel(raw: string): string {
   const s = raw.trim();
@@ -72,7 +88,12 @@ export async function notifyInboundSettlement(input: {
         const currency = currencyForCountry(recipient.country);
         const amountText = formatLocal(input.amountUsd, currency); // "₦8,100"
         const title = `${amountText} received`;
-        const pbody = `from ${senderLabel(input.senderName)}`;
+        const label = senderLabel(input.senderName);
+        const pbody = `from ${label}`;
+        // Branded mint card the NSE attaches → the expanded notification
+        // shows Talise's theme (the OS owns the banner chrome; this is the
+        // only way to put our look inside a notification).
+        const imageUrl = creditCardImageUrl(amountText, label);
         await Promise.all(
           tokens.map((t) =>
             sendApnsPush(t, {
@@ -83,6 +104,7 @@ export async function notifyInboundSettlement(input: {
               interruptionLevel: "active",
               relevanceScore: 1,
               mutableContent: true,
+              imageUrl,
               data: { kind: "credit", route: "activity", amountUsd: input.amountUsd },
             }).then((r) => {
               if (!r.ok && !r.skipped) {
