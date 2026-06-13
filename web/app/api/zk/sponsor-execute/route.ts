@@ -11,7 +11,8 @@ import { onara } from "@/lib/onara";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { recordSendLatency } from "@/lib/perf-cache";
+import { recordSendLatency, takePendingInbound } from "@/lib/perf-cache";
+import { notifyInboundSettlement } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
@@ -464,6 +465,23 @@ export async function POST(req: Request) {
     // ran will fail Sui validation at sponsor-time (the PTB doesn't
     // match what they're claiming) — so by the time we reach this
     // point the value is implicitly verified.
+    // Notify the RECIPIENT that money landed. The stash was set in
+    // sponsor-prepare; previously only gasless-submit consumed it, so
+    // SPONSORED sends (Spend+Save round-ups, cross-currency, any Move-call
+    // send) settled without ever notifying the recipient. Consume it here too
+    // so every inbound send pushes. Fire-and-forget — never gates the
+    // response, never throws (same contract as gasless-submit).
+    if (digest) {
+      const inbound = takePendingInbound(userId);
+      if (inbound) {
+        void notifyInboundSettlement({
+          recipientAddress: inbound.to,
+          amountUsd: inbound.amountUsd,
+          senderName: inbound.senderName,
+        });
+      }
+    }
+
     const roundupUsd = meta?.roundupUsd ?? 0;
     if (digest && roundupUsd > 0 && meta?.kind === "send") {
       const cappedRoundup = Math.min(roundupUsd, 10_000);
