@@ -32,6 +32,20 @@ export type SendArgs = {
   asset?: "USDsui" | "SUI";
 };
 
+/**
+ * What `send()` resolves with. `digest` is the on-chain receipt; `mode` and
+ * `roundupUsd` are the SERVER-BLESSED rail + round-up decisions from
+ * sponsor-prepare, surfaced so the success UI can show what actually happened
+ * (gasless vs sponsored, and the real Save leg) instead of fabricating steps.
+ */
+export type SendResult = {
+  digest: string;
+  /** "gasless" | "sponsored" | "sponsored-coin-fallback" | "sponsored-anchor-fallback" */
+  mode: string;
+  /** USD rounded up into NAVI as an atomic Save leg this send (0 when none). */
+  roundupUsd: number;
+};
+
 type PrepareResponse = {
   bytes: string;
   mode: string;
@@ -48,7 +62,7 @@ export function useSignAndSend() {
   const [sending, setSending] = useState(false);
   const inFlight = useRef(false);
 
-  const send = useCallback(async (args: SendArgs): Promise<{ digest: string }> => {
+  const send = useCallback(async (args: SendArgs): Promise<SendResult> => {
     if (inFlight.current) {
       throw new ApiError(0, "A send is already in progress.", "BUSY");
     }
@@ -109,7 +123,10 @@ export function useSignAndSend() {
         window.dispatchEvent(new CustomEvent("talise:tx", { detail: { digest: exec.digest } }));
       }
 
-      return { digest: exec.digest };
+      // Surface the server's rail + Save decisions from prepare alongside the
+      // digest — the success UI derives its atomic-step list from these (never
+      // from client guesses).
+      return { digest: exec.digest, mode: prep.mode, roundupUsd: prep.roundupUsd ?? 0 };
     } catch (e) {
       // Expired signing session (server 401 / stale binding): tear down and
       // send the user straight back through Google so they can finish what

@@ -18,7 +18,7 @@ struct BrandIntroCarousel: View {
         Slide(
             step: .intro2,
             asset: "OnboardingHero_2",
-            headline: "Earn while you save — put idle dollars to work, withdraw anytime."
+            headline: "A payment that does more — pay, save, and earn in one tap."
         ),
         Slide(
             step: .intro3,

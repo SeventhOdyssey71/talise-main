@@ -36,6 +36,12 @@ struct SuccessfulTxView: View {
     /// chip springs up under the subtitle a beat after the celebration
     /// lands, so Spend + Save users SEE the save happen.
     var savedText: String? = nil
+    /// Recipient display name (handle or short address) for the
+    /// human-readable atomic-flow receipt. Empty/nil falls back to a
+    /// generic "recipient" so the step still reads cleanly. Cross-border
+    /// sends pass nil → the receipt card is suppressed (the chain leg is
+    /// final but delivery isn't, so the on-chain step would overclaim).
+    var recipientDisplay: String? = nil
 
     private let mintGreen = Color(hex: 0xB1F49A)
     @State private var showSavedPop = false
@@ -124,6 +130,20 @@ struct SuccessfulTxView: View {
                     }
                 }
 
+                // Atomic-flow receipt — the human-readable version of the
+                // same tx the "Share Receipt" button opens on SuiVision.
+                // Spells out that pay + round-up + receipt all landed in
+                // ONE signature (no wallet, no gas). Suppressed for
+                // cross-border sends where recipientDisplay is nil — there
+                // the bank leg isn't final yet, so "recorded on-chain"
+                // would read as fully-settled when it isn't.
+                if let recipientDisplay, !recipientDisplay.isEmpty {
+                    atomicReceiptCard(recipient: recipientDisplay)
+                        .padding(.horizontal, 32)
+                        .padding(.top, 22)
+                        .scrapbookFadeUp(delay: 0.46)
+                }
+
                 Spacer()
 
                 HStack(spacing: 13) {
@@ -157,5 +177,56 @@ struct SuccessfulTxView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// Compact "one atomic transaction" step card. Each step is derived
+    /// ONLY from real data — a step never renders unless it actually ran:
+    ///   1. Always: paid <amount> to <recipient>.
+    ///   2. Only if a round-up was saved (savedText set): the NAVI line.
+    ///   3. Always: the on-chain receipt.
+    /// The point: every line below happened under a SINGLE signature.
+    @ViewBuilder
+    private func atomicReceiptCard(recipient: String) -> some View {
+        // Build the live step list. Step 2 is conditional on a real
+        // round-up so we never show a save that didn't happen.
+        var steps: [String] = ["Paid \(amountText) to \(recipient)"]
+        if let savedText, !savedText.isEmpty {
+            steps.append("Rounded up \(savedText) → earning in NAVI")
+        }
+        steps.append("Receipt recorded on-chain")
+
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("1 ATOMIC TRANSACTION")
+                .font(TaliseFont.mono(11, weight: .medium))
+                .kerning(1.4)
+                .foregroundStyle(mintGreen)
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(mintGreen)
+                        Text(step)
+                            .font(TaliseFont.body(14, weight: .regular))
+                            .kerning(-0.2)
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(mintGreen.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(mintGreen.opacity(0.22), lineWidth: 1)
+        )
     }
 }

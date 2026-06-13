@@ -50,6 +50,7 @@ import {
   ApiError,
   type Contact,
 } from "@/components/app";
+import { AtomicFlowReceipt } from "@/components/app/pay/AtomicFlowReceipt";
 // framer-motion only loads when a send actually succeeds — keep it out of the
 // Send page's initial bundle.
 const CoinBurst = dynamic(
@@ -171,6 +172,10 @@ export function SendFlow() {
   const [noMatch, setNoMatch] = useState(false);
 
   const [digest, setDigest] = useState<string | null>(null);
+  // Server-blessed send outcome (rail + Save leg), captured for the atomic
+  // receipt + gasless indicator on the success screen. See useSignAndSend.
+  const [sendMode, setSendMode] = useState<string>("");
+  const [savedUsd, setSavedUsd] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
 
@@ -401,8 +406,13 @@ export function SendFlow() {
         invoiceId && !userTouchedAmount.current && linkAmountUsd != null
           ? linkAmountUsd
           : amountUsd;
-      const { digest: d } = await send({ to: resolved.address, amountUsd: amountToSend });
+      const { digest: d, mode, roundupUsd } = await send({
+        to: resolved.address,
+        amountUsd: amountToSend,
+      });
       setDigest(d);
+      setSendMode(mode);
+      setSavedUsd(roundupUsd);
       setStep("success");
       if (invoiceId) void settleInvoice(invoiceId, d);
     } catch (e) {
@@ -422,6 +432,8 @@ export function SendFlow() {
     setResolved(null);
     setNoMatch(false);
     setDigest(null);
+    setSendMode("");
+    setSavedUsd(0);
     setErrorMsg(null);
     setResetSignal((s) => s + 1);
   }, []);
@@ -516,6 +528,8 @@ export function SendFlow() {
             amountUsd={amountUsd}
             to={resolved}
             digest={digest}
+            mode={sendMode}
+            savedUsd={savedUsd}
             onShareCopied={() => toast("Receipt link copied", "success")}
             onDone={() => router.push("/app")}
             onAgain={resetAll}
@@ -973,6 +987,8 @@ function SuccessStep({
   amountUsd,
   to,
   digest,
+  mode,
+  savedUsd,
   onShareCopied,
   onDone,
   onAgain,
@@ -980,12 +996,20 @@ function SuccessStep({
   amountUsd: number;
   to: Resolved | null;
   digest: string;
+  /** Server rail label: "gasless" | "sponsored" | "sponsored-*-fallback". */
+  mode: string;
+  /** USD rounded up into NAVI on this send (0 → no Save leg ran). */
+  savedUsd: number;
   onShareCopied: () => void;
   onDone: () => void;
   onAgain: () => void;
 }) {
   const { formatUsd } = useCurrency();
   const explorerUrl = `${EXPLORER}${digest}`;
+  // A4: the gasless rail truly costs the user nothing (validator-sponsored).
+  // Other rails are Talise-sponsored — both land $0.00 to the user, so we keep
+  // the copy factual and just name how Talise auto-routed it.
+  const isGasless = mode === "gasless";
 
   const copyReceipt = async () => {
     try {
@@ -1016,7 +1040,25 @@ function SuccessStep({
       )}
       <p className="mt-1 font-mono text-[11px] text-accent">Arrives in &lt;1s</p>
 
-      <div className="mt-7 flex w-full flex-col gap-2.5">
+      {/* What happened in one transaction — the atomic PTB made visible. */}
+      <div className="mt-6 w-full">
+        <AtomicFlowReceipt
+          amountText={formatUsd(amountUsd)}
+          recipientDisplay={to?.displayName ?? "recipient"}
+          savedText={savedUsd > 0 ? formatUsd(savedUsd) : undefined}
+          digest={digest}
+        />
+      </div>
+
+      {/* A4: surface the auto-routed rail. Factual — $0.00 to the user either
+          way; only the gasless rail is validator-sponsored at zero network fee. */}
+      <p className="mt-3 font-mono text-[11px] text-fg-dim">
+        {isGasless
+          ? "Gasless · network fee $0.00 — gas sponsored by Talise"
+          : "Network fee $0.00 — gas sponsored by Talise"}
+      </p>
+
+      <div className="mt-6 flex w-full flex-col gap-2.5">
         <a
           href={explorerUrl}
           target="_blank"

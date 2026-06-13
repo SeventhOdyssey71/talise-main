@@ -43,6 +43,7 @@ export default async function Landing({
 
       <main className="relative z-10 mx-auto w-full max-w-[1440px] px-6 pb-32 md:px-12 lg:px-16">
         <Hero err={params.err} />
+        <HowItComposes />
         <FeatureGrid />
         <WhoItsFor />
         <SecuritySection />
@@ -91,20 +92,19 @@ function Hero({ err }: { err?: string }) {
           same sans font as the rest of the headline, set apart only by the
           forest accent colour. */}
       <h1 className="motion-headline mx-auto max-w-[940px] text-[clamp(40px,6vw,72px)] font-medium leading-[1.05] tracking-[-0.025em] text-[var(--color-fg)]">
-        Send money worldwide.
+        On Talise, a payment is
         <br />
         <span
           className="text-[var(--color-accent)]"
         >
-          In their currency.
+          a financial action.
         </span>
       </h1>
 
-      <p className="motion-subtitle mx-auto mt-6 max-w-[580px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
-        Send to a Talise handle and your money lands in their currency in
-        seconds: naira, cedis, yen, or dollars. We put dollars on the wire and
-        local money at each end, with the chain entirely out of the way.
-        Private beta. Join the waitlist.
+      <p className="motion-subtitle mx-auto mt-6 max-w-[600px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
+        Send money and it can round up, earn, and mint a receipt — in one tap.
+        One signature, composed into a single transaction on Sui. No wallet, no
+        gas token, no chain to think about. Private beta. Join the waitlist.
       </p>
 
       {/* Dual CTAs: waitlist + iOS placeholder. On small screens they
@@ -203,6 +203,102 @@ function PhoneCollage() {
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * Section: How it composes. The differentiator beat — shows the atomic
+ * flow (Pay → Round-up → Earn → Receipt) as one signed transaction on
+ * Sui. Reuses the talise-glass card recipe + mono-eyebrow rhythm of the
+ * rest of the page. Steps render as a connected row on md+, stacking on
+ * mobile, so the "one transaction" idea reads visually.
+ */
+function HowItComposes() {
+  const steps: Array<{ step: string; title: string; body: string }> = [
+    {
+      step: "pay",
+      title: "Send",
+      body: "Pay a handle, a phone, or a wallet. One amount, one tap.",
+    },
+    {
+      step: "round-up",
+      title: "Round up",
+      body: "A slice of the send sweeps into savings — you set 1% to 10%.",
+    },
+    {
+      step: "earn",
+      title: "Earn",
+      body: "That slice moves into NAVI lending on Sui and starts compounding.",
+    },
+    {
+      step: "receipt",
+      title: "Receipt",
+      body: "An on-chain receipt object is minted to your wallet as proof.",
+    },
+  ];
+
+  return (
+    <section
+      id="composes"
+      className="mt-28 border-t border-[var(--color-line)] pt-20"
+    >
+      <Reveal>
+        <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
+          <span aria-hidden className="inline-block h-px w-8 bg-[var(--color-accent)]" />
+          how it composes
+        </div>
+      </Reveal>
+      <Reveal delay={0.06}>
+        <h2 className="mt-3 max-w-[860px] text-[clamp(28px,4.5vw,46px)] font-medium leading-[1.08] tracking-[-0.01em]">
+          Pay, round-up, earn, receipt —{" "}
+          <span className="text-[var(--color-accent)]">
+            one atomic transaction.
+          </span>
+        </h2>
+      </Reveal>
+      <Reveal delay={0.12}>
+        <p className="mt-4 max-w-[620px] text-[14px] leading-[1.6] text-[var(--color-fg-muted)]">
+          Other apps make you tap four times across four screens. Talise
+          composes the whole flow into a single signed transaction on Sui:
+          either every step lands together, or none of it does. One signature.
+          Money as something you can program.
+        </p>
+      </Reveal>
+
+      <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {steps.map((s, i) => (
+          <Reveal key={s.step} delay={0.18 + i * 0.06}>
+            <article className="talise-glass relative h-full rounded-2xl p-6">
+              <div className="flex items-center justify-between">
+                <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--color-fg-dim)]">
+                  {`0${i + 1} / ${s.step}`}
+                </div>
+                {i < steps.length - 1 && (
+                  <span
+                    aria-hidden
+                    className="font-mono text-[14px] text-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]"
+                  >
+                    →
+                  </span>
+                )}
+              </div>
+              <h3 className="mt-7 text-[18px] font-medium leading-[1.2] tracking-[-0.005em]">
+                {s.title}
+              </h3>
+              <p className="mt-3 text-[13px] leading-[1.55] text-[var(--color-fg-muted)]">
+                {s.body}
+              </p>
+            </article>
+          </Reveal>
+        ))}
+      </div>
+
+      <Reveal delay={0.44}>
+        <p className="mt-6 font-mono text-[11px] leading-[1.6] tracking-[0.04em] text-[var(--color-fg-dim)]">
+          One PTB on Sui · signed once · gasless on USDsui transfers
+        </p>
+      </Reveal>
+    </section>
   );
 }
 
@@ -316,8 +412,8 @@ function WhoItsFor() {
           <p className="text-[14px] leading-[1.65] text-[var(--color-fg-muted)]">
             For anyone tired of SWIFT taking days and eating five or six
             percent on the way. Talise rides Sui&apos;s settlement, not a chain
-            of correspondent banks, so the same transfer arrives in seconds and
-            costs nothing.
+            of correspondent banks — the stablecoin leg costs nothing, and the
+            bank payout settles in seconds.
           </p>
         </Reveal>
         <Reveal delay={0.24}>
@@ -411,12 +507,13 @@ function ByTheNumbers() {
   // copy fits a 4-card row without truncation on lg viewports.
   const stats: Array<{ value: string; caption: string }> = [
     {
-      value: "Fast",
-      caption: "Sui finality. Sent and confirmed before the swipe finishes.",
+      value: "1,100+",
+      caption:
+        "Accounts created on-chain — gasless, no wallet connect, just a Google sign-in.",
     },
     {
-      value: "0% gas",
-      caption: "USDsui transfers are gasless on Sui. No gas token, no fee.",
+      value: "Network fee $0.00",
+      caption: "Stablecoin transactions on Sui cost nothing. No gas token to hold.",
     },
     {
       value: "Onchain reach",
@@ -433,16 +530,16 @@ function ByTheNumbers() {
       <Reveal>
         <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--color-fg-dim)]">
           <span aria-hidden className="inline-block h-px w-8 bg-[var(--color-accent)]" />
-          by the numbers
+          the proof
         </div>
       </Reveal>
       <Reveal delay={0.06}>
         <h2 className="mt-3 max-w-[720px] text-[clamp(28px,4.5vw,46px)] font-medium leading-[1.08] tracking-[-0.01em]">
-          What you can{" "}
+          Real users, already{" "}
           <span
             className="text-[var(--color-accent)]"
           >
-            expect.
+            on-chain.
           </span>
         </h2>
       </Reveal>
@@ -1058,13 +1155,13 @@ function FinalCta() {
         <span
           className="text-[var(--color-accent)]"
         >
-          Free to send.
+          In one signature.
         </span>
       </h2>
       <p className="mx-auto mt-5 max-w-[560px] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
-        Sending between Talise handles is free. We earn a small spread only
-        when money changes currency or cashes out, the way Wise and Revolut
-        do, only smaller.
+        Stablecoin transactions on Sui cost nothing — network fee $0.00. We
+        earn a small spread only when money changes currency or cashes out,
+        the way Wise and Revolut do, only smaller.
       </p>
       <div className="mx-auto mt-9 flex w-full max-w-[280px] flex-col items-stretch gap-2 sm:max-w-none sm:flex-row sm:items-center sm:justify-center">
         {/* Talise is in private beta — every Get started/Sign up CTA
@@ -1213,9 +1310,9 @@ function ErrorBanner({ err }: { err: string }) {
 
 function StatRow() {
   const stats: Array<[string, string, string]> = [
-    ["avg send fee", "0%", "vs ~6% legacy"],
+    ["one signature", "1 tap", "send, save, earn, receipt"],
     ["finality", "<1s", "sub-second on Sui"],
-    ["fee at $100", "$0.00", "no markup"],
+    ["network fee", "$0.00", "stablecoin tx on Sui"],
   ];
   return (
     <div className="motion-stat-row mx-auto mt-20 grid max-w-[860px] grid-cols-1 gap-3 md:grid-cols-3">

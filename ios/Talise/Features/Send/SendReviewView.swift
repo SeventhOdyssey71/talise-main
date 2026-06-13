@@ -321,9 +321,11 @@ struct SendReviewView: View {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(TaliseColor.greenMint)
-            Text("No network fee — sponsored by Talise.")
+            Text("Network fee $0.00 — Talise auto-routed the rail and sponsored the gas.")
                 .font(TaliseFont.mono(11, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }

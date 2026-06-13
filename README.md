@@ -1,6 +1,8 @@
 # Talise
 
-A USDsui dollar wallet for Sui — a neobank where you sign in with Google, hold dollars, and pay anyone by `@handle`, gasless. Money comes in by card or bank (Transak on-ramp) and out to a real bank account (Linq off-ramp — live for Nigeria today).
+On Talise, a payment is a financial action. Send money and it can round up, earn, and mint an on-chain receipt — composed into a single signed transaction on Sui. One signature, no wallet, no gas token to hold. That programmable core is wrapped in a wallet that feels like a neobank: sign in with Google, hold dollars in USDsui, and pay anyone by `@handle`. Money comes in by card or bank (Transak on-ramp) and out to a real bank account (Linq off-ramp — live for Nigeria today).
+
+> Built for the Sui DeFi & Payments problem statement: payments that are programmable financial actions, with 1,100+ accounts already created on-chain as proof.
 
 **Live in production at [talise.io](https://talise.io).** The web wallet (`/app`) is behind an email allowlist gate — Google sign-in is open to all, but only allowlisted accounts enter; everyone else lands in a waiting room. The business workspace (`/business`) and the public claim/pay pages (`/c` cheque claim, `/i` invoice pay, `/pay`, `/u`) are live. NGN bank cash-out is **capped at $200 per withdrawal during beta** (`OFFRAMP_MAX_USD` in `web/lib/linq.ts`, enforced server-side in every Linq entry point).
 

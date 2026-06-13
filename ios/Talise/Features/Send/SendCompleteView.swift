@@ -24,7 +24,12 @@ struct SendCompleteView: View {
             subtitle: successSubtitle,
             onShareReceipt: shareReceipt,
             onDone: onDone,
-            savedText: savedUsd > 0 ? TaliseFormat.local2(savedUsd) : nil
+            savedText: savedUsd > 0 ? TaliseFormat.local2(savedUsd) : nil,
+            // Atomic-flow receipt: only same-currency wallet sends are
+            // chain-final end-to-end, so only they get the on-chain
+            // receipt card. Cross-border sends pass nil → suppressed,
+            // since the bank-payout leg hasn't confirmed.
+            recipientDisplay: draft.isCrossCurrency ? nil : draft.success?.recipientDisplay
         )
         .toolbar(.hidden, for: .navigationBar)
     }
