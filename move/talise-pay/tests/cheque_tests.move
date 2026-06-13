@@ -10,13 +10,18 @@
 ///   • mutual exclusion: reclaim-after-claim aborts E_ALREADY_CLAIMED, and
 ///     claim-after-reclaim aborts E_ALREADY_CLAIMED
 ///   • non-creator reclaim aborts E_NOT_CREATOR
-///   • create input validation (zero funds, past expiry)
+///   • create input validation (zero funds, past expiry, no condition, bad hashlock)
+///   • v2 address binding: claim to the wrong recipient aborts E_RECIPIENT_NOT_BOUND
+///   • v2 hashlock: wrong secret aborts E_BAD_SECRET; correct secret pays
+///   • v2 permissionless reclaim_expired: before-expiry aborts E_NOT_EXPIRED;
+///     after-expiry ANYONE returns the funds to the creator; post-claim aborts
 ///   • worker add/remove
 ///
 /// Dummy coin type `T = SUI` via `coin::mint_for_testing` → `into_balance`.
 #[test_only]
 module talise::cheque_tests;
 
+use std::hash::sha2_256;
 use std::unit_test::assert_eq;
 use sui::{balance, clock, coin, sui::SUI, test_scenario as ts};
 use talise::cheque::{Self, ChequeRegistry, ChequeAdminCap, Cheque};
@@ -29,6 +34,9 @@ const RANDO: address = @0xE;
 
 const AMOUNT: u64 = 5_000_000;
 const EXPIRY: u64 = 100_000;
+
+/// The bearer claim-code preimage for the hashlock tests.
+const SECRET: vector<u8> = b"open-sesame-claim-code-0123456789";
 
 // ───────────────────────────────────────────────────────────────────
 // Helpers
@@ -47,13 +55,44 @@ fun grant_worker(scenario: &mut ts::Scenario) {
     ts::return_to_sender(scenario, cap);
 }
 
-/// CREATOR funds a cheque of `AMOUNT`, expiry `EXPIRY`, clock at ms=0.
-fun fund_cheque(scenario: &mut ts::Scenario): ID {
+/// CREATOR funds a cheque bound to `recipient` (no hashlock), `AMOUNT`,
+/// expiry `EXPIRY`, clock at ms=0. This is the default rail the access /
+/// expiry / double-claim tests use — the recipient is committed on-chain.
+fun fund_bound(scenario: &mut ts::Scenario, recipient: address): ID {
     ts::next_tx(scenario, CREATOR);
     let mut reg = ts::take_shared<ChequeRegistry>(scenario);
     let c = clock::create_for_testing(ts::ctx(scenario)); // ms = 0
     let funds = coin::mint_for_testing<SUI>(AMOUNT, ts::ctx(scenario)).into_balance();
-    let cid = cheque::create<SUI>(&mut reg, funds, EXPIRY, &c, ts::ctx(scenario));
+    let cid = cheque::create<SUI>(
+        &mut reg,
+        funds,
+        EXPIRY,
+        option::some(recipient),
+        option::none(),
+        &c,
+        ts::ctx(scenario),
+    );
+    clock::destroy_for_testing(c);
+    ts::return_shared(reg);
+    cid
+}
+
+/// CREATOR funds a hashlocked (bearer) cheque: no address binding, the claim
+/// is gated by `sha2_256(SECRET)`.
+fun fund_hashlock(scenario: &mut ts::Scenario): ID {
+    ts::next_tx(scenario, CREATOR);
+    let mut reg = ts::take_shared<ChequeRegistry>(scenario);
+    let c = clock::create_for_testing(ts::ctx(scenario));
+    let funds = coin::mint_for_testing<SUI>(AMOUNT, ts::ctx(scenario)).into_balance();
+    let cid = cheque::create<SUI>(
+        &mut reg,
+        funds,
+        EXPIRY,
+        option::none(),
+        option::some(sha2_256(SECRET)),
+        &c,
+        ts::ctx(scenario),
+    );
     clock::destroy_for_testing(c);
     ts::return_shared(reg);
     cid
@@ -67,7 +106,7 @@ fun create_then_claim_pays_recipient() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
     grant_worker(&mut scenario);
-    let cid = fund_cheque(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
 
     ts::next_tx(&mut scenario, WORKER);
     {
@@ -75,7 +114,7 @@ fun create_then_claim_pays_recipient() {
         let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
         let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
         clock::set_for_testing(&mut c, EXPIRY - 1); // before expiry
-        cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, &c, ts::ctx(&mut scenario));
+        cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, b"", &c, ts::ctx(&mut scenario));
         assert!(cheque::is_claimed(&ch));
         assert_eq!(cheque::escrow_value(&ch), 0);
         clock::destroy_for_testing(c);
@@ -104,7 +143,7 @@ fun non_worker_claim_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
     grant_worker(&mut scenario);
-    let cid = fund_cheque(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
 
     // RANDO is not a worker.
     ts::next_tx(&mut scenario, RANDO);
@@ -112,7 +151,7 @@ fun non_worker_claim_aborts() {
     let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
     let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
     clock::set_for_testing(&mut c, EXPIRY - 1);
-    cheque::claim<SUI>(&mut reg, &mut ch, RANDO, &c, ts::ctx(&mut scenario));
+    cheque::claim<SUI>(&mut reg, &mut ch, RANDO, b"", &c, ts::ctx(&mut scenario));
     clock::destroy_for_testing(c);
     ts::return_shared(ch);
     ts::return_shared(reg);
@@ -124,7 +163,7 @@ fun paused_registry_blocks_claim() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
     grant_worker(&mut scenario);
-    let cid = fund_cheque(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
 
     ts::next_tx(&mut scenario, PUBLISHER);
     {
@@ -140,7 +179,7 @@ fun paused_registry_blocks_claim() {
     let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
     let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
     clock::set_for_testing(&mut c, EXPIRY - 1);
-    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, &c, ts::ctx(&mut scenario));
+    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, b"", &c, ts::ctx(&mut scenario));
     clock::destroy_for_testing(c);
     ts::return_shared(ch);
     ts::return_shared(reg);
@@ -155,14 +194,14 @@ fun claim_at_expiry_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
     grant_worker(&mut scenario);
-    let cid = fund_cheque(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
 
     ts::next_tx(&mut scenario, WORKER);
     let mut reg = ts::take_shared<ChequeRegistry>(&scenario);
     let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
     let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
     clock::set_for_testing(&mut c, EXPIRY); // exactly at expiry → not < expiry
-    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, &c, ts::ctx(&mut scenario));
+    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, b"", &c, ts::ctx(&mut scenario));
     clock::destroy_for_testing(c);
     ts::return_shared(ch);
     ts::return_shared(reg);
@@ -177,16 +216,92 @@ fun double_claim_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
     grant_worker(&mut scenario);
-    let cid = fund_cheque(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
 
     ts::next_tx(&mut scenario, WORKER);
     let mut reg = ts::take_shared<ChequeRegistry>(&scenario);
     let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
     let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
     clock::set_for_testing(&mut c, EXPIRY - 1);
-    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, &c, ts::ctx(&mut scenario));
+    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, b"", &c, ts::ctx(&mut scenario));
     // Double-fired worker call → abort.
-    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, &c, ts::ctx(&mut scenario));
+    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, b"", &c, ts::ctx(&mut scenario));
+    clock::destroy_for_testing(c);
+    ts::return_shared(ch);
+    ts::return_shared(reg);
+    ts::end(scenario);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// v2 — address binding
+
+#[test, expected_failure(abort_code = cheque::ERecipientNotBound)]
+fun bound_claim_to_wrong_recipient_aborts() {
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+    grant_worker(&mut scenario);
+    // Bound to CLAIMER…
+    let cid = fund_bound(&mut scenario, CLAIMER);
+
+    // …but the worker tries to pay RANDO. The CONTRACT refuses, even though
+    // the caller is a valid worker — this is the trust-minimized guarantee.
+    ts::next_tx(&mut scenario, WORKER);
+    let mut reg = ts::take_shared<ChequeRegistry>(&scenario);
+    let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
+    let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
+    clock::set_for_testing(&mut c, EXPIRY - 1);
+    cheque::claim<SUI>(&mut reg, &mut ch, RANDO, b"", &c, ts::ctx(&mut scenario));
+    clock::destroy_for_testing(c);
+    ts::return_shared(ch);
+    ts::return_shared(reg);
+    ts::end(scenario);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// v2 — hashlock (bearer claim code)
+
+#[test]
+fun hashlock_claim_with_correct_secret_pays() {
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+    grant_worker(&mut scenario);
+    let cid = fund_hashlock(&mut scenario);
+
+    ts::next_tx(&mut scenario, WORKER);
+    {
+        let mut reg = ts::take_shared<ChequeRegistry>(&scenario);
+        let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
+        let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
+        clock::set_for_testing(&mut c, EXPIRY - 1);
+        // No binding → any recipient, but the secret must match the hashlock.
+        cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, SECRET, &c, ts::ctx(&mut scenario));
+        assert!(cheque::is_claimed(&ch));
+        clock::destroy_for_testing(c);
+        ts::return_shared(ch);
+        ts::return_shared(reg);
+    };
+
+    ts::next_tx(&mut scenario, CLAIMER);
+    let got = ts::take_from_sender<coin::Coin<SUI>>(&scenario);
+    assert_eq!(got.value(), AMOUNT);
+    coin::burn_for_testing(got);
+    ts::end(scenario);
+}
+
+#[test, expected_failure(abort_code = cheque::EBadSecret)]
+fun hashlock_claim_with_wrong_secret_aborts() {
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+    grant_worker(&mut scenario);
+    let cid = fund_hashlock(&mut scenario);
+
+    ts::next_tx(&mut scenario, WORKER);
+    let mut reg = ts::take_shared<ChequeRegistry>(&scenario);
+    let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
+    let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
+    clock::set_for_testing(&mut c, EXPIRY - 1);
+    // A worker WITHOUT the claim code cannot drain the cheque.
+    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, b"wrong-code", &c, ts::ctx(&mut scenario));
     clock::destroy_for_testing(c);
     ts::return_shared(ch);
     ts::return_shared(reg);
@@ -201,7 +316,7 @@ fun creator_reclaims_unclaimed_cheque() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
     grant_worker(&mut scenario);
-    let cid = fund_cheque(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
 
     ts::next_tx(&mut scenario, CREATOR);
     {
@@ -222,7 +337,7 @@ fun non_creator_reclaim_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
     grant_worker(&mut scenario);
-    let cid = fund_cheque(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
 
     ts::next_tx(&mut scenario, RANDO);
     let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
@@ -239,7 +354,7 @@ fun reclaim_after_claim_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
     grant_worker(&mut scenario);
-    let cid = fund_cheque(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
 
     // Worker claims first.
     ts::next_tx(&mut scenario, WORKER);
@@ -248,7 +363,7 @@ fun reclaim_after_claim_aborts() {
         let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
         let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
         clock::set_for_testing(&mut c, EXPIRY - 1);
-        cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, &c, ts::ctx(&mut scenario));
+        cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, b"", &c, ts::ctx(&mut scenario));
         clock::destroy_for_testing(c);
         ts::return_shared(ch);
         ts::return_shared(reg);
@@ -270,7 +385,7 @@ fun claim_after_reclaim_aborts() {
     let mut scenario = ts::begin(PUBLISHER);
     setup_registry(&mut scenario);
     grant_worker(&mut scenario);
-    let cid = fund_cheque(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
 
     // Creator voids it first.
     ts::next_tx(&mut scenario, CREATOR);
@@ -289,10 +404,92 @@ fun claim_after_reclaim_aborts() {
     let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
     let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
     clock::set_for_testing(&mut c, EXPIRY - 1);
-    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, &c, ts::ctx(&mut scenario));
+    cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, b"", &c, ts::ctx(&mut scenario));
     clock::destroy_for_testing(c);
     ts::return_shared(ch);
     ts::return_shared(reg);
+    ts::end(scenario);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// v2 — permissionless reclaim_expired
+
+#[test]
+fun reclaim_expired_returns_to_creator_permissionlessly() {
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+    grant_worker(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
+
+    // RANDO (no role at all) cranks the expired cheque.
+    ts::next_tx(&mut scenario, RANDO);
+    {
+        let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
+        let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
+        clock::set_for_testing(&mut c, EXPIRY); // at expiry → reclaimable
+        cheque::reclaim_expired<SUI>(&mut ch, &c, ts::ctx(&mut scenario));
+        assert!(cheque::is_claimed(&ch));
+        assert_eq!(cheque::escrow_value(&ch), 0);
+        clock::destroy_for_testing(c);
+        ts::return_shared(ch);
+    };
+
+    // Funds landed with CREATOR — not RANDO, not CLAIMER.
+    ts::next_tx(&mut scenario, CREATOR);
+    {
+        let got = ts::take_from_sender<coin::Coin<SUI>>(&scenario);
+        assert_eq!(got.value(), AMOUNT);
+        coin::burn_for_testing(got);
+    };
+    ts::next_tx(&mut scenario, RANDO);
+    assert!(!ts::has_most_recent_for_sender<coin::Coin<SUI>>(&scenario));
+    ts::end(scenario);
+}
+
+#[test, expected_failure(abort_code = cheque::ENotExpired)]
+fun reclaim_expired_before_expiry_aborts() {
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
+
+    ts::next_tx(&mut scenario, RANDO);
+    let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
+    let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
+    clock::set_for_testing(&mut c, EXPIRY - 1); // not yet expired
+    cheque::reclaim_expired<SUI>(&mut ch, &c, ts::ctx(&mut scenario));
+    clock::destroy_for_testing(c);
+    ts::return_shared(ch);
+    ts::end(scenario);
+}
+
+#[test, expected_failure(abort_code = cheque::EAlreadyClaimed)]
+fun reclaim_expired_after_claim_aborts() {
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+    grant_worker(&mut scenario);
+    let cid = fund_bound(&mut scenario, CLAIMER);
+
+    // Worker claims before expiry.
+    ts::next_tx(&mut scenario, WORKER);
+    {
+        let mut reg = ts::take_shared<ChequeRegistry>(&scenario);
+        let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
+        let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
+        clock::set_for_testing(&mut c, EXPIRY - 1);
+        cheque::claim<SUI>(&mut reg, &mut ch, CLAIMER, b"", &c, ts::ctx(&mut scenario));
+        clock::destroy_for_testing(c);
+        ts::return_shared(ch);
+        ts::return_shared(reg);
+    };
+
+    // Then someone tries reclaim_expired after expiry — already terminal.
+    ts::next_tx(&mut scenario, RANDO);
+    let mut ch = ts::take_shared_by_id<Cheque<SUI>>(&scenario, cid);
+    let mut c = clock::create_for_testing(ts::ctx(&mut scenario));
+    clock::set_for_testing(&mut c, EXPIRY + 1);
+    cheque::reclaim_expired<SUI>(&mut ch, &c, ts::ctx(&mut scenario));
+    clock::destroy_for_testing(c);
+    ts::return_shared(ch);
     ts::end(scenario);
 }
 
@@ -308,7 +505,9 @@ fun create_rejects_zero_funds() {
     let mut reg = ts::take_shared<ChequeRegistry>(&scenario);
     let c = clock::create_for_testing(ts::ctx(&mut scenario));
     let funds = balance::zero<SUI>();
-    let _cid = cheque::create<SUI>(&mut reg, funds, EXPIRY, &c, ts::ctx(&mut scenario));
+    let _cid = cheque::create<SUI>(
+        &mut reg, funds, EXPIRY, option::some(CLAIMER), option::none(), &c, ts::ctx(&mut scenario),
+    );
     clock::destroy_for_testing(c);
     ts::return_shared(reg);
     ts::end(scenario);
@@ -325,7 +524,45 @@ fun create_rejects_past_expiry() {
     clock::set_for_testing(&mut c, 50_000);
     let funds = coin::mint_for_testing<SUI>(AMOUNT, ts::ctx(&mut scenario)).into_balance();
     // expiry 40_000 < now 50_000 → abort.
-    let _cid = cheque::create<SUI>(&mut reg, funds, 40_000, &c, ts::ctx(&mut scenario));
+    let _cid = cheque::create<SUI>(
+        &mut reg, funds, 40_000, option::some(CLAIMER), option::none(), &c, ts::ctx(&mut scenario),
+    );
+    clock::destroy_for_testing(c);
+    ts::return_shared(reg);
+    ts::end(scenario);
+}
+
+#[test, expected_failure(abort_code = cheque::ENoClaimCondition)]
+fun create_rejects_no_condition() {
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+
+    ts::next_tx(&mut scenario, CREATOR);
+    let mut reg = ts::take_shared<ChequeRegistry>(&scenario);
+    let c = clock::create_for_testing(ts::ctx(&mut scenario));
+    let funds = coin::mint_for_testing<SUI>(AMOUNT, ts::ctx(&mut scenario)).into_balance();
+    // Neither a binding nor a hashlock → refused.
+    let _cid = cheque::create<SUI>(
+        &mut reg, funds, EXPIRY, option::none(), option::none(), &c, ts::ctx(&mut scenario),
+    );
+    clock::destroy_for_testing(c);
+    ts::return_shared(reg);
+    ts::end(scenario);
+}
+
+#[test, expected_failure(abort_code = cheque::EBadSecret)]
+fun create_rejects_malformed_hashlock() {
+    let mut scenario = ts::begin(PUBLISHER);
+    setup_registry(&mut scenario);
+
+    ts::next_tx(&mut scenario, CREATOR);
+    let mut reg = ts::take_shared<ChequeRegistry>(&scenario);
+    let c = clock::create_for_testing(ts::ctx(&mut scenario));
+    let funds = coin::mint_for_testing<SUI>(AMOUNT, ts::ctx(&mut scenario)).into_balance();
+    // A 3-byte "hashlock" is not a sha2-256 digest → refused.
+    let _cid = cheque::create<SUI>(
+        &mut reg, funds, EXPIRY, option::none(), option::some(b"abc"), &c, ts::ctx(&mut scenario),
+    );
     clock::destroy_for_testing(c);
     ts::return_shared(reg);
     ts::end(scenario);

@@ -85,6 +85,9 @@ export async function POST(
     claimerUserId: userId,
     claimerAddress: user.sui_address,
     claimerCountry: elig.country ?? null,
+    // The on-chain rail's v2 hashlock check needs the preimage; already matched
+    // against secret_hash in getChequeForClaim above.
+    secret: body.secret ?? "",
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.reason ?? "release_failed" }, { status: 409 });

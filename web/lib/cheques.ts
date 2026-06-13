@@ -757,6 +757,10 @@ export async function releaseCheque(input: {
   claimerUserId: number;
   claimerAddress: string;
   claimerCountry?: string | null;
+  /** The claim-code preimage. Required for the v2 hashlock check on the
+   *  on-chain rail; ignored on the escrow rail. The caller has already matched
+   *  it against `secret_hash` via getChequeForClaim. */
+  secret?: string;
 }): Promise<{ ok: boolean; digest?: string; reason?: string }> {
   await ensureChequesSchema();
   const now = Date.now();
@@ -802,7 +806,7 @@ export async function releaseCheque(input: {
 
   try {
     const digest = onchain
-      ? await claimOnChain(chequeObjectId as string, input.claimerAddress)
+      ? await claimOnChain(chequeObjectId as string, input.claimerAddress, input.secret ?? "")
       : await escrowTransfer(input.claimerAddress, micros);
     await db().execute({
       sql: `UPDATE cheques SET status='claimed', release_digest=?, claim_digest=?,
@@ -893,50 +897,72 @@ export async function voidCheque(input: {
 }
 
 /**
- * Cron: reclaim funded ESCROW-rail cheques past expiry back to their creators.
+ * Cron: reclaim funded cheques past expiry back to their creators. RAIL-AWARE,
+ * and now sweeps BOTH rails:
  *
- * RAIL-AWARE — this only sweeps ESCROW-rail cheques (`cheque_object_id IS
- * NULL`), where the funds sit in the server escrow address and the worker key
- * can settle them with an escrow→creator transfer.
+ *   • ESCROW rail (`cheque_object_id IS NULL`): the funds sit in the server
+ *     escrow address; the worker settles them with an escrow→creator transfer.
  *
- * ON-CHAIN cheques (`cheque_object_id` set) are DELIBERATELY excluded by the
- * `cheque_object_id IS NULL` filter below: the escrow holds no funds for them
- * (the money lives in the on-chain `Cheque<USDSUI>` object), and the Move
- * `cheque::reclaim` is CREATOR-ONLY with NO expiry requirement — there is no
- * way for this server-side worker to auto-reclaim an expired on-chain cheque.
- * Calling `escrowTransfer` for one would fail or mis-pay another cheque's
- * escrow balance. So an expired on-chain cheque is intentionally LEFT in its
- * `funded` (creator-reclaimable) state; the creator reclaims it any time from
- * their wallet via the sponsored `cheque::reclaim` PTB (the contract's
- * `!claimed` assert is the guard). The off-chain `expiresAt` is purely a UI
- * hint for on-chain cheques — the contract has no expiry gate on reclaim.
+ *   • ON-CHAIN rail (`cheque_object_id` set): the worker cranks the v2
+ *     permissionless `cheque::reclaim_expired`, which returns the on-chain
+ *     `Cheque<USDSUI>` escrow to the cheque's recorded `creator`. The worker
+ *     CANNOT choose the destination (the contract always pays `creator`), and
+ *     the contract asserts `now ≥ expiry` + `!claimed` — so this is a safe,
+ *     trust-minimized refund. Before Track C this was impossible (the old
+ *     `cheque::reclaim` was creator-only with no expiry gate), so expired
+ *     on-chain cheques used to be stranded in `funded` until the creator acted.
  */
 export async function sweepExpiredCheques(limit = 50): Promise<number> {
   await ensureChequesSchema();
   const now = Date.now();
   const due = await db().execute({
-    sql: `SELECT c.id, c.amount_micros, u.sui_address AS creator_address
+    sql: `SELECT c.id, c.amount_micros, c.cheque_object_id, c.fund_digest,
+                 u.sui_address AS creator_address
           FROM cheques c JOIN users u ON u.id = c.creator_user_id
-          WHERE c.status='funded' AND c.expires_at < ?
-            AND c.cheque_object_id IS NULL LIMIT ?`,
+          WHERE c.status='funded' AND c.expires_at < ? LIMIT ?`,
     args: [now, limit],
   });
   let swept = 0;
   for (const row of due.rows) {
     const id = String(row.id);
-    // Guard the lock with `cheque_object_id IS NULL` too, so a cheque that
-    // was concurrently funded on-chain can never be escrow-swept.
+    let objectId = (row.cheque_object_id as string | null) ?? null;
+    const fundDigest = (row.fund_digest as string | null) ?? null;
+    const isOnchain = chequeOnchainEnabled() && (objectId !== null || fundDigest !== null);
+
+    // Lock the row. The lock predicate matches the rail we're about to settle
+    // so a row that flips rails concurrently can never be double-settled.
     const lock = await db().execute({
-      sql: `UPDATE cheques SET status='voiding'
-            WHERE id=? AND status='funded' AND cheque_object_id IS NULL RETURNING id`,
+      sql: isOnchain
+        ? `UPDATE cheques SET status='voiding' WHERE id=? AND status='funded' RETURNING id`
+        : `UPDATE cheques SET status='voiding'
+             WHERE id=? AND status='funded' AND cheque_object_id IS NULL RETURNING id`,
       args: [id],
     });
     if (lock.rows.length === 0) continue;
+
     try {
-      const digest = await escrowTransfer(
-        String(row.creator_address),
-        BigInt(String(row.amount_micros))
-      );
+      let digest: string;
+      if (isOnchain) {
+        // Reconcile a missing object id from the funding digest (indexing lag
+        // at confirm time), same as releaseCheque.
+        if (!objectId && fundDigest) {
+          const parsed = await parseCreatedChequeObjectId(fundDigest);
+          if (parsed.ok && parsed.chequeObjectId) {
+            objectId = parsed.chequeObjectId;
+            await db().execute({
+              sql: `UPDATE cheques SET cheque_object_id=? WHERE id=?`,
+              args: [objectId, id],
+            });
+          }
+        }
+        if (!objectId) throw new Error("missing_cheque_object");
+        digest = await reclaimExpiredOnChain(objectId);
+      } else {
+        digest = await escrowTransfer(
+          String(row.creator_address),
+          BigInt(String(row.amount_micros))
+        );
+      }
       await db().execute({
         sql: `UPDATE cheques SET status='expired', release_digest=?, voided_at=? WHERE id=?`,
         args: [digest, Date.now(), id],
@@ -1028,6 +1054,16 @@ export async function buildChequeCreateSponsored(input: {
   creatorAddress: string;
   amountMicros: bigint;
   expiryMs: number;
+  /**
+   * v2 trust-minimized claim conditions (cheque.move ≥ Track C). At least one
+   * MUST be set or the contract aborts (ENoClaimCondition):
+   *   • boundRecipient: a Sui address — claim can ONLY pay this address.
+   *   • hashlockHex: a 32-byte sha2-256 digest hex — claim must present the
+   *     matching secret. For Talise's shareable-link cheques this is exactly
+   *     `secret_hash` (sha256 of the claim secret already in the link).
+   */
+  boundRecipient?: string | null;
+  hashlockHex?: string | null;
 }): Promise<{ bytes: string; sponsor: string }> {
   const pkg = chequePackageId();
   const registry = chequeRegistryId();
@@ -1035,6 +1071,17 @@ export async function buildChequeCreateSponsored(input: {
     throw new Error("cheque on-chain rail not configured (CHEQUE_PACKAGE_ID / CHEQUE_REGISTRY_ID)");
   }
   if (input.amountMicros <= 0n) throw new Error("non-positive cheque amount");
+
+  // Mirror the contract's ENoClaimCondition guard client-side so a misbuilt
+  // PTB fails here with a clear message instead of aborting on chain.
+  const bound = input.boundRecipient ?? null;
+  const hashlockBytes =
+    input.hashlockHex && /^[0-9a-f]{64}$/i.test(input.hashlockHex)
+      ? Array.from(Buffer.from(input.hashlockHex, "hex"))
+      : null;
+  if (!bound && !hashlockBytes) {
+    throw new Error("cheque needs a claim condition (bound recipient or 32-byte hashlock)");
+  }
 
   const onaraClient = onara();
   const client = sui();
@@ -1057,6 +1104,9 @@ export async function buildChequeCreateSponsored(input: {
       // the same primitive the gasless send uses, here fed to cheque::create.
       tx.balance({ type: USDSUI_TYPE, balance: input.amountMicros }),
       tx.pure.u64(BigInt(Math.trunc(input.expiryMs))),
+      // v2: Option<address> binding + Option<vector<u8>> hashlock.
+      tx.pure.option("address", bound),
+      tx.pure.option("vector<u8>", hashlockBytes),
       tx.object(SUI_CLOCK_ID),
     ],
   });
@@ -1109,20 +1159,29 @@ export async function parseCreatedChequeObjectId(
 }
 
 /**
- * Worker-signed `cheque::claim(recipient)`. The cheque worker key
+ * Worker-relayed `cheque::claim(recipient, secret)`. The cheque worker key
  * (`CHEQUE_ESCROW_SK`, registered on-chain as a worker) pays its OWN SUI gas.
  * The contract transfers the whole escrow to `recipientAddress` and flips the
  * one-shot `claimed` flag. Mirrors the worker-sign+execute pattern in
  * lib/suins-operator.ts / lib/streams.ts releaseTranche.
  *
- *   cheque::claim<T>(registry, cheque: &mut Cheque<T>, recipient, clock, ctx)
+ *   cheque::claim<T>(registry, cheque: &mut Cheque<T>, recipient, secret, clock, ctx)
+ *
+ * v2: `secret` is the claim-code preimage. For Talise's shareable-link cheques
+ * (hashlocked, not address-bound) the contract enforces
+ * `sha2_256(secret) == hashlock` — so the worker key alone cannot drain a
+ * cheque without the secret from the link. The secret bytes are the UTF-8 of
+ * the hex claim string, so `sha2_256` matches `sha256hex(secret)` (the DB
+ * `secret_hash` and the on-chain hashlock are the same 32 bytes). Pass `""`
+ * for legacy/address-bound cheques with no hashlock.
  *
  * Returns the tx digest on success; throws with the validator's reason on
  * failure (so releaseCheque rolls the DB lock back).
  */
 export async function claimOnChain(
   chequeObjectId: string,
-  recipientAddress: string
+  recipientAddress: string,
+  secret: string
 ): Promise<string> {
   const pkg = chequePackageId();
   const registry = chequeRegistryId();
@@ -1141,6 +1200,8 @@ export async function claimOnChain(
       tx.object(registry),
       tx.object(chequeObjectId),
       tx.pure.address(recipientAddress),
+      // Preimage of the cheque's hashlock (empty for address-bound cheques).
+      tx.pure.vector("u8", Array.from(Buffer.from(secret, "utf8"))),
       tx.object(SUI_CLOCK_ID),
     ],
   });
@@ -1168,6 +1229,58 @@ export async function claimOnChain(
   }
   const digest = txInner?.digest;
   if (!digest) throw new Error("cheque::claim produced no digest");
+  return digest;
+}
+
+/**
+ * Permissionless `cheque::reclaim_expired(cheque, clock, ctx)`, cranked by the
+ * worker key (it pays its own SUI gas). The contract returns the escrow to the
+ * cheque's on-chain `creator` — the caller CANNOT choose a destination — so
+ * this is safe to run from the server cron for ANY expired, unclaimed on-chain
+ * cheque WITHOUT the creator's signature. This is what lets the expiry sweep
+ * settle on-chain cheques (the old creator-only `reclaim` couldn't be cron'd).
+ *
+ *   cheque::reclaim_expired<T>(cheque: &mut Cheque<T>, clock, ctx)
+ *
+ * Returns the tx digest; throws (with the validator reason) if the cheque is
+ * not yet expired (ENotExpired) or already terminal (EAlreadyClaimed), so the
+ * sweep rolls its DB lock back and retries later.
+ */
+export async function reclaimExpiredOnChain(chequeObjectId: string): Promise<string> {
+  const pkg = chequePackageId();
+  if (!pkg) throw new Error("cheque on-chain rail not configured");
+  const kp = escrowKeypair();
+  const client = sui();
+
+  const tx = new Transaction();
+  tx.setSender(kp.getPublicKey().toSuiAddress());
+  tx.moveCall({
+    target: `${pkg}::cheque::reclaim_expired`,
+    typeArguments: [USDSUI_TYPE],
+    arguments: [tx.object(chequeObjectId), tx.object(SUI_CLOCK_ID)],
+  });
+  const bytes = await tx.build({ client: client as never });
+  const { signature } = await kp.signTransaction(bytes);
+  const result = (await client.executeTransaction({
+    transaction: bytes,
+    signatures: [signature],
+    include: { effects: true },
+  } as never)) as Record<string, unknown>;
+
+  if ((result.$kind as string | undefined) === "FailedTransaction") {
+    const failed = result.FailedTransaction as
+      | { effects?: { status?: { error?: unknown } } }
+      | undefined;
+    throw new Error(`cheque::reclaim_expired failed: ${extractStatusError(failed?.effects?.status)}`);
+  }
+  const txInner = result.Transaction as
+    | { digest?: string; effects?: { status?: { success?: boolean; error?: unknown } } }
+    | undefined;
+  if (txInner?.effects?.status && txInner.effects.status.success === false) {
+    throw new Error(`cheque::reclaim_expired failed: ${extractStatusError(txInner.effects.status)}`);
+  }
+  const digest = txInner?.digest;
+  if (!digest) throw new Error("cheque::reclaim_expired produced no digest");
   return digest;
 }
 

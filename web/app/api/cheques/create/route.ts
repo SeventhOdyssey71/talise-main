@@ -14,6 +14,7 @@ import {
   buildChequeCreateSponsored,
   usdToMicros,
   claimUrl,
+  sha256hex,
   type ChequeGate,
 } from "@/lib/cheques";
 
@@ -121,6 +122,11 @@ export async function POST(req: Request) {
         creatorAddress: user.sui_address,
         amountMicros: usdToMicros(amountUsd),
         expiryMs: expiresAt,
+        // Talise cheques are shareable bearer links (recipient unknown at
+        // create), so we commit the claim secret as an on-chain hashlock.
+        // `sha256hex(secret)` == the DB `secret_hash` == the 32-byte digest the
+        // contract checks at claim — the link IS the on-chain claim condition.
+        hashlockHex: sha256hex(secret),
       });
       return NextResponse.json({
         chequeId: id,
