@@ -55,7 +55,7 @@ struct CorridorPickerView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Eyebrow(text: "More countries soon").padding(.leading, 4)
                             HStack(spacing: 14) {
-                                OverlappedFlags(flags: groups.soon.map(\.flag), size: 34)
+                                OverlappedFlags(codes: groups.soon.map(\.code), size: 34)
                                 Text("We're expanding fast — more rails are on the way.")
                                     .font(TaliseFont.body(12.5, weight: .light))
                                     .foregroundStyle(TaliseColor.fgMuted)

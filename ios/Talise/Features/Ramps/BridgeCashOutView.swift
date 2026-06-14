@@ -72,7 +72,7 @@ struct BridgeCashOutView: View {
 
     private var header: some View {
         HStack(spacing: 14) {
-            RoundedFlag(flag: corridor.flag, size: 46)
+            RoundedFlag(code: corridor.code, size: 46)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Cash out · \(corridor.name)")
                     .font(TaliseFont.heading(20, weight: .medium))

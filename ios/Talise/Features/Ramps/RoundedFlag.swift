@@ -17,58 +17,59 @@ extension View {
     }
 }
 
-/// A flag emoji rendered as a clean, rounded chip — a circular disc with the
-/// flag centered and a hairline ring. This is the app's standard "rounded
-/// flag" used across the ramps (and reusable anywhere a country needs a
-/// compact, on-brand glyph). Emoji flags don't clip nicely on their own, so
-/// we center the glyph on a soft surface disc instead of trying to mask it.
+/// A circular country flag — the SAME vendored circle-flags set the web app
+/// uses (`Assets.xcassets/Flags/flag-<cc>`), rendered crisp and round. This is
+/// the app's standard "rounded flag" across the ramps. `code` is an ISO alpha-2
+/// (or "EU"); a missing asset falls back to a neutral disc so nothing breaks.
 struct RoundedFlag: View {
-    let flag: String
+    let code: String
     var size: CGFloat = 40
     /// Dim the chip (used for unavailable / "soon" corridors).
     var dimmed: Bool = false
 
     var body: some View {
-        Text(flag)
-            .font(.system(size: size * 0.58))
+        Image("flag-\(code.lowercased())")
+            .resizable()
+            .scaledToFill()
             .frame(width: size, height: size)
-            .background(Circle().fill(TaliseColor.surface2))
-            .overlay(Circle().strokeBorder(TaliseColor.line, lineWidth: 1))
             .clipShape(Circle())
-            .saturation(dimmed ? 0.15 : 1)
-            .opacity(dimmed ? 0.55 : 1)
+            .overlay(Circle().strokeBorder(TaliseColor.line, lineWidth: 1))
+            .background(Circle().fill(TaliseColor.surface2)) // fallback disc
+            .saturation(dimmed ? 0.2 : 1)
+            .opacity(dimmed ? 0.6 : 1)
     }
 }
 
-/// A small cluster of overlapped rounded flags — the compact "coming soon"
+/// A small cluster of overlapped circular flags — the compact "coming soon"
 /// treatment so a long tail of not-yet-live corridors reads as one quiet row
-/// of country circles rather than a wall of disabled list items.
+/// of country circles rather than a wall of disabled list items. `codes` are
+/// ISO alpha-2 codes.
 struct OverlappedFlags: View {
-    let flags: [String]
+    let codes: [String]
     var size: CGFloat = 32
-    var max: Int = 5
+    var max: Int = 6
 
     var body: some View {
-        HStack(spacing: -size * 0.32) {
-            ForEach(Array(flags.prefix(max).enumerated()), id: \.offset) { _, f in
-                Text(f)
-                    .font(.system(size: size * 0.56))
+        HStack(spacing: -size * 0.34) {
+            ForEach(Array(codes.prefix(max).enumerated()), id: \.offset) { _, cc in
+                Image("flag-\(cc.lowercased())")
+                    .resizable()
+                    .scaledToFill()
                     .frame(width: size, height: size)
-                    .background(Circle().fill(TaliseColor.surface2))
-                    .overlay(Circle().strokeBorder(TaliseColor.bg, lineWidth: 2))
                     .clipShape(Circle())
-                    .saturation(0.15)
-                    .opacity(0.55)
+                    .overlay(Circle().strokeBorder(TaliseColor.bg, lineWidth: 2))
+                    .saturation(0.25)
+                    .opacity(0.7)
             }
-            if flags.count > max {
-                Text("+\(flags.count - max)")
+            if codes.count > max {
+                Text("+\(codes.count - max)")
                     .font(TaliseFont.mono(11, weight: .medium))
                     .foregroundStyle(TaliseColor.fgDim)
                     .frame(width: size, height: size)
                     .background(Circle().fill(TaliseColor.surface2))
                     .overlay(Circle().strokeBorder(TaliseColor.bg, lineWidth: 2))
                     .clipShape(Circle())
-                    .padding(.leading, size * 0.32 + 4)
+                    .padding(.leading, size * 0.34 + 4)
             }
         }
     }
@@ -83,7 +84,7 @@ struct CorridorRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            RoundedFlag(flag: corridor.flag, size: 40)
+            RoundedFlag(code: corridor.code, size: 40)
             VStack(alignment: .leading, spacing: 2.5) {
                 HStack(spacing: 7) {
                     Text(corridor.name)

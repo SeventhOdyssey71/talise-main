@@ -10,20 +10,22 @@ import SwiftUI
 ///   • `.soon`   — known corridor, not yet bookable; shown disabled so the
 ///     map of "where Talise is going" is honest.
 struct RampCorridor: Identifiable, Equatable, Hashable {
-    /// ISO 3166-1 alpha-2 (e.g. "US", "NG").
+    /// ISO 3166-1 alpha-2 (e.g. "US", "NG"); "EU" for the Eurozone.
     let code: String
     /// Display name ("United States").
     let name: String
     /// ISO 4217 fiat currency ("USD").
     let currencyCode: String
-    /// Emoji flag for the rounded chip.
-    let flag: String
     let availability: Availability
     /// Which directions this corridor supports.
     let onramp: Bool
     let offramp: Bool
 
     var id: String { code }
+
+    /// Asset name for the vendored circular flag SVG (matches the web app's
+    /// circle-flags set): `flag-<cc>` in Assets.xcassets/Flags.
+    var flagAsset: String { "flag-\(code.lowercased())" }
 
     enum Availability: Equatable, Hashable {
         case bridge
@@ -48,41 +50,36 @@ struct RampCorridor: Identifiable, Equatable, Hashable {
 enum RampCorridors {
     /// Bridge fiat corridors (live when Bridge is configured). Bridge delivers
     /// USDsui on Sui directly — no swap — for both add-money and cash-out.
+    // Every code below has a vendored circular flag in Assets.xcassets/Flags
+    // (the web app's circle-flags set). "EU" → the Eurozone (Bridge SEPA),
+    // rendered with the EU flag rather than listing each member state.
     static let all: [RampCorridor] = [
-        // ── Live via Bridge ──
-        .init(code: "US", name: "United States", currencyCode: "USD", flag: "🇺🇸",
+        // ── Live via Bridge (USD/EUR/GBP) ──
+        .init(code: "US", name: "United States", currencyCode: "USD",
               availability: .bridge, onramp: true, offramp: true),
-        .init(code: "GB", name: "United Kingdom", currencyCode: "GBP", flag: "🇬🇧",
+        .init(code: "EU", name: "Europe", currencyCode: "EUR",
               availability: .bridge, onramp: true, offramp: true),
-        .init(code: "DE", name: "Germany", currencyCode: "EUR", flag: "🇩🇪",
-              availability: .bridge, onramp: true, offramp: true),
-        .init(code: "FR", name: "France", currencyCode: "EUR", flag: "🇫🇷",
-              availability: .bridge, onramp: true, offramp: true),
-        .init(code: "ES", name: "Spain", currencyCode: "EUR", flag: "🇪🇸",
-              availability: .bridge, onramp: true, offramp: true),
-        .init(code: "IT", name: "Italy", currencyCode: "EUR", flag: "🇮🇹",
-              availability: .bridge, onramp: true, offramp: true),
-        .init(code: "NL", name: "Netherlands", currencyCode: "EUR", flag: "🇳🇱",
-              availability: .bridge, onramp: true, offramp: true),
-        .init(code: "IE", name: "Ireland", currencyCode: "EUR", flag: "🇮🇪",
-              availability: .bridge, onramp: true, offramp: true),
-        .init(code: "MX", name: "Mexico", currencyCode: "MXN", flag: "🇲🇽",
-              availability: .bridge, onramp: true, offramp: true),
-        .init(code: "BR", name: "Brazil", currencyCode: "BRL", flag: "🇧🇷",
+        .init(code: "GB", name: "United Kingdom", currencyCode: "GBP",
               availability: .bridge, onramp: true, offramp: true),
         // ── Live via a local rail (Linq) ──
-        .init(code: "NG", name: "Nigeria", currencyCode: "NGN", flag: "🇳🇬",
+        .init(code: "NG", name: "Nigeria", currencyCode: "NGN",
               availability: .local, onramp: false, offramp: true),
         // ── On the map, not yet bookable ──
-        .init(code: "KE", name: "Kenya", currencyCode: "KES", flag: "🇰🇪",
+        .init(code: "KE", name: "Kenya", currencyCode: "KES",
               availability: .soon, onramp: false, offramp: false),
-        .init(code: "GH", name: "Ghana", currencyCode: "GHS", flag: "🇬🇭",
+        .init(code: "GH", name: "Ghana", currencyCode: "GHS",
               availability: .soon, onramp: false, offramp: false),
-        .init(code: "ZA", name: "South Africa", currencyCode: "ZAR", flag: "🇿🇦",
+        .init(code: "ZA", name: "South Africa", currencyCode: "ZAR",
               availability: .soon, onramp: false, offramp: false),
-        .init(code: "PH", name: "Philippines", currencyCode: "PHP", flag: "🇵🇭",
+        .init(code: "PH", name: "Philippines", currencyCode: "PHP",
               availability: .soon, onramp: false, offramp: false),
-        .init(code: "IN", name: "India", currencyCode: "INR", flag: "🇮🇳",
+        .init(code: "IN", name: "India", currencyCode: "INR",
+              availability: .soon, onramp: false, offramp: false),
+        .init(code: "ID", name: "Indonesia", currencyCode: "IDR",
+              availability: .soon, onramp: false, offramp: false),
+        .init(code: "VN", name: "Vietnam", currencyCode: "VND",
+              availability: .soon, onramp: false, offramp: false),
+        .init(code: "EG", name: "Egypt", currencyCode: "EGP",
               availability: .soon, onramp: false, offramp: false),
     ]
 

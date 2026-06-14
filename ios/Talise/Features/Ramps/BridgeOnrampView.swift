@@ -50,7 +50,7 @@ struct BridgeOnrampView: View {
 
     private var header: some View {
         HStack(spacing: 14) {
-            RoundedFlag(flag: corridor.flag, size: 46)
+            RoundedFlag(code: corridor.code, size: 46)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Add money · \(corridor.name)")
                     .font(TaliseFont.heading(20, weight: .medium))
