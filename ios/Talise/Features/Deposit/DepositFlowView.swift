@@ -69,18 +69,17 @@ struct DepositFlowView: View {
                             }
                             .buttonStyle(TilePress())
 
-                            // Bank transfer — not yet wired to a backend.
-                            // Quiet "Soon" suffix (no badge pill) + a
-                            // coming-soon toast so the path is visible
-                            // without pretending it works.
-                            Button {
-                                showComingSoon("Local bank transfers are coming soon.")
+                            // Bank transfer — Bridge corridors (USD/EUR/GBP…).
+                            // Pick a country → fund a virtual account → USDsui
+                            // lands on Sui directly. Lands on a clean "not
+                            // available yet" state if Bridge isn't configured.
+                            NavigationLink {
+                                AddMoneyCorridorFlow()
                             } label: {
                                 FundingPathCard(
                                     icon: "hi.bank",
                                     title: "Bank transfer",
-                                    subtitle: "From a local bank account — no card needed",
-                                    soon: true
+                                    subtitle: "From your bank — USD, EUR, GBP and more"
                                 )
                             }
                             .buttonStyle(TilePress())

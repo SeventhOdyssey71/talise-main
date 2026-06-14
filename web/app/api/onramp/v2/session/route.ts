@@ -84,10 +84,14 @@ export async function POST(req: Request) {
     // Widget-KYC providers (Transak) verify identity inside their hosted
     // widget, so the client need not collect a profile — derive a minimal one
     // from the authenticated user just to mint a stable partner reference.
-    if (!profile && provider.widgetCollectsKyc) {
+    // Bridge runs hosted KYC from just an email + name, so we likewise derive
+    // a minimal profile from the signed-in user rather than make the client
+    // re-collect PII the server already holds.
+    if (!profile && (provider.widgetCollectsKyc || provider.name === "bridge")) {
+      const parts = (user.name ?? "").trim().split(/\s+/).filter(Boolean);
       profile = {
-        firstName: "",
-        lastName: "",
+        firstName: parts[0] ?? "",
+        lastName: parts.slice(1).join(" "),
         email: (user.email ?? "").toLowerCase(),
         country: (user.country ?? "").toUpperCase(),
       } as KycProfile;
