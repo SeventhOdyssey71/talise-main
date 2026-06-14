@@ -141,10 +141,10 @@ export async function bridgeFetch<T = unknown>(
 }
 
 /**
- * One-shot sanity check that Bridge accepts our Sui rail + USDsui currency
+ * One-shot sanity check that Bridge accepts our Sui rail + USDC currency
  * identifiers, using a `dry_run` transfer (no money moves). Run this once
  * after setting BRIDGE_API_KEY to confirm `BRIDGE_SUI_RAIL` /
- * `BRIDGE_USDSUI_CURRENCY` are the strings Bridge expects. Returns
+ * `BRIDGE_SUI_CURRENCY` are the strings Bridge expects. Returns
  * `{ ok: true }` on a clean dry run, or `{ ok: false, reason }` with Bridge's
  * complaint (e.g. an unknown-rail/currency validation error) so we can adjust
  * the centralized constants without guessing.
