@@ -26,15 +26,22 @@ import crypto from "node:crypto";
 const DEFAULT_BASE = "https://api.bridge.xyz/v0";
 
 /**
- * Sui rail + USDsui currency identifiers, CENTRALIZED here. Bridge's route
- * explorer confirms `USDSUI@Sui` for both directions, but the exact lowercase
- * enum strings the transfers/virtual-account/liquidation APIs accept must be
- * confirmed once against your account via a `dry_run` transfer (see
- * `validateSuiRail` below). If Bridge expects different casing/spelling, this
- * is the ONLY place to change it.
+ * Sui rail + currency identifiers, CENTRALIZED here. Per Bridge's USDC-on-Sui
+ * integration, ALL Sui transactions use `payment_rail: "sui"` +
+ * `currency: "usdc"` (Bridge delivers USDC on Sui — NOT "usdsui"). Talise's
+ * existing USDC→USDsui swap (AutoConvertBanner) finishes money-in; cash-out
+ * swaps USDsui→USDC before sending to Bridge.
  */
 export const BRIDGE_SUI_RAIL = "sui";
-export const BRIDGE_USDSUI_CURRENCY = "usdsui";
+export const BRIDGE_SUI_CURRENCY = "usdc";
+
+/**
+ * Talise's platform fee on Bridge ramps, as a string percent (e.g. "1.0" = 1%).
+ * Applied to virtual accounts + transfers. Override via env; defaults to 1%.
+ */
+export function bridgeDeveloperFeePercent(): string {
+  return process.env.BRIDGE_DEVELOPER_FEE_PERCENT || "1.0";
+}
 
 export function bridgeConfigured(): boolean {
   return !!process.env.BRIDGE_API_KEY;
@@ -153,7 +160,7 @@ export async function validateSuiRail(customerId: string): Promise<
         on_behalf_of: customerId,
         amount: "1.0",
         dry_run: true,
-        source: { payment_rail: BRIDGE_SUI_RAIL, currency: BRIDGE_USDSUI_CURRENCY },
+        source: { payment_rail: BRIDGE_SUI_RAIL, currency: BRIDGE_SUI_CURRENCY },
         destination: { payment_rail: "ach", currency: "usd" },
       },
     });

@@ -3,7 +3,7 @@ import "server-only";
 import {
   bridgeFetch,
   BRIDGE_SUI_RAIL,
-  BRIDGE_USDSUI_CURRENCY,
+  BRIDGE_SUI_CURRENCY,
 } from "./client";
 
 /**
@@ -76,7 +76,7 @@ export async function createVirtualAccount(input: {
           : {}),
         source: { currency: input.sourceCurrency },
         destination: {
-          currency: BRIDGE_USDSUI_CURRENCY,
+          currency: BRIDGE_SUI_CURRENCY,
           payment_rail: BRIDGE_SUI_RAIL,
           address: input.suiAddress,
         },
@@ -127,7 +127,7 @@ export async function createOnrampTransfer(input: {
       source: { payment_rail: input.sourcePaymentRail, currency: input.sourceCurrency },
       destination: {
         payment_rail: BRIDGE_SUI_RAIL,
-        currency: BRIDGE_USDSUI_CURRENCY,
+        currency: BRIDGE_SUI_CURRENCY,
         to_address: input.suiAddress,
       },
     },

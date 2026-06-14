@@ -3,21 +3,23 @@ import "server-only";
 import {
   bridgeFetch,
   BRIDGE_SUI_RAIL,
-  BRIDGE_USDSUI_CURRENCY,
+  BRIDGE_SUI_CURRENCY,
 } from "./client";
 import type { BridgeFiatCurrency, BridgeTransfer } from "./onramp";
 
 /**
- * Bridge OFF-RAMP: USDsui on Sui → fiat to the user's bank.
+ * Bridge OFF-RAMP: USDC on Sui → fiat to the user's bank.
+ *
+ * Bridge works in USDC on Sui (currency "usdc"), so Talise swaps the user's
+ * USDsui → USDC before it reaches Bridge; the API leg below is pure USDC.
  *
  * Two primitives:
  *   1. External Account — register the payout bank account (US ACH or
  *      SEPA/IBAN). Returns an `id` used below.
  *   2. Liquidation Address — a PERSISTENT Sui address bound to that external
- *      account. Any USDsui the user sends there is auto-converted and paid out
- *      as fiat. This is the clean cash-out UX: Talise shows the user one
- *      address; sending USDsui to it lands fiat in their bank. Settlement
- *      arrives as `liquidation_address.drain.*` webhooks.
+ *      account. Any USDC sent there is paid out as fiat. This is the clean
+ *      cash-out UX: Talise shows one address; USDC in → fiat to their bank.
+ *      Settlement arrives as `liquidation_address.drain.*` webhooks.
  *
  * For a one-off cash-out without a persistent address, `createOfframpTransfer`
  * returns a single-use Sui deposit address instead.
@@ -45,6 +47,9 @@ export async function createUsAchExternalAccount(input: {
   routingNumber: string;
   checkingOrSavings?: "checking" | "savings";
   bankName?: string;
+  /** First/last default to splitting `accountOwnerName` when omitted. */
+  firstName?: string;
+  lastName?: string;
   address?: {
     street_line_1: string;
     city: string;
@@ -54,6 +59,9 @@ export async function createUsAchExternalAccount(input: {
   };
   idempotencyKey: string;
 }): Promise<BridgeExternalAccount> {
+  const parts = input.accountOwnerName.trim().split(/\s+/).filter(Boolean);
+  const firstName = input.firstName ?? parts[0] ?? "";
+  const lastName = input.lastName ?? parts.slice(1).join(" ");
   return bridgeFetch<BridgeExternalAccount>(
     `customers/${encodeURIComponent(input.customerId)}/external_accounts`,
     {
@@ -62,7 +70,10 @@ export async function createUsAchExternalAccount(input: {
       body: {
         currency: "usd",
         account_type: "us",
+        account_owner_type: "individual",
         account_owner_name: input.accountOwnerName,
+        first_name: firstName,
+        last_name: lastName,
         ...(input.bankName ? { bank_name: input.bankName } : {}),
         account: {
           account_number: input.accountNumber,
@@ -149,7 +160,7 @@ export async function createSuiLiquidationAddress(input: {
       idempotencyKey: input.idempotencyKey,
       body: {
         chain: BRIDGE_SUI_RAIL,
-        currency: BRIDGE_USDSUI_CURRENCY,
+        currency: BRIDGE_SUI_CURRENCY,
         external_account_id: input.externalAccountId,
         destination_payment_rail: input.destinationPaymentRail,
         destination_currency: input.destinationCurrency,
@@ -171,14 +182,18 @@ export async function listLiquidationAddresses(
 }
 
 /**
- * One-off off-ramp transfer: returns a single-use Sui deposit address
- * (`source_deposit_instructions.to_address`) the user sends `amount` USDsui to;
- * Bridge pays out fiat to `externalAccountId`. Use a liquidation address
- * instead for a persistent cash-out address.
+ * One-off off-ramp transfer (USDC on Sui → fiat). Matches Bridge's canonical
+ * off-ramp shape: the source is the user's Sui wallet (`fromAddress`) sending
+ * USDC, and the payout `amount` lives in the DESTINATION (the USD the bank
+ * receives). Bridge returns the Sui deposit address in
+ * `source_deposit_instructions.to_address`. Use a liquidation address instead
+ * for a persistent cash-out address.
  */
 export async function createOfframpTransfer(input: {
   customerId: string;
-  amount: string; // USDsui units, decimal string
+  /** USD the bank should receive, decimal string — set on the destination. */
+  amount: string;
+  fromAddress: string; // the user's Sui wallet sending USDC
   externalAccountId: string;
   destinationPaymentRail: string;
   destinationCurrency: BridgeFiatCurrency;
@@ -191,11 +206,15 @@ export async function createOfframpTransfer(input: {
     idempotencyKey: input.idempotencyKey,
     body: {
       on_behalf_of: input.customerId,
-      amount: input.amount,
       ...(input.developerFee ? { developer_fee: input.developerFee } : {}),
       ...(input.dryRun ? { dry_run: true } : {}),
-      source: { payment_rail: BRIDGE_SUI_RAIL, currency: BRIDGE_USDSUI_CURRENCY },
+      source: {
+        payment_rail: BRIDGE_SUI_RAIL,
+        currency: BRIDGE_SUI_CURRENCY,
+        from_address: input.fromAddress,
+      },
       destination: {
+        amount: input.amount,
         payment_rail: input.destinationPaymentRail,
         currency: input.destinationCurrency,
         external_account_id: input.externalAccountId,

@@ -16,6 +16,7 @@ import {
   type OnrampKycTier,
 } from "./types";
 import { computeRequirements } from "./requirements";
+import { bridgeDeveloperFeePercent } from "@/lib/bridge/client";
 import { createKycLink, mapBridgeKycStatus } from "@/lib/bridge/customers";
 import { createVirtualAccount, type BridgeFiatCurrency } from "@/lib/bridge/onramp";
 import { verifyBridgeWebhook, parseBridgeWebhook } from "@/lib/bridge/webhook";
@@ -35,7 +36,9 @@ import { verifyBridgeWebhook, parseBridgeWebhook } from "@/lib/bridge/webhook";
  */
 
 const NAME: OnrampProviderName = "bridge";
-const DELIVER: DeliverAsset = "USDSUI";
+// Bridge delivers USDC on Sui (currency "usdc" / rail "sui"), NOT USDsui — so
+// the existing USDC→USDsui sweep (AutoConvertBanner) finishes money-in.
+const DELIVER: DeliverAsset = "USDC";
 
 function apiKey(): string | undefined {
   return process.env.BRIDGE_API_KEY || undefined;
@@ -43,7 +46,7 @@ function apiKey(): string | undefined {
 
 export const bridgeAdapter: OnrampProvider = {
   name: NAME,
-  displayName: "Bridge (Sui Dollar — USDsui)",
+  displayName: "Bridge (USDC on Sui)",
   deliverAsset: DELIVER,
 
   async getRequirements(
@@ -131,13 +134,15 @@ export const bridgeAdapter: OnrampProvider = {
       customerId: input.providerCustomerId,
       suiAddress: input.destinationAddress,
       sourceCurrency,
+      developerFeePercent: bridgeDeveloperFeePercent(), // Talise's 1% take
       idempotencyKey: `va-${input.providerCustomerId}-${sourceCurrency}`,
     });
     const di = va.source_deposit_instructions;
     return {
       provider: NAME,
-      deliverAsset: input.deliverAsset, // USDSUI — direct, no swap
-      requiresSwapToUsdsui: false,
+      deliverAsset: input.deliverAsset, // USDC on Sui
+      // Bridge delivers USDC; the AutoConvertBanner sweeps it to USDsui.
+      requiresSwapToUsdsui: true,
       depositInstructions: {
         currency: di.currency,
         paymentRails: di.payment_rails,
