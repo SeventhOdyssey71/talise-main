@@ -1243,6 +1243,19 @@ export async function setAccountType(
   });
 }
 
+/**
+ * Set ONLY the user's country (ISO alpha-2). Additive + idempotent — does NOT
+ * touch account_type, so it's safe to call from the onboarding country step
+ * and a profile edit without interfering with account completion.
+ */
+export async function setUserCountry(userId: number, country: string): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: "UPDATE users SET country = ? WHERE id = ?",
+    args: [country, userId],
+  });
+}
+
 export async function isHandleTaken(handle: string): Promise<boolean> {
   await ensureSchema();
   const r = await db().execute({

@@ -35,6 +35,7 @@ enum OnboardingStep: String, Hashable {
     case welcomeBack
     case kycTier      // legacy — not in active flow
     case handlePicker
+    case country
     case pinSetup
     case permissions
     case done
@@ -140,9 +141,12 @@ struct OnboardingRoot: View {
                         .transition(.slide)
                 case .handlePicker:
                     HandlePickerScreen(onContinue: { _ in
-                        advance(to: .pinSetup)
+                        advance(to: .country)
                     })
                     .transition(.slide)
+                case .country:
+                    CountryStepScreen(onContinue: { advance(to: .pinSetup) })
+                        .transition(.slide)
                 case .pinSetup:
                     PinSetupScreen(
                         userId: pinUserId,

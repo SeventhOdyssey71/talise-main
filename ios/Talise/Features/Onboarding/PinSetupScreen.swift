@@ -38,7 +38,7 @@ struct PinSetupScreen: View {
             OnboardingBackground()
 
             VStack(spacing: 0) {
-                OnboardingProgressBar(totalSteps: 4, currentStep: 3)
+                OnboardingProgressBar(totalSteps: 5, currentStep: 4)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Secure your wallet")

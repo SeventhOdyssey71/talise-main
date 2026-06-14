@@ -38,7 +38,7 @@ struct HandlePickerScreen: View {
             OnboardingBackground()
 
             VStack(spacing: 0) {
-                OnboardingProgressBar(totalSteps: 4, currentStep: 2)
+                OnboardingProgressBar(totalSteps: 5, currentStep: 2)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Create a username")
