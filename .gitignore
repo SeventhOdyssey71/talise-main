@@ -117,3 +117,7 @@ web/app/admin/
 .vercel
 marketing/exports/
 ios/File.txt
+
+# APNs / Apple auth keys — PRIVATE. Never commit. Live in Vercel env, not git.
+*.p8
+AuthKey_*
