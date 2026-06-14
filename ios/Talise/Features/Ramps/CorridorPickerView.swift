@@ -6,10 +6,13 @@ import SwiftUI
 /// page reads as "here's where you can move money, and here's what's next."
 struct CorridorPickerView: View {
     let direction: RampDirection
+    /// The signed-in user's ISO country — gates which corridors are bookable
+    /// (a Nigerian sees Nigeria cash-out; others → coming soon).
+    var userCountry: String?
     let onSelect: (RampCorridor) -> Void
 
     private var groups: (available: [RampCorridor], soon: [RampCorridor]) {
-        RampCorridors.forDirection(direction)
+        RampCorridors.forDirection(direction, userCountry: userCountry)
     }
 
     private var title: String {
@@ -139,9 +142,12 @@ struct CorridorPickerView: View {
 /// Linq, US/Europe → Bridge), and the Linq view is private to the Withdraw
 /// flow, so that unified picker lives in WithdrawFlowView (`UnifiedCashOutFlow`).
 struct AddMoneyCorridorFlow: View {
+    @Environment(AppSession.self) private var session
     @State private var selected: RampCorridor?
     var body: some View {
-        CorridorPickerView(direction: .onramp) { selected = $0 }
-            .navigationDestination(item: $selected) { BridgeOnrampView(corridor: $0) }
+        CorridorPickerView(direction: .onramp, userCountry: session.currentUser?.country) {
+            selected = $0
+        }
+        .navigationDestination(item: $selected) { BridgeOnrampView(corridor: $0) }
     }
 }

@@ -28,10 +28,6 @@ struct ProfileView: View {
     @State private var showAutoSwap = false
     /// Mirror of `BiometricGate.isRequired` so the toggle re-renders.
     @State private var requireBiometric = BiometricGate.isRequired
-    /// Drives the `RetargetHandleSheet` presentation. Tapping the
-    /// "Update handle target" row flips this on; the sheet handles
-    /// probe → diff → submit on its own.
-    @State private var showRetarget = false
     /// Drives the `CurrencyPocketsView` presentation — a non-invasive
     /// entry into the multi-currency pockets surface (master plan §8).
     @State private var showPockets = false
@@ -92,10 +88,6 @@ struct ProfileView: View {
             Button("OK", role: .cancel) { deleteError = nil }
         } message: {
             Text(deleteError ?? "")
-        }
-        .sheet(isPresented: $showRetarget) {
-            RetargetHandleSheet()
-                .environment(session)
         }
         .sheet(isPresented: $showPockets) {
             NavigationStack {
@@ -412,8 +404,6 @@ struct ProfileView: View {
                 sectionDivider
                 // autoSwapRow removed 2026-05-29 alongside the autoswap archive.
                 notifyRow
-                sectionDivider
-                retargetHandleRow
                 if let err = settingsError {
                     sectionDivider
                     HStack {
@@ -533,27 +523,6 @@ struct ProfileView: View {
         .padding(.vertical, 14)
     }
 
-    /// Opens `RetargetHandleSheet` so the user can point every
-    /// `*.talise.sui` subname they own at their current wallet. Replaces
-    /// the manual `scripts/fix-suins-targets.mjs` operator runbook —
-    /// runs as an Onara-sponsored PTB, the user pays nothing.
-    private var retargetHandleRow: some View {
-        Button {
-            showRetarget = true
-        } label: {
-            HStack {
-                rowLabel(title: "Update handle target", icon: "arrow.uturn.right")
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(TaliseColor.fgDim)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 
     // MARK: - Security section
 

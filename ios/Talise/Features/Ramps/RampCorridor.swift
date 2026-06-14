@@ -87,17 +87,29 @@ enum RampCorridors {
 
     /// Corridors that support a given direction, available ones first, "soon"
     /// last — both groups alphabetical by name.
-    static func forDirection(_ direction: RampDirection) -> (available: [RampCorridor], soon: [RampCorridor]) {
+    static func forDirection(
+        _ direction: RampDirection,
+        userCountry: String?
+    ) -> (available: [RampCorridor], soon: [RampCorridor]) {
+        // Nigeria-first: an unset/empty country defaults to NG so a user who
+        // never picked one still gets Nigerian cash-out (the live rail) rather
+        // than an all-"coming soon" wall.
+        let raw = (userCountry ?? "").trimmingCharacters(in: .whitespaces)
+        let cc = (raw.isEmpty ? "NG" : raw).uppercased()
         let supports: (RampCorridor) -> Bool = { c in
             direction == .onramp ? c.onramp : c.offramp
         }
-        // A corridor is bookable NOW only if it supports the direction AND its
-        // rail is live: local (Linq/Nigeria) always; Bridge corridors only once
-        // `RampFlags.bridgeLive` is on. Everything else falls to "coming soon".
+        // A corridor is bookable NOW only if it supports the direction, its rail
+        // is live, AND it matches the user's country:
+        //   • local (Linq/Nigeria) → only for a user whose country is that code
+        //     (a Nigerian sees Nigeria cash-out; everyone else → coming soon).
+        //   • Bridge corridors → only once `RampFlags.bridgeLive` is on, and for
+        //     a matching-country user (EUR covers the whole Eurozone).
+        // Everything else falls to "coming soon".
         let live: (RampCorridor) -> Bool = { c in
             switch c.availability {
-            case .local: return true
-            case .bridge: return RampFlags.bridgeLive
+            case .local: return cc == c.code
+            case .bridge: return RampFlags.bridgeLive && c.code == cc
             case .soon: return false
             }
         }

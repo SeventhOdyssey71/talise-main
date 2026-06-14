@@ -169,9 +169,12 @@ struct WithdrawFlowView: View {
 // `BankWithdrawView` is file-private to this flow.
 
 private struct UnifiedCashOutFlow: View {
+    @Environment(AppSession.self) private var session
     @State private var selected: RampCorridor?
     var body: some View {
-        CorridorPickerView(direction: .offramp) { selected = $0 }
+        CorridorPickerView(direction: .offramp, userCountry: session.currentUser?.country) {
+            selected = $0
+        }
             .navigationDestination(item: $selected) { corridor in
                 switch corridor.availability {
                 case .local:
