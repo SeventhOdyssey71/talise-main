@@ -75,16 +75,18 @@ struct ProfileView: View {
         } message: {
             Text("Your wallet stays safe. Sign in with the same Google account to come back.")
         }
-        // Account deletion (Guideline 5.1.1(v)). A confirm alert is the
-        // gate; the message spells out what deletion does and does NOT do
-        // (the wallet is self-custodial — Talise never holds the funds).
-        .alert("Delete your account?", isPresented: $deleteConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete account", role: .destructive) {
-                Task { await deleteAccount() }
-            }
-        } message: {
-            Text(Self.deleteConfirmMessage)
+        // Account deletion (Guideline 5.1.1(v)). A clean confirmation SHEET —
+        // calm, on-brand, with the consequences laid out — replaces the old
+        // bare system alert. The wallet is self-custodial (Talise never holds
+        // the funds), so we make "withdraw first" unmistakable.
+        .sheet(isPresented: $deleteConfirm) {
+            DeleteAccountSheet(
+                deleting: deletingAccount,
+                onConfirm: { Task { await deleteAccount() } }
+            )
+            .presentationDetents([.height(560)])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(TaliseColor.bg)
         }
         .alert("Couldn't delete account", isPresented: deleteErrorVisible) {
             Button("OK", role: .cancel) { deleteError = nil }
@@ -663,29 +665,22 @@ struct ProfileView: View {
         )
     }
 
-    /// "Delete account" — quieter than Sign out (plain text row, no card)
-    /// but unmistakably destructive. Required in-app entry point for full
-    /// account deletion (App Store Guideline 5.1.1(v)).
+    /// "Delete account" — a calm, de-emphasized text link (NOT a loud red
+    /// button). The weight lives in the confirmation sheet, not the trigger.
+    /// Required in-app entry point for account deletion (Guideline 5.1.1(v)).
     private var deleteAccountButton: some View {
         Button {
             deleteConfirm = true
         } label: {
-            HStack(spacing: 8) {
+            HStack {
                 Spacer()
-                if deletingAccount {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(TaliseColor.danger)
-                } else {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("Delete account")
-                        .font(TaliseFont.body(13, weight: .regular))
-                }
+                Text("Delete account")
+                    .font(TaliseFont.body(13, weight: .regular))
+                    .foregroundStyle(TaliseColor.fgDim)
+                    .underline(true, color: TaliseColor.fgDim.opacity(0.4))
                 Spacer()
             }
-            .foregroundStyle(TaliseColor.danger)
-            .frame(height: 36)
+            .frame(height: 32)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -817,6 +812,7 @@ struct ProfileView: View {
                 body: EmptyBody()
             )
             guard resp.ok else {
+                deleteConfirm = false // close the sheet so the error alert shows
                 deleteError = "The server couldn't delete your account. Please try again."
                 return
             }
@@ -826,6 +822,7 @@ struct ProfileView: View {
             // unreachable; finish the sign-out so the user isn't stuck.
             session.signOut()
         } catch {
+            deleteConfirm = false // close the sheet so the error alert shows
             deleteError = "Couldn't reach Talise to delete your account. Check your connection and try again."
         }
     }
@@ -846,5 +843,108 @@ struct ProfileView: View {
     private func open(_ s: String) {
         guard let url = URL(string: s) else { return }
         UIApplication.shared.open(url)
+    }
+}
+
+// MARK: - Delete account confirmation sheet
+//
+// A calm, on-brand confirmation — replaces the bare system alert. Leads with
+// the ONE thing that matters (withdraw first; the wallet is self-custodial),
+// lists the consequences cleanly, and keeps the destructive action a deliberate
+// second tap. Closes by swipe / Keep my account; confirm runs the parent's
+// deletion and shows a spinner in place.
+private struct DeleteAccountSheet: View {
+    let deleting: Bool
+    let onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private let points: [(String, String)] = [
+        ("at.badge.minus", "Releases your @handle and removes linked bank accounts."),
+        ("clock.arrow.circlepath", "Some records are kept where the law requires."),
+        ("xmark.octagon", "This can't be undone."),
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Icon
+            ZStack {
+                Circle().fill(TaliseColor.danger.opacity(0.12))
+                Image(systemName: "person.crop.circle.badge.xmark")
+                    .font(.system(size: 26, weight: .regular))
+                    .foregroundStyle(TaliseColor.danger)
+            }
+            .frame(width: 64, height: 64)
+            .padding(.top, 28)
+
+            Text("Delete your account?")
+                .font(TaliseFont.heading(22, weight: .medium))
+                .kerning(-0.4)
+                .foregroundStyle(TaliseColor.fg)
+                .padding(.top, 16)
+
+            // The one thing that matters most.
+            Text("Your wallet is self-custodial — **withdraw or transfer your balance first.** You'll need a new account to use it here again.")
+                .font(TaliseFont.body(14, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 28)
+                .padding(.top, 10)
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(points, id: \.0) { (icon, text) in
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: icon)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(TaliseColor.fgDim)
+                            .frame(width: 18)
+                        Text(text)
+                            .font(TaliseFont.body(13.5, weight: .light))
+                            .foregroundStyle(TaliseColor.fgMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(TaliseColor.surface)
+            )
+            .padding(.horizontal, 22)
+            .padding(.top, 22)
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 10) {
+                Button(action: onConfirm) {
+                    HStack(spacing: 8) {
+                        if deleting { ProgressView().controlSize(.small).tint(.white) }
+                        Text(deleting ? "Deleting…" : "Delete account")
+                    }
+                    .font(TaliseFont.body(16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Capsule().fill(TaliseColor.danger))
+                }
+                .buttonStyle(.plain)
+                .disabled(deleting)
+
+                Button { dismiss() } label: {
+                    Text("Keep my account")
+                        .font(TaliseFont.body(15, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                }
+                .buttonStyle(.plain)
+                .disabled(deleting)
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 28)
+        }
+        .background(TaliseColor.bg)
     }
 }

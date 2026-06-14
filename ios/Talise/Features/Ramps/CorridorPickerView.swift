@@ -38,16 +38,40 @@ struct CorridorPickerView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Eyebrow(text: "Available now").padding(.leading, 4)
-                        ForEach(groups.available) { c in
-                            Button {
-                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                onSelect(c)
-                            } label: {
-                                CorridorRow(corridor: c)
+                    if groups.available.isEmpty {
+                        // Nothing bookable in this direction yet — say so plainly
+                        // instead of an empty "Available now" header.
+                        HStack(spacing: 12) {
+                            Image(systemName: "clock")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(TaliseColor.fgMuted)
+                            Text("Bank \(direction == .onramp ? "funding" : "cash-out") is rolling out — coming soon.")
+                                .font(TaliseFont.body(13.5, weight: .light))
+                                .foregroundStyle(TaliseColor.fgMuted)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(TaliseColor.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .strokeBorder(TaliseColor.line, lineWidth: 1)
+                        )
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Eyebrow(text: "Available now").padding(.leading, 4)
+                            ForEach(groups.available) { c in
+                                Button {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    onSelect(c)
+                                } label: {
+                                    CorridorRow(corridor: c)
+                                }
+                                .buttonStyle(TilePress())
                             }
-                            .buttonStyle(TilePress())
                         }
                     }
 

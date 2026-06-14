@@ -70,19 +70,34 @@ struct DepositFlowView: View {
                             .buttonStyle(TilePress())
 
                             // Bank transfer — Bridge corridors (USD/EUR/GBP…).
-                            // Pick a country → fund a virtual account → USDsui
-                            // lands on Sui directly. Lands on a clean "not
-                            // available yet" state if Bridge isn't configured.
-                            NavigationLink {
-                                AddMoneyCorridorFlow()
-                            } label: {
-                                FundingPathCard(
-                                    icon: "hi.bank",
-                                    title: "Bank transfer",
-                                    subtitle: "From your bank — USD, EUR, GBP and more"
-                                )
+                            // Live only once the Bridge account is approved
+                            // (RampFlags.bridgeLive); until then it's an honest
+                            // "Soon" so we don't dead-end testers in an empty
+                            // picker. Flip the flag to open the corridor flow.
+                            if RampFlags.bridgeLive {
+                                NavigationLink {
+                                    AddMoneyCorridorFlow()
+                                } label: {
+                                    FundingPathCard(
+                                        icon: "hi.bank",
+                                        title: "Bank transfer",
+                                        subtitle: "From your bank — USD, EUR, GBP and more"
+                                    )
+                                }
+                                .buttonStyle(TilePress())
+                            } else {
+                                Button {
+                                    showComingSoon("Bank transfers are coming soon.")
+                                } label: {
+                                    FundingPathCard(
+                                        icon: "hi.bank",
+                                        title: "Bank transfer",
+                                        subtitle: "From a local bank account — no card needed",
+                                        soon: true
+                                    )
+                                }
+                                .buttonStyle(TilePress())
                             }
-                            .buttonStyle(TilePress())
                         }
 
                         footer

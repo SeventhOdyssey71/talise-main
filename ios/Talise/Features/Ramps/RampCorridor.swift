@@ -91,14 +91,19 @@ enum RampCorridors {
         let supports: (RampCorridor) -> Bool = { c in
             direction == .onramp ? c.onramp : c.offramp
         }
-        // A corridor that doesn't support the direction at all but is a known
-        // place still shows under "soon" so coverage reads honestly.
-        let available = all
-            .filter { $0.isAvailable && supports($0) }
-            .sorted { $0.name < $1.name }
-        let soon = all
-            .filter { !($0.isAvailable && supports($0)) }
-            .sorted { $0.name < $1.name }
+        // A corridor is bookable NOW only if it supports the direction AND its
+        // rail is live: local (Linq/Nigeria) always; Bridge corridors only once
+        // `RampFlags.bridgeLive` is on. Everything else falls to "coming soon".
+        let live: (RampCorridor) -> Bool = { c in
+            switch c.availability {
+            case .local: return true
+            case .bridge: return RampFlags.bridgeLive
+            case .soon: return false
+            }
+        }
+        let bookable: (RampCorridor) -> Bool = { live($0) && supports($0) }
+        let available = all.filter(bookable).sorted { $0.name < $1.name }
+        let soon = all.filter { !bookable($0) }.sorted { $0.name < $1.name }
         return (available, soon)
     }
 }
@@ -106,4 +111,12 @@ enum RampCorridors {
 enum RampDirection {
     case onramp   // add money: fiat → USDsui
     case offramp  // cash out: USDsui → fiat
+}
+
+/// Feature gating for the ramps. Until the Bridge account is live (KYB
+/// approved + API key + webhook), only Nigeria's local rail (Linq) is bookable
+/// — the Bridge corridors (US/EU/GB/…) show as "coming soon". Flip
+/// `bridgeLive` to true to switch them on with no other code change.
+enum RampFlags {
+    static let bridgeLive = false
 }
