@@ -131,6 +131,12 @@ export interface CustomerResult {
   /** Limits the provider granted at this tier, if known (USD cents). */
   dailyLimitCents?: number | null;
   monthlyLimitCents?: number | null;
+  /**
+   * Bridge (and other API-driven KYC providers): a HOSTED KYC + ToS URL to
+   * redirect the user to. Widget providers that run KYC inside their funding
+   * widget (Transak) leave this unset.
+   */
+  kycUrl?: string;
 }
 
 /** Input to {@link OnrampProvider.createOnrampSession}. */
@@ -161,6 +167,23 @@ export interface SessionResult {
    * `true` tells the caller the on-chain leg isn't USDsui yet.
    */
   requiresSwapToUsdsui: boolean;
+  /**
+   * Bridge: bank-deposit coordinates the user funds to mint USDsui (a virtual
+   * account isn't a redirect widget). Present instead of `widgetUrl` for the
+   * deposit-instructions funding model. One of `widgetUrl` / `clientSecret` /
+   * `depositInstructions` is populated.
+   */
+  depositInstructions?: {
+    currency: string;
+    paymentRails?: string[];
+    bankName?: string;
+    accountNumber?: string;
+    routingNumber?: string;
+    beneficiaryName?: string;
+    iban?: string;
+    bic?: string;
+    depositMessage?: string;
+  };
 }
 
 /** A normalized, typed webhook event after verification. */

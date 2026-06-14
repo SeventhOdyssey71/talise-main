@@ -74,6 +74,10 @@ export async function POST(req: Request) {
   // have it; otherwise create from the supplied profile (stub when no key).
   const existing = await getOnrampKyc(userId);
   let providerCustomerId = existing?.providerCustomerId ?? null;
+  // Bridge: the hosted KYC URL returned when we first create the customer.
+  // Surfaced to the client so it can redirect the user to finish identity
+  // verification before (or alongside) showing funding instructions.
+  let kycUrl: string | undefined;
 
   if (!providerCustomerId) {
     let profile: KycProfile | undefined = body.profile;
@@ -96,6 +100,7 @@ export async function POST(req: Request) {
     }
     const customer = await provider.createOrUpdateCustomer(profile);
     providerCustomerId = customer.providerCustomerId;
+    kycUrl = customer.kycUrl;
     // Best-effort persist (no-ops if the migration isn't applied).
     await upsertOnrampKyc(userId, {
       provider: provider.name,
@@ -114,5 +119,7 @@ export async function POST(req: Request) {
     deliverAsset: provider.deliverAsset,
   });
 
-  return NextResponse.json(session);
+  // `kycUrl` (when present) lets the client send the user through hosted KYC;
+  // `depositInstructions` / `widgetUrl` come from the session itself.
+  return NextResponse.json(kycUrl ? { ...session, kycUrl } : session);
 }

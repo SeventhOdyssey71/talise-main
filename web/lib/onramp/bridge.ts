@@ -16,6 +16,9 @@ import {
   type OnrampKycTier,
 } from "./types";
 import { computeRequirements } from "./requirements";
+import { createKycLink, mapBridgeKycStatus } from "@/lib/bridge/customers";
+import { createVirtualAccount, type BridgeFiatCurrency } from "@/lib/bridge/onramp";
+import { verifyBridgeWebhook, parseBridgeWebhook } from "@/lib/bridge/webhook";
 
 /**
  * Bridge on-ramp adapter — DEFAULT provider.
@@ -36,10 +39,6 @@ const DELIVER: DeliverAsset = "USDSUI";
 
 function apiKey(): string | undefined {
   return process.env.BRIDGE_API_KEY || undefined;
-}
-
-function webhookSecret(): string | undefined {
-  return process.env.BRIDGE_WEBHOOK_SECRET || undefined;
 }
 
 export const bridgeAdapter: OnrampProvider = {
@@ -73,18 +72,27 @@ export const bridgeAdapter: OnrampProvider = {
       };
     }
 
-    // TODO(live): POST the customer/applicant to Bridge and map the response.
-    //   const resp = await fetch("https://api.bridge.xyz/v0/customers", {
-    //     method: "POST",
-    //     headers: { "Api-Key": key, "Content-Type": "application/json" },
-    //     body: JSON.stringify(toBridgeCustomer(profile)),
-    //     signal: AbortSignal.timeout(8000),
-    //   });
-    //   const json = await resp.json();
-    //   return { providerCustomerId: json.id, status: mapBridgeStatus(json.status), ... };
-    throw new Error(
-      "bridge: live createOrUpdateCustomer not implemented (TODO(live))"
-    );
+    // LIVE: create a hosted KYC + ToS link. Bridge runs the whole identity
+    // flow and creates the customer; we return the link's customer ref + the
+    // hosted `kycUrl` to redirect the user to. No PII flows through Talise.
+    const fullName = [profile.firstName, profile.lastName]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    const link = await createKycLink({
+      email: profile.email,
+      fullName: fullName || undefined,
+      type: "individual",
+      // Stable per-user key so retries return the same link within 24h.
+      idempotencyKey: `kyc-${profile.email.toLowerCase()}`,
+    });
+    return {
+      // customer_id is null until the user starts KYC; fall back to the link
+      // id so we always persist a stable reference to reconcile webhooks.
+      providerCustomerId: link.customer_id ?? link.id,
+      status: mapBridgeKycStatus(link.kyc_status),
+      kycUrl: link.kyc_link,
+    };
   },
 
   async createOnrampSession(input: SessionInput): Promise<SessionResult> {
@@ -108,59 +116,71 @@ export const bridgeAdapter: OnrampProvider = {
       };
     }
 
-    // TODO(live): create a Bridge on-ramp / transfer session that delivers
-    // USDsui to `input.destinationAddress` on Sui, then return its hosted
-    // `widgetUrl` (or `clientSecret` for an embedded flow).
-    throw new Error(
-      "bridge: live createOnrampSession not implemented (TODO(live))"
-    );
+    // LIVE: create (idempotently) a USD virtual account that mints USDsui
+    // straight to the user's Sui address on deposit. Bridge funds via bank
+    // deposit, not a redirect widget, so we return `depositInstructions`
+    // rather than a `widgetUrl`. (Funding currency defaults to USD; the
+    // virtual account is persistent, so amountCents is informational here.)
+    const sourceCurrency: BridgeFiatCurrency = "usd";
+    const va = await createVirtualAccount({
+      customerId: input.providerCustomerId,
+      suiAddress: input.destinationAddress,
+      sourceCurrency,
+      idempotencyKey: `va-${input.providerCustomerId}-${sourceCurrency}`,
+    });
+    const di = va.source_deposit_instructions;
+    return {
+      provider: NAME,
+      deliverAsset: input.deliverAsset, // USDSUI — direct, no swap
+      requiresSwapToUsdsui: false,
+      depositInstructions: {
+        currency: di.currency,
+        paymentRails: di.payment_rails,
+        bankName: di.bank_name,
+        accountNumber: di.bank_account_number,
+        routingNumber: di.bank_routing_number,
+        beneficiaryName: di.bank_beneficiary_name,
+        iban: di.iban,
+        bic: di.bic,
+        depositMessage: di.deposit_message,
+      },
+    };
   },
 
   async verifyWebhook(
     rawBody: string,
     headers: Headers | Record<string, string>
   ): Promise<OnrampWebhookEvent> {
-    const secret = webhookSecret();
-    const sig = headerGet(headers, "x-bridge-signature");
+    // Bridge signs with RSA (X-Webhook-Signature: t=<ms>,v0=<base64>) over
+    // `${t}.${rawBody}`, verified with the per-endpoint public key. Verify
+    // BEFORE parsing — the real scheme, not the old HMAC placeholder.
+    const v = verifyBridgeWebhook(rawBody, headers);
+    const evt = parseBridgeWebhook(rawBody);
+    const obj = (evt.event_object ?? {}) as Record<string, unknown>;
 
-    let verified = false;
-    if (secret && sig) {
-      // TODO(live): confirm Bridge's exact signing scheme. This assumes a
-      // hex HMAC-SHA256 of the raw body, compared constant-time.
-      const expected = crypto
-        .createHmac("sha256", secret)
-        .update(rawBody, "utf8")
-        .digest("hex");
-      const a = Buffer.from(expected, "utf8");
-      const b = Buffer.from(sig, "utf8");
-      verified = a.length === b.length && crypto.timingSafeEqual(a, b);
-    } else if (!secret) {
-      // STUB: no secret configured (dev) — accept and mark unverified so the
-      // route can no-op safely without failing closed during local testing.
-      verified = false;
-    }
-
-    let raw: unknown = {};
-    try {
-      raw = JSON.parse(rawBody);
-    } catch {
-      raw = { _unparsed: rawBody };
-    }
-
-    const obj = (raw ?? {}) as Record<string, unknown>;
-    const kind = mapKind(typeof obj.type === "string" ? obj.type : undefined);
     return {
       provider: NAME,
-      verified,
-      kind,
+      verified: v.verified,
+      kind: mapKind(evt.event_type),
       providerCustomerId:
-        typeof obj.customer_id === "string" ? obj.customer_id : undefined,
-      status: mapStatus(obj.status),
+        typeof obj.id === "string" && evt.event_category === "customer"
+          ? obj.id
+          : typeof obj.customer_id === "string"
+            ? obj.customer_id
+            : evt.event_object_id,
+      // Bridge sends the lifecycle string in event_object_status / object.status.
+      // Only customer events carry a KYC status; transfer events leave it unset.
+      status:
+        evt.event_category === "customer"
+          ? mapBridgeKycStatus(
+              (evt.event_object_status ?? (obj.status as string)) || undefined
+            )
+          : undefined,
       tier: mapTier(obj.kyc_tier),
       country: typeof obj.country === "string" ? obj.country : undefined,
       dailyLimitCents: numOrNull(obj.daily_limit_cents),
       monthlyLimitCents: numOrNull(obj.monthly_limit_cents),
-      raw,
+      raw: evt,
     };
   },
 };
@@ -176,35 +196,12 @@ function stubCustomerId(profile: KycProfile): string {
   return `bridge_stub_${h}`;
 }
 
-function headerGet(
-  headers: Headers | Record<string, string>,
-  name: string
-): string | undefined {
-  if (headers instanceof Headers) return headers.get(name) ?? undefined;
-  return headers[name] ?? headers[name.toLowerCase()] ?? undefined;
-}
-
 function mapKind(type?: string): OnrampWebhookEvent["kind"] {
   if (!type) return "unknown";
   if (type.includes("kyc") || type.includes("customer")) return "kyc.updated";
   if (type.includes("onramp") || type.includes("transfer"))
     return "onramp.completed";
   return "unknown";
-}
-
-function mapStatus(v: unknown): OnrampKycStatus | undefined {
-  const s = typeof v === "string" ? v : undefined;
-  if (!s) return undefined;
-  const allowed: OnrampKycStatus[] = [
-    "unverified",
-    "pending",
-    "approved",
-    "rejected",
-    "expired",
-  ];
-  return allowed.includes(s as OnrampKycStatus)
-    ? (s as OnrampKycStatus)
-    : undefined;
 }
 
 function mapTier(v: unknown): OnrampKycTier | undefined {
