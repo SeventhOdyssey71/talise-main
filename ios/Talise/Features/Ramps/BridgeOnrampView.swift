@@ -203,8 +203,12 @@ struct BridgeOnrampView: View {
         defer { loading = false }
         do {
             // Amount is nominal — a virtual account accepts any deposit; the
-            // route just requires a positive value.
-            session = try await BridgeRampAPI.onrampSession(amountCents: 10_000)
+            // route just requires a positive value. Currency = the corridor's
+            // so a EUR user funds a SEPA account, not USD.
+            session = try await BridgeRampAPI.onrampSession(
+                amountCents: 10_000,
+                currency: corridor.currencyCode
+            )
         } catch {
             let msg = (error as NSError).localizedDescription
             // 404 (flag off) / 503 (Bridge unset) → clean "not available" state.

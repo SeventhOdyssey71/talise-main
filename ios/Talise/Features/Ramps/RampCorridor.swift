@@ -59,8 +59,10 @@ enum RampCorridors {
               availability: .bridge, onramp: true, offramp: true),
         .init(code: "EU", name: "Europe", currencyCode: "EUR",
               availability: .bridge, onramp: true, offramp: true),
+        // GBP add-money is live (virtual account); GBP cash-out (Faster
+        // Payments) isn't wired yet → onramp only.
         .init(code: "GB", name: "United Kingdom", currencyCode: "GBP",
-              availability: .bridge, onramp: true, offramp: true),
+              availability: .bridge, onramp: true, offramp: false),
         // ── Live via a local rail (Linq) ──
         .init(code: "NG", name: "Nigeria", currencyCode: "NGN",
               availability: .local, onramp: false, offramp: true),

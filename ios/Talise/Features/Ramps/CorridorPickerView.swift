@@ -110,19 +110,14 @@ struct CorridorPickerView: View {
 // Deposit / Withdraw flows provide one), so pushing here slides in cleanly.
 
 /// Add-money: pick a corridor → Bridge on-ramp (deposit instructions / KYC).
+///
+/// Cash-out is NOT here: it routes per-country to different rails (Nigeria →
+/// Linq, US/Europe → Bridge), and the Linq view is private to the Withdraw
+/// flow, so that unified picker lives in WithdrawFlowView (`UnifiedCashOutFlow`).
 struct AddMoneyCorridorFlow: View {
     @State private var selected: RampCorridor?
     var body: some View {
         CorridorPickerView(direction: .onramp) { selected = $0 }
             .navigationDestination(item: $selected) { BridgeOnrampView(corridor: $0) }
-    }
-}
-
-/// Cash-out: pick a corridor → Bridge cash-out (bank details → Sui address).
-struct CashOutCorridorFlow: View {
-    @State private var selected: RampCorridor?
-    var body: some View {
-        CorridorPickerView(direction: .offramp) { selected = $0 }
-            .navigationDestination(item: $selected) { BridgeCashOutView(corridor: $0) }
     }
 }

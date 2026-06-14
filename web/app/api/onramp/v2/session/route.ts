@@ -46,6 +46,8 @@ export async function POST(req: Request) {
     amountCents?: number;
     provider?: OnrampProviderName;
     profile?: KycProfile;
+    /** Funding fiat currency, lowercase ISO ("usd" | "eur" | "gbp"). */
+    sourceCurrency?: string;
   } = {};
   try {
     const txt = await req.text();
@@ -121,6 +123,7 @@ export async function POST(req: Request) {
     amountCents,
     destinationAddress: user.sui_address, // LOCKED to the signed-in user
     deliverAsset: provider.deliverAsset,
+    sourceCurrency: body.sourceCurrency?.toLowerCase(),
   });
 
   // `kycUrl` (when present) lets the client send the user through hosted KYC;

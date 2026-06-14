@@ -121,7 +121,12 @@ export const bridgeAdapter: OnrampProvider = {
     // deposit, not a redirect widget, so we return `depositInstructions`
     // rather than a `widgetUrl`. (Funding currency defaults to USD; the
     // virtual account is persistent, so amountCents is informational here.)
-    const sourceCurrency: BridgeFiatCurrency = "usd";
+    const allowed: BridgeFiatCurrency[] = ["usd", "eur", "gbp", "mxn", "brl", "cop"];
+    const sourceCurrency: BridgeFiatCurrency = allowed.includes(
+      input.sourceCurrency as BridgeFiatCurrency
+    )
+      ? (input.sourceCurrency as BridgeFiatCurrency)
+      : "usd";
     const va = await createVirtualAccount({
       customerId: input.providerCustomerId,
       suiAddress: input.destinationAddress,

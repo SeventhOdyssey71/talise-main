@@ -147,6 +147,12 @@ export interface SessionInput {
   destinationAddress: string;
   /** USDSUI (Bridge, direct) or USDC (Transak, then swap to USDsui). */
   deliverAsset: DeliverAsset;
+  /**
+   * Funding fiat currency, lowercase ISO ("usd" | "eur" | "gbp" | …). Bridge
+   * uses it to pick the virtual-account rail (a EUR user funds a SEPA account,
+   * not a USD one). Defaults to "usd" when unset.
+   */
+  sourceCurrency?: string;
 }
 
 /**

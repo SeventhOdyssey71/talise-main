@@ -45,9 +45,9 @@ struct WithdrawFlowView: View {
                             spacing: 14
                         ) {
                             NavigationLink {
-                                BankWithdrawView()
+                                UnifiedCashOutFlow()
                             } label: {
-                                ActionTile(icon: "hi.bank", title: "Bank transfer", caption: "Cash out in NGN")
+                                ActionTile(icon: "hi.bank", title: "Cash out", caption: "To your bank")
                             }
                             .buttonStyle(TilePress())
 
@@ -77,44 +77,6 @@ struct WithdrawFlowView: View {
                             .buttonStyle(TilePress())
                         }
                         .zIndex(3)
-
-                        // ── Cash out abroad (Bridge: USD/EUR/GBP) ──
-                        // Full-width nav row → corridor picker (rounded flags)
-                        // → Bridge cash-out. NGN keeps its own fast-path tile
-                        // above; this is the international bank cash-out.
-                        NavigationLink {
-                            CashOutCorridorFlow()
-                        } label: {
-                            HStack(spacing: 14) {
-                                IconChip(icon: "hi.globe")
-                                VStack(alignment: .leading, spacing: 2.5) {
-                                    Text("Cash out abroad")
-                                        .font(TaliseFont.heading(16, weight: .semibold))
-                                        .kerning(-0.3)
-                                        .foregroundStyle(TaliseColor.fg)
-                                    Text("USD · EUR · GBP to your bank")
-                                        .font(TaliseFont.body(12.5, weight: .light))
-                                        .foregroundStyle(TaliseColor.fgMuted)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(TaliseColor.fgDim)
-                            }
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                    .fill(TaliseColor.surface)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                    .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        }
-                        .buttonStyle(TilePress())
-                        .zIndex(2)
 
                         // ── Cheques group, expanded inline under the grid ──
                         if expanded == .cheques {
@@ -196,6 +158,28 @@ struct WithdrawFlowView: View {
         .padding(.horizontal, 20)
         .padding(.top, 18)
         .padding(.bottom, 14)
+    }
+}
+
+// MARK: - Unified cash-out
+//
+// ONE country picker for cashing out; the settlement rail is chosen by the
+// corridor, not the user: Nigeria settles via Linq (NGN), US/Europe via Bridge
+// (USD/EUR). Lives here (not the Ramps module) because the Linq
+// `BankWithdrawView` is file-private to this flow.
+
+private struct UnifiedCashOutFlow: View {
+    @State private var selected: RampCorridor?
+    var body: some View {
+        CorridorPickerView(direction: .offramp) { selected = $0 }
+            .navigationDestination(item: $selected) { corridor in
+                switch corridor.availability {
+                case .local:
+                    BankWithdrawView()                  // Nigeria → Linq (NGN)
+                case .bridge, .soon:
+                    BridgeCashOutView(corridor: corridor) // US / Europe → Bridge
+                }
+            }
     }
 }
 

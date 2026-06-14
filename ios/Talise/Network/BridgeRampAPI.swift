@@ -15,10 +15,17 @@ enum BridgeRampAPI {
     /// Create / fetch the on-ramp funding session. Returns a hosted KYC URL
     /// (open in Safari) when identity isn't verified yet, and/or the bank
     /// deposit instructions once a virtual account exists.
-    static func onrampSession(amountCents: Int) async throws -> OnrampSessionResponse {
+    static func onrampSession(
+        amountCents: Int,
+        currency: String
+    ) async throws -> OnrampSessionResponse {
         try await APIClient.shared.post(
             "/api/onramp/v2/session",
-            body: OnrampSessionRequest(amountCents: amountCents, provider: "bridge")
+            body: OnrampSessionRequest(
+                amountCents: amountCents,
+                provider: "bridge",
+                sourceCurrency: currency.lowercased()
+            )
         )
     }
 
@@ -34,6 +41,7 @@ enum BridgeRampAPI {
 struct OnrampSessionRequest: Codable {
     let amountCents: Int
     let provider: String
+    let sourceCurrency: String
 }
 
 /// Mirrors the server `SessionResult` (+ optional `kycUrl`). For Bridge,
