@@ -47,6 +47,7 @@ export async function GET(req: Request) {
     email: user.email,
     name: user.name,
     picture: user.picture,
+    pfpUrl: (user as { pfp_url?: string | null }).pfp_url ?? null,
     country: user.country,
     suiAddress: user.sui_address,
     accountType: user.account_type,

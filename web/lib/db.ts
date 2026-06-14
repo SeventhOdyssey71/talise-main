@@ -341,6 +341,9 @@ async function doEnsureSchema(): Promise<void> {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS spot_bm_id TEXT`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS talise_username TEXT`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_registry_id TEXT`,
+    // Avatar override — an NFT (or any image URL) the user picked as their
+    // display picture; null falls back to the Google `picture`.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS pfp_url TEXT`,
     // Referral + points.
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id INTEGER`,
@@ -1253,6 +1256,15 @@ export async function setUserCountry(userId: number, country: string): Promise<v
   await db().execute({
     sql: "UPDATE users SET country = ? WHERE id = ?",
     args: [country, userId],
+  });
+}
+
+/** Set (or clear, with null) the user's avatar override (NFT/image URL). */
+export async function setUserPfp(userId: number, pfpUrl: string | null): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: "UPDATE users SET pfp_url = ? WHERE id = ?",
+    args: [pfpUrl, userId],
   });
 }
 

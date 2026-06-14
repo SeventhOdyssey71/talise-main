@@ -13,6 +13,9 @@ struct UserDTO: Codable, Hashable {
     let email: String
     let name: String?
     let picture: String?
+    /// Avatar OVERRIDE the user picked (e.g. an NFT image). Optional so older
+    /// `/api/me` payloads decode; prefer this over `picture` when present.
+    var pfpUrl: String? = nil
     let country: String?
     let suiAddress: String
     let accountType: AccountType?

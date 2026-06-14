@@ -28,6 +28,8 @@ struct ProfileView: View {
     @State private var showAutoSwap = false
     /// Mirror of `BiometricGate.isRequired` so the toggle re-renders.
     @State private var requireBiometric = BiometricGate.isRequired
+    /// Drives the NFT avatar picker.
+    @State private var showNftPicker = false
     /// Drives the `CurrencyPocketsView` presentation — a non-invasive
     /// entry into the multi-currency pockets surface (master plan §8).
     @State private var showPockets = false
@@ -88,6 +90,14 @@ struct ProfileView: View {
             Button("OK", role: .cancel) { deleteError = nil }
         } message: {
             Text(deleteError ?? "")
+        }
+        .sheet(isPresented: $showNftPicker) {
+            NftPickerSheet(currentPfp: currentUser?.pfpUrl) {
+                // Refresh the profile so the new avatar shows immediately.
+                Task { await session.bootstrap() }
+            }
+            .presentationDetents([.large])
+            .presentationBackground(TaliseColor.bg)
         }
         .sheet(isPresented: $showPockets) {
             NavigationStack {
@@ -152,8 +162,20 @@ struct ProfileView: View {
     /// name, the handle chip, and the account email — identity at a glance.
     private var hero: some View {
         VStack(alignment: .center, spacing: 12) {
-            avatar
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.25), lineWidth: 2))
+            Button { showNftPicker = true } label: {
+                avatar
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.25), lineWidth: 2))
+                    .overlay(alignment: .bottomTrailing) {
+                        // "edit avatar" affordance
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x224417))
+                            .frame(width: 26, height: 26)
+                            .background(Circle().fill(TaliseColor.greenMint))
+                            .overlay(Circle().strokeBorder(Color(hex: 0x224417), lineWidth: 2))
+                    }
+            }
+            .buttonStyle(.plain)
             VStack(spacing: 5) {
                 Text(currentUser?.name ?? "—")
                     .font(TaliseFont.heading(21, weight: .semibold))
@@ -198,7 +220,9 @@ struct ProfileView: View {
     /// from `user.picture`; falls back to a clean initials disc.
     private var avatar: some View {
         Group {
-            if let urlString = currentUser?.picture,
+            // Prefer the user's chosen avatar override (e.g. an NFT) over the
+            // Google picture.
+            if let urlString = currentUser?.pfpUrl ?? currentUser?.picture,
                let url = URL(string: urlString) {
                 AsyncImage(url: url) { phase in
                     switch phase {
@@ -915,5 +939,123 @@ private struct DeleteAccountSheet: View {
             .padding(.bottom, 28)
         }
         .background(TaliseColor.bg)
+    }
+}
+
+// MARK: - NFT avatar picker
+
+private struct NftItem: Codable, Identifiable {
+    let objectId: String
+    let name: String
+    let imageUrl: String
+    var id: String { objectId }
+}
+private struct NftsResp: Codable { let nfts: [NftItem] }
+private struct AvatarBody: Encodable { var imageUrl: String? = nil; var clear: Bool? = nil }
+private struct AvatarResp: Codable { let ok: Bool?; let pfpUrl: String? }
+
+/// Pick a Sui NFT from the wallet as the profile picture. Loads
+/// `/api/me/nfts`, sets the choice via `/api/me/avatar`, and (when an override
+/// already exists) offers to remove it back to the Google photo.
+private struct NftPickerSheet: View {
+    let currentPfp: String?
+    var onChanged: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var nfts: [NftItem] = []
+    @State private var loading = true
+    @State private var saving = false
+
+    private let cols = [GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12)]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Choose a picture")
+                    .font(TaliseFont.heading(20, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                Spacer()
+                if currentPfp != nil {
+                    Button("Remove") { Task { await save(AvatarBody(clear: true)) } }
+                        .font(TaliseFont.body(14, weight: .medium))
+                        .foregroundStyle(TaliseColor.danger)
+                        .disabled(saving)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 22)
+            .padding(.bottom, 6)
+
+            Text("Pick an NFT from your wallet.")
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 14)
+
+            if loading {
+                Spacer()
+                ProgressView().tint(TaliseColor.greenMint)
+                Spacer()
+            } else if nfts.isEmpty {
+                Spacer()
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 30, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                    Text("No NFTs in your wallet yet")
+                        .font(TaliseFont.body(14, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                }
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: cols, spacing: 12) {
+                        ForEach(nfts) { nft in
+                            Button { Task { await save(AvatarBody(imageUrl: nft.imageUrl)) } } label: {
+                                AsyncImage(url: URL(string: nft.imageUrl)) { phase in
+                                    switch phase {
+                                    case .success(let img): img.resizable().scaledToFill()
+                                    default: Rectangle().fill(TaliseColor.surface2)
+                                    }
+                                }
+                                .frame(height: 108)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .strokeBorder(TaliseColor.line, lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(saving)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 28)
+                }
+            }
+        }
+        .background(TaliseColor.bg)
+        .task { await load() }
+    }
+
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        if let resp: NftsResp = try? await APIClient.shared.get("/api/me/nfts") {
+            nfts = resp.nfts
+        }
+    }
+
+    private func save(_ body: AvatarBody) async {
+        guard !saving else { return }
+        saving = true
+        defer { saving = false }
+        let _: AvatarResp? = try? await APIClient.shared.post("/api/me/avatar", body: body)
+        onChanged()
+        dismiss()
     }
 }
