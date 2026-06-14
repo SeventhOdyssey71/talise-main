@@ -81,16 +81,41 @@ export function verifyBridgeWebhook(
     return { verified: false, reason: "timestamp_out_of_tolerance" };
   }
 
+  const ok = rsaVerify(key, `${t}.${rawBody}`, v0);
+  return ok
+    ? { verified: true, timestampMs: tsMs }
+    : { verified: false, reason: "signature_mismatch" };
+}
+
+/**
+ * RSA-verify the signed payload against Bridge's per-endpoint public key.
+ *
+ * Bridge's OFFICIAL sample is nonstandard: it SHA-256-hashes the signed
+ * payload and feeds that DIGEST into an RSA-SHA256 verifier (which hashes
+ * again) — i.e. it effectively signs `SHA256(SHA256(payload))`. We try that
+ * exact form FIRST (it's what their docs show), then fall back to the
+ * conventional single-hash form, so verification succeeds whichever Bridge
+ * actually uses. Both are constant-work and only run on inbound webhooks.
+ */
+function rsaVerify(key: string, signedPayload: string, sigB64: string): boolean {
+  // 1) Official Bridge form: pre-hash, then verify the digest.
   try {
-    const verifier = crypto.createVerify("RSA-SHA256");
-    verifier.update(`${t}.${rawBody}`, "utf8");
-    verifier.end();
-    const ok = verifier.verify(key, v0, "base64");
-    return ok
-      ? { verified: true, timestampMs: tsMs }
-      : { verified: false, reason: "signature_mismatch" };
-  } catch (e) {
-    return { verified: false, reason: `verify_error: ${(e as Error).message}` };
+    const digest = crypto.createHash("sha256").update(signedPayload, "utf8").digest();
+    const v = crypto.createVerify("RSA-SHA256");
+    v.update(digest);
+    v.end();
+    if (v.verify(key, sigB64, "base64")) return true;
+  } catch {
+    /* try the conventional form below */
+  }
+  // 2) Conventional form: verify directly over the raw signed payload.
+  try {
+    const v = crypto.createVerify("RSA-SHA256");
+    v.update(signedPayload, "utf8");
+    v.end();
+    return v.verify(key, sigB64, "base64");
+  } catch {
+    return false;
   }
 }
 

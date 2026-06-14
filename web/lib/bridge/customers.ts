@@ -78,6 +78,13 @@ export type BridgeKycLink = {
   tos_link: string;
   kyc_status: BridgeKycStatus;
   tos_status: "pending" | "approved";
+  /** Persona inquiry template (e.g. "gov_id_db"). */
+  persona_inquiry_type?: string;
+  rejection_reasons?: Array<{
+    developer_reason?: string;
+    reason?: string;
+    created_at?: string;
+  }>;
   created_at: string;
 };
 
@@ -110,6 +117,43 @@ export async function createKycLink(input: {
 /** Poll a KYC link's status (kyc_status + tos_status + linked customer_id). */
 export async function getKycLink(id: string): Promise<BridgeKycLink> {
   return bridgeFetch<BridgeKycLink>(`kyc_links/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Request a hosted Terms-of-Service URL for NEW-customer creation (the direct
+ * `POST /customers` path). The customer accepts ToS at the returned URL; Bridge
+ * then hands back a `signed_agreement_id` via your `redirect_uri` query param
+ * (or a `signedAgreementId` postMessage in a WebView), which you pass into
+ * `createCustomer`. Not needed on the KYC-Links path (ToS is the `tos_link`).
+ */
+export async function createTosLink(input: {
+  redirectUri?: string;
+  idempotencyKey: string;
+}): Promise<{ url: string }> {
+  const res = await bridgeFetch<{ data: { url: string } }>("customers/tos_links", {
+    method: "POST",
+    idempotencyKey: input.idempotencyKey,
+    // No body; redirect_uri is appended to the returned URL as a query param.
+    body: {},
+  });
+  let url = res.data.url;
+  if (input.redirectUri) {
+    const sep = url.includes("?") ? "&" : "?";
+    url = `${url}${sep}redirect_uri=${encodeURIComponent(input.redirectUri)}`;
+  }
+  return { url };
+}
+
+/**
+ * SANDBOX ONLY: force a customer to `approved`. KYC Links don't exist in
+ * sandbox, so after creating a customer you call this to simulate approval.
+ * No-op-unsafe in production (Bridge returns an error there).
+ */
+export async function simulateKycApproval(customerId: string): Promise<void> {
+  await bridgeFetch(`customers/${encodeURIComponent(customerId)}/simulate_kyc_approval`, {
+    method: "POST",
+    idempotencyKey: `sim-kyc-${customerId}`,
+  });
 }
 
 export type BridgeCustomer = {
