@@ -30,8 +30,6 @@ struct ProfileView: View {
     @State private var requireBiometric = BiometricGate.isRequired
     /// Drives the NFT avatar picker.
     @State private var showNftPicker = false
-    /// Light/Dark/System theme preference (shared with AppRoot via AppStorage).
-    @AppStorage(ThemePreference.storageKey) private var themeRaw = ThemePreference.dark.rawValue
     /// Drives the `CurrencyPocketsView` presentation — a non-invasive
     /// entry into the multi-currency pockets surface (master plan §8).
     @State private var showPockets = false
@@ -430,8 +428,6 @@ struct ProfileView: View {
                 sectionDivider
                 // autoSwapRow removed 2026-05-29 alongside the autoswap archive.
                 notifyRow
-                sectionDivider
-                appearanceRow
                 if let err = settingsError {
                     sectionDivider
                     HStack {
@@ -682,24 +678,6 @@ struct ProfileView: View {
         }
         .buttonStyle(.plain)
         .disabled(deletingAccount)
-    }
-
-    /// Appearance row — System / Light / Dark segmented control. Writes the
-    /// shared AppStorage key that AppRoot reads to drive `.preferredColorScheme`.
-    private var appearanceRow: some View {
-        HStack {
-            rowLabel(title: "Appearance", icon: "circle.lefthalf.filled")
-            Spacer()
-            Picker("", selection: $themeRaw) {
-                ForEach(ThemePreference.allCases) { pref in
-                    Text(pref.label).tag(pref.rawValue)
-                }
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
     }
 
     private var versionFooter: some View {

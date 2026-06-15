@@ -1,33 +1,26 @@
 import SwiftUI
-import UIKit
 
-/// Talise palette — now ADAPTIVE (light + dark). Neutral surfaces/text resolve
-/// per `colorScheme` via dynamic `UIColor`s, so any view built on these tokens
-/// flips automatically when the user picks a theme (see `ThemePreference` +
-/// AppRoot). Brand greens + semantic colors stay fixed (they read on both).
-/// Light values follow an Apple-clean feel: warm white surfaces, near-black
-/// headings, grey subtext, hairline borders.
+/// Dark-mode palette. Sourced directly from Figma node 42-1819
+/// (Home design). The web product is still light mode — when we add a
+/// shared design system across both platforms we'll thread these through
+/// `@Environment(\.colorScheme)`; for now iOS is dark by spec.
 enum TaliseColor {
-    static let bg = Color(light: 0xFBFBF9, dark: 0x000000)                 // page background
-    static let surface = Color(light: 0xFFFFFF, dark: 0x161616)            // flat card surface
-    static let surface2 = Color(light: 0xF0F1ED, dark: 0x242424)           // raised flat surface (chips)
-    // Solid card / nav-pill surfaces (glassmorphism retired). White cards in
-    // light; dark panels in dark.
-    static let surfaceGlass = Color(light: 0xFFFFFF, dark: 0x1C1C1C)       // flat card / nav pill
-    static let surfaceGlassStrong = Color(light: 0xFFFFFF, dark: 0x2C2C2C) // active nav pill (raised)
-    static let usernameCard = Color(light: 0xFFFFFF, dark: 0x161616)       // flat username card
-    static let fg = Color(light: 0x0A0A0A, dark: 0xFFFFFF)                 // primary text (near-black / white)
-    static let fgSubtle = Color(light: 0x161616, dark: 0xFAFAFA)
-    static let fgMuted = Color(light: 0x6B6E68, dark: 0xB5B5B5)            // grey subtext
-    static let fgDim = Color(light: 0x9CA09A, dark: 0x636363)
-    // Hairline border — black @ 8% on light, white @ 8% on dark.
-    static let line = Color(UIColor { tc in
-        tc.userInterfaceStyle == .dark
-            ? UIColor.white.withAlphaComponent(0.08)
-            : UIColor.black.withAlphaComponent(0.08)
-    })
+    static let bg = Color(hex: 0x000000)                          // page background
+    static let surface = Color(hex: 0x161616)                     // flat card surface (activity, sheets, panels)
+    static let surface2 = Color(hex: 0x242424)                    // raised flat surface (chips, small action buttons)
+    // Glassmorphism is retired. These two were translucent-white blurs
+    // (`.white.opacity(0.08/0.14)`); they're now SOLID flat surfaces so every
+    // card / nav pill that referenced them reads as a clean opaque panel.
+    static let surfaceGlass = Color(hex: 0x1C1C1C)                // flat card / nav pill
+    static let surfaceGlassStrong = Color(hex: 0x2C2C2C)          // active nav pill (raised)
+    static let usernameCard = Color(hex: 0x161616)                // flat username card
+    static let fg = Color(hex: 0xFFFFFF)                          // primary text
+    static let fgSubtle = Color(hex: 0xFAFAFA)                    // jude@talise text
+    static let fgMuted = Color(hex: 0xB5B5B5)
+    static let fgDim = Color(hex: 0x636363)
+    static let line = Color.white.opacity(0.08)
     static let accent = Color(hex: 0x79D96C)                      // "Earn up to 11%" green
-    static let accentSoft = Color(light: 0xECEFE8, dark: 0x2A2A2A)
+    static let accentSoft = Color(hex: 0x2A2A2A)
     // The two canonical Talise brand greens (matches web/app/globals.css).
     // `greenMint` is the bright/mint accent that reads ON dark; `greenDeep`
     // is the forest CTA fill. Additive — existing surfaces keep `accent`.
@@ -74,54 +67,6 @@ extension Color {
         let g = Double((hex >> 8) & 0xFF) / 255.0
         let b = Double(hex & 0xFF) / 255.0
         self.init(red: r, green: g, blue: b)
-    }
-
-    /// Adaptive color: resolves `light` or `dark` hex per the active
-    /// `userInterfaceStyle`. The backbone of Talise's light/dark theming.
-    init(light: UInt32, dark: UInt32) {
-        self = Color(UIColor { tc in
-            UIColor(hex: tc.userInterfaceStyle == .dark ? dark : light)
-        })
-    }
-}
-
-extension UIColor {
-    convenience init(hex: UInt32) {
-        self.init(
-            red: CGFloat((hex >> 16) & 0xFF) / 255.0,
-            green: CGFloat((hex >> 8) & 0xFF) / 255.0,
-            blue: CGFloat(hex & 0xFF) / 255.0,
-            alpha: 1
-        )
-    }
-}
-
-/// User theme preference, persisted under `ThemePreference.storageKey`.
-/// `system` follows the OS; `light`/`dark` force it. Default is `dark`
-/// (Talise shipped dark-only), so existing users are unaffected until they
-/// opt in.
-enum ThemePreference: String, CaseIterable, Identifiable {
-    case system
-    case light
-    case dark
-
-    var id: String { rawValue }
-    static let storageKey = "talise.theme"
-
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system: return nil
-        case .light: return .light
-        case .dark: return .dark
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .system: return "System"
-        case .light: return "Light"
-        case .dark: return "Dark"
-        }
     }
 }
 

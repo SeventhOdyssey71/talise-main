@@ -4,9 +4,6 @@ import SwiftUI
 /// authenticated tab bar depending on `AppSession.phase`.
 struct AppRoot: View {
     @Environment(AppSession.self) private var session
-    /// User theme choice. Defaults to dark (Talise shipped dark-only), so
-    /// existing users are unaffected until they opt into light/system.
-    @AppStorage(ThemePreference.storageKey) private var themeRaw = ThemePreference.dark.rawValue
 
     var body: some View {
         Group {
@@ -26,7 +23,7 @@ struct AppRoot: View {
                 LaunchView()
             }
         }
-        .preferredColorScheme((ThemePreference(rawValue: themeRaw) ?? .dark).colorScheme)
+        .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.2), value: phaseKey)
         .onAppear {
             // Wire the PinGate's user-id resolver to the current session.
