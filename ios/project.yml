@@ -17,7 +17,7 @@ settings:
     # distribution cert + provisioning profiles on Archive → Distribute when
     # signed in with this Team (requires an active Apple Developer Program
     # membership). Both the app + the NSE inherit this.
-    DEVELOPMENT_TEAM: H5486US4PF
+    DEVELOPMENT_TEAM: 5N8DU2A9WH
     CODE_SIGN_STYLE: Automatic
 
 # SPM deps:
