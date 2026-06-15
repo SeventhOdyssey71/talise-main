@@ -350,6 +350,28 @@ private struct EarnManageSheet: View {
     /// withdraw-earned button in that case.
     private var earnedSoFar: Double? { venue.earned }
 
+    /// Start of the current earning streak (server resets it on a full
+    /// withdrawal, so churn can't inflate the number).
+    private var earningSince: Date? {
+        guard let ms = venue.earningSinceMs, ms > 0 else { return nil }
+        return Date(timeIntervalSince1970: ms / 1000)
+    }
+    /// What the position would earn in a YEAR at the current rate — the honest
+    /// forward projection (principal × APY).
+    private var projectedYear: Double { supplied * apy }
+    /// Live accrued yield = principal × APY × (elapsed this streak / year),
+    /// ticking continuously off `earningSince`. Falls back to the server's
+    /// snapshot `earned` when the streak start isn't known. Clamped at the
+    /// principal as a sanity guard.
+    private func liveEarned(_ now: Date) -> Double {
+        guard let since = earningSince, apy > 0, supplied > 0 else {
+            return earnedSoFar ?? 0
+        }
+        let yearSecs: Double = 365 * 24 * 60 * 60
+        let elapsed = max(0, now.timeIntervalSince(since))
+        return min(supplied, supplied * apy * (elapsed / yearSecs))
+    }
+
     /// USD floor for showing the "Withdraw earned" button. Anything
     /// below this and the button is dust (sub-cent rounding noise) —
     /// we'd just be burning gas to redeem a value smaller than the
@@ -606,37 +628,37 @@ private struct EarnManageSheet: View {
         // etc. The on-chain values are still USDsui (1:1 USD); the
         // local formatter applies CurrencySettings.shared.current.
         VStack(spacing: 0) {
-            row(label: "Supplied", value: TaliseFormat.local2(supplied))
+            // Principal — what the user has deposited (= currentValue − earned).
+            row(label: "Deposited", value: TaliseFormat.local2(supplied))
+
+            // Earned so far — LIVE. Computed from the current balance × APY ×
+            // time held this streak, ticking every second so the user watches
+            // it grow. Honest + churn-proof (the streak resets on a full
+            // withdrawal). `local` (4dp) so the hourly growth is visible.
+            if earnedSoFar != nil || earningSince != nil {
+                RowDivider(inset: 18)
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    row(
+                        label: "Earned so far",
+                        value: TaliseFormat.local(liveEarned(ctx.date)),
+                        accent: true
+                    )
+                }
+            }
+
+            // Forward projection — what you'd earn in a year at this rate.
+            if supplied > 0 && apy > 0 {
+                RowDivider(inset: 18)
+                row(label: "At this rate · 1 year", value: TaliseFormat.local2(projectedYear))
+                RowDivider(inset: 18)
+                row(label: "Per day", value: TaliseFormat.local(dailyEarning))
+            }
+
             RowDivider(inset: 18)
             row(
                 label: "APY",
                 value: String(format: "%.2f%%", apy * 100),
                 accent: true
-            )
-            // "Earned so far" — server-computed cumulative yield since
-            // the user's first supply. Only shown when the venue
-            // exposes the breakdown (Navi today). Green accent so the
-            // user reads it as the earnings number.
-            if let earned = earnedSoFar {
-                RowDivider(inset: 18)
-                row(
-                    label: "Earned so far",
-                    value: TaliseFormat.local2(earned),
-                    accent: true
-                )
-            }
-            RowDivider(inset: 18)
-            // Show actual amount whenever there's a position earning yield —
-            // the previous `>= 0.0001 USD` threshold hid daily earnings for
-            // small positions (e.g. a ₦57 supplied position earns ~₦0.10/day
-            // which is below the USD threshold but still meaningful in local
-            // currency). Use `local` (not `local2`) so sub-1 values render
-            // with 4 decimals instead of rounding to ₦0.00.
-            row(
-                label: "Earning / day",
-                value: (supplied > 0 && apy > 0)
-                    ? TaliseFormat.local(dailyEarning)
-                    : "—"
             )
         }
         .padding(.horizontal, 20)

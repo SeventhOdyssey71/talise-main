@@ -117,6 +117,10 @@ export async function GET(req: Request) {
           earned: naviDetail.earned,
           earningPerDay: naviDetail.dailyEarning,
           principalSupplied: naviDetail.principalSupplied,
+          // Epoch-ms the current earning streak began — the client ticks
+          // `earned` live (currentValue × apy × elapsed/year) + projects
+          // year-end (currentValue × apy) from this.
+          earningSinceMs: naviDetail.earningSinceMs,
         };
       }
       return base;

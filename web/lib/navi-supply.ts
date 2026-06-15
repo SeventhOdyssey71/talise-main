@@ -396,15 +396,24 @@ export async function readNaviUsdsuiSupply(address: string): Promise<number> {
 export type NaviPositionDetail = {
   /** Current redeemable USDsui balance. Includes accrued interest. */
   currentValue: number;
-  /** Estimated principal supplied (sum of supplies − sum of withdraws). */
+  /** Estimated principal supplied (= currentValue − earned). */
   principalSupplied: number;
-  /** `currentValue − principalSupplied`, floored at 0. */
+  /** Real accrued yield = currentValue × apy × (elapsed streak / year). */
   earned: number;
-  /** `currentValue × apy / 365` — per-day burn rate at this APY. */
+  /** `currentValue × apy / 365` — per-day growth at this APY. */
   dailyEarning: number;
   /** Live USDsui supply APY as a fraction (0.0917 = 9.17%). */
   apy: number;
+  /**
+   * Epoch-ms the CURRENT earning streak started (the deposit that took the
+   * position from 0 → positive; resets on a full withdrawal). null when there's
+   * no active position. The client ticks `earned` live from this + apy +
+   * currentValue, and projects year-end = currentValue × apy.
+   */
+  earningSinceMs: number | null;
 };
+
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 export async function fetchNaviCurrentValue(address: string): Promise<number> {
   // Direct on-chain read (see `readNaviUsdsuiSupply`) — dropped the
@@ -461,88 +470,60 @@ export function naviPositionFromActivity(opts: {
   }>;
 }): NaviPositionDetail {
   const { currentValue, apy } = opts;
-  let supplied = 0;
-  let withdrawn = 0;
-  let sawAny = false;
-  let earliestInvestTs: number | null = null;
-  for (const row of opts.naviActivity) {
-    if ((row.venue ?? "").toLowerCase() !== "navi") continue;
-    const amt = Math.abs(row.amountUsdsui ?? 0);
-    if (amt <= 0) continue;
-    if (row.direction === "invest") {
-      supplied += amt;
-      sawAny = true;
-      const ts = row.timestampMs ?? null;
-      if (ts && (earliestInvestTs === null || ts < earliestInvestTs)) {
-        earliestInvestTs = ts;
+  const dailyEarning = currentValue * apy / 365;
+
+  // Replay NAVI invests/withdraws in CHRONOLOGICAL order, tracking a running
+  // net balance, to find when the CURRENT earning streak began. The streak
+  // starts when the balance crosses 0 → positive, and RESETS on a full
+  // withdrawal. So deposit/withdraw churn can't inflate earnings: fully
+  // cashing out and re-depositing restarts the clock from now.
+  const rows = opts.naviActivity
+    .filter(
+      (r) =>
+        (r.venue ?? "").toLowerCase() === "navi" &&
+        Math.abs(r.amountUsdsui ?? 0) > 0 &&
+        (r.direction === "invest" || r.direction === "withdraw")
+    )
+    .map((r) => ({
+      dir: r.direction,
+      amt: Math.abs(r.amountUsdsui ?? 0),
+      ts: r.timestampMs ?? 0,
+    }))
+    .sort((a, b) => a.ts - b.ts);
+
+  const EPS = 1e-9;
+  let bal = 0;
+  let streakStart: number | null = null;
+  for (const r of rows) {
+    if (r.dir === "invest") {
+      // 0 → positive: a (re)start of the earning streak.
+      if (bal <= EPS && r.ts > 0) streakStart = r.ts;
+      bal += r.amt;
+    } else {
+      bal -= r.amt;
+      if (bal <= EPS) {
+        bal = 0;
+        streakStart = null; // fully withdrawn → streak ends, clock resets
       }
-    } else if (row.direction === "withdraw") {
-      withdrawn += amt;
-      sawAny = true;
     }
   }
 
-  const dailyEarning = currentValue * apy / 365;
-
-  // Case (4): no history at all — defer to current value, zero earned.
-  if (!sawAny) {
-    return {
-      currentValue,
-      principalSupplied: currentValue,
-      earned: 0,
-      dailyEarning,
-      apy,
-    };
+  // Real accrued yield = current balance × APY × (time held this streak).
+  // No artificial cap/floor games — the streak reset is what keeps it honest;
+  // a single sanity clamp at 100% guards against bad activity data only. The
+  // client re-derives + ticks this live from `earningSinceMs`.
+  let earned = 0;
+  if (streakStart && streakStart > 0 && apy > 0 && currentValue > 0) {
+    const elapsed = Math.max(0, Date.now() - streakStart);
+    earned = Math.min(currentValue, currentValue * apy * (elapsed / YEAR_MS));
   }
 
-  const naiveNetDeposited = Math.max(0, supplied - withdrawn);
-
-  // Case (2): happy case — naive principal fits under current value.
-  if (naiveNetDeposited <= currentValue) {
-    return {
-      currentValue,
-      principalSupplied: naiveNetDeposited,
-      earned: Math.max(0, currentValue - naiveNetDeposited),
-      dailyEarning,
-      apy,
-    };
-  }
-
-  // Case (3): naive principal exceeds current value (dust rounding).
-  // Fall back to a time-weighted projection so "Earned" reflects the
-  // actual time the user has been supplying at the live APY.
-  if (earliestInvestTs !== null && earliestInvestTs > 0 && apy > 0) {
-    const yearsSinceFirst = Math.max(
-      0,
-      (Date.now() - earliestInvestTs) / (365 * 24 * 60 * 60 * 1000)
-    );
-    // Cap at 10% of currentValue to avoid runaway projections for
-    // long-tenured users whose principal may have been swapped in and
-    // out repeatedly. Even at 9% APY this lets the projection cover
-    // ~13 months before saturating — comfortably above the wallet UX
-    // refresh cadence.
-    const projected = Math.min(
-      currentValue * 0.1,
-      currentValue * apy * yearsSinceFirst
-    );
-    const projectedEarned = Math.max(0, projected);
-    return {
-      currentValue,
-      principalSupplied: Math.max(0, currentValue - projectedEarned),
-      earned: projectedEarned,
-      dailyEarning,
-      apy,
-    };
-  }
-
-  // Final fallback (shouldn't really hit — sawAny=true implies we had
-  // at least one row, but the timestamp may be missing if the caller
-  // didn't pass it). Under-report rather than over-report.
   return {
     currentValue,
-    principalSupplied: currentValue,
-    earned: 0,
+    principalSupplied: Math.max(0, currentValue - earned),
+    earned,
     dailyEarning,
     apy,
+    earningSinceMs: streakStart,
   };
 }

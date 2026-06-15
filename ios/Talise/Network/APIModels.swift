@@ -344,10 +344,13 @@ struct YieldVenue: Codable, Identifiable {
     /// Server-computed so the iOS side doesn't have to mix APY and
     /// supplied in the view layer.
     let earningPerDay: Double?
-    /// Reconstructed principal (sum of supplies − sum of withdraws).
-    /// Optional / informational — iOS doesn't need it for the
-    /// WithdrawSheet but it's useful for debugging the breakdown.
+    /// Reconstructed principal (= currentValue − earned).
     let principalSupplied: Double?
+    /// Epoch-ms the current earning streak began (deposit that took the
+    /// position 0 → positive; resets on full withdrawal). Lets the client
+    /// tick `earned` live = supplied × apy × (now − earningSince)/year and
+    /// project year-end = supplied × apy. Optional for back-compat.
+    let earningSinceMs: Double?
 
     /// Display-cased venue name — the venue code stays lowercased over
     /// the wire (server keys + activity classifier use "navi" /
