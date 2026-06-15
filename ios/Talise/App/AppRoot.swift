@@ -94,6 +94,7 @@ struct MainTabView: View {
     @State private var chequeClaimCoverVisible = false
     @State private var myChequesCoverVisible = false
     @State private var streamCoverVisible = false
+    @State private var myStreamsCoverVisible = false
     @State private var invoicesCoverVisible = false
     @State private var contractsCoverVisible = false
 
@@ -103,7 +104,7 @@ struct MainTabView: View {
         depositCoverVisible || withdrawCoverVisible || sendCoverVisible
             || crossBorderCoverVisible || claimSheetVisible
             || chequeWriteCoverVisible || chequeClaimCoverVisible
-            || myChequesCoverVisible || streamCoverVisible
+            || myChequesCoverVisible || streamCoverVisible || myStreamsCoverVisible
             || invoicesCoverVisible || contractsCoverVisible
     }
 
@@ -173,6 +174,9 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: $streamCoverVisible) {
             StreamSetupView(onDone: { streamCoverVisible = false })
         }
+        .fullScreenCover(isPresented: $myStreamsCoverVisible) {
+            StreamsListView(onDone: { myStreamsCoverVisible = false })
+        }
         .fullScreenCover(isPresented: $invoicesCoverVisible) {
             InvoicesView(onDone: { invoicesCoverVisible = false })
         }
@@ -205,6 +209,9 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestStreamCover)) { _ in
             streamCoverVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestMyStreamsCover)) { _ in
+            myStreamsCoverVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestInvoicesCover)) { _ in
             invoicesCoverVisible = true
@@ -242,6 +249,8 @@ extension Notification.Name {
     /// "My cheques" list cover — the user's written cheques + reclaim.
     static let taliseRequestMyChequesCover = Notification.Name("io.talise.requestMyChequesCover")
     static let taliseRequestStreamCover = Notification.Name("io.talise.requestStreamCover")
+    /// "My streams" list cover — the user's active streams + cancel.
+    static let taliseRequestMyStreamsCover = Notification.Name("io.talise.requestMyStreamsCover")
     /// Work hub entry points (posted from the Withdraw hub): invoices + contracts.
     static let taliseRequestInvoicesCover = Notification.Name("io.talise.requestInvoicesCover")
     static let taliseRequestContractsCover = Notification.Name("io.talise.requestContractsCover")

@@ -116,6 +116,9 @@ struct WithdrawFlowView: View {
                                 .init(icon: "hi.stream", title: "Stream a payment") {
                                     handOff(.taliseRequestStreamCover)
                                 },
+                                .init(icon: "hi.list", title: "My streams") {
+                                    handOff(.taliseRequestMyStreamsCover)
+                                },
                                 .init(icon: "hi.invoice", title: "Invoices") {
                                     handOff(.taliseRequestInvoicesCover)
                                 },

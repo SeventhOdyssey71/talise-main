@@ -26,6 +26,13 @@ struct RewardsView: View {
                 heroCard
                 campaignSection
                 statTiles
+                // Spend points — the redemption catalogue (real
+                // /api/rewards/catalogue + /api/rewards/redeem). Refreshes the
+                // summary on a successful redeem so the balance updates.
+                RedemptionsSection(
+                    pointsTotal: summary?.pointsTotal ?? 0,
+                    onRedeemed: { Task { await load() } }
+                )
                 shareSection
                 infoStrip
                 historySection
