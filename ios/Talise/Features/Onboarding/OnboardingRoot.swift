@@ -141,11 +141,15 @@ struct OnboardingRoot: View {
                         .transition(.slide)
                 case .handlePicker:
                     HandlePickerScreen(onContinue: { _ in
-                        advance(to: .country)
+                        advance(to: .pinSetup)
                     })
                     .transition(.slide)
                 case .country:
-                    CountryStepScreen(onContinue: { advance(to: .pinSetup) })
+                    // Retired: country is collected (with account type) by
+                    // KYCView in the .onboarding phase — a separate step here
+                    // double-prompted. Kept in the enum for back-compat with a
+                    // persisted step; route any stragglers forward.
+                    PinSetupScreen(userId: pinUserId, onContinue: { advance(to: .permissions) })
                         .transition(.slide)
                 case .pinSetup:
                     PinSetupScreen(

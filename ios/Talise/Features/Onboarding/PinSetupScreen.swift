@@ -38,7 +38,7 @@ struct PinSetupScreen: View {
             OnboardingBackground()
 
             VStack(spacing: 0) {
-                OnboardingProgressBar(totalSteps: 5, currentStep: 4)
+                OnboardingProgressBar(totalSteps: 4, currentStep: 3)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Secure your wallet")
@@ -236,6 +236,11 @@ struct PinSetupScreen: View {
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+        // Require a 4-digit PIN FIRST — biometrics augments the PIN, it doesn't
+        // replace it (PinGate's verify path needs a PIN on file). Prevents a
+        // user finishing onboarding with no PIN registered.
+        .disabled(entry.count != pinLength)
+        .opacity(entry.count == pinLength ? 1 : 0.4)
     }
 
     // MARK: - Handlers
@@ -271,10 +276,27 @@ struct PinSetupScreen: View {
     }
 
     private func requestBiometrics() {
+        // A PIN is mandatory on file (the unlock gate verifies against it);
+        // biometrics only adds a faster path. The button is disabled until 4
+        // digits are entered, but guard here too as defense in depth.
+        guard entry.count == pinLength else {
+            failureMessage = "Set your 4-digit PIN first."
+            return
+        }
+        // Persist the PIN NOW so it's always registered before we enable
+        // biometrics — even if the OS prompt is then cancelled.
+        do {
+            try PinService.shared.setPin(entry, userId: userId)
+        } catch {
+            failureMessage = "Couldn't save your PIN. Please try again."
+            return
+        }
         let ctx = LAContext()
         var policyError: NSError?
         guard ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &policyError) else {
-            failureMessage = "Biometrics unavailable on this device."
+            // No biometrics on device — the PIN is already saved, so just go.
+            UserDefaults.standard.set(false, forKey: "talise.onboarding.biometricsEnabled")
+            onContinue()
             return
         }
         ctx.evaluatePolicy(
@@ -282,19 +304,9 @@ struct PinSetupScreen: View {
             localizedReason: "Enable biometric unlock for Talise"
         ) { success, _ in
             Task { @MainActor in
-                if success {
-                    UserDefaults.standard.set(true, forKey: "talise.onboarding.biometricsEnabled")
-                    // We still need a PIN on file for PinGate's verify
-                    // path; if the user already entered four digits,
-                    // save them. Otherwise, continue and let them set
-                    // a PIN later via Profile.
-                    if entry.count == pinLength {
-                        try? PinService.shared.setPin(entry, userId: userId)
-                    }
-                    onContinue()
-                } else {
-                    failureMessage = "Biometric enrollment cancelled."
-                }
+                // PIN is already on file either way; biometrics is the bonus.
+                UserDefaults.standard.set(success, forKey: "talise.onboarding.biometricsEnabled")
+                onContinue()
             }
         }
     }

@@ -26,7 +26,7 @@ struct PermissionsScreen: View {
             OnboardingBackground()
 
             VStack(spacing: 0) {
-                OnboardingProgressBar(totalSteps: 5, currentStep: 5)
+                OnboardingProgressBar(totalSteps: 4, currentStep: 4)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Enable Permissions")

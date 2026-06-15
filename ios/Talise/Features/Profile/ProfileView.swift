@@ -304,7 +304,11 @@ struct ProfileView: View {
             statCell(label: "Rewards", value: rewards?.tier?.label ?? "Bronze",
                      accent: (rewards?.tier?.label ?? "Bronze") != "Bronze")
             statDivider
-            statCell(label: "Since", value: memberSinceMonth, accent: false)
+            // Real points balance (from /api/referral/summary), not a
+            // placeholder. Replaces the old "Since" cell that showed the
+            // current month for everyone.
+            statCell(label: "Points", value: (rewards?.pointsTotal ?? 0).formatted(),
+                     accent: (rewards?.pointsTotal ?? 0) > 0)
         }
         .frame(maxWidth: .infinity)
         // Flat solid card carrying the user's KYC + Rewards standing.
@@ -352,18 +356,6 @@ struct ProfileView: View {
         case "pro":      return "Pro"
         default:         return "Free"
         }
-    }
-
-    /// Member-since month from the recent activity / signup date.
-    /// Falls back to "—" until we have a UserDTO `createdAt` field.
-    private var memberSinceMonth: String {
-        // TODO(profile): when UserDTO exposes a createdAt timestamp,
-        // format it as "May '26". Until then surface the current
-        // month as a sensible default — a small placeholder beats
-        // a "—" no-info pill.
-        let f = DateFormatter()
-        f.dateFormat = "MMM ''yy"
-        return f.string(from: Date())
     }
 
     // MARK: - Wallet section
