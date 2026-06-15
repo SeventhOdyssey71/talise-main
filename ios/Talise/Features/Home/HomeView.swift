@@ -157,11 +157,11 @@ struct HomeView: View {
             } label: {
                 Image(systemName: "qrcode.viewfinder")
                     .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(TaliseColor.fg) // adaptive (dark icon on light material)
+                    .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
                     .background(.ultraThinMaterial, in: Circle())
                     .overlay(
-                        Circle().strokeBorder(TaliseColor.line, lineWidth: 0.5)
+                        Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
                     )
                     .contentShape(Circle())
             }

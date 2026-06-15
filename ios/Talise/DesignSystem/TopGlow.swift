@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// Mossy-green top wash matching the onboarding gradient verbatim
 /// (`WelcomeView` + `OnboardingBackground`). One palette across the
@@ -10,33 +9,19 @@ import UIKit
 /// out of onboarding into the first authenticated tab sees the wash
 /// continue without a perceptible jump.
 struct TopGlow: View {
-    // Adaptive mossy-green top wash. On DARK it's the rich onboarding glow;
-    // on LIGHT it's a soft, restrained tint so the white page stays clean
-    // (a 55%-green band would be garish on white). Both fade into the page
-    // background (`TaliseColor.bg`) — never hardcoded black, which would paint
-    // a dark band across the bottom of the glow in light mode.
-    private var glowTop: Color {
-        Color(UIColor { tc in
-            tc.userInterfaceStyle == .dark
-                ? UIColor(hex: 0x6BA85A).withAlphaComponent(0.55)
-                : UIColor(hex: 0x6BA85A).withAlphaComponent(0.16)
-        })
-    }
-    private var glowMid: Color {
-        Color(UIColor { tc in
-            tc.userInterfaceStyle == .dark
-                ? UIColor(hex: 0x355626).withAlphaComponent(0.40)
-                : UIColor(hex: 0x8FC47E).withAlphaComponent(0.05)
-        })
-    }
-
     var body: some View {
+        // Light-green top glow → black, matching the onboarding palette
+        // (`WelcomeView` / `OnboardingBackground`) so the authenticated
+        // tabs read as a continuation of the same surface. A subtle
+        // mossy-green wash fills the top band then falls into pure black
+        // well before the content area, keeping cards + text legible.
+        // The 380pt height clips the wash to the top of the screen.
         LinearGradient(
             stops: [
-                .init(color: glowTop, location: 0.0),
-                .init(color: glowMid, location: 0.30),
-                .init(color: TaliseColor.bg, location: 0.78),
-                .init(color: TaliseColor.bg, location: 1.0),
+                .init(color: Color(hex: 0x6BA85A).opacity(0.55), location: 0.0),
+                .init(color: Color(hex: 0x355626).opacity(0.40), location: 0.30),
+                .init(color: Color.black, location: 0.78),
+                .init(color: Color.black, location: 1.0),
             ],
             startPoint: .top,
             endPoint: .bottom
@@ -152,9 +137,7 @@ struct LiquidGlassPressStyle: ButtonStyle {
         configuration.label
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    // Press wash tints toward fg — brightens on dark, darkens
-                    // on light (both read as a tap pulse).
-                    .fill(TaliseColor.fg.opacity(configuration.isPressed ? 0.06 : 0.0))
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.06 : 0.0))
                     .allowsHitTesting(false)
             )
             .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
@@ -442,7 +425,7 @@ struct QuietProgressBar: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(TaliseColor.line) // adaptive faint track
+                Capsule().fill(Color.white.opacity(0.06))
                 Capsule().fill(TaliseColor.greenSweep)
                     .frame(width: geo.size.width * min(max(progress, 0), 1))
             }
