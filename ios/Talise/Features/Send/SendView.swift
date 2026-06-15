@@ -575,7 +575,7 @@ struct GlassCircle: ViewModifier {
             // 2026-06-12). A whisper of white hairline keeps the edge
             // legible on dark fields.
             .background(.ultraThinMaterial, in: Circle())
-            .overlay(Circle().strokeBorder(.white.opacity(0.10), lineWidth: 1))
+            .overlay(Circle().strokeBorder(TaliseColor.line, lineWidth: 1))
             .clipShape(Circle())
     }
 }
