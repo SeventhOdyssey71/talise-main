@@ -17,11 +17,14 @@ struct RewardsView: View {
     @State private var summary: RewardsSummary?
     @State private var loading = true
     @State private var error: String?
+    /// "Campaign opens soon" toast when the locked Join button is tapped.
+    @State private var campaignToast = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
                 heroCard
+                campaignSection
                 statTiles
                 shareSection
                 infoStrip
@@ -40,6 +43,98 @@ struct RewardsView: View {
         .refreshable { await load() }
         .taliseScreenBackground()
         .task { await load() }
+        .overlay(alignment: .bottom) {
+            if campaignToast {
+                Text("This campaign opens soon — you'll be the first to know.")
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(TaliseColor.fg)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(Capsule().fill(TaliseColor.surface2))
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 110)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy(duration: 0.25), value: campaignToast)
+    }
+
+    // MARK: - Campaign — locked $5,000 pool (opens later)
+
+    /// A headline campaign card: a $5,000 reward pool, LOCKED for now, with a
+    /// "Join" button that surfaces a "coming soon" toast. Flip `campaignLive`
+    /// to true (and wire the Join action) when the campaign opens.
+    private let campaignLive = false
+
+    private var campaignSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header row — eyebrow + LOCKED pill.
+            HStack(spacing: 10) {
+                Text("CAMPAIGN")
+                    .font(TaliseFont.mono(10, weight: .regular)).tracking(2.0)
+                    .foregroundStyle(TaliseColor.greenMint)
+                Spacer()
+                if !campaignLive {
+                    HStack(spacing: 5) {
+                        Image(systemName: "lock.fill").font(.system(size: 9, weight: .semibold))
+                        Text("LOCKED").font(TaliseFont.mono(9, weight: .regular)).tracking(1)
+                    }
+                    .foregroundStyle(TaliseColor.fgDim)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Capsule().fill(TaliseColor.surface2))
+                }
+            }
+
+            // The pool — the hero number.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("$5,000")
+                    .font(TaliseFont.display(46, weight: .semibold)).kerning(-1.8)
+                    .foregroundStyle(TaliseColor.fg)
+                Text("reward pool")
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+            }
+
+            Text("A community rewards campaign is coming. Join to lock your spot — the more you move and refer, the more you share when it opens.")
+                .font(TaliseFont.body(13.5, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Join — locked for now.
+            Button {
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                campaignToast = true
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_400_000_000)
+                    campaignToast = false
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if !campaignLive {
+                        Image(systemName: "lock.fill").font(.system(size: 12, weight: .semibold))
+                    }
+                    Text(campaignLive ? "Join" : "Join · opens soon")
+                }
+                .font(TaliseFont.heading(15, weight: .medium))
+                .foregroundStyle(Color(hex: 0x0E1A0D))
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(Capsule().fill(TaliseColor.greenMint))
+                .opacity(campaignLive ? 1 : 0.7)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(TaliseColor.greenMint.opacity(0.22), lineWidth: 1)
+        )
     }
 
     // MARK: - 1. Hero — points balance on a solid forest card
