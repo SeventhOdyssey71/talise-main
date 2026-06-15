@@ -10,6 +10,7 @@ import {
   readNaviUsdsuiSupply,
 } from "./navi-supply";
 import { getGlobalNum, setGlobalNum, refreshInBackground } from "./snapshots";
+import { samConfigured, fetchSamApy, readSamPosition } from "./yield/sam";
 
 /** Resolve a promise to `fallback` if it doesn't settle within `ms`. The
  *  underlying work keeps running; we just stop waiting on the hot path. */
@@ -135,7 +136,7 @@ export async function getEarnSnapshot(address: string): Promise<EarnSnapshot> {
  * non-fatal — if one venue is offline we still return the other.
  */
 export type YieldVenue = {
-  id: "navi" | "deepbook";
+  id: "navi" | "deepbook" | "sam";
   name: string;
   apy: number;
   /** User's currently supplied USDsui, if any. */
@@ -197,6 +198,27 @@ export async function getYieldComparison(
       },
     });
   }
+  // SAM — the aggregating vault venue (Scallop/Suilend/NAVI + compounded
+  // rewards behind one share token). Dormant until its on-chain interface is
+  // configured (samConfigured()); then it reads its offered APY + the user's
+  // samUSDC position and joins the comparison, typically as `best` since it
+  // aggregates the very markets above. Failure-tolerant like the other legs.
+  if (samConfigured()) {
+    const [samApy, samPos] = await Promise.all([
+      resolveVenueApy("sam_usdc_apy", () => fetchSamApy()),
+      withTimeout(readSamPosition(address).catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
+    ]);
+    if (samApy != null) {
+      venues.push({
+        id: "sam",
+        name: "SAM vault",
+        apy: samApy,
+        supplied: samPos?.value ?? 0,
+        meta: { shares: samPos?.shares ?? 0, aggregator: true },
+      });
+    }
+  }
+
   venues.sort((a, b) => b.apy - a.apy);
   return { venues, best: venues[0] ?? null };
 }
