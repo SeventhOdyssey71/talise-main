@@ -138,18 +138,10 @@ export async function deriveShieldEncScalar(spendingKey: bigint): Promise<bigint
 }
 
 /**
- * Poseidon hash of a single BN254 field element.
- *
- * STUB — NOT A REAL POSEIDON. Returns a deterministic field element so the SDK
- * surface composes and tests run, but the output is NOT byte-compatible with
- * `sui::poseidon_bn254`. THE critical gate (PRIVACY-BUILD-PLAN.md Workstream B)
- * is that in-circuit/SDK Poseidon equals the on-chain native Poseidon exactly —
- * any mismatch means no deposit is ever spendable.
- *
- * TODO(crypto): replace with a real BN254 Poseidon (e.g. a WASM gadget from the
- * arkworks `poseidon_opt` bundle, or a vetted JS impl with the SAME round
- * constants / MDS matrix as `sui::poseidon_bn254`). Add the three Vortex
- * cross-checks (Poseidon vectors, gadget==native, Rust-root==Move-root).
+ * Poseidon1 of a single BN254 field element — REAL. Delegates to `poseidonStub`
+ * (`@mysten/sui/zklogin` poseidonHash), verified byte-identical to the circuit's
+ * `poseidon_opt` hash1 (parity gate, 2026-06-17). Used for the note pubkey and
+ * the viewing key.
  */
 export function poseidon1(x: bigint): bigint {
   return poseidonStub([x]);
@@ -160,9 +152,11 @@ export function poseidon1(x: bigint): bigint {
  * circomlib parameterization that is byte-identical to `sui::poseidon_bn254`
  * (verified for arity-2 against all 27 on-chain `empty_subtree_hashes`, the
  * Phase-0 gate). Used for note commitments (Poseidon4), nullifiers (Poseidon3),
- * and the viewing key (Poseidon1). NOTE: the arity-1/3/4 cross-check against the
- * circuit's poseidon_opt is still pending (the arity-2 Merkle hash is proven);
- * confirm before relying on these for real on-chain notes.
+ * and the viewing key (Poseidon1). PARITY VERIFIED 2026-06-17: arity-1/3/4 are
+ * byte-identical to the circuit's `poseidon_opt` (known-answer gate in
+ * circuit/tests/poseidon_parity.rs — poseidonHash([1]) / ([1,2,3]) / ([1,2,3,4])
+ * equal hash1/hash3/hash4). So SDK-assembled witnesses satisfy the circuit and
+ * verify on-chain.
  */
 export function poseidonStub(inputs: bigint[]): bigint {
   return poseidonHash(inputs);

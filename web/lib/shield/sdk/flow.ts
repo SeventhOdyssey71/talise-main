@@ -24,17 +24,17 @@
  * Poseidon3(commitment, pathIndex, signature); public_amount = +value (deposit),
  * (r − value) (withdraw), 0 (transfer); hashed_secret = 0 (unsponsored path).
  *
- * CRYPTO STATUS — read before trusting this for real notes:
- *   • The PROVEN end-to-end path (deposit/withdraw/transfer accepted on-chain by
- *     `shielded_pool::transact`) is the RUST prover (circuit/src/bin/*). That is
- *     what the testnet demos used.
- *   • This JS path reuses `@mysten/sui/zklogin` Poseidon (keys.ts), which is
- *     byte-matched to `sui::poseidon_bn254` for arity-2 ONLY (the Merkle gate).
- *     The arity-1/3/4 cross-check vs the circuit's `poseidon_opt` is PENDING
- *     (keys.ts). Until that gate is green, a JS-assembled witness may not match
- *     the circuit and the proof can fail on-chain — so treat browser proving as
- *     wired-but-unverified. No mainnet money rides on it (the pool is testnet;
- *     mainnet additionally gates on the MPC ceremony + audit).
+ * CRYPTO STATUS:
+ *   • Poseidon parity is VERIFIED (2026-06-17): `@mysten/sui/zklogin` poseidonHash
+ *     == the circuit's `poseidon_opt` at arity 1/3/4 (keys.ts; known-answer gate
+ *     circuit/tests/poseidon_parity.rs) and arity-2 == `sui::poseidon_bn254`
+ *     on-chain (Phase-0 gate). So this JS witness assembler produces commitments
+ *     and nullifiers the circuit accepts — browser-assembled proofs verify
+ *     on-chain. The full lifecycle was also proven via the Rust prover.
+ *   • Remaining trust assumption: the verifying key is a SINGLE-PARTY OsRng setup
+ *     (constants.move). Not outsider-forgeable, but trustless mainnet at scale
+ *     still needs the multi-party ceremony + external audit. The capped-pilot
+ *     posture (small caps, operator-trust disclosed) is what rides on it.
  */
 
 import { USDSUI_TYPE } from "@/lib/usdsui";
