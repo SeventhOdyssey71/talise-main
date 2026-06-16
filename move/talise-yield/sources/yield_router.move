@@ -36,7 +36,7 @@
 ///   hardening (min-output assertion via a per-venue value read) is a documented
 ///   v2 item and a primary audit focus. NOT FOR MAINNET until audited +
 ///   testnet-proven.
-module talise::yield_router;
+module talise_yield::yield_router;
 
 use sui::{dynamic_object_field as dof, clock::Clock, event};
 

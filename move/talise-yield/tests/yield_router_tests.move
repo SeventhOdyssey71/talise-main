@@ -8,11 +8,11 @@
 /// registry (worker set + circuit breaker), and the begin/end_rotation
 /// hot-potato pair including every guard branch.
 #[test_only]
-module talise::yield_router_tests;
+module talise_yield::yield_router_tests;
 
 use std::unit_test::assert_eq;
 use sui::{clock, test_scenario as ts, transfer};
-use talise::yield_router::{Self, YieldPosition, RebalanceRegistry};
+use talise_yield::yield_router::{Self, YieldPosition, RebalanceRegistry};
 
 const ADMIN: address = @0xA;
 const USER: address = @0xB;
