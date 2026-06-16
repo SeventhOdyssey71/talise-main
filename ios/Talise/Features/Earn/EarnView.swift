@@ -18,6 +18,13 @@ struct EarnView: View {
     /// in sync with the on-chain compound supplies.
     @State private var rewardsSummary: RewardsSummary?
 
+    // ── Private-yield smoke test (talise_yield::yield_router on mainnet) ──
+    // A small, explicit "test deposit" that routes a tiny USDsui amount into
+    // the live router (Scallop venue). Gated behind a tap + confirmation; this
+    // is a founder smoke-test of the on-chain engine, not a user feature yet.
+    @State private var testDepositing = false
+    @State private var testDepositStatus: String?
+
     var body: some View {
         // Invest = the money-management hub. Venues + Supply +
         // Withdraw are the explicit actions; Round-up, Goals, and
@@ -33,6 +40,7 @@ struct EarnView: View {
                 // venue row already shows the rate, and deposit + withdraw
                 // both live inside the venue sheet now.)
                 RoundupCard(summary: rewardsSummary, onChange: { Task { await loadRewards() } })
+                testDepositRow
                 GoalsSection()
                 if let error {
                     Text(error)
@@ -58,6 +66,85 @@ struct EarnView: View {
                 // cards so the supplied amount updates.
                 Task { await load() }
             }
+        }
+    }
+
+    // MARK: - Private-yield smoke test
+
+    private var testDepositRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                Task { await testDeposit() }
+            } label: {
+                HStack(spacing: 10) {
+                    if testDepositing { ProgressView().tint(TaliseColor.accent) }
+                    Text(testDepositing ? "Routing $1 into the engine…" : "Test deposit · route $1 to yield")
+                        .font(TaliseFont.body(13, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(TaliseColor.surface))
+            }
+            .buttonStyle(.plain)
+            .disabled(testDepositing)
+            if let s = testDepositStatus {
+                Text(s)
+                    .font(TaliseFont.mono(11, weight: .light))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
+        }
+    }
+
+    /// Mint-if-needed → deposit a tiny USDsui amount into the live yield_router
+    /// (Scallop venue). Two sponsored txs: mint_position (once), then
+    /// supply + deposit_receipt. Proves the on-chain engine end-to-end.
+    private func testDeposit() async {
+        struct PosResp: Decodable { let positionId: String? }
+        struct MintBody: Encodable {}
+        struct DepBody: Encodable { let venue: String; let amount: Double; let positionId: String }
+        testDepositing = true
+        testDepositStatus = nil
+        defer { testDepositing = false }
+        do {
+            var pos: PosResp = try await APIClient.shared.get("/api/yield/position")
+            if pos.positionId == nil {
+                let mint: BuildKindResponse = try await APIClient.shared.post(
+                    "/api/yield/deposit/prepare", body: MintBody()
+                )
+                _ = try await ZkLoginCoordinator.shared.signAndSubmit(
+                    transactionKindB64: mint.transactionKindB64,
+                    intent: "Create yield position"
+                )
+                // Let the mint event index, then re-read the position id.
+                for _ in 0..<6 {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    pos = try await APIClient.shared.get("/api/yield/position")
+                    if pos.positionId != nil { break }
+                }
+            }
+            guard let pid = pos.positionId else {
+                testDepositStatus = "Position minting — try again in a moment."
+                return
+            }
+            let dep: BuildKindResponse = try await APIClient.shared.post(
+                "/api/yield/deposit/prepare",
+                body: DepBody(venue: "scallop", amount: 1.0, positionId: pid)
+            )
+            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
+                transactionKindB64: dep.transactionKindB64,
+                intent: "Test yield deposit"
+            )
+            testDepositStatus = "Deposited · \(String(result.digest.prefix(12)))…"
+            await load()
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            testDepositStatus = "Sign in again — your session needs a refresh."
+        } catch {
+            testDepositStatus = error.localizedDescription
         }
     }
 
