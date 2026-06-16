@@ -78,10 +78,11 @@ struct WithdrawFlowView: View {
                             .buttonStyle(TilePress())
 
                             // Private transactions — shielded USDsui (Talise's
-                            // own ZK privacy layer). Phase 0 build; the tile is
-                            // live now, the flow opens once the shielded pool ships.
+                            // own ZK privacy layer), live on mainnet as a capped
+                            // pilot. Opens the shielded-send flow on the web app
+                            // (where the proof is built client-side).
                             Button { showPrivateSoon = true } label: {
-                                ActionTile(icon: "hi.lock", title: "Send private tx", caption: "Shielded · coming soon")
+                                ActionTile(icon: "hi.lock", title: "Send private tx", caption: "Shielded · private beta")
                             }
                             .buttonStyle(TilePress())
                         }
@@ -1315,11 +1316,18 @@ struct TaliseLoadingRing: View {
 
 // MARK: - Private transactions (coming soon)
 
-/// Shown when the user taps "Send private tx" before the shielded pool ships.
-/// Sets the expectation cleanly + on-brand; replaced by the real shielded-send
-/// flow at Phase 1 (see docs/strategy/PRIVACY-TALISE.md).
+/// "Send private tx" entry. The shielded pool is live on mainnet as a capped
+/// pilot; the actual send runs on the web app (`/private`), where the Groth16
+/// proof is built client-side — the relayer only sponsors gas, it never sees the
+/// note secrets. This sheet sets honest expectations (what it does + the pilot
+/// caveats) and hands off. See docs/strategy/PRIVACY-BUILD-PLAN.md.
 private struct PrivateSoonSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var safariURL: URL?
+
+    private var privateFlowURL: URL? {
+        URL(string: AppConfig.shared.apiBaseURL + "/private")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1346,17 +1354,55 @@ private struct PrivateSoonSheet: View {
                     .font(TaliseFont.heading(22, weight: .semibold))
                     .kerning(-0.4)
                     .foregroundStyle(TaliseColor.fg)
-                Text("Send USDsui shielded — the amount and the link between sender and recipient stay private on-chain, and your money never leaves your control. Coming soon.")
+                Text("Send USDsui shielded — the amount and the link between sender and recipient stay private on-chain, and your money never leaves your control.")
                     .font(TaliseFont.body(14, weight: .light))
                     .foregroundStyle(TaliseColor.fgMuted)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 8)
+
+                // Honest pilot disclosure — operator-trusted keys + the per-tx cap.
+                VStack(spacing: 8) {
+                    PrivatePilotNote(text: "Early pilot — up to $10 per transaction.")
+                    PrivatePilotNote(text: "The pool's keys are operator-secured while the trustless setup is finalized.")
+                }
+                .padding(.top, 2)
             }
             .padding(.horizontal, 28)
             Spacer(minLength: 0)
+
+            Button {
+                if let u = privateFlowURL { safariURL = u }
+            } label: {
+                Text("Continue to private send")
+                    .font(TaliseFont.body(16, weight: .semibold))
+                    .foregroundStyle(TaliseColor.bg)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(TaliseColor.greenMint))
+            }
+            .buttonStyle(TilePress())
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TaliseColor.bg.ignoresSafeArea())
+        .sheet(item: $safariURL) { url in RampSafariView(url: url) }
+    }
+}
+
+/// One muted, bullet-prefixed disclosure line for the privacy pilot sheet.
+private struct PrivatePilotNote: View {
+    let text: String
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Circle().fill(TaliseColor.fgMuted.opacity(0.5)).frame(width: 4, height: 4).padding(.top, 7)
+            Text(text)
+                .font(TaliseFont.body(12.5, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
     }
 }
