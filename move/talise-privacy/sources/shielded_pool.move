@@ -160,9 +160,9 @@ public fun transact<CoinType>(
 public fun transact_with_account<CoinType>(
     self: &mut ShieldedPool<CoinType>,
     account: &mut NoteAccount,
-    coins: vector<Receiving<Coin<CoinType>>>,
     proof: Proof<CoinType>,
     ext_data: ExtData,
+    coins: vector<Receiving<Coin<CoinType>>>,
     ctx: &mut TxContext,
 ): Coin<CoinType> {
     let deposit = account.receive(coins, ctx);
@@ -201,11 +201,13 @@ public fun set_caps<CoinType>(
 // === Public Views ===
 
 public fun root<CoinType>(self: &ShieldedPool<CoinType>): u256 {
-    self.merkle_tree().root()
+    // Explicit `merkle::` path (not method syntax) so this view is not mistaken
+    // for self-recursion — it delegates to the merkle module, never itself.
+    merkle::root(self.merkle_tree())
 }
 
 public fun is_known_root<CoinType>(self: &ShieldedPool<CoinType>, root: u256): bool {
-    self.merkle_tree().is_known_root(root)
+    merkle::is_known_root(self.merkle_tree(), root)
 }
 
 public fun is_nullifier_spent<CoinType>(self: &ShieldedPool<CoinType>, nullifier: u256): bool {
@@ -213,7 +215,7 @@ public fun is_nullifier_spent<CoinType>(self: &ShieldedPool<CoinType>, nullifier
 }
 
 public fun next_index<CoinType>(self: &ShieldedPool<CoinType>): u64 {
-    self.merkle_tree().next_index()
+    merkle::next_index(self.merkle_tree())
 }
 
 public fun balance_value<CoinType>(self: &ShieldedPool<CoinType>): u64 {

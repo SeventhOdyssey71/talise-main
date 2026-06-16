@@ -221,13 +221,14 @@ async function ingestCommitments(): Promise<number> {
 /** Ingest NullifierSpent events into shield_nullifiers. */
 async function ingestNullifiers(): Promise<number> {
   return drainPipeline("nullifiers", (ev) => {
-    // The event is a positional struct `NullifierSpent(u256)`; JSON-RPC
-    // surfaces it as `{ "pos0": "<u256>" }` or a bare value depending on shape.
+    // The event is `NullifierSpent { nullifier: u256 }`; JSON-RPC surfaces it as
+    // `{ "nullifier": "<u256>" }`. The pos0/"0"/first-value fallbacks keep the
+    // older positional-struct shape readable too.
     const pj = ev.parsedJson as unknown;
     let nullifier = "0";
     if (pj && typeof pj === "object") {
       const o = pj as Record<string, unknown>;
-      nullifier = String(o.pos0 ?? o["0"] ?? Object.values(o)[0] ?? "0");
+      nullifier = String(o.nullifier ?? o.pos0 ?? o["0"] ?? Object.values(o)[0] ?? "0");
     } else if (pj !== undefined && pj !== null) {
       nullifier = String(pj);
     }
@@ -254,11 +255,13 @@ async function ingestNullifiers(): Promise<number> {
 /** Ingest NewPool events into shield_pools. */
 async function ingestPools(): Promise<number> {
   return drainPipeline("pools", (ev) => {
+    // `NewPool { pool: address }` → `{ "pool": "0x.." }`; fallbacks cover the
+    // older positional shape.
     const pj = ev.parsedJson as unknown;
     let poolAddr = "";
     if (pj && typeof pj === "object") {
       const o = pj as Record<string, unknown>;
-      poolAddr = String(o.pos0 ?? o["0"] ?? Object.values(o)[0] ?? "");
+      poolAddr = String(o.pool ?? o.pos0 ?? o["0"] ?? Object.values(o)[0] ?? "");
     } else if (pj !== undefined && pj !== null) {
       poolAddr = String(pj);
     }

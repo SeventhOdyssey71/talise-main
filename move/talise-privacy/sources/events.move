@@ -9,7 +9,7 @@ use sui::event::emit;
 // === Events ===
 
 /// Emitted when a `ShieldedPool<CoinType>` is created. Payload = pool address.
-public struct NewPool<phantom CoinType>(address) has copy, drop;
+public struct NewPool<phantom CoinType> has copy, drop { pool: address }
 
 /// Emitted per appended commitment (two per `transact`). The indexer keys the
 /// Merkle leaf by `index`; `encrypted_output` is the note ciphertext the
@@ -21,12 +21,12 @@ public struct NewCommitment<phantom CoinType> has copy, drop {
 }
 
 /// Emitted per spent input nullifier. The indexer marks the note unspendable.
-public struct NullifierSpent<phantom CoinType>(u256) has copy, drop;
+public struct NullifierSpent<phantom CoinType> has copy, drop { nullifier: u256 }
 
 // === Package Functions ===
 
 public(package) fun new_pool<CoinType>(pool: address) {
-    emit(NewPool<CoinType>(pool));
+    emit(NewPool<CoinType> { pool });
 }
 
 public(package) fun new_commitment<CoinType>(
@@ -38,5 +38,5 @@ public(package) fun new_commitment<CoinType>(
 }
 
 public(package) fun nullifier_spent<CoinType>(nullifier: u256) {
-    emit(NullifierSpent<CoinType>(nullifier));
+    emit(NullifierSpent<CoinType> { nullifier });
 }

@@ -2,25 +2,28 @@
 /// `vortex_constants`). Macros so callers inline the values with zero runtime
 /// cost, same idiom as the reference.
 ///
-/// The verifying key here is a DEV PLACEHOLDER. The real VK is the output of
-/// the Phase-2 MPC trusted-setup ceremony (see PRIVACY-BUILD-PLAN.md). Until
-/// that ceremony runs, the committed keys are FORGEABLE and MUST NOT touch
-/// mainnet money.
+/// SECURITY POSTURE OF THE VERIFYING KEY (read before any mainnet decision):
+/// this VK is the output of a SINGLE-PARTY arkworks setup (`circuit/keygen.rs`,
+/// `OsRng`, trapdoor sampled and discarded in-process — NOT a zero-seed key, and
+/// NOT recoverable by an external party). It is therefore NOT forgeable by an
+/// outsider, but its soundness still rests on trusting that the one operator who
+/// ran keygen did not capture the setup trapdoor (α, β, τ, δ). Trustless
+/// unforgeability requires a MULTI-PARTY ceremony (Powers-of-Tau phase-1 for
+/// α/β/τ + circuit-specific phase-2 for δ), where security holds if ANY single
+/// participant was honest. That ceremony is a people+time process, not a solo
+/// script; until it runs, this VK is fit for TESTNET and an operator-trusted
+/// capped pilot only — see PRIVACY-BUILD-PLAN.md "Remaining gates".
 module talise_privacy::constants;
 
 // === Package View Functions ===
 
-/// DEV keys (persisted circuit/keys/, OsRng) — testnet only, NOT FOR MAINNET;
-/// the MPC ceremony replaces this. Matches prove_deposit's persisted VK.
-///
-/// These bytes are carried verbatim from Interest Protocol's Vortex reference
-/// (a zero-seed keygen, hence FORGEABLE). They exist only so `groth16::
-/// prepare_verifying_key` parses and the package compiles + tests run end to
-/// end against the native verifier shape. The real VK is the multi-contributor
-/// Powers-of-Tau / phase-2 output and replaces this constant wholesale.
+/// Single-party OsRng dev VK (matches `circuit/keys/vk_sui.hex` and
+/// prove_deposit's persisted key, verified byte-for-byte). See the module
+/// header for the exact trust assumption: not outsider-forgeable, but not yet
+/// the multi-party-ceremony output trustless mainnet at scale requires.
 public(package) macro fun verifying_key(): vector<u8> {
-    // DEV keys (persisted circuit/keys/, OsRng) — testnet only. NOT FOR
-    // MAINNET; the MPC ceremony replaces this. Matches prove_deposit's VK.
+    // Single-party OsRng dev VK == circuit/keys/vk_sui.hex (byte-matched).
+    // Multi-party ceremony output replaces this wholesale before scale.
     x"0400f07bc59c5d8eea2d649783a55fcbc64dd793fa1d102e87bb7872bf7fc6853adb445f837298fe2cdc8f935f1658612acec5d538831b9a6542412bbf36321ff5acd09efdf65b13e029ed3b8b3f5a6ebe1b68c12c0c847918db75267527e5a87a0201288a0d169552021541b9ffd92e959ad3dac3e8a21608369684683ae512a1868d2f05c002d9fc6dd1d61d6741a4c262970b896abbda2ee5c8c8b28085ac7226a2ac22840639b823f79dc682d2ffbabf053562c44c018e5c3326e1ca3e04703e766fdc2aeaade5b3d890979bb2b27e9fed88542f9e0e12597e697624309d09000000000000008ff673d2e70b20cf402f0eb3ac0c2c5b29acacacde983fdf16ae05d0e390b512de33cdb8f0886968fd89b590b0674679306803af6e8ee1a6ea595da51918122c81b949bd05f397ccec60a1a10c3fb7c7e9fb26c654654b7595b157249bd4439729479f9487d16c5590dbd6c9d5e6f25ec46ceabc3ae9af3b4101b7f132c40f233dd7031fdb1257e7a66b7bd72d7982913efc556c0782faf2a026b9855591f383e223ccce2f9cc47c2e85ba4c0223d3442cfea04104d3b48014da37aa19b57306cd18602b8c1955902007e772e70eac9fd19b9e520b3e54bb37015f8309d0e922883762fc1fc4aa8956e1c5f7b352db26b5f46996df5baf69100adaad7e9d7118cb4ae1fbbed3ea13f96779f1be6fb248ba5622afb4ebc92bcdf93f62c72a4b14"
 }
 
