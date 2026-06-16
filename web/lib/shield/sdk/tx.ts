@@ -57,22 +57,40 @@ export type BuildTransactParams = {
   coinType: string;
   /** The shared `ShieldedPool<CoinType>` object id. */
   poolObjectId: string;
-  /** The shared `talise::compliance::ComplianceRegistry` object id. */
-  complianceRegistryId: string;
+  /**
+   * The shared `talise::compliance::ComplianceRegistry` object id. OPTIONAL:
+   * the deployed (decoupled) pool's `transact(self, deposit, proof, ext)` takes
+   * NO registry, so omit it there. Supply it only against a compliance-wired
+   * pool whose `transact` signature is `(self, registry, deposit, proof, ext)`.
+   */
+  complianceRegistryId?: string;
   /** The pool address as a field element (bound into the proof, anti-replay). */
   poolAddress: string;
   proof: ProofInputs;
   ext: ExtDataInput;
   /**
-   * Deposit coin object id for the deposit leg. For withdraw / internal
-   * transfer (value == 0 or value_sign false), a zero coin is built via
-   * `coin::zero` — but the on-chain `transact` takes a `Coin` by value, so the
-   * caller must still provide a coin. When omitted on a non-deposit leg, the
-   * builder splits a zero coin from gas is NOT possible here (gas is the
-   * sponsor's), so a deposit-coin object id is REQUIRED for deposit legs and
-   * optional otherwise (caller wires a zero coin separately if needed).
+   * Deposit coin object id for the deposit leg. The on-chain `transact` takes a
+   * `Coin<CoinType>` by value, so EVERY leg needs one:
+   *   • deposit  → a real coin of `value` (the funds entering the pool),
+   *   • withdraw / internal-transfer → a ZERO coin. There is no `coin::zero`
+   *     MoveCall on the relayer allowlist, so the builder splits `[0]` off
+   *     {@link zeroCoinSourceId} (a relayer-owned coin of CoinType) via the
+   *     allowlisted `SplitCoins` glue.
+   * Pass `depositCoinId` for the deposit leg; pass `zeroCoinSourceId` otherwise.
    */
   depositCoinId?: string;
+  /**
+   * A relayer-owned `Coin<CoinType>` object id to split a zero coin from on the
+   * withdraw / internal-transfer legs (when `depositCoinId` is absent). Restored
+   * to its full value by the `[0]` split, so it is non-destructive.
+   */
+  zeroCoinSourceId?: string;
+  /**
+   * Where the `transact` RETURN coin goes. On withdraw this carries the
+   * unshielded funds (→ the recipient); on deposit / internal-transfer it is a
+   * zero coin (→ harmlessly the relayer). Defaults to the relayer.
+   */
+  outputRecipient?: string;
 };
 
 /** Map a wasm `ProofOutput` into the `ProofInputs` the PTB builder consumes. */
@@ -153,32 +171,48 @@ export function buildTransact(params: BuildTransactParams): Transaction {
     ],
   });
 
-  // The deposit coin. For a deposit leg the caller passes a real coin object;
-  // for withdraw / internal-transfer the on-chain `transact` expects a coin
-  // (a zero coin built off the package — TODO seam, see depositCoinId docs).
-  const depositCoin = params.depositCoinId
-    ? tx.object(params.depositCoinId)
-    : // TODO(sdk): build a zero Coin<CoinType> for non-deposit legs. There is
-      // no framework `coin::zero` MoveCall on the validate-commands allowlist
-      // (only the pinned package), so the on-chain `transact` flow for
-      // withdraw/internal must source a zero coin via a pinned-package helper
-      // or accept it as an input. Left as an explicit seam.
-      tx.object(
-        "0x0000000000000000000000000000000000000000000000000000000000000000"
-      );
+  // The deposit coin handed to `transact` by value.
+  //   • deposit leg → the caller's real coin object (`depositCoinId`).
+  //   • withdraw / internal-transfer → a ZERO coin. `coin::zero` is NOT on the
+  //     relayer allowlist, so we split `[0]` off a relayer-owned coin of
+  //     CoinType (`zeroCoinSourceId`) via the allowlisted SplitCoins glue. The
+  //     source coin is left whole (a 0-amount split).
+  let depositCoin;
+  if (params.depositCoinId) {
+    depositCoin = tx.object(params.depositCoinId);
+  } else if (params.zeroCoinSourceId) {
+    const [zero] = tx.splitCoins(tx.object(params.zeroCoinSourceId), [
+      tx.pure.u64(0n),
+    ]);
+    depositCoin = zero;
+  } else {
+    throw new Error(
+      "buildTransact: a deposit leg needs depositCoinId; a withdraw/transfer " +
+        "leg needs zeroCoinSourceId (a relayer coin to split a zero coin from)"
+    );
+  }
 
-  // shielded_pool::transact<CoinType>(self, registry, deposit, proof, ext) -> Coin
-  tx.moveCall({
+  // shielded_pool::transact<CoinType>(self, [registry,] deposit, proof, ext) -> Coin
+  // The deployed decoupled pool takes NO registry; a compliance-wired pool does.
+  const transactArgs = params.complianceRegistryId
+    ? [
+        tx.object(params.poolObjectId),
+        tx.object(params.complianceRegistryId),
+        depositCoin,
+        proofArg,
+        extArg,
+      ]
+    : [tx.object(params.poolObjectId), depositCoin, proofArg, extArg];
+  const out = tx.moveCall({
     target: `${packageId}::shielded_pool::transact`,
     typeArguments: [coinType],
-    arguments: [
-      tx.object(params.poolObjectId),
-      tx.object(params.complianceRegistryId),
-      depositCoin,
-      proofArg,
-      extArg,
-    ],
+    arguments: transactArgs,
   });
+
+  // `transact` returns a Coin<CoinType> by value — it MUST be consumed. On a
+  // withdraw it holds the unshielded funds (→ recipient); on deposit / internal
+  // it is a zero coin (→ relayer, harmless). Either way, transfer it out.
+  tx.transferObjects([out], tx.pure.address(params.outputRecipient ?? params.ext.relayer));
 
   return tx;
 }

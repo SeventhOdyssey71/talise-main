@@ -1,0 +1,486 @@
+/**
+ * Talise shielded-pool SDK — END-TO-END FLOW ORCHESTRATION (Workstream C).
+ *
+ * This is the single surface the app calls to run a shielded operation. It ties
+ * together every other SDK piece into one round-trip per op:
+ *
+ *   keys (deriveShieldKeypair)
+ *     → witness assembly (this file — mirrors circuit/src/prover.rs exactly)
+ *     → Merkle path  (POST /api/shield/merkle-path)
+ *     → Groth16 prove (proveTransact → WASM worker, real entropy)
+ *     → note encryption (encryptNote → P-256 ECIES, REAL)
+ *     → transact PTB  (buildTransact → matches the deployed decoupled pool)
+ *     → relay/sponsor  (POST /api/shield/relay → validate + Onara gas)
+ *
+ * Three entry points: {@link shieldDeposit}, {@link shieldTransfer},
+ * {@link shieldWithdraw}. Each returns the spendable OUTPUT notes (so the caller
+ * persists them for a future spend) plus the relayer's tx digest.
+ *
+ * ── WITNESS PARITY (the load-bearing invariant) ─────────────────────────────
+ * The 2-in/2-out witness below is a line-for-line port of
+ * `circuit/src/prover.rs::build_deposit_circuit_for_pool` (and the withdraw /
+ * transfer bins): pubkey = Poseidon1(sk); commitment = Poseidon4(amount, pubkey,
+ * blinding, pool); signature = Poseidon3(sk, commitment, pathIndex); nullifier =
+ * Poseidon3(commitment, pathIndex, signature); public_amount = +value (deposit),
+ * (r − value) (withdraw), 0 (transfer); hashed_secret = 0 (unsponsored path).
+ *
+ * CRYPTO STATUS — read before trusting this for real notes:
+ *   • The PROVEN end-to-end path (deposit/withdraw/transfer accepted on-chain by
+ *     `shielded_pool::transact`) is the RUST prover (circuit/src/bin/*). That is
+ *     what the testnet demos used.
+ *   • This JS path reuses `@mysten/sui/zklogin` Poseidon (keys.ts), which is
+ *     byte-matched to `sui::poseidon_bn254` for arity-2 ONLY (the Merkle gate).
+ *     The arity-1/3/4 cross-check vs the circuit's `poseidon_opt` is PENDING
+ *     (keys.ts). Until that gate is green, a JS-assembled witness may not match
+ *     the circuit and the proof can fail on-chain — so treat browser proving as
+ *     wired-but-unverified. No mainnet money rides on it (the pool is testnet;
+ *     mainnet additionally gates on the MPC ceremony + audit).
+ */
+
+import { USDSUI_TYPE } from "@/lib/usdsui";
+import {
+  deriveShieldEncScalar,
+  poseidon1,
+  poseidonStub as poseidonN,
+  BN254_SCALAR_FIELD,
+  type ShieldKeypair,
+} from "./keys";
+import { randomField } from "./note";
+import { encryptNote, encPublicKeyFromScalar, type RecipientEncKey } from "./encrypt";
+import { proveTransact, buildTransact, type ProofInputs, type ExtDataInput } from "./tx";
+import type { ProofInput } from "./prover";
+
+const r = BN254_SCALAR_FIELD;
+const mod = (x: bigint) => ((x % r) + r) % r;
+const dec = (x: bigint) => mod(x).toString();
+
+// ── Poseidon arities (mirror circuit hash1/hash3/hash4) ─────────────────────
+const hash1 = (a: bigint) => poseidon1(mod(a));
+const hash3 = (a: bigint, b: bigint, c: bigint) => poseidonN([mod(a), mod(b), mod(c)]);
+const hash4 = (a: bigint, b: bigint, c: bigint, d: bigint) =>
+  poseidonN([mod(a), mod(b), mod(c), mod(d)]);
+
+/** commitment = Poseidon4(amount, pubkey, blinding, pool). */
+function commit(amount: bigint, pubkey: bigint, blinding: bigint, pool: bigint): bigint {
+  return hash4(amount, pubkey, blinding, pool);
+}
+/** signature = Poseidon3(sk, commitment, pathIndex); nullifier = Poseidon3(commitment, pathIndex, signature). */
+function nullifierFor(sk: bigint, commitment: bigint, pathIndex: bigint): bigint {
+  const sig = hash3(sk, commitment, pathIndex);
+  return hash3(commitment, pathIndex, sig);
+}
+
+// ── Note shapes used by the flow ────────────────────────────────────────────
+
+/** An input note being spent — the secrets + its on-chain position. */
+export type FlowInputNote = {
+  /** Note spending key (the spend authority for this note). */
+  privateKey: bigint;
+  amount: bigint;
+  blinding: bigint;
+  /** Leaf index in the Merkle tree (also the nullifier path index). */
+  leafIndex: number;
+  /** The commitment as recorded on-chain (used to fetch the Merkle path). */
+  commitment: bigint;
+};
+
+/** An output note produced by the op — persist this to spend it later. */
+export type FlowOutputNote = {
+  amount: bigint;
+  /** Owner public key field element (recipient or self). */
+  pubkey: bigint;
+  blinding: bigint;
+  commitment: bigint;
+  /** The leaf index, filled in once the indexer observes the commitment. */
+  leafIndex: number | null;
+  /** ECIES blob the recipient trial-decrypts to recover the note. */
+  encrypted: Uint8Array;
+};
+
+/** Shared pool wiring — supplied from SHIELD env (see flow-config.ts callers). */
+export type ShieldFlowConfig = {
+  /** Pinned `talise_privacy` package id. */
+  packageId: string;
+  /** The shared `ShieldedPool<CoinType>` object id. */
+  poolObjectId: string;
+  /** CoinType type tag. Defaults to USDsui. */
+  coinType?: string;
+  /**
+   * Optional compliance registry id. Omit for the deployed decoupled pool
+   * (whose `transact` takes no registry); supply for a compliance-wired pool.
+   */
+  complianceRegistryId?: string;
+  /** Base path for the `/api/shield/*` routes (default ""). */
+  apiBase?: string;
+  /** Auth/credentials forwarding for the fetch calls (default same-origin). */
+  fetchInit?: RequestInit;
+};
+
+type RelayerInfo = { address: string; maxRelayerFee: bigint };
+type PathResult = { leafIndex: number; pathPairs: [string, string][] };
+
+// ── API helpers ─────────────────────────────────────────────────────────────
+
+async function getRelayer(cfg: ShieldFlowConfig): Promise<RelayerInfo> {
+  const res = await fetch(`${cfg.apiBase ?? ""}/api/shield/relayer`, {
+    ...cfg.fetchInit,
+    method: "GET",
+  });
+  if (!res.ok) throw new Error(`relayer lookup failed (${res.status})`);
+  const j = (await res.json()) as { address: string; maxRelayerFee: string };
+  return { address: j.address, maxRelayerFee: BigInt(j.maxRelayerFee) };
+}
+
+async function getPath(
+  cfg: ShieldFlowConfig,
+  body: { commitment?: string; leafIndex?: number; dummy?: boolean }
+): Promise<PathResult> {
+  const res = await fetch(`${cfg.apiBase ?? ""}/api/shield/merkle-path`, {
+    ...cfg.fetchInit,
+    method: "POST",
+    headers: { "content-type": "application/json", ...(cfg.fetchInit?.headers ?? {}) },
+    body: JSON.stringify({ coinType: cfg.coinType ?? USDSUI_TYPE, ...body }),
+  });
+  if (!res.ok) throw new Error(`merkle-path failed (${res.status})`);
+  const j = (await res.json()) as {
+    leafIndex?: number;
+    pathPairs: [string, string][];
+  };
+  return { leafIndex: j.leafIndex ?? 0, pathPairs: j.pathPairs };
+}
+
+async function submitRelay(
+  cfg: ShieldFlowConfig,
+  txBytes: string,
+  exitAddress?: string
+): Promise<{ digest: string }> {
+  const res = await fetch(`${cfg.apiBase ?? ""}/api/shield/relay`, {
+    ...cfg.fetchInit,
+    method: "POST",
+    headers: { "content-type": "application/json", ...(cfg.fetchInit?.headers ?? {}) },
+    body: JSON.stringify({ txBytes, ...(exitAddress ? { exitAddress } : {}) }),
+  });
+  const j = (await res.json()) as { digest?: string; error?: string };
+  if (!res.ok) throw new Error(j.error || `relay failed (${res.status})`);
+  if (!j.digest) throw new Error("relay returned no digest");
+  return { digest: j.digest };
+}
+
+// ── Witness assembly (mirrors circuit/src/prover.rs) ─────────────────────────
+
+type WitnessInput = {
+  privateKey: bigint;
+  amount: bigint;
+  blinding: bigint;
+  pathIndex: bigint;
+  pathPairs: [string, string][];
+  nullifier: bigint;
+};
+type WitnessOutput = {
+  pubkey: bigint;
+  amount: bigint;
+  blinding: bigint;
+  commitment: bigint;
+};
+
+/**
+ * Build a fresh ZERO-amount dummy input. Its nullifier must be globally unique
+ * (the on-chain set rejects a re-spent nullifier — the exact collision that bit
+ * the manual demos), so the dummy key + blinding are RANDOM per call, and its
+ * Merkle path is the all-zero dummy path (amount 0 ⇒ membership check skipped).
+ */
+async function dummyInput(cfg: ShieldFlowConfig, pool: bigint, pathIndex: bigint): Promise<WitnessInput> {
+  const privateKey = randomField();
+  const blinding = randomField();
+  const pubkey = hash1(privateKey);
+  const commitment = commit(0n, pubkey, blinding, pool);
+  const nullifier = nullifierFor(privateKey, commitment, pathIndex);
+  const { pathPairs } = await getPath(cfg, { dummy: true });
+  return { privateKey, amount: 0n, blinding, pathIndex, pathPairs, nullifier };
+}
+
+/** Turn a real {@link FlowInputNote} into a witness input (fetch its live path). */
+async function realInput(cfg: ShieldFlowConfig, pool: bigint, note: FlowInputNote): Promise<WitnessInput> {
+  const pathIndex = BigInt(note.leafIndex);
+  const { pathPairs } = await getPath(cfg, { commitment: dec(note.commitment) });
+  const nullifier = nullifierFor(note.privateKey, note.commitment, pathIndex);
+  return {
+    privateKey: note.privateKey,
+    amount: note.amount,
+    blinding: note.blinding,
+    pathIndex,
+    pathPairs,
+    nullifier,
+  };
+}
+
+/** Build an output note to `pubkey` for `amount` (random blinding). */
+function makeOutput(pool: bigint, pubkey: bigint, amount: bigint): WitnessOutput {
+  const blinding = randomField();
+  return { pubkey, amount, blinding, commitment: commit(amount, pubkey, blinding, pool) };
+}
+
+/**
+ * Assemble the circuit `ProofInput` from two inputs + two outputs. The circuit
+ * enforces null0 != null1 and value conservation `sum_ins + public == sum_outs`.
+ */
+function assembleProofInput(args: {
+  pool: bigint;
+  root: bigint;
+  publicAmount: bigint;
+  ins: [WitnessInput, WitnessInput];
+  outs: [WitnessOutput, WitnessOutput];
+}): ProofInput {
+  const { pool, root, publicAmount, ins, outs } = args;
+  if (ins[0].nullifier === ins[1].nullifier) {
+    throw new Error("input nullifiers collide — regenerate a dummy input");
+  }
+  return {
+    vortex: dec(pool),
+    root: dec(root),
+    publicAmount: dec(publicAmount),
+    inputNullifier0: dec(ins[0].nullifier),
+    inputNullifier1: dec(ins[1].nullifier),
+    outputCommitment0: dec(outs[0].commitment),
+    outputCommitment1: dec(outs[1].commitment),
+    // Unsponsored `transact` path: account secret is zero (the circuit then
+    // skips the secret-equality check; proof.move supplies hashed_secret == 0).
+    hashedAccountSecret: "0",
+    accountSecret: "0",
+    inPrivateKey0: dec(ins[0].privateKey),
+    inPrivateKey1: dec(ins[1].privateKey),
+    inAmount0: dec(ins[0].amount),
+    inAmount1: dec(ins[1].amount),
+    inBlinding0: dec(ins[0].blinding),
+    inBlinding1: dec(ins[1].blinding),
+    inPathIndex0: dec(ins[0].pathIndex),
+    inPathIndex1: dec(ins[1].pathIndex),
+    merklePath0: ins[0].pathPairs,
+    merklePath1: ins[1].pathPairs,
+    outPublicKey0: dec(outs[0].pubkey),
+    outPublicKey1: dec(outs[1].pubkey),
+    outAmount0: dec(outs[0].amount),
+    outAmount1: dec(outs[1].amount),
+    outBlinding0: dec(outs[0].blinding),
+    outBlinding1: dec(outs[1].blinding),
+  };
+}
+
+/** Encrypt both output notes to their recipients, returning the ext blobs + records. */
+async function encryptOutputs(
+  pool: bigint,
+  outs: [WitnessOutput, WitnessOutput],
+  encKeys: [RecipientEncKey, RecipientEncKey]
+): Promise<{ blobs: [Uint8Array, Uint8Array]; notes: [Omit<FlowOutputNote, "leafIndex">, Omit<FlowOutputNote, "leafIndex">] }> {
+  const enc = async (o: WitnessOutput, k: RecipientEncKey) => {
+    const blob = await encryptNote(
+      { amount: o.amount, pubkey: o.pubkey, blinding: o.blinding, pool },
+      k
+    );
+    return { blob, rec: { amount: o.amount, pubkey: o.pubkey, blinding: o.blinding, commitment: o.commitment, encrypted: blob } };
+  };
+  const [a, b] = await Promise.all([enc(outs[0], encKeys[0]), enc(outs[1], encKeys[1])]);
+  return { blobs: [a.blob, b.blob], notes: [a.rec, b.rec] };
+}
+
+/** Pool object id → field element (BigInt(addr) mod r), the circuit's `vortex`. */
+function poolField(poolObjectId: string): bigint {
+  return mod(BigInt(poolObjectId));
+}
+
+/** Self enc key (derive the recipient point from the spending key). */
+async function selfEncKey(kp: ShieldKeypair): Promise<Uint8Array> {
+  const d = await deriveShieldEncScalar(kp.spendingKey);
+  return encPublicKeyFromScalar(d);
+}
+
+// ── Common driver: assemble → prove → encrypt → build → relay ────────────────
+
+async function runOp(args: {
+  cfg: ShieldFlowConfig;
+  root: bigint;
+  publicAmount: bigint;
+  ins: [WitnessInput, WitnessInput];
+  outs: [WitnessOutput, WitnessOutput];
+  encKeys: [RecipientEncKey, RecipientEncKey];
+  ext: { value: bigint; valueSign: boolean };
+  depositCoinId?: string;
+  zeroCoinSourceId?: string;
+  outputRecipient?: string;
+  exitAddress?: string;
+}): Promise<{ digest: string; outputs: FlowOutputNote[] }> {
+  const { cfg, root, publicAmount, ins, outs, encKeys, ext } = args;
+  const pool = poolField(cfg.poolObjectId);
+
+  const relayer = await getRelayer(cfg);
+
+  // 1. Prove (WASM worker, real entropy).
+  const input = assembleProofInput({ pool, root, publicAmount, ins, outs });
+  const proof: ProofInputs = await proveTransact(input);
+
+  // 2. Encrypt the two output notes.
+  const { blobs, notes } = await encryptOutputs(pool, outs, encKeys);
+
+  // 3. ext_data — relayer + (zero) fee + the two ECIES blobs.
+  const extData: ExtDataInput = {
+    value: ext.value,
+    valueSign: ext.valueSign,
+    relayer: relayer.address,
+    relayerFee: 0n,
+    encryptedOutput0: blobs[0],
+    encryptedOutput1: blobs[1],
+  };
+
+  // 4. Build the transact PTB (matches the deployed decoupled pool).
+  const tx = buildTransact({
+    packageId: cfg.packageId,
+    coinType: cfg.coinType ?? USDSUI_TYPE,
+    poolObjectId: cfg.poolObjectId,
+    complianceRegistryId: cfg.complianceRegistryId,
+    poolAddress: cfg.poolObjectId,
+    proof,
+    ext: extData,
+    depositCoinId: args.depositCoinId,
+    zeroCoinSourceId: args.zeroCoinSourceId,
+    outputRecipient: args.outputRecipient,
+  });
+
+  // 5. Relay (the relayer sets sender/gas, so serialize the unbuilt tx).
+  const txBytes = await tx.toJSON();
+  const { digest } = await submitRelay(cfg, txBytes, args.exitAddress);
+
+  return { digest, outputs: notes.map((n) => ({ ...n, leafIndex: null })) };
+}
+
+// ── Public entry points ──────────────────────────────────────────────────────
+
+/**
+ * DEPOSIT: move `amount` of cleartext coin INTO the shielded pool, producing one
+ * shielded note owned by the user (out0) and a zero note (out1). Two random
+ * zero-amount dummy inputs satisfy the 2-in shape. public_amount == +amount.
+ *
+ * @param depositCoinId a `Coin<CoinType>` object of exactly `amount`.
+ */
+export async function shieldDeposit(args: {
+  cfg: ShieldFlowConfig;
+  keypair: ShieldKeypair;
+  amount: bigint;
+  depositCoinId: string;
+  /** Current pool root (decimal). Fetch from the pool object before calling. */
+  root: bigint;
+}): Promise<{ digest: string; outputs: FlowOutputNote[] }> {
+  const { cfg, keypair, amount, root } = args;
+  const pool = poolField(cfg.poolObjectId);
+  const ins: [WitnessInput, WitnessInput] = [
+    await dummyInput(cfg, pool, 0n),
+    await dummyInput(cfg, pool, 1n),
+  ];
+  const outs: [WitnessOutput, WitnessOutput] = [
+    makeOutput(pool, keypair.publicKey, amount),
+    makeOutput(pool, keypair.publicKey, 0n),
+  ];
+  const selfKey = await selfEncKey(keypair);
+  return runOp({
+    cfg,
+    root,
+    publicAmount: mod(amount),
+    ins,
+    outs,
+    encKeys: [selfKey, selfKey],
+    ext: { value: amount, valueSign: true },
+    depositCoinId: args.depositCoinId,
+  });
+}
+
+/**
+ * WITHDRAW: spend `inputNotes` (1 or 2) and send `amount` OUT of the pool to
+ * `exitAddress`; any remainder returns as a shielded change note to the user.
+ * public_amount == (r − amount) (field-negated). The relayer transfers the
+ * `transact` return coin (the unshielded funds) to `outputRecipient`.
+ */
+export async function shieldWithdraw(args: {
+  cfg: ShieldFlowConfig;
+  keypair: ShieldKeypair;
+  inputNotes: [FlowInputNote] | [FlowInputNote, FlowInputNote];
+  amount: bigint;
+  exitAddress: string;
+  /** A relayer-owned coin to split a zero deposit-coin from. */
+  zeroCoinSourceId: string;
+  root: bigint;
+}): Promise<{ digest: string; outputs: FlowOutputNote[] }> {
+  const { cfg, keypair, inputNotes, amount, exitAddress, root } = args;
+  const pool = poolField(cfg.poolObjectId);
+
+  const ins: [WitnessInput, WitnessInput] = [
+    await realInput(cfg, pool, inputNotes[0]),
+    inputNotes[1]
+      ? await realInput(cfg, pool, inputNotes[1])
+      : await dummyInput(cfg, pool, 1n),
+  ];
+  const totalIn = ins[0].amount + ins[1].amount;
+  const change = totalIn - amount;
+  if (change < 0n) throw new Error("withdraw exceeds spent notes");
+  const outs: [WitnessOutput, WitnessOutput] = [
+    makeOutput(pool, keypair.publicKey, change),
+    makeOutput(pool, keypair.publicKey, 0n),
+  ];
+  const selfKey = await selfEncKey(keypair);
+  return runOp({
+    cfg,
+    root,
+    publicAmount: mod(0n - amount),
+    ins,
+    outs,
+    encKeys: [selfKey, selfKey],
+    ext: { value: amount, valueSign: false },
+    zeroCoinSourceId: args.zeroCoinSourceId,
+    outputRecipient: exitAddress,
+    exitAddress,
+  });
+}
+
+/**
+ * INTERNAL TRANSFER: spend `inputNotes` and re-split into a note for the
+ * recipient (`recipientPubkey` + `recipientEncKey`) and a change note for the
+ * user — with ZERO coin movement on-chain. public_amount == 0.
+ */
+export async function shieldTransfer(args: {
+  cfg: ShieldFlowConfig;
+  keypair: ShieldKeypair;
+  inputNotes: [FlowInputNote] | [FlowInputNote, FlowInputNote];
+  amount: bigint;
+  recipientPubkey: bigint;
+  recipientEncKey: RecipientEncKey;
+  /** A relayer-owned coin to split a zero deposit-coin from. */
+  zeroCoinSourceId: string;
+  root: bigint;
+}): Promise<{ digest: string; outputs: FlowOutputNote[] }> {
+  const { cfg, keypair, inputNotes, amount, recipientPubkey, recipientEncKey, root } = args;
+  const pool = poolField(cfg.poolObjectId);
+
+  const ins: [WitnessInput, WitnessInput] = [
+    await realInput(cfg, pool, inputNotes[0]),
+    inputNotes[1]
+      ? await realInput(cfg, pool, inputNotes[1])
+      : await dummyInput(cfg, pool, 1n),
+  ];
+  const totalIn = ins[0].amount + ins[1].amount;
+  const change = totalIn - amount;
+  if (change < 0n) throw new Error("transfer exceeds spent notes");
+  // out0 → recipient, out1 → change back to self.
+  const outs: [WitnessOutput, WitnessOutput] = [
+    makeOutput(pool, recipientPubkey, amount),
+    makeOutput(pool, keypair.publicKey, change),
+  ];
+  const selfKey = await selfEncKey(keypair);
+  return runOp({
+    cfg,
+    root,
+    publicAmount: 0n,
+    ins,
+    outs,
+    encKeys: [recipientEncKey, selfKey],
+    ext: { value: 0n, valueSign: true },
+    zeroCoinSourceId: args.zeroCoinSourceId,
+  });
+}

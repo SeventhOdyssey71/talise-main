@@ -55,3 +55,14 @@ export {
   PUBLIC_INPUT_ORDER,
 } from "./prover";
 export type { ProofOutput, ProofInput } from "./prover";
+
+export {
+  shieldDeposit,
+  shieldWithdraw,
+  shieldTransfer,
+} from "./flow";
+export type {
+  ShieldFlowConfig,
+  FlowInputNote,
+  FlowOutputNote,
+} from "./flow";
