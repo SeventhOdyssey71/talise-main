@@ -1,0 +1,128 @@
+name: iOS → TestFlight
+
+# Builds the Talise iOS app with Xcode 26 on a macOS 26 (Tahoe) cloud runner
+# and uploads it to TestFlight. This exists because Apple now mandates the
+# iOS 26 SDK for every App Store upload, and that SDK only ships in Xcode 26 —
+# which won't run on the maintainer's local macOS. The build therefore happens
+# entirely in GitHub's cloud; no local toolchain change required.
+#
+# Trigger it manually: Actions tab → "iOS → TestFlight" → Run workflow.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   ASC_KEY_ID         App Store Connect API key id        (e.g. 5K9TX5CGV4)
+#   ASC_ISSUER_ID      App Store Connect API issuer id     (UUID)
+#   ASC_KEY_P8_BASE64  base64 of the AuthKey_<id>.p8 file  (the private key)
+#
+# Signing is automatic: -allowProvisioningUpdates + the ASC API key let the
+# cloud Mac mint/reuse the distribution cert and provisioning profiles for
+# team 5N8DU2A9WH on the fly — same flow as a local Archive → Distribute.
+
+on:
+  workflow_dispatch:
+    inputs:
+      submit_note:
+        description: "Optional note (shown in the run only)"
+        required: false
+        default: "TestFlight build"
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  build-and-upload:
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    env:
+      SCHEME: Talise
+      PROJECT: ios/Talise.xcodeproj
+      ARCHIVE: build/Talise.xcarchive
+      EXPORT_DIR: build/export
+      EXPORT_PLIST: ios/ExportOptions-AppStore.plist
+      DEV_TEAM: "5N8DU2A9WH"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain (must be Xcode 26 / iOS 26 SDK)
+        run: |
+          xcodebuild -version
+          echo "--- iOS SDKs ---"
+          xcodebuild -showsdks | grep -i iphoneos || true
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Install App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          echo "ASC_KEY_PATH=$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
+            -resolvePackageDependencies
+
+      - name: Archive (Release, automatic signing via ASC key)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcodebuild archive \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            DEVELOPMENT_TEAM="$DEV_TEAM" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+
+      - name: Export .ipa (app-store-connect)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE" \
+            -exportPath "$EXPORT_DIR" \
+            -exportOptionsPlist "$EXPORT_PLIST" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          echo "--- exported ---"
+          ls -la "$EXPORT_DIR"
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          IPA=$(ls "$EXPORT_DIR"/*.ipa | head -1)
+          echo "Uploading $IPA"
+          xcrun altool --upload-app -f "$IPA" -t ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Save .ipa as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Talise-ipa
+          path: build/export/*.ipa
+          if-no-files-found: ignore
