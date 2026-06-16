@@ -27,7 +27,8 @@ use ark_bn254::{Bn254, Fr};
 use ark_crypto_primitives::snark::SNARK;
 use ark_ff::{BigInteger, PrimeField};
 use ark_groth16::{Groth16, Proof, ProvingKey, VerifyingKey};
-use ark_serialize::CanonicalSerialize;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use num_bigint::BigUint;
 use rand::rngs::OsRng;
 
 /// Result of building + proving a deposit transaction.
@@ -36,6 +37,52 @@ pub struct DepositArtifacts {
     pub vk: VerifyingKey<Bn254>,
     pub proof: Proof<Bn254>,
     pub public_inputs: Vec<Fr>,
+}
+
+/// The secret material backing the two fresh output notes of a deposit. The
+/// caller needs these (off-chain) to later build a WITHDRAW that spends these
+/// notes: a note's commitment == hash4(amount, hash1(privkey), blinding, vortex)
+/// and the vortex domain separator here is the pool field element.
+pub struct OutputNote {
+    pub amount: Fr,
+    pub private_key: Fr,
+    pub public_key: Fr,
+    pub blinding: Fr,
+    pub commitment: Fr,
+}
+
+/// Decode a Sui 0x-prefixed (or bare) hex address into the BN254 field element
+/// that `proof.move`'s `make_public_inputs` produces for public input [0]:
+///
+///   self.pool.to_u256().to_field()
+///
+/// where `address::to_u256` reads the 32-byte address as a BIG-ENDIAN integer
+/// and `to_field` = `bcs::to_bytes(&(value % bn254_field_modulus))` (i.e. reduce
+/// mod the BN254 scalar-field r, then little-endian 32 bytes). `Fr::from` does
+/// the mod-r reduction; the LE serialization is handled at hex-output time by
+/// `public_inputs_hex`. So the field element == address_as_u256 mod r.
+pub fn pool_address_to_field(addr: &str) -> anyhow::Result<Fr> {
+    let s = addr.trim();
+    let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    if s.is_empty() {
+        anyhow::bail!("empty pool address");
+    }
+    // A Sui address is up to 32 bytes; `to_u256` treats it as a big-endian
+    // integer. Parsing the hex string as a big integer is exactly that.
+    let big = BigUint::parse_bytes(s.as_bytes(), 16)
+        .ok_or_else(|| anyhow::anyhow!("pool address is not valid hex: {addr}"))?;
+    // Fr::from(BigUint) reduces mod the BN254 scalar field r.
+    Ok(Fr::from(big))
+}
+
+/// Decode a u256 given as a DECIMAL string into a field element, matching
+/// `proof.move`'s `root.to_field()` (reduce mod r). For `root` this is the
+/// Merkle root the proof targets; for a deposit with zero-value inputs the
+/// Merkle membership check is skipped, so any root (commonly 0) is accepted.
+pub fn u256_decimal_to_field(dec: &str) -> anyhow::Result<Fr> {
+    let big = BigUint::parse_bytes(dec.trim().as_bytes(), 10)
+        .ok_or_else(|| anyhow::anyhow!("root is not a valid u256 decimal: {dec}"))?;
+    Ok(Fr::from(big))
 }
 
 /// Generate DEV/TEST Groth16 keys with real OS entropy.
@@ -63,9 +110,29 @@ pub fn build_deposit_circuit(
     out0_amount: u64,
     out1_amount: u64,
 ) -> anyhow::Result<TransactionCircuit> {
-    // Pool / "vortex" domain separator — an arbitrary fixed field element.
-    let vortex = Fr::from(1u64);
+    // Pool / "vortex" domain separator — an arbitrary fixed field element for
+    // the self-contained test path.
+    let (circuit, _notes) =
+        build_deposit_circuit_for_pool(Fr::from(1u64), Fr::from(0u64), amount, out0_amount, out1_amount)?;
+    Ok(circuit)
+}
 
+/// Pool-aware deposit witness. Public input [0] (`vortex`) is bound to the pool
+/// field element so it equals what `proof.move::make_public_inputs` supplies as
+/// `self.pool.to_u256().to_field()`. Public input [1] (`root`) is bound to the
+/// given root field element (`self.root.to_field()`). The `vortex` value is also
+/// the domain separator hashed into every commitment/nullifier, so output notes
+/// are bound to THIS pool — exactly what the on-chain verifier requires.
+///
+/// Returns the circuit plus the two output-note secrets (needed to later build a
+/// withdraw spending these notes).
+pub fn build_deposit_circuit_for_pool(
+    vortex: Fr,
+    root: Fr,
+    amount: u64,
+    out0_amount: u64,
+    out1_amount: u64,
+) -> anyhow::Result<(TransactionCircuit, [OutputNote; N_OUTS])> {
     // ---- Dummy input notes (zero amount => Merkle membership check skipped) ----
     let in_private_keys = [Fr::from(12_345u64), Fr::from(67_890u64)];
     let in_amounts = [Fr::from(0u64), Fr::from(0u64)];
@@ -97,12 +164,29 @@ pub fn build_deposit_circuit(
         );
     }
 
-    // ---- Account secret (exercise the real hash1(secret) path) ----
-    let account_secret = Fr::from(42u64);
-    let hashed_account_secret = hash1(&account_secret);
+    let notes = [
+        OutputNote {
+            amount: out_amounts[0],
+            private_key: out_private_keys[0],
+            public_key: out_public_keys[0],
+            blinding: out_blindings[0],
+            commitment: output_commitments[0],
+        },
+        OutputNote {
+            amount: out_amounts[1],
+            private_key: out_private_keys[1],
+            public_key: out_public_keys[1],
+            blinding: out_blindings[1],
+            commitment: output_commitments[1],
+        },
+    ];
 
-    // Zero inputs => Merkle check skipped, so root can be 0.
-    let root = Fr::from(0u64);
+    // ---- Account secret: ZERO for the unsponsored `transact` path, so the
+    // public input [7] hashed_secret == 0 (matching proof.move::public_inputs,
+    // which passes bcs::to_bytes(&0u256)). With hashed_account_secret == 0 the
+    // circuit skips the secret-equality check.
+    let account_secret = Fr::from(0u64);
+    let hashed_account_secret = Fr::from(0u64);
 
     // DEPOSIT: value flows INTO the pool, so public_amount == +amount and
     // sum_ins(0) + public_amount == sum_outs(amount).
@@ -110,7 +194,7 @@ pub fn build_deposit_circuit(
 
     let merkle_paths: [Path<MERKLE_TREE_LEVEL>; N_INS] = [Path::empty(), Path::empty()];
 
-    TransactionCircuit::new(
+    let circuit = TransactionCircuit::new(
         vortex,
         root,
         public_amount,
@@ -128,7 +212,47 @@ pub fn build_deposit_circuit(
         out_public_keys,
         out_amounts,
         out_blindings,
-    )
+    )?;
+    Ok((circuit, notes))
+}
+
+/// Persist the proving key (arkworks compressed) to `proving_key.bin` and the
+/// verifying key (arkworks compressed — the exact bytes Sui's
+/// `groth16::prepare_verifying_key` consumes) to both `verifying_key.bin` and
+/// `vk_sui.hex`.
+pub fn save_keys(
+    dir: &std::path::Path,
+    pk: &ProvingKey<Bn254>,
+    vk: &VerifyingKey<Bn254>,
+) -> anyhow::Result<String> {
+    std::fs::create_dir_all(dir)?;
+
+    let mut pk_bytes = Vec::new();
+    pk.serialize_compressed(&mut pk_bytes)?;
+    std::fs::write(dir.join("proving_key.bin"), &pk_bytes)?;
+
+    let mut vk_bytes = Vec::new();
+    vk.serialize_compressed(&mut vk_bytes)?;
+    std::fs::write(dir.join("verifying_key.bin"), &vk_bytes)?;
+    let vk_h = hex::encode(&vk_bytes);
+    std::fs::write(dir.join("vk_sui.hex"), &vk_h)?;
+    Ok(vk_h)
+}
+
+/// Load the persisted proving + verifying keys from `dir` (reads
+/// `proving_key.bin` and `verifying_key.bin`, both arkworks compressed).
+pub fn load_keys(
+    dir: &std::path::Path,
+) -> anyhow::Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>)> {
+    let pk_bytes = std::fs::read(dir.join("proving_key.bin")).map_err(|e| {
+        anyhow::anyhow!(
+            "cannot read {} ({e}). Run `cargo run --bin keygen` first.",
+            dir.join("proving_key.bin").display()
+        )
+    })?;
+    let pk = ProvingKey::<Bn254>::deserialize_compressed(&pk_bytes[..])?;
+    let vk = pk.vk.clone();
+    Ok((pk, vk))
 }
 
 /// Prove a deposit with the given (already-set-up) proving key.

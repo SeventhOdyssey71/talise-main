@@ -13,7 +13,6 @@ module talise_privacy::shielded_pool_tests;
 
 use std::unit_test::assert_eq;
 use sui::{coin, sui::SUI, test_scenario as ts};
-use talise::compliance::{Self, ComplianceRegistry};
 use talise_privacy::{
     shielded_pool::{Self, Registry, ShieldedPool, PoolAdminCap},
     proof,
@@ -34,7 +33,6 @@ fun dummy_points(): vector<u8> {
 fun setup(s: &mut ts::Scenario) {
     ts::next_tx(s, ADMIN);
     shielded_pool::test_init(ts::ctx(s));
-    compliance::test_init(ts::ctx(s));
 }
 
 /// Create + share a SUI pool; the cap goes to ADMIN. Returns the pool address.
@@ -80,14 +78,13 @@ fun transact_wrong_pool_aborts() {
     create_pool(&mut s);
     ts::next_tx(&mut s, USER);
     let mut pool = ts::take_shared<ShieldedPool<SUI>>(&s);
-    let reg = ts::take_shared<ComplianceRegistry>(&s);
     // proof bound to a DIFFERENT pool address → step 1 aborts.
     let p = proof::new<SUI>(@0xBAD, dummy_points(), 0, 1, 1, 2, 3, 4);
     let e = ext_data::new(1, true, @0x0, 0, vector[], vector[]);
     let c = coin::mint_for_testing<SUI>(1, ts::ctx(&mut s));
-    let out = shielded_pool::transact(&mut pool, &reg, c, p, e, ts::ctx(&mut s));
+    let out = shielded_pool::transact(&mut pool, c, p, e, ts::ctx(&mut s));
     coin::burn_for_testing(out);
-    ts::return_shared(pool); ts::return_shared(reg);
+    ts::return_shared(pool);
     ts::end(s);
 }
 
@@ -98,14 +95,13 @@ fun transact_unknown_root_aborts() {
     let addr = create_pool(&mut s);
     ts::next_tx(&mut s, USER);
     let mut pool = ts::take_shared<ShieldedPool<SUI>>(&s);
-    let reg = ts::take_shared<ComplianceRegistry>(&s);
     // correct pool, but a root the tree never held → step 2 aborts.
     let p = proof::new<SUI>(addr, dummy_points(), 999999, 1, 1, 2, 3, 4);
     let e = ext_data::new(1, true, @0x0, 0, vector[], vector[]);
     let c = coin::mint_for_testing<SUI>(1, ts::ctx(&mut s));
-    let out = shielded_pool::transact(&mut pool, &reg, c, p, e, ts::ctx(&mut s));
+    let out = shielded_pool::transact(&mut pool, c, p, e, ts::ctx(&mut s));
     coin::burn_for_testing(out);
-    ts::return_shared(pool); ts::return_shared(reg);
+    ts::return_shared(pool);
     ts::end(s);
 }
 
@@ -116,16 +112,15 @@ fun transact_wrong_relayer_aborts() {
     let addr = create_pool(&mut s);
     ts::next_tx(&mut s, USER);
     let mut pool = ts::take_shared<ShieldedPool<SUI>>(&s);
-    let reg = ts::take_shared<ComplianceRegistry>(&s);
     let root = shielded_pool::root(&pool); // genesis root → passes step 2
     assert_eq!(pool.is_known_root(root), true);
     // ext names a relayer that isn't the sender → step 3 aborts.
     let p = proof::new<SUI>(addr, dummy_points(), root, 1, 1, 2, 3, 4);
     let e = ext_data::new(1, true, @0xCAFE, 0, vector[], vector[]);
     let c = coin::mint_for_testing<SUI>(1, ts::ctx(&mut s));
-    let out = shielded_pool::transact(&mut pool, &reg, c, p, e, ts::ctx(&mut s));
+    let out = shielded_pool::transact(&mut pool, c, p, e, ts::ctx(&mut s));
     coin::burn_for_testing(out);
-    ts::return_shared(pool); ts::return_shared(reg);
+    ts::return_shared(pool);
     ts::end(s);
 }
 
@@ -136,15 +131,14 @@ fun transact_public_value_mismatch_aborts() {
     let addr = create_pool(&mut s);
     ts::next_tx(&mut s, USER);
     let mut pool = ts::take_shared<ShieldedPool<SUI>>(&s);
-    let reg = ts::take_shared<ComplianceRegistry>(&s);
     let root = shielded_pool::root(&pool);
     // proof.public_value (7) != ext.public_value (deposit value 1, fee 0 ⇒ 1) → step 4 aborts.
     let p = proof::new<SUI>(addr, dummy_points(), root, 7, 1, 2, 3, 4);
     let e = ext_data::new(1, true, @0x0, 0, vector[], vector[]);
     let c = coin::mint_for_testing<SUI>(1, ts::ctx(&mut s));
-    let out = shielded_pool::transact(&mut pool, &reg, c, p, e, ts::ctx(&mut s));
+    let out = shielded_pool::transact(&mut pool, c, p, e, ts::ctx(&mut s));
     coin::burn_for_testing(out);
-    ts::return_shared(pool); ts::return_shared(reg);
+    ts::return_shared(pool);
     ts::end(s);
 }
 
@@ -155,15 +149,14 @@ fun transact_garbage_proof_fails_verify() {
     let addr = create_pool(&mut s);
     ts::next_tx(&mut s, USER);
     let mut pool = ts::take_shared<ShieldedPool<SUI>>(&s);
-    let reg = ts::take_shared<ComplianceRegistry>(&s);
     let root = shielded_pool::root(&pool);
     // all pre-verify guards pass (pool ok, genesis root, no relayer,
     // public_value matches) → reaches step 6; the garbage proof is REJECTED.
     let p = proof::new<SUI>(addr, dummy_points(), root, 1, 1, 2, 3, 4);
     let e = ext_data::new(1, true, @0x0, 0, vector[], vector[]);
     let c = coin::mint_for_testing<SUI>(1, ts::ctx(&mut s));
-    let out = shielded_pool::transact(&mut pool, &reg, c, p, e, ts::ctx(&mut s));
+    let out = shielded_pool::transact(&mut pool, c, p, e, ts::ctx(&mut s));
     coin::burn_for_testing(out);
-    ts::return_shared(pool); ts::return_shared(reg);
+    ts::return_shared(pool);
     ts::end(s);
 }

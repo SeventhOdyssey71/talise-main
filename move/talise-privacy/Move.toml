@@ -10,7 +10,6 @@ version = "0.1.0"
 # "multiple 0x2" conflict that an explicit framework dep would introduce when
 # the resolver already injects the system framework.
 [dependencies]
-talise = { local = "../talise" }
 
 [addresses]
 talise_privacy = "0x0"

@@ -10,7 +10,8 @@ module talise_privacy::constants;
 
 // === Package View Functions ===
 
-/// DEV PLACEHOLDER — NOT FOR MAINNET — replaced by ceremony output.
+/// DEV keys (persisted circuit/keys/, OsRng) — testnet only, NOT FOR MAINNET;
+/// the MPC ceremony replaces this. Matches prove_deposit's persisted VK.
 ///
 /// These bytes are carried verbatim from Interest Protocol's Vortex reference
 /// (a zero-seed keygen, hence FORGEABLE). They exist only so `groth16::
@@ -18,8 +19,9 @@ module talise_privacy::constants;
 /// end against the native verifier shape. The real VK is the multi-contributor
 /// Powers-of-Tau / phase-2 output and replaces this constant wholesale.
 public(package) macro fun verifying_key(): vector<u8> {
-    // DEV PLACEHOLDER — NOT FOR MAINNET — replaced by ceremony output.
-    x"8abc1628853c25306d08b697c715ffab55a9ee43e8fb72cc4a3b6bb74407830c63dc8914a6aa2ef6be195b0b1589ac1ad05ad5ac0ce6e34829f7cb9610340519cbab341c90c5acd97085ba44f27ffa35cf527faa2da9da29019090555ad895895445aab414e17fab2cae2ccb341b42181b3aca24f715ff4501f517d97d14f70161dfe981a5101f528c5b1abd54dd0c7eee2a99bac158aebf21742fa868c8b087c11fa867ffc856e7e60bd4b91dd3a4180ad2d4b74f2a5de084e778542392081811d75339fd7440a23509d461b63a90e6bb7f2e593e847370e963c196d242e7250900000000000000009549c6cec50a49183c5987351ad31d96bf03cad83514a03770694bb57c6309378fbb9b137f63c1f2d589b8fc03caaa9cab9662784e99a1e49619b3a54208225b8053bd37034a99dd9de86512d6738e2e9ae7e7a7bb327e6974b015a03bd78da34ba1bc25615583b970e7a8aec2081dda1c6b1462f485d3cf4f30f5e2c8510cbe5b31f4fb7a9559db596b538c964e2d403e10e9216747eaacc3d45914bee882894fab2123c1bc96445e3335fb6c034bfb83bdafca95db756b3f882653572796dc9496c12c550a41a5b8542ee195c8589a3ea38ef59dc1811d26e262f1dc661a11d2d15896dde023c9f34c1b3209888b8e7d409872269ee7ebd0c63d2a75c91555d05b93c34b295ef7fa9888d1f946a731e5281f995ed19823b4f295b1983baf"
+    // DEV keys (persisted circuit/keys/, OsRng) — testnet only. NOT FOR
+    // MAINNET; the MPC ceremony replaces this. Matches prove_deposit's VK.
+    x"0400f07bc59c5d8eea2d649783a55fcbc64dd793fa1d102e87bb7872bf7fc6853adb445f837298fe2cdc8f935f1658612acec5d538831b9a6542412bbf36321ff5acd09efdf65b13e029ed3b8b3f5a6ebe1b68c12c0c847918db75267527e5a87a0201288a0d169552021541b9ffd92e959ad3dac3e8a21608369684683ae512a1868d2f05c002d9fc6dd1d61d6741a4c262970b896abbda2ee5c8c8b28085ac7226a2ac22840639b823f79dc682d2ffbabf053562c44c018e5c3326e1ca3e04703e766fdc2aeaade5b3d890979bb2b27e9fed88542f9e0e12597e697624309d09000000000000008ff673d2e70b20cf402f0eb3ac0c2c5b29acacacde983fdf16ae05d0e390b512de33cdb8f0886968fd89b590b0674679306803af6e8ee1a6ea595da51918122c81b949bd05f397ccec60a1a10c3fb7c7e9fb26c654654b7595b157249bd4439729479f9487d16c5590dbd6c9d5e6f25ec46ceabc3ae9af3b4101b7f132c40f233dd7031fdb1257e7a66b7bd72d7982913efc556c0782faf2a026b9855591f383e223ccce2f9cc47c2e85ba4c0223d3442cfea04104d3b48014da37aa19b57306cd18602b8c1955902007e772e70eac9fd19b9e520b3e54bb37015f8309d0e922883762fc1fc4aa8956e1c5f7b352db26b5f46996df5baf69100adaad7e9d7118cb4ae1fbbed3ea13f96779f1be6fb248ba5622afb4ebc92bcdf93f62c72a4b14"
 }
 
 /// BN254 scalar field modulus. Native `poseidon_bn254` and `groth16::bn254()`
