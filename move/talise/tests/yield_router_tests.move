@@ -22,10 +22,13 @@ const WORKER: address = @0xE;
 const SUILEND: u8 = 1;
 const NAVI: u8 = 2;
 
-public struct Mock has key, store { id: UID }
+/// Stands in for a venue receipt — carries a notional like a real cToken /
+/// sUSDC balance would, so it isn't a bare-UID struct the linter mistakes
+/// for a capability.
+public struct Mock has key, store { id: UID, notional: u64 }
 
 fun mint_mock(scenario: &mut ts::Scenario): Mock {
-    Mock { id: object::new(ts::ctx(scenario)) }
+    Mock { id: object::new(ts::ctx(scenario)), notional: 0 }
 }
 
 fun a_clock(scenario: &mut ts::Scenario): clock::Clock {
