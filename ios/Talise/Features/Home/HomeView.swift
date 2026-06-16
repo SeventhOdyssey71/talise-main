@@ -273,6 +273,12 @@ struct HomeView: View {
                 balanceHero
                     .font(TaliseFont.display(40, weight: .semibold))
                     .kerning(-1.6)
+                    // Keep the whole figure on ONE line — symbol + digits +
+                    // cents live in a single composed Text, so a width-driven
+                    // scale-down shrinks them in lockstep (no "…679.8 / 0"
+                    // wrap, and the currency glyph always tracks the number).
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
                     .contentTransition(.numericText())
                     .redacted(reason: loadingBalance ? .placeholder : [])
 

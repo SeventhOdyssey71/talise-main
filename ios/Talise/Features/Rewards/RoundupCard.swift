@@ -33,24 +33,14 @@ struct RoundupCard: View {
     @State private var pendingPercentage: Int? = nil
     @State private var saving = false
     @State private var error: String? = nil
-    /// Monotonic id stamped on every successful save. The pending-clear
-    /// task checks the id before nilling `pendingToggle` /
-    /// `pendingPercentage` — if a newer save has come in we drop the
-    /// stale clear so the optimistic value keeps showing until the
-    /// freshest server snapshot lands.
-    @State private var saveTick: Int = 0
-    /// Debounce token for slider drags. Each `set` bumps it; only the
-    /// task that matches the latest tick when its delay elapses fires
-    /// the POST. Keeps us from spamming the API on every drag frame
-    /// even though `onEditingChanged` already gates the submit — we
-    /// also debounce in case a future caller drives the slider value
-    /// programmatically.
-    @State private var sliderDebounceTick: Int = 0
 
-    /// What the UI currently shows — `pendingX` overrides during the
-    /// optimistic flip so the toggle / slider feel instant; falls back
-    /// to the server-truth value once the response lands and onChange
-    /// triggers a parent refetch.
+    /// What the UI currently shows — `pendingX` overrides while the
+    /// optimistic flip is in flight so the toggle / slider feel instant.
+    /// The shadow is held (NOT cleared on the POST response) until the
+    /// parent's refetched `summary` actually carries the new value — then
+    /// the `onChange` reconciler below drops it seamlessly. Clearing it on
+    /// the response (as before) exposed the stale pre-refetch `summary`
+    /// for a frame, snapping the toggle back and forth — the reported glitch.
     private var enabled: Bool {
         pendingToggle ?? summary?.roundup?.enabled ?? false
     }
@@ -83,6 +73,16 @@ struct RoundupCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .opacity(enabled ? 1.0 : 0.92)
         .animation(.easeInOut(duration: 0.18), value: enabled)
+        // Drop each optimistic shadow ONLY once the parent's refetched
+        // summary has caught up to it. Because the incoming value equals
+        // the value we're already showing, the clear is invisible — no
+        // snap-back to stale server state.
+        .onChange(of: summary?.roundup?.enabled) { _, server in
+            if let p = pendingToggle, server == p { pendingToggle = nil }
+        }
+        .onChange(of: summary?.roundup?.percentage) { _, server in
+            if let p = pendingPercentage, server == p { pendingPercentage = nil }
+        }
     }
 
     // MARK: - Header (eyebrow + subtitle + toggle)
@@ -238,14 +238,16 @@ struct RoundupCard: View {
         struct Resp: Decodable { let enabled: Bool; let percentage: Int; let savedUsd: Double }
 
         do {
-            let _: Resp = try await APIClient.shared.post(
+            let resp: Resp = try await APIClient.shared.post(
                 "/api/rewards/roundup",
                 body: Body(enabled: enabled, percentage: percentage)
             )
-            // Drop the optimistic shadow — parent refetch will populate
-            // `summary.roundup` from server truth.
-            pendingToggle = nil
-            pendingPercentage = nil
+            // Pin the shadow to the SERVER-CONFIRMED values and keep showing
+            // it. The `onChange` reconciler clears it once the parent's
+            // refetched summary carries the same value — so the toggle never
+            // flickers back to the stale pre-refetch snapshot.
+            pendingToggle = resp.enabled
+            pendingPercentage = resp.percentage
             onChange()
         } catch {
             // Revert the optimistic flip so the toggle doesn't lie

@@ -54,8 +54,8 @@ struct GoalsSection: View {
         .sheet(item: $selected, onDismiss: { Task { await load() } }) { g in
             GoalActionSheet(goal: g) { Task { await load() } }
         }
-        .sheet(isPresented: $showingNewGoal, onDismiss: { Task { await load() } }) {
-            NewGoalSheet()
+        .fullScreenCover(isPresented: $showingNewGoal, onDismiss: { Task { await load() } }) {
+            NewGoalScreen()
         }
     }
 
@@ -434,69 +434,138 @@ private struct GoalActionSheet: View {
     }
 }
 
-// MARK: - New goal sheet
+// MARK: - New goal screen (full page)
 
-private struct NewGoalSheet: View {
+/// Full-screen "New savings goal" page — presented via `.fullScreenCover`
+/// so it owns the whole screen (not a half-height sheet). Custom header +
+/// a centered hero, the two fields, and a pinned primary action so the
+/// page reads as deliberate top-to-bottom instead of a sparse card.
+private struct NewGoalScreen: View {
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var focus: Field?
     @State private var name = ""
     @State private var targetText = ""
     @State private var busy = false
     @State private var error: String?
 
-    var body: some View {
-        NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    SectionHeader("New savings goal")
-                    VStack(alignment: .leading, spacing: 14) {
-                        TextField("Goal name (e.g. Laptop fund)", text: $name)
-                            .font(TaliseFont.body(14, weight: .light))
-                            .kerning(-0.48)
-                            .tint(TaliseColor.accent)
-                            .foregroundStyle(TaliseColor.fg)
-                            .padding(14)
-                            .earnFieldGlass()
-                        TextField("Target amount (USD)", text: $targetText)
-                            .keyboardType(.decimalPad)
-                            .font(TaliseFont.body(14, weight: .light))
-                            .kerning(-0.48)
-                            .tint(TaliseColor.accent)
-                            .foregroundStyle(TaliseColor.fg)
-                            .padding(14)
-                            .earnFieldGlass()
-                        LiquidGlassButton(
-                            title: busy ? "Creating…" : "Create goal",
-                            tint: TaliseColor.accent,
-                            size: .lg,
-                            loading: busy
-                        ) {
-                            Task { await create() }
-                        }
-                        .disabled(busy || !canCreate)
+    private enum Field { case name, target }
 
-                        if let error {
-                            Text(error)
-                                .font(TaliseFont.body(12, weight: .light))
-                                .foregroundStyle(TaliseColor.danger)
-                        }
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 28) {
+                    hero
+                    fields
+                    Text("Tracking only — your money stays in your earning balance and keeps earning yield + points toward the target.")
+                        .font(TaliseFont.body(12, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 8)
+                    if let error {
+                        Text(error)
+                            .font(TaliseFont.body(12, weight: .light))
+                            .foregroundStyle(TaliseColor.danger)
+                            .multilineTextAlignment(.center)
                     }
-                    .padding(20)
-                    .earnHeroGlass(cornerRadius: 20)
                 }
                 .padding(.horizontal, 22)
-                .padding(.top, 24)
-                .padding(.bottom, 40)
+                .padding(.top, 28)
             }
-            .taliseScreenBackground()
-            .navigationTitle("New goal")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(TaliseColor.fgDim)
-                }
+
+            Spacer(minLength: 0)
+
+            LiquidGlassButton(
+                title: busy ? "Creating…" : "Create goal",
+                tint: TaliseColor.accent,
+                size: .lg,
+                loading: busy
+            ) {
+                Task { await create() }
             }
+            .disabled(busy || !canCreate)
+            .padding(.horizontal, 22)
+            .padding(.bottom, 18)
         }
+        .taliseScreenBackground()
+        .toolbar(.hidden, for: .navigationBar)
+        .onAppear { focus = .name }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack {
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .frame(width: 38, height: 38)
+                    .glassCircle()
+            }
+            Spacer()
+            MicroLabel(text: "New goal", color: TaliseColor.fgMuted).kerning(2.0)
+            Spacer()
+            Color.clear.frame(width: 38, height: 38)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+    }
+
+    // MARK: - Hero
+
+    private var hero: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(TaliseColor.accent.opacity(0.14))
+                    .frame(width: 68, height: 68)
+                Image(systemName: "flag.fill")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(TaliseColor.accent)
+            }
+            VStack(spacing: 6) {
+                Text("Name a savings bucket")
+                    .font(TaliseFont.heading(22, weight: .medium))
+                    .kerning(-0.6)
+                    .foregroundStyle(TaliseColor.fg)
+                Text("Set a target and watch it fill up.")
+                    .font(TaliseFont.body(14, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+            }
+            .multilineTextAlignment(.center)
+        }
+        .padding(.top, 16)
+    }
+
+    // MARK: - Fields
+
+    private var fields: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TextField("Goal name (e.g. Laptop fund)", text: $name)
+                .font(TaliseFont.body(15, weight: .light))
+                .kerning(-0.48)
+                .tint(TaliseColor.accent)
+                .foregroundStyle(TaliseColor.fg)
+                .focused($focus, equals: .name)
+                .submitLabel(.next)
+                .onSubmit { focus = .target }
+                .padding(16)
+                .earnFieldGlass()
+            TextField("Target amount (USD)", text: $targetText)
+                .keyboardType(.decimalPad)
+                .font(TaliseFont.body(15, weight: .light))
+                .kerning(-0.48)
+                .tint(TaliseColor.accent)
+                .foregroundStyle(TaliseColor.fg)
+                .focused($focus, equals: .target)
+                .padding(16)
+                .earnFieldGlass()
+        }
+        .padding(20)
+        .earnHeroGlass(cornerRadius: 22)
     }
 
     private var canCreate: Bool {

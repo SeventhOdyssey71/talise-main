@@ -67,10 +67,11 @@ struct SendAmountView: View {
             // produced the misaligned "tiny ₦ next to giant 0" look.
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(draft.currency.symbol)
-                    .font(TaliseFont.heading(72, weight: .thin))
+                    .font(TaliseFont.heading(amountFontSize, weight: .thin))
                     .foregroundStyle(TaliseColor.fgMuted)
+                    .animation(.snappy(duration: 0.18), value: amountFontSize)
                 Text(displayAmount)
-                    .font(TaliseFont.heading(72, weight: .medium))
+                    .font(TaliseFont.heading(amountFontSize, weight: .medium))
                     .kerning(-2)
                     .foregroundStyle(TaliseColor.fg)
                     .lineLimit(1)
@@ -118,6 +119,23 @@ struct SendAmountView: View {
             }
         }
         .padding(.horizontal, 24)
+    }
+
+    /// Shared point size for BOTH the currency symbol and the number, so
+    /// they shrink together as the amount gets longer (the symbol used to
+    /// stay locked at 72 while only the number scaled — giving the giant
+    /// "₦" next to a small figure). Steps down by character count; the
+    /// number keeps `minimumScaleFactor` as a final width safety.
+    private var amountFontSize: CGFloat {
+        switch displayAmount.count {
+        case 0...6: return 72
+        case 7:     return 64
+        case 8:     return 56
+        case 9:     return 50
+        case 10:    return 44
+        case 11:    return 40
+        default:    return 36
+        }
     }
 
     /// What we render inside the big number. Formats the integer part
