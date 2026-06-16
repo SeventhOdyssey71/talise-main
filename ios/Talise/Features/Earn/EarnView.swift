@@ -78,7 +78,7 @@ struct EarnView: View {
             } label: {
                 HStack(spacing: 10) {
                     if testDepositing { ProgressView().tint(TaliseColor.accent) }
-                    Text(testDepositing ? "Routing $1 into the engine…" : "Test deposit · route $1 to yield")
+                    Text(testDepositing ? "Routing $1 to the best rate…" : "Earn $1 · auto-routed to the best rate")
                         .font(TaliseFont.body(13, weight: .light))
                         .foregroundStyle(TaliseColor.fgMuted)
                     Spacer()
@@ -100,46 +100,25 @@ struct EarnView: View {
         }
     }
 
-    /// Mint-if-needed → deposit a tiny USDsui amount into the live yield_router
-    /// (Scallop venue). Two sponsored txs: mint_position (once), then
-    /// supply + deposit_receipt. Proves the on-chain engine end-to-end.
+    /// SAM-style "earn at the best rate": one sponsored supply routed to the
+    /// highest live APY among the wired USDsui venues (NAVI + Scallop). The
+    /// server resolves `venue:"best"` from the live comparison at deposit time.
     private func testDeposit() async {
-        struct PosResp: Decodable { let positionId: String? }
-        struct MintBody: Encodable {}
-        struct DepBody: Encodable { let venue: String; let amount: Double; let positionId: String }
+        struct BestBody: Encodable { let venue: String; let amount: Double }
         testDepositing = true
         testDepositStatus = nil
         defer { testDepositing = false }
         do {
-            var pos: PosResp = try await APIClient.shared.get("/api/yield/position")
-            if pos.positionId == nil {
-                let mint: BuildKindResponse = try await APIClient.shared.post(
-                    "/api/yield/deposit/prepare", body: MintBody()
-                )
-                _ = try await ZkLoginCoordinator.shared.signAndSubmit(
-                    transactionKindB64: mint.transactionKindB64,
-                    intent: "Create yield position"
-                )
-                // Let the mint event index, then re-read the position id.
-                for _ in 0..<6 {
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                    pos = try await APIClient.shared.get("/api/yield/position")
-                    if pos.positionId != nil { break }
-                }
-            }
-            guard let pid = pos.positionId else {
-                testDepositStatus = "Position minting — try again in a moment."
-                return
-            }
-            let dep: BuildKindResponse = try await APIClient.shared.post(
-                "/api/yield/deposit/prepare",
-                body: DepBody(venue: "scallop", amount: 1.0, positionId: pid)
+            let built: BuildKindResponse = try await APIClient.shared.post(
+                "/api/earn/supply/prepare",
+                body: BestBody(venue: "best", amount: 1.0)
             )
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
-                transactionKindB64: dep.transactionKindB64,
-                intent: "Test yield deposit"
+                transactionKindB64: built.transactionKindB64,
+                intent: "Earn at the best rate",
+                rewards: ZkLoginCoordinator.RewardsMeta(kind: "invest", amountUsd: 1.0, venue: "best")
             )
-            testDepositStatus = "Deposited · \(String(result.digest.prefix(12)))…"
+            testDepositStatus = "Earning · \(String(result.digest.prefix(12)))…"
             await load()
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
             testDepositStatus = "Sign in again — your session needs a refresh."

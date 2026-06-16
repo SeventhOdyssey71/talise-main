@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
-import { Transaction } from "@mysten/sui/transactions";
+import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
-import { sui } from "@/lib/sui";
+import { sui, USDSUI_DECIMALS } from "@/lib/sui";
+import { USDSUI_TYPE } from "@/lib/usdsui";
 import {
   buildSupplyUsdsuiMargin,
   fetchSupplierCapId,
 } from "@/lib/deepbook-margin";
 import { appendNaviSupply } from "@/lib/navi-supply";
+import { buildScallopSupply } from "@/lib/yield/ptb";
+import { getYieldComparison } from "@/lib/yield";
 import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 
 export const runtime = "nodejs";
@@ -25,7 +28,12 @@ export const runtime = "nodejs";
  * Returns: { transactionKindB64 } — feed straight into /api/zk/sponsor.
  */
 
-const SUPPORTED_VENUES = new Set(["deepbook", "navi"]);
+// "best" auto-routes to the highest live APY among the wired USDsui venues
+// (NAVI account-based + Scallop sUSDsui) — the SAM-style "earn at the best
+// rate" toggle. DeepBook stays selectable but is excluded from the best
+// auto-pick (its USDsui margin APY is ~0).
+const SUPPORTED_VENUES = new Set(["deepbook", "navi", "scallop", "best"]);
+const BEST_CANDIDATES = new Set(["navi", "scallop"]);
 
 export async function POST(req: Request) {
   const userId = await readEntryIdFromRequest(req);
@@ -43,7 +51,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
-  const venue = (body.venue ?? "deepbook").toLowerCase();
+  let venue = (body.venue ?? "best").toLowerCase();
   if (!SUPPORTED_VENUES.has(venue)) {
     return NextResponse.json(
       { error: `venue must be one of ${[...SUPPORTED_VENUES].join(", ")}` },
@@ -58,6 +66,16 @@ export async function POST(req: Request) {
     );
   }
 
+  // "best" → auto-route to the highest live APY among the wired venues. This
+  // is the SAM-style toggle: the engine picks the best rate at deposit time.
+  if (venue === "best") {
+    const cmp = await getYieldComparison(user.sui_address).catch(() => null);
+    const top = cmp?.venues
+      .filter((v) => BEST_CANDIDATES.has(v.id))
+      .sort((a, b) => b.apy - a.apy)[0];
+    venue = top?.id ?? "navi"; // fall back to NAVI if the comparison is unavailable
+  }
+
   try {
     const t0 = Date.now();
     const tx = new Transaction();
@@ -69,6 +87,14 @@ export async function POST(req: Request) {
       // we can build the supply PTB inline without going through the
       // web-only /api/t2000/execute route.
       await appendNaviSupply(tx, user.sui_address, amount);
+    } else if (venue === "scallop") {
+      // Scallop USDsui market — mint sUSDsui (interest-bearing receipt coin)
+      // straight to the user. Direct supply (no yield_router position) — the
+      // sCoin accrues via exchange rate and the user can redeem any time.
+      const onchain = BigInt(Math.round(amount * 10 ** USDSUI_DECIMALS));
+      const usdsui = coinWithBalance({ type: USDSUI_TYPE, balance: onchain, useGasCoin: false })(tx);
+      const sUsdsui = buildScallopSupply(tx, usdsui);
+      tx.transferObjects([sUsdsui], tx.pure.address(user.sui_address));
     } else {
       // DeepBook margin pool — USDsui borrow demand is ~0% so the
       // realized APY is also ~0%. We still expose the venue for the
