@@ -11,6 +11,7 @@ import {
 } from "./navi-supply";
 import { getGlobalNum, setGlobalNum, refreshInBackground } from "./snapshots";
 import { samConfigured, fetchSamApy, readSamPosition } from "./yield/sam";
+import { fetchScallopUsdsuiApy } from "./yield/venues-mainnet";
 
 /** Resolve a promise to `fallback` if it doesn't settle within `ms`. The
  *  underlying work keeps running; we just stop waiting on the hot path. */
@@ -136,7 +137,7 @@ export async function getEarnSnapshot(address: string): Promise<EarnSnapshot> {
  * non-fatal — if one venue is offline we still return the other.
  */
 export type YieldVenue = {
-  id: "navi" | "deepbook" | "sam";
+  id: "navi" | "deepbook" | "sam" | "scallop" | "suilend" | "alphalend";
   name: string;
   apy: number;
   /** User's currently supplied USDsui, if any. */
@@ -165,12 +166,15 @@ export async function getYieldComparison(
   //   DeepBook SupplierCap lookup), but each is timeout-capped and
   //   failure-tolerant so a slow/flaky read degrades to supplied=0 rather
   //   than stalling or emptying the comparison.
-  const [naviApy, deepbookApy, naviSupplied, dbSupply] = await Promise.all([
+  const [naviApy, deepbookApy, scallopApy, naviSupplied, dbSupply] = await Promise.all([
     resolveVenueApy("navi_usdsui_apy", () => fetchNaviUsdsuiSupplyApy()),
     resolveVenueApy(
       "deepbook_usdsui_apy",
       async () => (await fetchUsdsuiMarginApy())?.apy ?? null
     ),
+    // Scallop USDsui supply — the second live aggregator-router venue. Read
+    // from Scallop's market API (USDsui pool), cached like the others.
+    resolveVenueApy("scallop_usdsui_apy", () => fetchScallopUsdsuiApy()),
     withTimeout(readNaviUsdsuiSupply(address).catch(() => 0), YIELD_LEG_TIMEOUT_MS, 0),
     withTimeout(fetchUserUsdsuiSupply(address).catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
   ]);
@@ -196,6 +200,18 @@ export async function getYieldComparison(
       meta: {
         supplierCapId: dbSupply?.supplierCapId,
       },
+    });
+  }
+  // Scallop — USDsui supply market, the second always-live router venue. Live
+  // APY from Scallop's market API; position read joins once the deposit flow
+  // tracks the user's sUSDsui (Suilend + AlphaLend follow with their readers).
+  if (scallopApy != null) {
+    venues.push({
+      id: "scallop",
+      name: "Scallop lending",
+      apy: scallopApy,
+      supplied: 0,
+      meta: { router: true },
     });
   }
   // SAM — the aggregating vault venue (Scallop/Suilend/NAVI + compounded

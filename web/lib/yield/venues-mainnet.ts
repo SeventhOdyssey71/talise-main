@@ -124,3 +124,28 @@ export async function fetchNaviUsdcApy(): Promise<number | null> {
     return null;
   }
 }
+
+/**
+ * Live Scallop USDsui supply APY (fraction) from the Scallop market API.
+ * Filters the `pools` list to the USDsui pool by its exact coin type. Returns
+ * null on failure so the venue drops out of the comparison rather than showing
+ * a stale/fabricated rate. (Verified live against mainnet: ~7% supplyApy.)
+ */
+export async function fetchScallopUsdsuiApy(): Promise<number | null> {
+  try {
+    const res = await fetch("https://sdk.api.scallop.io/api/market/migrate", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { pools?: Array<Record<string, unknown>> };
+    const pools = body.pools;
+    if (!Array.isArray(pools)) return null;
+    const pool = pools.find((p) => String(p.coinType ?? "").includes("::usdsui::USDSUI"));
+    if (!pool) return null;
+    const apy = Number(pool.supplyApy);
+    return Number.isFinite(apy) && apy >= 0 && apy < 5 ? apy : null;
+  } catch {
+    return null;
+  }
+}

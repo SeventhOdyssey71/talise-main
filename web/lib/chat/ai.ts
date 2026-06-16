@@ -92,13 +92,13 @@ export type ChatContext = {
   username?: string;
   /** Cross-venue yield snapshot (NAVI + DeepBook margin). */
   yieldVenues?: Array<{
-    id: "navi" | "deepbook" | "sam";
+    id: "navi" | "deepbook" | "sam" | "scallop" | "suilend" | "alphalend";
     name: string;
     apy: number;
     supplied?: number;
   }>;
   /** Highest-APY venue right now ("navi", "deepbook", or "sam"). */
-  bestVenue?: "navi" | "deepbook" | "sam";
+  bestVenue?: "navi" | "deepbook" | "sam" | "scallop" | "suilend" | "alphalend";
   /** Last 5 tx digests. */
   recentTxDigests?: string[];
 };
