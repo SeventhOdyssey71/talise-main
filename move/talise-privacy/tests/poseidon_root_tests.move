@@ -40,8 +40,8 @@ const ZERO_LEAF: u256 =
 // PLACEHOLDER — replaced by the parallel agent producing the arkworks-derived
 // decimal root for a height-26 tree with leaves (1,2,3,4). When set, flip
 // RUST_ROOT_AVAILABLE to true; the test will then assert merkle::root() == it.
-const RUST_ROOT_AVAILABLE: bool = false;
-const RUST_ROOT_PAIRS_12_34: u256 = 0;
+const RUST_ROOT_AVAILABLE: bool = true;
+const RUST_ROOT_PAIRS_12_34: u256 = 17030486334130427295495872518529323599496048152514727555221161595116072438956;
 
 fun poseidon2(a: u256, b: u256): u256 {
     poseidon::poseidon_bn254(&vector[a, b])
