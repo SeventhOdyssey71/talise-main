@@ -14,7 +14,7 @@ export const metadata: Metadata = {
  * handle minting / sponsored txns happen later at activation. Flip back to true
  * to show the "waitlist is full" state and pause new sign-ups.
  */
-const WAITLIST_FULL = false;
+const WAITLIST_FULL = true;
 
 /**
  * Talise waitlist page. Mirrors the landing's dark visual language
