@@ -16,8 +16,14 @@ use_environment = "mainnet"
 manifest_digest = "CD547CB1ACCE0880C835DAED2D8FFCB91D56C833AE5240D3AA5B918398263195"
 deps = { MoveStdlib = "MoveStdlib" }
 
-[pinned.mainnet.talise_privacy]
-source = { root = true }
+[pinned.mainnet.talise]
+source = { local = "../talise" }
 use_environment = "mainnet"
 manifest_digest = "E41BBD67BE8940D26C79D78B028477EF5B33BA217A1282C78ACB344CF8A5ECF6"
 deps = { std = "MoveStdlib", sui = "Sui" }
+
+[pinned.mainnet.talise_privacy]
+source = { root = true }
+use_environment = "mainnet"
+manifest_digest = "6F35B6F7ECD610186886A62D4DC2C5F56791F3DCD68D35A2FC356EAF85E3CEEC"
+deps = { std = "MoveStdlib", sui = "Sui", talise = "talise" }

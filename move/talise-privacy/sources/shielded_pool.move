@@ -33,6 +33,7 @@ use sui::{
     table::{Self, Table},
     transfer::Receiving
 };
+use talise::compliance::ComplianceRegistry;
 use talise_privacy::{
     constants,
     events,
@@ -67,12 +68,12 @@ public struct ShieldedPool<phantom CoinType> has key {
     balance: Balance<CoinType>,
     nullifier_hashes: Table<u256, bool>,
     // ── Compliance gate (fail-closed; all PoolAdminCap-gated) ──
-    // INLINE for now. TODO(phase-2): replace these inline knobs with a
-    // reference to `talise::compliance::ComplianceRegistry` (assert_clear /
-    // allowlist / pause) once cross-package wiring is added to Move.toml. Its
-    // `assert_clear` is currently `public(package)` so it cannot be called from
-    // here without an API change in the `talise` package. The gate runs AFTER
-    // groth16 verify, so it can only ADD refusals — proof soundness is untouched.
+    // These per-pool caps + kill switch are layered ON TOP of the shared
+    // `talise::compliance::ComplianceRegistry` (denylist / allowlist / global
+    // pause), which the public legs now screen against via
+    // `talise::compliance::assert_clear_external` in `assert_compliant`. The
+    // gate runs AFTER groth16 verify, so it can only ADD refusals — proof
+    // soundness is untouched.
     /// Hard kill switch for the public legs (private internal transfers, where
     /// `public_value == 0` i.e. value == 0, are intentionally NOT gated).
     paused: bool,
@@ -147,18 +148,20 @@ public fun share<CoinType>(pool: ShieldedPool<CoinType>) {
 /// internal-transfer / withdraw). `hashed_secret` is ZERO in the public inputs.
 public fun transact<CoinType>(
     self: &mut ShieldedPool<CoinType>,
+    registry: &ComplianceRegistry,
     deposit: Coin<CoinType>,
     proof: Proof<CoinType>,
     ext_data: ExtData,
     ctx: &mut TxContext,
 ): Coin<CoinType> {
-    self.process_transaction(deposit, proof.public_inputs(), proof, ext_data, ctx)
+    self.process_transaction(registry, deposit, proof.public_inputs(), proof, ext_data, ctx)
 }
 
 /// Sponsored path: the deposit coin is swept from a `NoteAccount`'s inbox and
 /// the account's `hashed_secret` is bound into the public inputs.
 public fun transact_with_account<CoinType>(
     self: &mut ShieldedPool<CoinType>,
+    registry: &ComplianceRegistry,
     account: &mut NoteAccount,
     coins: vector<Receiving<Coin<CoinType>>>,
     proof: Proof<CoinType>,
@@ -167,6 +170,7 @@ public fun transact_with_account<CoinType>(
 ): Coin<CoinType> {
     let deposit = account.receive(coins, ctx);
     self.process_transaction(
+        registry,
         deposit,
         proof.account_public_inputs(account.hashed_secret()),
         proof,
@@ -254,11 +258,27 @@ fun assert_public_value<CoinType>(proof: Proof<CoinType>, ext_data: ExtData) {
 
 // (7) compliance gate — runs AFTER verify, can only ADD refusals. Internal
 // transfers (value == 0) are fully private and ungated. Fail-closed.
-fun assert_compliant<CoinType>(self: &ShieldedPool<CoinType>, ext_data: ExtData) {
+//
+// `party` is the on-chain address screened against the shared compliance
+// registry: on a deposit leg it is the deposit sender; on a withdraw leg it is
+// the withdraw recipient/submitter. Both are `ctx.sender()` here — the only
+// on-chain identity bound to a `transact` PTB (the relayer pre-screens the exit
+// address off-chain; ExtData carries no recipient field by design).
+fun assert_compliant<CoinType>(
+    self: &ShieldedPool<CoinType>,
+    registry: &ComplianceRegistry,
+    ext_data: ExtData,
+    party: address,
+) {
     let value = ext_data.value();
     if (value == 0) return; // private internal transfer — ungated by design.
 
+    // Per-pool kill switch (operator-controlled).
     assert!(!self.paused, EComplianceRefused);
+
+    // Shared on-chain enforcement floor: global pause + denylist + (optional)
+    // allowlist on the public-leg party. Cross-package call into `talise`.
+    talise::compliance::assert_clear_external(registry, party);
 
     if (ext_data.value_sign()) {
         // deposit leg
@@ -269,12 +289,13 @@ fun assert_compliant<CoinType>(self: &ShieldedPool<CoinType>, ext_data: ExtData)
         if (self.max_withdraw > 0)
             assert!(value <= self.max_withdraw, EComplianceRefused);
     };
-    // TODO(phase-2): also call talise::compliance::assert_clear on the exit
-    // address + optional KYC'd-recipient + viewing-key disclosure here.
+    // TODO(phase-2): optional KYC'd-recipient tier registry + viewing-key
+    // disclosure here (needs the net-new on-chain KYC-tier registry).
 }
 
 fun process_transaction<CoinType>(
     self: &mut ShieldedPool<CoinType>,
+    registry: &ComplianceRegistry,
     deposit: Coin<CoinType>,
     public_inputs: PublicProofInputs,
     proof: Proof<CoinType>,
@@ -305,7 +326,7 @@ fun process_transaction<CoinType>(
     );
 
     // 7. compliance gate (AFTER verify — can only ADD refusals)
-    self.assert_compliant(ext_data);
+    self.assert_compliant(registry, ext_data, ctx.sender());
 
     // 8. coin move
     let ext_value = ext_data.value();

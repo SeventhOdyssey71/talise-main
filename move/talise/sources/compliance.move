@@ -136,6 +136,37 @@ public(package) fun assert_pair_clear(registry: &ComplianceRegistry, from: addre
 }
 
 // ───────────────────────────────────────────────────────────────────
+// Cross-package enforcement (thin `public` wrappers over the package-internal
+// logic above). These exist so OTHER Talise Move packages — e.g.
+// `talise_privacy::shielded_pool`'s compliance gate — can assert against this
+// same registry. They add NO new behavior: each is a one-line forward to the
+// `public(package)` enforcement, so the on-chain enforcement floor stays a
+// single source of truth. They are still bounded by needing a `&ComplianceRegistry`
+// reference (the singleton shared object), so they cannot be spoofed with a
+// fake registry that an attacker controls in a money-mover's call path.
+
+/// Cross-package twin of `assert_clear`. Abort unless `addr` is clear.
+public fun assert_clear_external(registry: &ComplianceRegistry, addr: address) {
+    assert_clear(registry, addr);
+}
+
+/// Cross-package twin of `assert_pair_clear`. Both legs must be clear.
+public fun assert_pair_clear_external(registry: &ComplianceRegistry, from: address, to: address) {
+    assert_pair_clear(registry, from, to);
+}
+
+/// Cross-package read of the global pause flag (already-public `is_paused`
+/// re-exported under the `_external` naming for symmetry with the asserts).
+public fun is_paused_external(registry: &ComplianceRegistry): bool {
+    is_paused(registry)
+}
+
+/// Cross-package read of allowlist membership.
+public fun is_allowed_external(registry: &ComplianceRegistry, addr: address): bool {
+    is_allowed(registry, addr)
+}
+
+// ───────────────────────────────────────────────────────────────────
 // Read-only views
 
 public fun is_denied(registry: &ComplianceRegistry, addr: address): bool {
