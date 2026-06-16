@@ -1,0 +1,325 @@
+import "server-only";
+
+import { db } from "@/lib/db";
+import {
+  SHIELD,
+  SHIELD_RPC,
+  shieldConfigured,
+  shieldEventType,
+} from "@/lib/shield/onchain";
+import {
+  ensureShieldSchema,
+  getShieldCursor,
+  maxLeafIndex,
+  type ShieldPipeline,
+} from "@/lib/shield/db";
+import { refreshMerkleCache } from "@/lib/shield/merkle";
+import { USDSUI_TYPE } from "@/lib/usdsui";
+
+/**
+ * Talise shielded-pool — event indexer (Workstream C).
+ *
+ * A `suix_queryEvents` CURSOR POLLER (NOT a Rust checkpoint streamer),
+ * designed to run from a Vercel cron. It mirrors the JSON-RPC fetch pattern of
+ * `app/api/yield/position/route.ts` — a direct `fetch` to the fullnode, no new
+ * SDK surface.
+ *
+ * Three independent pipelines, each with its own Postgres cursor:
+ *   commitments  → NewCommitment<CoinType>  → shield_commitments (Merkle leaves)
+ *   nullifiers   → NullifierSpent<CoinType>  → shield_nullifiers (spent notes)
+ *   pools        → NewPool<CoinType>         → shield_pools (per-coin registry)
+ *
+ * Guarantees:
+ *   • Idempotent — every write uses ON CONFLICT keyed on the natural id, and
+ *     the cursor advance happens in the SAME db().batch() transaction as the
+ *     writes, so a crash mid-page never skips or double-counts events.
+ *   • Consistency check — after the commitments pipeline catches up, asserts
+ *     the on-chain `next_index` equals `MAX(leaf_index)+1` in Postgres.
+ *
+ * Dormant unless `shieldConfigured()`.
+ */
+
+const PAGE_SIZE = 50;
+const RPC_TIMEOUT_MS = 12_000;
+
+type SuiEventId = { txDigest: string; eventSeq: string };
+
+interface RawSuiEvent {
+  id: SuiEventId;
+  type: string;
+  parsedJson?: unknown;
+  sender?: string;
+  timestampMs?: string;
+}
+
+interface QueryEventsResult {
+  data: RawSuiEvent[];
+  nextCursor: SuiEventId | null;
+  hasNextPage: boolean;
+}
+
+async function rpc<T>(method: string, params: unknown[]): Promise<T> {
+  const res = await fetch(SHIELD_RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const body = (await res.json()) as { result?: T; error?: { message?: string } };
+  if (body.error) throw new Error(`RPC ${method} failed: ${body.error.message ?? "unknown"}`);
+  return body.result as T;
+}
+
+/** One page of `suix_queryEvents` filtered to a MoveEventType, ascending. */
+async function queryEventsPage(
+  moveEventType: string,
+  cursor: SuiEventId | null
+): Promise<QueryEventsResult> {
+  return rpc<QueryEventsResult>("suix_queryEvents", [
+    { MoveEventType: moveEventType },
+    cursor,
+    PAGE_SIZE,
+    false, // ascending — we index oldest→newest so leaf order is monotonic
+  ]);
+}
+
+/** Fetch the on-chain pool's `next_index` from the MerkleTree, if readable. */
+async function onchainNextIndex(): Promise<number | null> {
+  if (!SHIELD.poolUsdsui) return null;
+  try {
+    const obj = await rpc<{
+      data?: { content?: { fields?: Record<string, unknown> } };
+    }>("sui_getObject", [
+      SHIELD.poolUsdsui,
+      { showContent: true },
+    ]);
+    const fields = obj.data?.content?.fields as Record<string, unknown> | undefined;
+    if (!fields) return null;
+    // The pool wraps a `merkle_tree` field whose `next_index` we want. Shape
+    // is best-effort — the pool's exact field layout is finalized on deploy;
+    // we probe the common nestings and bail (null) if absent rather than throw.
+    const tree =
+      (fields.merkle_tree as { fields?: Record<string, unknown> } | undefined)?.fields ??
+      (fields.tree as { fields?: Record<string, unknown> } | undefined)?.fields ??
+      fields;
+    const raw = (tree as Record<string, unknown>)?.next_index;
+    if (raw === undefined || raw === null) return null;
+    return Number(raw);
+  } catch {
+    return null;
+  }
+}
+
+// ── Per-pipeline ingest ──────────────────────────────────────────────────
+
+function nowCursorRow(pipeline: ShieldPipeline, cur: SuiEventId | null) {
+  return {
+    sql: `INSERT INTO shield_index_cursor (pipeline, tx_digest, event_seq, checkpoint, updated_at)
+          VALUES (?, ?, ?, NULL, ?)
+          ON CONFLICT (pipeline) DO UPDATE SET
+            tx_digest = EXCLUDED.tx_digest,
+            event_seq = EXCLUDED.event_seq,
+            updated_at = EXCLUDED.updated_at`,
+    args: [pipeline, cur?.txDigest ?? null, cur?.eventSeq ?? null, Date.now()],
+  };
+}
+
+/**
+ * Drain one pipeline to its tip, batching writes + cursor advance per page.
+ * Returns the number of events ingested.
+ */
+async function drainPipeline(
+  pipeline: ShieldPipeline,
+  buildStmts: (e: RawSuiEvent) => { sql: string; args: unknown[] }[]
+): Promise<number> {
+  const stored = await getShieldCursor(pipeline);
+  let cursor: SuiEventId | null = stored
+    ? { txDigest: stored.txDigest, eventSeq: stored.eventSeq }
+    : null;
+
+  const eventType = shieldEventType(
+    pipeline === "commitments"
+      ? "NewCommitment"
+      : pipeline === "nullifiers"
+        ? "NullifierSpent"
+        : "NewPool"
+  );
+
+  let total = 0;
+  // Bound the run so a cron invocation can't loop forever on a huge backlog;
+  // the next invocation resumes from the persisted cursor.
+  for (let page = 0; page < 200; page++) {
+    const res = await queryEventsPage(eventType, cursor);
+    if (res.data.length === 0) break;
+
+    const stmts: { sql: string; args: unknown[] }[] = [];
+    for (const ev of res.data) stmts.push(...buildStmts(ev));
+
+    // Advance the cursor in the SAME transaction as the writes.
+    const nextCursor = res.nextCursor ?? res.data[res.data.length - 1].id;
+    stmts.push(nowCursorRow(pipeline, nextCursor));
+
+    await db().batch(stmts, "write");
+    total += res.data.length;
+    cursor = nextCursor;
+
+    if (!res.hasNextPage) break;
+  }
+  return total;
+}
+
+// Note: the per-coin filter relies on the package id appearing in the event's
+// generic CoinType param. We index every CoinType the pool emits and key rows
+// by the parsed type; the USDsui pool is the only live one today.
+function coinTypeOf(ev: RawSuiEvent): string {
+  // type looks like `${pkg}::events::NewCommitment<0x..::usdsui::USDSUI>`.
+  const m = ev.type.match(/<(.+)>$/);
+  return m ? m[1] : USDSUI_TYPE;
+}
+
+/** Ingest NewCommitment events into shield_commitments. */
+async function ingestCommitments(): Promise<number> {
+  return drainPipeline("commitments", (ev) => {
+    const pj = (ev.parsedJson ?? {}) as {
+      index?: string | number;
+      commitment?: string;
+      encrypted_output?: number[] | string;
+    };
+    const coinType = coinTypeOf(ev);
+    const leafIndex = Number(pj.index);
+    const commitment = String(pj.commitment ?? "0");
+    // encrypted_output is a vector<u8> — JSON-RPC returns a number[]; store hex.
+    let enc: string | null = null;
+    if (Array.isArray(pj.encrypted_output)) {
+      enc = "0x" + Buffer.from(pj.encrypted_output).toString("hex");
+    } else if (typeof pj.encrypted_output === "string") {
+      enc = pj.encrypted_output;
+    }
+    return [
+      {
+        sql: `INSERT INTO shield_commitments
+                (coin_type, leaf_index, commitment, encrypted_output, digest, sender, checkpoint, event_seq, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT (event_seq) DO NOTHING`,
+        args: [
+          coinType,
+          leafIndex,
+          commitment,
+          enc,
+          ev.id.txDigest,
+          ev.sender ?? null,
+          null,
+          ev.id.eventSeq,
+          ev.timestampMs ? Number(ev.timestampMs) : Date.now(),
+        ],
+      },
+    ];
+  });
+}
+
+/** Ingest NullifierSpent events into shield_nullifiers. */
+async function ingestNullifiers(): Promise<number> {
+  return drainPipeline("nullifiers", (ev) => {
+    // The event is a positional struct `NullifierSpent(u256)`; JSON-RPC
+    // surfaces it as `{ "pos0": "<u256>" }` or a bare value depending on shape.
+    const pj = ev.parsedJson as unknown;
+    let nullifier = "0";
+    if (pj && typeof pj === "object") {
+      const o = pj as Record<string, unknown>;
+      nullifier = String(o.pos0 ?? o["0"] ?? Object.values(o)[0] ?? "0");
+    } else if (pj !== undefined && pj !== null) {
+      nullifier = String(pj);
+    }
+    const coinType = coinTypeOf(ev);
+    return [
+      {
+        sql: `INSERT INTO shield_nullifiers
+                (coin_type, nullifier, digest, checkpoint, event_seq, created_at)
+              VALUES (?, ?, ?, ?, ?, ?)
+              ON CONFLICT (coin_type, nullifier) DO NOTHING`,
+        args: [
+          coinType,
+          nullifier,
+          ev.id.txDigest,
+          null,
+          ev.id.eventSeq,
+          ev.timestampMs ? Number(ev.timestampMs) : Date.now(),
+        ],
+      },
+    ];
+  });
+}
+
+/** Ingest NewPool events into shield_pools. */
+async function ingestPools(): Promise<number> {
+  return drainPipeline("pools", (ev) => {
+    const pj = ev.parsedJson as unknown;
+    let poolAddr = "";
+    if (pj && typeof pj === "object") {
+      const o = pj as Record<string, unknown>;
+      poolAddr = String(o.pos0 ?? o["0"] ?? Object.values(o)[0] ?? "");
+    } else if (pj !== undefined && pj !== null) {
+      poolAddr = String(pj);
+    }
+    const coinType = coinTypeOf(ev);
+    return [
+      {
+        sql: `INSERT INTO shield_pools (coin_type, pool_address, digest, checkpoint, created_at)
+              VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT (coin_type) DO UPDATE SET
+                pool_address = EXCLUDED.pool_address,
+                digest = EXCLUDED.digest`,
+        args: [coinType, poolAddr, ev.id.txDigest, null, Date.now()],
+      },
+    ];
+  });
+}
+
+export interface IndexerRunResult {
+  ran: boolean;
+  commitments: number;
+  nullifiers: number;
+  pools: number;
+  consistency: {
+    coinType: string;
+    onchainNextIndex: number | null;
+    dbMaxLeafPlusOne: number;
+    ok: boolean | null;
+  } | null;
+}
+
+/**
+ * Run all three pipelines to their tip + the on-chain consistency check.
+ * No-ops (ran:false) when the feature is dormant. Safe to call repeatedly
+ * (idempotent); intended entrypoint for the Vercel cron.
+ */
+export async function runShieldIndexer(): Promise<IndexerRunResult> {
+  if (!shieldConfigured()) {
+    return { ran: false, commitments: 0, nullifiers: 0, pools: 0, consistency: null };
+  }
+  await ensureShieldSchema();
+
+  const pools = await ingestPools();
+  const commitments = await ingestCommitments();
+  const nullifiers = await ingestNullifiers();
+
+  // Refresh the cached frontier so the path service serves a fresh root.
+  const coinType = USDSUI_TYPE;
+  if (commitments > 0) {
+    await refreshMerkleCache(coinType).catch(() => {});
+  }
+
+  // Consistency check: on-chain next_index == MAX(leaf_index)+1 in Postgres.
+  const onchain = await onchainNextIndex();
+  const dbMax = await maxLeafIndex(coinType);
+  const dbNext = dbMax + 1;
+  const consistency = {
+    coinType,
+    onchainNextIndex: onchain,
+    dbMaxLeafPlusOne: dbNext,
+    ok: onchain === null ? null : onchain === dbNext,
+  };
+
+  return { ran: true, commitments, nullifiers, pools, consistency };
+}
