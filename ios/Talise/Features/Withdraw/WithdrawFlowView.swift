@@ -21,6 +21,7 @@ struct WithdrawFlowView: View {
     /// Which action group (if any) is expanded inline.
     private enum ActionGroup { case cheques, work }
     @State private var expanded: ActionGroup?
+    @State private var showPrivateSoon = false
 
     /// Dismiss the cover, then post the target cover's notification with a
     /// 220ms delay so the dismiss settles before the next cover slides up.
@@ -73,6 +74,14 @@ struct WithdrawFlowView: View {
                                     expandable: true,
                                     isExpanded: expanded == .cheques
                                 )
+                            }
+                            .buttonStyle(TilePress())
+
+                            // Private transactions — shielded USDsui (Talise's
+                            // own ZK privacy layer). Phase 0 build; the tile is
+                            // live now, the flow opens once the shielded pool ships.
+                            Button { showPrivateSoon = true } label: {
+                                ActionTile(icon: "hi.lock", title: "Send private tx", caption: "Shielded · coming soon")
                             }
                             .buttonStyle(TilePress())
                         }
@@ -137,6 +146,11 @@ struct WithdrawFlowView: View {
             }
             .background(TaliseColor.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .sheet(isPresented: $showPrivateSoon) {
+                PrivateSoonSheet()
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
+            }
         }
         .tint(TaliseColor.fg)
     }
@@ -1296,5 +1310,53 @@ struct TaliseLoadingRing: View {
                 spinning = true
             }
         }
+    }
+}
+
+// MARK: - Private transactions (coming soon)
+
+/// Shown when the user taps "Send private tx" before the shielded pool ships.
+/// Sets the expectation cleanly + on-brand; replaced by the real shielded-send
+/// flow at Phase 1 (see docs/strategy/PRIVACY-TALISE.md).
+private struct PrivateSoonSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(TaliseColor.surface2))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+
+            Spacer(minLength: 0)
+            VStack(spacing: 16) {
+                ZStack {
+                    Circle().fill(TaliseColor.greenMint.opacity(0.12)).frame(width: 72, height: 72)
+                    HugeIcon(name: "hi.lock", size: 30, tint: TaliseColor.greenMint)
+                }
+                Text("Private transactions")
+                    .font(TaliseFont.heading(22, weight: .semibold))
+                    .kerning(-0.4)
+                    .foregroundStyle(TaliseColor.fg)
+                Text("Send USDsui shielded — the amount and the link between sender and recipient stay private on-chain, and your money never leaves your control. Coming soon.")
+                    .font(TaliseFont.body(14, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+            }
+            .padding(.horizontal, 28)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(TaliseColor.bg.ignoresSafeArea())
     }
 }
