@@ -90,6 +90,54 @@ export async function deriveShieldKeypair(
 }
 
 /**
+ * NIST P-256 (secp256r1) group order n. The ECIES enc scalar lives in [1, n-1].
+ * Duplicated from encrypt.ts's curve params on purpose: keys.ts must not import
+ * from encrypt.ts (encrypt.ts imports from keys.ts — avoid a cycle).
+ */
+const P256_ORDER =
+  0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n;
+
+/**
+ * Domain-separation tag mixed into the ECIES encryption scalar so it is a
+ * distinct secret from the spending/viewing keys (a leaked enc scalar must not
+ * reveal spend authority). Stable forever — changing it orphans published
+ * encryption public keys.
+ */
+const SHIELD_ENC_KEY_TAG = "talise.shield.enc-scalar.v1";
+
+/**
+ * Derive the recipient's ECIES encryption PRIVATE scalar `d` deterministically
+ * from the shield spending key — so it is recoverable on any device (re-sign-in
+ * → re-derive → re-scan), exactly like the viewing key. `d = SHA-256(tag ‖
+ * spendingKey_32BE) mod n` with `n` = P-256 group order, rejection-resampling
+ * the (astronomically unlikely) `0` case via a counter.
+ *
+ * The matching PUBLIC key (what the recipient publishes for senders to encrypt
+ * to) is `d·G` — see encrypt.ts `encPublicKeyFromScalar`.
+ *
+ * REAL: deterministic, recoverable, domain-separated from the spend key.
+ */
+export async function deriveShieldEncScalar(spendingKey: bigint): Promise<bigint> {
+  const tag = new TextEncoder().encode(SHIELD_ENC_KEY_TAG);
+  const skBytes = new Uint8Array(32);
+  let v = spendingKey % BN254_SCALAR_FIELD;
+  for (let i = 31; i >= 0; i--) {
+    skBytes[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  for (let counter = 0; counter < 256; counter++) {
+    const buf = new Uint8Array(tag.length + skBytes.length + 1);
+    buf.set(tag, 0);
+    buf.set(skBytes, tag.length);
+    buf[buf.length - 1] = counter;
+    const hash = await sha256(buf);
+    const d = bytesToBigIntBE(hash) % P256_ORDER;
+    if (d !== 0n) return d;
+  }
+  throw new Error("unreachable: failed to derive enc scalar");
+}
+
+/**
  * Poseidon hash of a single BN254 field element.
  *
  * STUB — NOT A REAL POSEIDON. Returns a deterministic field element so the SDK

@@ -8,13 +8,15 @@
  *   • buildTransact — assemble the relayer-validatable transact PTB
  *   • scanNotes — trial-decrypt the commitments feed
  *
- * CRYPTO: Poseidon, ECIES, and the Groth16 prover are clearly STUBBED with
- * TODOs (see keys.ts, encrypt.ts, tx.ts). Replace before any real use — the
- * Poseidon byte-match to `sui::poseidon_bn254` is THE critical gate.
+ * CRYPTO: note ENCRYPTION is REAL (P-256 ECIES + AES-256-GCM, see encrypt.ts).
+ * Poseidon and the Groth16 prover are still clearly STUBBED with TODOs (see
+ * keys.ts, tx.ts). Replace before any real use — the Poseidon byte-match to
+ * `sui::poseidon_bn254` is THE critical gate.
  */
 
 export {
   deriveShieldKeypair,
+  deriveShieldEncScalar,
   poseidon1,
   BN254_SCALAR_FIELD,
   SHIELD_KEY_DERIVATION_MESSAGE,
@@ -34,10 +36,22 @@ export {
   decryptNote,
   encodeNotePlaintext,
   decodeNotePlaintext,
+  encPublicKeyFromScalar,
 } from "./encrypt";
+export type { RecipientEncKey } from "./encrypt";
 
 export { scanNotes, tryDecryptRow } from "./scan";
 export type { CommitmentRow, ScanOptions } from "./scan";
 
-export { buildTransact } from "./tx";
+export { buildTransact, proveTransact } from "./tx";
 export type { ProofInputs, ExtDataInput, BuildTransactParams } from "./tx";
+
+export {
+  prove,
+  verifyProof,
+  preloadProvingKey,
+  loadVerifyingKey,
+  SHIELD_ASSETS,
+  PUBLIC_INPUT_ORDER,
+} from "./prover";
+export type { ProofOutput, ProofInput } from "./prover";

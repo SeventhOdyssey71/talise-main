@@ -7,3 +7,4 @@ out
 .data
 *.tsbuildinfo
 .DS_Store
+/public/shield/

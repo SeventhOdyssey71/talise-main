@@ -14,3 +14,8 @@ pub mod constants;
 pub mod merkle_tree;
 pub mod poseidon_opt;
 pub mod prover;
+
+/// Browser (WASM) prover. Only compiled for the `wasm32` target so the native
+/// crate (bins, `cargo test`, `prove_deposit`) is completely unaffected.
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;

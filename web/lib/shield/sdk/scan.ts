@@ -10,9 +10,13 @@
  * indexer/merkle agent — Workstream C). This module only CONSUMES it; the exact
  * row shape is defined defensively here and adjusted when that route lands.
  *
- * CRYPTO STATUS: the decrypt step + commitment recompute use the STUBBED
- * Poseidon / encryption (see keys.ts, encrypt.ts). The scan LOOP itself (fetch,
- * paginate, match) is real.
+ * The `viewingKey: bigint` parameter is the recipient's ECIES enc private
+ * scalar (see keys.ts `deriveShieldEncScalar` + encrypt.ts) — the bigint key
+ * that trial-decrypts the `encrypted_output` blobs.
+ *
+ * CRYPTO STATUS: note ENCRYPTION is REAL (P-256 ECIES + AES-256-GCM, see
+ * encrypt.ts). The commitment recompute still uses the STUBBED Poseidon (see
+ * keys.ts). The scan LOOP itself (fetch, paginate, match) is real.
  */
 
 import { decryptNote } from "./encrypt";
@@ -66,7 +70,7 @@ export async function scanNotes(
     if (rows.length === 0) break;
 
     for (const row of rows) {
-      const note = tryDecryptRow(row, viewingKey);
+      const note = await tryDecryptRow(row, viewingKey);
       if (note) found.push(note);
     }
 
@@ -82,13 +86,13 @@ export async function scanNotes(
  * recomputed commitment matches the on-chain commitment — the binding check
  * that turns a weak stub-decrypt accept into a real match.
  */
-export function tryDecryptRow(
+export async function tryDecryptRow(
   row: CommitmentRow,
   viewingKey: bigint
-): SpendableNote | null {
+): Promise<SpendableNote | null> {
   const ct = hexToBytes(row.encryptedOutput);
   if (!ct) return null;
-  const note = decryptNote(ct, viewingKey);
+  const note = await decryptNote(ct, viewingKey);
   if (!note) return null;
 
   const recomputed = noteCommitment(note);

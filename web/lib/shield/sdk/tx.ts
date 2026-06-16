@@ -11,17 +11,18 @@
  * The relayer is set as `ExtData.relayer` (and is the eventual tx sender), so
  * the on-chain `ext_data::assert_relayer(sender == relayer)` passes.
  *
- * CRYPTO STATUS: the Groth16 PROVE call is a TODO seam — `buildTransact` takes
- * an already-computed `ProofInputs` (proof points + public signals). Generating
- * those is the WASM prover's job (Workstream B), run client-side in a Web
- * Worker; it is NOT done here. Everything that ASSEMBLES the PTB from those
- * inputs is real.
+ * CRYPTO STATUS: the Groth16 PROVE call is now wired. `proveTransact()` takes a
+ * fully-assembled circuit `ProofInput` (note inputs + Merkle paths + outputs),
+ * runs the WASM Groth16 prover in a Web Worker (see prover.ts / prover.worker.ts,
+ * real browser entropy), and returns the `ProofInputs` (proof points + public
+ * signals as bigints) that `buildTransact` assembles into the transact PTB.
  */
 
 import { Transaction } from "@mysten/sui/transactions";
 import { bcs } from "@mysten/sui/bcs";
+import { prove, type ProofInput, type ProofOutput } from "./prover";
 
-/** Proof inputs as produced by the (TODO) WASM prover. All u256 as bigint. */
+/** Proof inputs as produced by the WASM prover. All u256 as bigint. */
 export type ProofInputs = {
   /** Compressed Groth16 proof points (proofA‖proofB‖proofC), 128 bytes. */
   proofPoints: Uint8Array;
@@ -73,6 +74,45 @@ export type BuildTransactParams = {
    */
   depositCoinId?: string;
 };
+
+/** Map a wasm `ProofOutput` into the `ProofInputs` the PTB builder consumes. */
+function proofOutputToInputs(out: ProofOutput): ProofInputs {
+  // public_inputs (decimal strings), allocation order:
+  // [pool/vortex, root, public_value, null0, null1, comm0, comm1, hashed_secret]
+  const pi = out.publicInputs;
+  if (pi.length !== 8) {
+    throw new Error(`expected 8 public inputs, got ${pi.length}`);
+  }
+  const proofPoints = Uint8Array.from(
+    out.proofSerializedHex
+      .match(/.{1,2}/g)!
+      .map((b) => parseInt(b, 16))
+  );
+  if (proofPoints.length !== 128) {
+    throw new Error(`proof points must be 128 bytes, got ${proofPoints.length}`);
+  }
+  return {
+    proofPoints,
+    root: BigInt(pi[1]),
+    publicValue: BigInt(pi[2]),
+    inputNullifier0: BigInt(pi[3]),
+    inputNullifier1: BigInt(pi[4]),
+    outputCommitment0: BigInt(pi[5]),
+    outputCommitment1: BigInt(pi[6]),
+  };
+}
+
+/**
+ * Close the WASM-prove seam: run the Groth16 prover over a fully-assembled
+ * circuit `ProofInput` (note inputs + Merkle paths + outputs) and return the
+ * `ProofInputs` for {@link buildTransact}. Proving runs off the main thread in a
+ * Web Worker. The pool/vortex public signal (index 0) is bound into the proof
+ * and re-supplied to `buildTransact` as `poolAddress`, so it is not echoed here.
+ */
+export async function proveTransact(input: ProofInput): Promise<ProofInputs> {
+  const out = await prove(input);
+  return proofOutputToInputs(out);
+}
 
 /**
  * Build the `transact` PTB. Returns an unbuilt `Transaction` (sender/gas left
