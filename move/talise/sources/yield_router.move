@@ -1,21 +1,23 @@
 /// Talise Yield Router — autonomous, capped, non-custodial rotation across
 /// the safest Sui USDC venues (Suilend, NAVI, AlphaLend, Scallop).
 ///
-/// This is the on-chain anchor for the Phase-2 "mint an object that routes
-/// through the best venue and rotates" engine (see docs/strategy/YIELD-ROUTER.md).
-/// It deliberately mirrors the ALREADY-AUDITED trust model of
-/// `talise::vault` + `talise::auto_swap`:
+/// On-chain anchor for the Phase-2 "mint an object that routes through the
+/// best venue and rotates" engine (see docs/strategy/YIELD-ROUTER.md). Mirrors
+/// the ALREADY-AUDITED trust model of `talise::vault` + `talise::auto_swap`:
 ///
 ///   • `YieldPosition` — a shared object the user MINTS (one per user). It
 ///     custodies each venue's RECEIPT (Suilend `Obligation`, NAVI `AccountCap`,
 ///     Scallop `sUSDC` coin, AlphaLend position) under a dynamic OBJECT field
 ///     keyed by venue id. The money therefore always lives inside the audited
 ///     venue protocol — never as raw cash Talise controls. `basis_usdc` tracks
-///     cost basis so earned = value − basis is honest + churn-proof.
+///     cost basis so earned = value − basis is honest + churn-proof. The
+///     CAPPED rebalance authority (per-rotation + rolling-24h limits, expiry,
+///     owner pause) lives INLINE on the position — there is no separately
+///     shared capability object for anyone to grab.
 ///
-///   • `RebalanceCap` — a capped, owner-revocable, expiring capability (sibling
-///     of `AutoSwapCapV2`). It lets Talise's keeper ROTATE a position between
-///     venues without a per-move user signature, bounded by `max_per_rotation`.
+///   • `RebalanceRegistry` — admin-owned set of authorized keeper addresses +
+///     a per-venue circuit breaker. Rotation requires the caller to be a
+///     registered worker; a paused venue can be rotated OUT of, never INTO.
 ///
 ///   • `RotationTicket` — a hot potato (NO abilities) that brackets every
 ///     rotation. `begin_rotation` hands out the source receipt + the ticket;
@@ -26,13 +28,14 @@
 ///
 /// TRUST MODEL (identical to auto_swap, stated plainly for the audit):
 ///   The keeper key is Talise's; the per-rotation + per-day caps bound the
-///   worst case; the owner can `pause`/`revoke` any time; a venue allowlist +
-///   circuit-breaker live in the registry. The keeper cannot send funds to an
-///   arbitrary address (the ticket forces the receipt back into the position),
-///   but — as with auto_swap — a *compromised* keeper could rotate into an
-///   allowlisted venue sub-optimally; the caps bound that. Trustless hardening
-///   (min-output assertion via a per-venue value read) is a documented v2 item
-///   and a primary audit focus. NOT FOR MAINNET until audited + testnet-proven.
+///   worst case; the owner can `pause`/`disable_rebalance` any time; the venue
+///   allowlist + circuit breaker live in the registry. The keeper cannot send
+///   funds to an arbitrary address (the ticket forces the receipt back into the
+///   position), but — as with auto_swap — a *compromised* keeper could rotate
+///   into an allowlisted venue sub-optimally; the caps bound that. Trustless
+///   hardening (min-output assertion via a per-venue value read) is a documented
+///   v2 item and a primary audit focus. NOT FOR MAINNET until audited +
+///   testnet-proven.
 module talise::yield_router;
 
 use sui::{dynamic_object_field as dof, clock::Clock, event};
@@ -41,8 +44,8 @@ use sui::{dynamic_object_field as dof, clock::Clock, event};
 // Errors
 const ENotOwner: u64 = 400;
 const EWrongPosition: u64 = 401;
-const ECapPaused: u64 = 402;
-const ECapExpired: u64 = 403;
+const ERebalancePaused: u64 = 402;
+const ERebalanceExpired: u64 = 403;
 const EAmountExceedsCap: u64 = 404;
 const EDailyCapExceeded: u64 = 405;
 const EWrongWorker: u64 = 406;
@@ -51,6 +54,7 @@ const EVenuePaused: u64 = 408;
 const ENoReceipt: u64 = 409;
 const ESameVenue: u64 = 410;
 const EZeroAmount: u64 = 411;
+const ERebalanceDisabled: u64 = 412;
 
 // ───────────────────────────────────────────────────────────────────
 // Venue ids — the fixed allowlist (security-ranked; see YIELD-ROUTER.md).
@@ -67,9 +71,9 @@ fun is_known_venue(v: u8): bool {
 // ───────────────────────────────────────────────────────────────────
 // Objects
 
-/// One per user. Shared so the keeper's PTB can reference it, but every
-/// state change is gated by either `owner` (deposit/withdraw/revoke) or a
-/// valid `RebalanceCap` + registered worker (rotation). Venue receipts are
+/// One per user. Shared so the keeper's PTB can reference it, but every state
+/// change is gated by either `owner` (deposit/withdraw/config) or a registered
+/// worker honoring the inline rebalance caps (rotation). Venue receipts are
 /// stored as dynamic OBJECT fields keyed by `venue id (u8)`.
 public struct YieldPosition has key {
     id: UID,
@@ -79,23 +83,19 @@ public struct YieldPosition has key {
     /// Bitset of venue ids that currently hold a receipt (cheap "where am I").
     active_venues: u8,
     rotations_total: u64,
-}
-
-/// Capped delegated authority to ROTATE this position. Shared (so the
-/// keeper key can reference it in a PTB), but owner-gated for mutation —
-/// the same shape decision documented in `vault::enable_auto_swap`.
-public struct RebalanceCap has key, store {
-    id: UID,
-    position_id: ID,
-    owner: address,
+    // ── Inline rebalance authority (replaces a shared cap object) ──
+    /// Owner opted into keeper rotation. False → `begin_rotation` aborts.
+    rebalance_enabled: bool,
+    /// Owner kill switch, independent of `rebalance_enabled`.
+    rebalance_paused: bool,
     /// Max USDC moved in a single rotation.
     max_per_rotation: u64,
-    /// Rolling 24h cap.
+    /// Rolling 24h cap + its accounting window.
     max_per_day: u64,
     used_today: u64,
     day_start_ms: u64,
+    /// Authority expiry; the owner re-arms by calling `enable_rebalance` again.
     expires_at_ms: u64,
-    paused: bool,
 }
 
 /// Registry of keeper workers + the venue circuit-breaker. Admin-owned.
@@ -125,7 +125,7 @@ public struct RotationTicket {
 // Events
 public struct PositionMinted has copy, drop { position_id: ID, owner: address }
 public struct ReceiptDeposited has copy, drop { position_id: ID, venue: u8, basis_added: u64 }
-public struct ReceiptWithdrawn has copy, drop { position_id: ID, venue: u8 }
+public struct ReceiptRemoved has copy, drop { position_id: ID, venue: u8 }
 public struct Rotated has copy, drop { position_id: ID, from_venue: u8, to_venue: u8, amount: u64, ts_ms: u64 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -133,7 +133,8 @@ public struct Rotated has copy, drop { position_id: ID, from_venue: u8, to_venue
 
 /// MINT a position for the caller. This is the object the user creates to
 /// opt into routed yield. Shared so the keeper can reference it; owner-gated
-/// for every value-moving op.
+/// for every value-moving op. Rebalance authority starts DISABLED — the owner
+/// arms it explicitly via `enable_rebalance`.
 public fun mint_position(ctx: &mut TxContext) {
     let pos = YieldPosition {
         id: object::new(ctx),
@@ -141,6 +142,13 @@ public fun mint_position(ctx: &mut TxContext) {
         basis_usdc: 0,
         active_venues: 0,
         rotations_total: 0,
+        rebalance_enabled: false,
+        rebalance_paused: false,
+        max_per_rotation: 0,
+        max_per_day: 0,
+        used_today: 0,
+        day_start_ms: 0,
+        expires_at_ms: 0,
     };
     event::emit(PositionMinted { position_id: object::id(&pos), owner: ctx.sender() });
     transfer::share_object(pos);
@@ -151,8 +159,8 @@ public fun mint_position(ctx: &mut TxContext) {
 /// `R` is the venue's receipt type (Obligation / sUSDC coin / AccountCap / …).
 public fun deposit_receipt<R: key + store>(
     pos: &mut YieldPosition,
-    venue: u8,
     receipt: R,
+    venue: u8,
     basis_usdc: u64,
     ctx: &TxContext,
 ) {
@@ -178,65 +186,58 @@ public fun take_receipt<R: key + store>(
     let receipt: R = dof::remove(&mut pos.id, venue);
     pos.active_venues = pos.active_venues & (0xFF ^ venue_bit(venue));
     pos.basis_usdc = if (basis_removed >= pos.basis_usdc) 0 else pos.basis_usdc - basis_removed;
-    event::emit(ReceiptWithdrawn { position_id: object::id(pos), venue });
+    event::emit(ReceiptRemoved { position_id: object::id(pos), venue });
     receipt
 }
 
 // ───────────────────────────────────────────────────────────────────
-// Cap lifecycle — owner controls; keeper uses
+// Rebalance authority — owner controls (inline on the position)
 
-/// Owner mints a `RebalanceCap` for the keeper. Vault-aware ownership check
-/// (we have `&YieldPosition` in scope) closes the "cap pointing at someone
-/// else's position" hole — mirrors `vault::enable_auto_swap`.
+/// Owner arms (or re-arms) keeper rotation with fresh caps + expiry. We have
+/// `&mut YieldPosition` and assert `sender == owner`, so the authority can
+/// only ever be set on the caller's OWN position — there is no separate cap
+/// object that could be minted against, or shared for, someone else's position.
 public fun enable_rebalance(
-    pos: &YieldPosition,
+    pos: &mut YieldPosition,
     max_per_rotation: u64,
     max_per_day: u64,
     expires_at_ms: u64,
     clock: &Clock,
-    ctx: &mut TxContext,
+    ctx: &TxContext,
 ) {
     assert!(ctx.sender() == pos.owner, ENotOwner);
-    let cap = RebalanceCap {
-        id: object::new(ctx),
-        position_id: object::id(pos),
-        owner: pos.owner,
-        max_per_rotation,
-        max_per_day,
-        used_today: 0,
-        day_start_ms: clock.timestamp_ms(),
-        expires_at_ms,
-        paused: false,
-    };
-    transfer::public_share_object(cap);
+    pos.rebalance_enabled = true;
+    pos.rebalance_paused = false;
+    pos.max_per_rotation = max_per_rotation;
+    pos.max_per_day = max_per_day;
+    pos.used_today = 0;
+    pos.day_start_ms = clock.timestamp_ms();
+    pos.expires_at_ms = expires_at_ms;
 }
 
-/// Owner-only kill switch + resume + hard revoke.
-public fun pause(cap: &mut RebalanceCap, ctx: &TxContext) {
-    assert!(ctx.sender() == cap.owner, ENotOwner);
-    cap.paused = true;
+/// Owner-only kill switch + resume + hard disable.
+public fun pause(pos: &mut YieldPosition, ctx: &TxContext) {
+    assert!(ctx.sender() == pos.owner, ENotOwner);
+    pos.rebalance_paused = true;
 }
-public fun resume(cap: &mut RebalanceCap, ctx: &TxContext) {
-    assert!(ctx.sender() == cap.owner, ENotOwner);
-    cap.paused = false;
+public fun resume(pos: &mut YieldPosition, ctx: &TxContext) {
+    assert!(ctx.sender() == pos.owner, ENotOwner);
+    pos.rebalance_paused = false;
 }
-public fun revoke(cap: RebalanceCap, ctx: &TxContext) {
-    assert!(ctx.sender() == cap.owner, ENotOwner);
-    let RebalanceCap { id, position_id: _, owner: _, max_per_rotation: _, max_per_day: _,
-        used_today: _, day_start_ms: _, expires_at_ms: _, paused: _ } = cap;
-    object::delete(id);
+public fun disable_rebalance(pos: &mut YieldPosition, ctx: &TxContext) {
+    assert!(ctx.sender() == pos.owner, ENotOwner);
+    pos.rebalance_enabled = false;
 }
 
 // ───────────────────────────────────────────────────────────────────
 // Rotation — keeper-signed, bracketed by the hot potato
 
-/// Begin a rotation: validate the cap + worker + caps + venue allowlist,
+/// Begin a rotation: validate worker + the inline caps + venue allowlist,
 /// remove the SOURCE receipt, and hand it back alongside a `RotationTicket`.
 /// The keeper's PTB then composes `<from>::withdraw → USDC → <to>::deposit`
 /// and MUST call `end_rotation` to store the new receipt + consume the ticket.
 public fun begin_rotation<R: key + store>(
     pos: &mut YieldPosition,
-    cap: &mut RebalanceCap,
     registry: &RebalanceRegistry,
     from_venue: u8,
     to_venue: u8,
@@ -245,22 +246,22 @@ public fun begin_rotation<R: key + store>(
     ctx: &TxContext,
 ): (R, RotationTicket) {
     // Authority + bounds (mirrors auto_swap::validate_for_swap_v2).
-    assert!(cap.position_id == object::id(pos), EWrongPosition);
-    assert!(vector::contains(&registry.workers, &ctx.sender()), EWrongWorker);
-    assert!(!cap.paused, ECapPaused);
+    assert!(registry.workers.contains(&ctx.sender()), EWrongWorker);
+    assert!(pos.rebalance_enabled, ERebalanceDisabled);
+    assert!(!pos.rebalance_paused, ERebalancePaused);
     let now = clock.timestamp_ms();
-    assert!(now < cap.expires_at_ms, ECapExpired);
+    assert!(now < pos.expires_at_ms, ERebalanceExpired);
     assert!(amount > 0, EZeroAmount);
-    assert!(amount <= cap.max_per_rotation, EAmountExceedsCap);
+    assert!(amount <= pos.max_per_rotation, EAmountExceedsCap);
 
     // Rolling 24h throttle with overflow-safe accounting.
-    if (now >= cap.day_start_ms + 86_400_000) {
-        cap.day_start_ms = now;
-        cap.used_today = 0;
+    if (now >= pos.day_start_ms + 86_400_000) {
+        pos.day_start_ms = now;
+        pos.used_today = 0;
     };
-    assert!(cap.used_today <= cap.max_per_day, EDailyCapExceeded);
-    assert!(amount <= cap.max_per_day - cap.used_today, EDailyCapExceeded);
-    cap.used_today = cap.used_today + amount;
+    assert!(pos.used_today <= pos.max_per_day, EDailyCapExceeded);
+    assert!(amount <= pos.max_per_day - pos.used_today, EDailyCapExceeded);
+    pos.used_today = pos.used_today + amount;
 
     // Venue allowlist + circuit breaker: may rotate OUT of a paused venue,
     // never INTO one.
@@ -303,7 +304,7 @@ public fun new_registry(ctx: &mut TxContext) {
 }
 public fun add_worker(reg: &mut RebalanceRegistry, worker: address, ctx: &TxContext) {
     assert!(ctx.sender() == reg.admin, ENotOwner);
-    if (!vector::contains(&reg.workers, &worker)) vector::push_back(&mut reg.workers, worker);
+    if (!reg.workers.contains(&worker)) reg.workers.push_back(worker);
 }
 public fun set_venue_paused(reg: &mut RebalanceRegistry, venue: u8, paused: bool, ctx: &TxContext) {
     assert!(ctx.sender() == reg.admin, ENotOwner);
@@ -321,5 +322,6 @@ public fun owner(pos: &YieldPosition): address { pos.owner }
 public fun basis_usdc(pos: &YieldPosition): u64 { pos.basis_usdc }
 public fun active_venues(pos: &YieldPosition): u8 { pos.active_venues }
 public fun rotations_total(pos: &YieldPosition): u64 { pos.rotations_total }
+public fun rebalance_enabled(pos: &YieldPosition): bool { pos.rebalance_enabled }
 #[allow(deprecated_usage)]
 public fun holds(pos: &YieldPosition, venue: u8): bool { dof::exists_(&pos.id, venue) }
