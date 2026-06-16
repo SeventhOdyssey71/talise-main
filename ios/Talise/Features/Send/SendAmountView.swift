@@ -65,25 +65,20 @@ struct SendAmountView: View {
             // from weight (.thin symbol vs .medium number) + color
             // (fgMuted vs fg), not from a size delta — that's what
             // produced the misaligned "tiny ₦ next to giant 0" look.
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(draft.currency.symbol)
-                    .font(TaliseFont.heading(amountFontSize, weight: .thin))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                    .animation(.snappy(duration: 0.18), value: amountFontSize)
-                Text(displayAmount)
-                    .font(TaliseFont.heading(amountFontSize, weight: .medium))
-                    .kerning(-2)
-                    .foregroundStyle(TaliseColor.fg)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                    // Smooth digit + comma transitions as the user
-                    // types past thousands boundaries. SwiftUI's
-                    // numericText transition crossfades the
-                    // appearing/disappearing glyphs in place, so the
-                    // comma slides in cleanly when "999" → "1,000".
-                    .contentTransition(.numericText())
-                    .animation(.snappy(duration: 0.18), value: displayAmount)
-            }
+            // Symbol + number live in ONE composed Text so a single
+            // width-driven scale-down shrinks BOTH in lockstep (two
+            // separate Texts let the number scale while the symbol
+            // stayed huge). The symbol is rendered ~0.78× the number
+            // size: the Naira/￡/$ glyphs have a taller cap-height than
+            // lining digits, so equal point sizes read as an oversized
+            // symbol — the smaller size makes their visual heights match.
+            amountText
+                .lineLimit(1)
+                .minimumScaleFactor(0.4)
+                // numericText crossfades appearing/disappearing glyphs in
+                // place, so the comma slides in cleanly on "999" → "1,000".
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.18), value: displayAmount)
 
             Text(usdsuiSecondary)
                 .font(TaliseFont.mono(13, weight: .light))
@@ -121,21 +116,20 @@ struct SendAmountView: View {
         .padding(.horizontal, 24)
     }
 
-    /// Shared point size for BOTH the currency symbol and the number, so
-    /// they shrink together as the amount gets longer (the symbol used to
-    /// stay locked at 72 while only the number scaled — giving the giant
-    /// "₦" next to a small figure). Steps down by character count; the
-    /// number keeps `minimumScaleFactor` as a final width safety.
-    private var amountFontSize: CGFloat {
-        switch displayAmount.count {
-        case 0...6: return 72
-        case 7:     return 64
-        case 8:     return 56
-        case 9:     return 50
-        case 10:    return 44
-        case 11:    return 40
-        default:    return 36
-        }
+    /// The big amount as a single composed Text: a muted, slightly-smaller
+    /// currency symbol immediately followed by the solid-white figure. One
+    /// Text (not an HStack of two) means `minimumScaleFactor` scales the
+    /// symbol and digits by the same factor — they can never drift apart.
+    private var amountText: Text {
+        Text(draft.currency.symbol)
+            .font(TaliseFont.heading(56, weight: .thin))
+            .foregroundColor(TaliseColor.fgMuted)
+        + Text(" ")
+            .font(TaliseFont.heading(56, weight: .thin))
+        + Text(displayAmount)
+            .font(TaliseFont.heading(72, weight: .medium))
+            .kerning(-2)
+            .foregroundColor(TaliseColor.fg)
     }
 
     /// What we render inside the big number. Formats the integer part
