@@ -48,7 +48,7 @@ struct SignInScreen: View {
                 hero
                     .frame(width: 96, height: 96)
 
-                Text(returningUser ? "Welcome back" : "Sign in to Talise")
+                Text(returningUser ? "Welcome back" : "Welcome to Talise")
                     .font(TaliseFont.heading(26, weight: .semibold))
                     .kerning(kern(26))
                     .foregroundStyle(TaliseColor.fg)
