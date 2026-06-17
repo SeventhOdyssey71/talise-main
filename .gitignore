@@ -125,3 +125,4 @@ AuthKey_*
 # Talise marketing — generated content binaries (regenerate from sources)
 marketing/higgsfield-flow/music/*.mp3
 marketing/higgsfield-flow/characters/hero-*.png
+marketing/higgsfield-flow/clips/**/*.mp4
