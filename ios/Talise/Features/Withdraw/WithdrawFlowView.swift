@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 /// Top-level Withdraw flow. Replaces the old direct-to-Send sheet the
 /// paper-plane button used to open. Now lands on a full-page options
@@ -1323,11 +1324,7 @@ struct TaliseLoadingRing: View {
 /// caveats) and hands off. See docs/strategy/PRIVACY-BUILD-PLAN.md.
 private struct PrivateSoonSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var safariURL: URL?
-
-    private var privateFlowURL: URL? {
-        URL(string: AppConfig.shared.apiBaseURL + "/private")
-    }
+    @State private var showWeb = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1372,7 +1369,7 @@ private struct PrivateSoonSheet: View {
             Spacer(minLength: 0)
 
             Button {
-                if let u = privateFlowURL { safariURL = u }
+                showWeb = true
             } label: {
                 Text("Continue to private send")
                     .font(TaliseFont.body(16, weight: .semibold))
@@ -1387,7 +1384,9 @@ private struct PrivateSoonSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TaliseColor.bg.ignoresSafeArea())
-        .sheet(item: $safariURL) { url in RampSafariView(url: url) }
+        // Stays INSIDE the app — an in-app WKWebView (not Safari), so the
+        // shielded proof is built in the app's own web layer.
+        .fullScreenCover(isPresented: $showWeb) { PrivateWebScreen() }
     }
 }
 
@@ -1405,4 +1404,56 @@ private struct PrivatePilotNote: View {
         }
         .padding(.horizontal, 12)
     }
+}
+
+/// Full-screen IN-APP host for the shielded-send flow. The private flow runs in
+/// the app's own web layer (where the Groth16 proof is built client-side) — it
+/// never bounces to Safari. We load the bearer→web-session bridge so the
+/// WKWebView is authenticated as the signed-in user, then it lands on /private.
+private struct PrivateWebScreen: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            PrivateWebView()
+                .ignoresSafeArea(edges: .bottom)
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fg)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(TaliseColor.surface2))
+            }
+            .padding(.trailing, 16)
+            .padding(.top, 12)
+        }
+        .background(TaliseColor.bg.ignoresSafeArea())
+    }
+}
+
+/// WKWebView that opens the in-app private-send flow. It hits
+/// `/api/auth/web-session?next=/private` with the app's Bearer token on the
+/// top-level request; the server mints the web-session cookie and 302s to
+/// /private, so the page + its same-origin shield API calls are authenticated
+/// without ever leaving the app.
+private struct PrivateWebView: UIViewRepresentable {
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+
+        if let url = URL(string: AppConfig.shared.apiBaseURL + "/api/auth/web-session?next=/private") {
+            var req = URLRequest(url: url)
+            if let bearer = SecureSessionStore.shared.read() {
+                req.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization")
+            }
+            webView.load(req)
+        }
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {}
 }
