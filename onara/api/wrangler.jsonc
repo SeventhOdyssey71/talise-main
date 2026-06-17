@@ -19,9 +19,11 @@
   "vars": {
     "SUI_NETWORK": "mainnet",
     "SUI_GRPC_URL": "https://fullnode.mainnet.sui.io:443",
-    // Canonical Talise Move package id. Sponsor policy `targets`
-    // are templated against this at request time. Without it set,
-    // the sponsor refuses every Talise tx.
-    "TALISE_PACKAGE_ID": ""
+    // Canonical Talise Move package id (public, on-chain — not a secret).
+    // Sponsor policy `targets` (::send::* / ::vault::* / ::auto_swap::* /
+    // ::receipt::*) are templated against this at request time. Without it
+    // set, the sponsor refuses every Talise tx. Verified on mainnet to
+    // expose exactly the send/vault/auto_swap/receipt modules.
+    "TALISE_PACKAGE_ID": "0xc74a7df07b4089d92f196d1db73ce0574db7f58ae0ba2b19b2a59d402958d394"
   }
 }

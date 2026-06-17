@@ -1,39 +1,52 @@
-import taliseTemplate from './talise.json'
-
-// gasBudgetMax (20_000_000 MIST ≈ 0.02 SUI) covers normal PTBs
-// (send / vault / auto_swap) with headroom. Bump only if a legit
-// flow simulates over this cap. `targets` is templated with
-// `__TALISE_PACKAGE_ID__` so the sponsor only signs for our own
-// Move modules at runtime. See `resolveSponsorPolicies`.
-
-const PACKAGE_ID_TOKEN = '__TALISE_PACKAGE_ID__'
-
 export type RawSponsorPolicy = Record<string, unknown>
 
-/**
- * Build the runtime policy list from the templated JSON. Substitutes
- * `__TALISE_PACKAGE_ID__` in `targets` with the configured Talise
- * Move package id. If `packageId` is missing or empty, the Talise
- * policy is dropped. Sponsor will then reject every Talise tx
- * instead of falling back to a wildcard, which is the safer default.
- */
-export function resolveSponsorPolicies(packageId: string | undefined): RawSponsorPolicy[] {
-  if (!packageId || packageId.trim().length === 0) return []
-  const pkg = packageId.trim()
-  // structuredClone keeps the import immutable across requests.
-  const cloned = structuredClone(taliseTemplate) as RawSponsorPolicy
-  if (Array.isArray((cloned as { targets?: unknown }).targets)) {
-    const targets = (cloned as { targets: unknown[] }).targets.map((t) =>
-      typeof t === 'string' ? t.split(PACKAGE_ID_TOKEN).join(pkg) : t,
-    )
-    ;(cloned as { targets: unknown[] }).targets = targets
-  }
-  return [cloned]
+// ─── Sponsor policy: allow-all with gas caps ─────────────────────────────────
+//
+// Onara is GAS-ONLY sponsorship — the user signs their own transaction, so
+// every coin/value movement is authorized by *their* key; Onara only co-signs
+// to pay gas. The real access gate is upstream (`/api/zk/sponsor` is behind
+// app-attest + bearer auth), so the only residual risk here is gas-griefing,
+// which the per-tx caps below bound.
+//
+// We allow any target because Talise's flows legitimately call MANY packages:
+//   • Talise core (send / vault / auto_swap / receipt)
+//   • Cetus aggregator + CLMM pools + other DEXs (swaps / wallet-sweep)
+//   • Navi + Scallop (earn / save)
+//   • DeepBook, cheque/stream packages, …
+// A curated allowlist silently breaks any flow whose package id drifts (e.g.
+// a Cetus router upgrade), so we instead bound by gas + command count.
+//
+// gasBudgetMax 100_000_000 MIST = 0.1 SUI — comfortably above a multi-hop
+// Cetus swap (~<0.01 SUI) while capping a single griefing tx at 0.1 SUI.
+const ALLOW_ALL_CAPPED: RawSponsorPolicy = {
+  name: 'allow-all-capped',
+  // `action` (not `mode`) is the schema field; allow + universal target.
+  action: 'allow',
+  enabled: true,
+  gasBudgetMax: 100_000_000,
+  maxCommands: 64,
+  targets: ['*'],
+  allowedCommandKinds: [
+    'SplitCoins',
+    'MergeCoins',
+    'TransferObjects',
+    'MoveCall',
+    'MakeMoveVec',
+    'Upgrade',
+  ],
 }
 
-// Default export kept for back-compat with code that imports the
-// raw JSON list. Callers that need the resolved package-id version
-// should call `resolveSponsorPolicies` per-request.
-const sponsorPolicies: RawSponsorPolicy[] = [taliseTemplate as RawSponsorPolicy]
+/**
+ * Build the runtime sponsor policy list. We return the allow-all-with-caps
+ * policy unconditionally — `packageId` is accepted for signature/back-compat
+ * (and future per-package tightening) but no longer gates sponsorship, since
+ * earns/swaps call non-Talise packages and were being rejected otherwise.
+ */
+export function resolveSponsorPolicies(_packageId?: string | undefined): RawSponsorPolicy[] {
+  return [structuredClone(ALLOW_ALL_CAPPED)]
+}
+
+// Default export kept for back-compat with code that imports the raw list.
+const sponsorPolicies: RawSponsorPolicy[] = [ALLOW_ALL_CAPPED]
 
 export default sponsorPolicies
