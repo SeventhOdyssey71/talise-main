@@ -123,7 +123,7 @@ Mainnet Move package ids (autoswap v1 → v4, registry, vault types) are tabulat
 
 ## Hackathon alignment
 
-Sui Overflow 2026 — DeFi & Payments track. Track-by-track judging breakdown, scoring rationale, and demo script are in [`HACKATHON.md`](HACKATHON.md) (companion doc).
+Sui Overflow 2026 — DeFi & Payments track. Track-by-track judging breakdown, scoring rationale, and demo script are in [`docs/hackathon/HACKATHON.md`](docs/hackathon/HACKATHON.md) (companion doc).
 
 ## Architecture
 
