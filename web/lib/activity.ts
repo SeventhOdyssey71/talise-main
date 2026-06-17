@@ -1663,19 +1663,27 @@ export async function getRecentActivityWithMeta(
       : [];
     const sendMemo = allMemos.find((m) => m.kind === "send");
     const investMemo = allMemos.find((m) => m.kind === "invest");
+    // Is the VIEWER the one who paid? The compound spend+save treatment
+    // (and the "sent" direction) is only valid from the sender's POV —
+    // their USDsui/SUI balance went DOWN. The recipient of the very same
+    // digest sees a POSITIVE delta and must read it as "received".
+    const viewerIsSender = myUsdsui < 0 || mySui < 0;
 
-    if (sendMemo && investMemo) {
-      // COMPOUND spend+save. Use the send memo for direction (the
-      // user thinks of the action as "I sent money to jude"). The
-      // invest leg is surfaced as the round-up sub-amount.
+    if (sendMemo && investMemo && viewerIsSender) {
+      // COMPOUND spend+save (sender's view). Use the send memo for
+      // direction (the user thinks "I sent money to jude"); the invest
+      // leg is surfaced as the round-up sub-amount.
       direction = "sent";
       venue = null;
       cpForRow = counterparty;
       compoundSendUsdsui = sendMemo.amountUsdsui;
       compoundRoundupUsdsui = investMemo.amountUsdsui;
     } else if (allMemos.length > 0) {
-      // Single PK record — existing path.
-      const memo = allMemos[0];
+      // Single PK record, OR the RECIPIENT's view of a compound send+save
+      // tx. Prefer the `send` memo so a recipient classifies off the real
+      // transfer (→ "received" from their positive delta) instead of the
+      // sender's round-up `invest` leg (which would mislabel it "invest").
+      const memo = sendMemo ?? allMemos[0];
       const m = memoToClassification(memo, myUsdsui, mySui);
       direction = m.direction;
       venue = m.venue;

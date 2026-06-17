@@ -2203,9 +2203,15 @@ function envAllowedEmails(): Set<string> {
   );
 }
 
-/** Is this email allowed into the gated app surfaces? Fail-CLOSED on DB error
- *  (except for the env bootstrap list, which always passes). */
+/** Is this email allowed into the gated app surfaces?
+ *
+ *  PUBLIC BETA: access is OPEN to everyone — Talise has gone live, so any
+ *  signed-in account can move money. The allowlist mechanism below is left
+ *  intact and can be re-enabled by setting `APP_ACCESS_OPEN=false` (which
+ *  reverts to env-bootstrap + app_allowlist gating, fail-closed on DB error).
+ */
 export async function isAppAccessAllowed(email: string): Promise<boolean> {
+  if (process.env.APP_ACCESS_OPEN !== "false") return true;
   const norm = email.trim().toLowerCase();
   if (envAllowedEmails().has(norm)) return true;
   try {
