@@ -134,19 +134,30 @@ struct HomeView: View {
         }
         .overlay(alignment: .bottom) {
             if let swapToast {
-                HStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
                     Image(systemName: swapToastIsError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(swapToastIsError ? TaliseColor.danger : TaliseColor.accent)
                     Text(swapToast)
                         .font(TaliseFont.body(13.5, weight: .medium))
                         .foregroundStyle(TaliseColor.fg)
-                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
-                .background(Capsule().fill(TaliseColor.surface2))
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
-                .padding(.bottom, 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(TaliseColor.surface2)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                )
+                .padding(.horizontal, 20)
+                // Clear the floating nav pill (≈64pt + bottom inset) so the
+                // toast — especially an error — is never hidden behind it.
+                .padding(.bottom, 124)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -1097,11 +1108,13 @@ struct HomeView: View {
     }
 
     /// Show a transient bottom toast (auto-dismisses) for a swap result.
+    /// Errors linger longer than successes so they're actually readable.
     private func flashToast(_ message: String, isError: Bool = false) {
         swapToastIsError = isError
         swapToast = message
+        let ns: UInt64 = isError ? 6_000_000_000 : 2_800_000_000
         Task {
-            try? await Task.sleep(nanoseconds: 2_800_000_000)
+            try? await Task.sleep(nanoseconds: ns)
             await MainActor.run { if swapToast == message { swapToast = nil } }
         }
     }
