@@ -82,6 +82,49 @@ jobs:
           echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
           echo "ASC_KEY_PATH=$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
 
+      # Self-heal the certificate cap. Automatic signing mints a fresh
+      # "Apple Development: Created via API" cert on every clean runner, and
+      # Apple caps these — once full, the archive fails with "maximum number
+      # of certificates". We revoke those THROWAWAY CI-created DEVELOPMENT
+      # certs via the ASC API before archiving, so a slot is always free.
+      # (We never touch DISTRIBUTION certs — the import step reuses ours — nor
+      # any developer's locally-named dev cert; only "Created via API" ones.)
+      # Best-effort: never fails the build.
+      - name: Free Apple Development certificate slots
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          node --input-type=module <<'JS' || echo "[cert-gc] skipped (best-effort)"
+          import crypto from "node:crypto";
+          import fs from "node:fs";
+          const keyId = process.env.ASC_KEY_ID;
+          const issuer = process.env.ASC_ISSUER_ID;
+          const p8 = fs.readFileSync(process.env.ASC_KEY_PATH, "utf8");
+          const b64u = (b) => Buffer.from(b).toString("base64url");
+          const now = Math.floor(Date.now() / 1000);
+          const header = b64u(JSON.stringify({ alg: "ES256", kid: keyId, typ: "JWT" }));
+          const payload = b64u(JSON.stringify({ iss: issuer, iat: now, exp: now + 600, aud: "appstoreconnect-v1" }));
+          const signer = crypto.createSign("SHA256");
+          signer.update(`${header}.${payload}`);
+          const sig = signer.sign({ key: p8, dsaEncoding: "ieee-p1363" });
+          const jwt = `${header}.${payload}.${Buffer.from(sig).toString("base64url")}`;
+          const auth = { Authorization: `Bearer ${jwt}` };
+          const res = await fetch("https://api.appstoreconnect.apple.com/v1/certificates?limit=200", { headers: auth });
+          const body = await res.json();
+          const certs = body.data || [];
+          const throwaway = certs.filter((c) => {
+            const t = c.attributes?.certificateType || "";
+            const n = c.attributes?.name || "";
+            return t.includes("DEVELOPMENT") && /created via api/i.test(n);
+          });
+          console.log(`[cert-gc] ${certs.length} certs total, ${throwaway.length} throwaway DEVELOPMENT to revoke`);
+          for (const c of throwaway) {
+            const d = await fetch(`https://api.appstoreconnect.apple.com/v1/certificates/${c.id}`, { method: "DELETE", headers: auth });
+            console.log(`[cert-gc] revoke ${c.id} (${c.attributes?.name}) -> ${d.status}`);
+          }
+          JS
+
       # Import a stored Apple Distribution cert (+ private key) into a
       # throwaway keychain so the archive REUSES it. Without this, automatic
       # signing on the empty cloud keychain mints a new distribution cert
