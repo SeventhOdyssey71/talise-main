@@ -56,6 +56,13 @@ const DEFAULT_SLIPPAGE = 0.01
 /// `DEFAULT_AGG_V3_ENDPOINT` inside the SDK uses too.
 const CETUS_AGGREGATOR_ENDPOINT = 'https://api-sui.cetus.zone/router_v3'
 
+/// Talise swap fee — 1% of every auto-swap is skimmed to the treasury via
+/// the Cetus aggregator's NATIVE overlay fee. Keep in sync with
+/// `SWAP_FEE_BPS` in web/app/api/swap/prepare/route.ts + walletSweep.ts.
+const SWAP_FEE_RATE = 0.01
+const TREASURY_WALLET =
+  '0xc0bf1c51e44f8cfa4a06f16a2408effa3507ac4582744c7ead56078b5e251a48'
+
 // ─── Env shape (subset — must match app.ts Bindings) ─────────────────────────
 
 type Bindings = {
@@ -450,6 +457,9 @@ function getAggregator(
     client: getAggregatorClient(network) as never,
     signer,
     env: envNum as never,
+    // 1% Talise fee → treasury, taken natively during the swap.
+    overlayFeeRate: SWAP_FEE_RATE,
+    overlayFeeReceiver: TREASURY_WALLET,
   })
   _aggKey = key
   return _agg

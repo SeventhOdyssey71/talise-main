@@ -41,6 +41,7 @@ export const EVENT_LABELS: Record<RewardsEventKind, string> = {
   roundup_save: "Round-up saved",
   withdraw_earn: "Withdrew from yield",
   goal_deposit: "Added to a savings goal",
+  swap_earn: "Converted to USDsui",
   redeemed: "Redeemed points",
 };
 

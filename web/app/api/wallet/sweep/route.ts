@@ -87,7 +87,13 @@ export async function POST(req: Request) {
     });
   }
 
-  let parsed: { ok?: boolean; bytesB64?: string; sender?: string; error?: string };
+  let parsed: {
+    ok?: boolean;
+    bytesB64?: string;
+    sender?: string;
+    error?: string;
+    estUsdsuiOut?: string;
+  };
   try {
     parsed = JSON.parse(text);
   } catch {
@@ -106,5 +112,8 @@ export async function POST(req: Request) {
   return NextResponse.json({
     bytesB64: parsed.bytesB64,
     sender: parsed.sender,
+    // Forwarded estimate (raw u64 USDsui, 6-dp) so iOS can credit the 1
+    // pt/$1 swap reward. USDsui is 1:1 USD → USD = estUsdsuiOut / 1e6.
+    estUsdsuiOut: parsed.estUsdsuiOut,
   });
 }

@@ -1182,6 +1182,7 @@ export type RewardsEventKind =
   | "roundup_save"
   | "withdraw_earn"
   | "goal_deposit"
+  | "swap_earn"
   | "redeemed";
 
 export type RewardsEvent = {

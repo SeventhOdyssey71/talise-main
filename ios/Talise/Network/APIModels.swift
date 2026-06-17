@@ -800,10 +800,23 @@ struct WalletSweepCoin: Codable {
     let amount: String
 }
 
-/// Response from `POST /api/wallet/sweep`. Same shape as the vault PTB
-/// endpoints — `bytesB64` flows straight into
-/// `ZkLoginCoordinator.signAndSubmit`.
-typealias WalletSweepResponse = VaultCreatePrepareResponse
+/// Response from `POST /api/wallet/sweep`. `bytesB64` flows straight into
+/// `ZkLoginCoordinator.signAndSubmit`. `estUsdsuiOut` is the quoted USDsui
+/// output (raw u64, 6-dp) summed across all legs, net of the 1% fee —
+/// used to credit the swap rewards points. Optional so older server
+/// builds (that don't return it) still decode cleanly.
+struct WalletSweepResponse: Codable {
+    let bytesB64: String
+    let sender: String?
+    let estUsdsuiOut: String?
+
+    /// USD value of the sweep output (USDsui is 1:1 USD, 6 decimals).
+    /// 0 when the server didn't return an estimate.
+    var estUsdOut: Double {
+        guard let raw = estUsdsuiOut, let micros = Double(raw) else { return 0 }
+        return micros / 1_000_000
+    }
+}
 
 struct AutoSwapCapDTO: Codable, Identifiable, Hashable {
     let id: String

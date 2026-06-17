@@ -1220,9 +1220,17 @@ struct HomeView: View {
             //    TransactionData, the ephemeral key signs the intent,
             //    /api/zk/sponsor-execute broadcasts.
             let intent = "Convert wallet to USDsui (\(legs.count) coin\(legs.count == 1 ? "" : "s"))"
+            // Credit the 1 pt/$1 swap reward on the USDsui actually produced
+            // (server-quoted, net of the 1% fee). 0 estimate → no points,
+            // but the conversion still settles.
+            let rewards = ZkLoginCoordinator.RewardsMeta(
+                kind: "swap",
+                amountUsd: built.estUsdOut
+            )
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
                 transactionKindB64: built.bytesB64,
-                intent: intent
+                intent: intent,
+                rewards: rewards
             )
             _ = result
             // Success → a transient toast, NOT a re-presented confirm sheet.

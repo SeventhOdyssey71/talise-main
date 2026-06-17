@@ -31,7 +31,7 @@ import { db, ensureSchema, recordRewardsEvent, type User } from "@/lib/db";
  */
 
 /** What kind of motion triggered the earn. Maps 1:1 to the iOS TxKind. */
-export type EarnTrigger = "send" | "invest" | "withdraw" | "roundup" | "goal";
+export type EarnTrigger = "send" | "invest" | "withdraw" | "roundup" | "goal" | "swap";
 
 /**
  * Points-per-USD rates keyed by trigger. The rates intentionally bias
@@ -45,6 +45,9 @@ export const POINT_RATES: Record<EarnTrigger, number> = {
   withdraw: 0,
   roundup: 5,
   goal: 4,
+  // Auto-swap into USDsui (Cetus) — reward the conversion that puts the
+  // user into the spendable/savable stablecoin. 1 pt per $1 converted.
+  swap: 1,
 };
 
 /**
@@ -100,6 +103,7 @@ export async function awardForTx(opts: {
     : opts.trigger === "invest" ? "save_earn"
     : opts.trigger === "withdraw" ? "withdraw_earn"
     : opts.trigger === "roundup" ? "roundup_save"
+    : opts.trigger === "swap" ? "swap_earn"
     : "goal_deposit";
 
   // Always write the event row (even when points === 0) — it's the

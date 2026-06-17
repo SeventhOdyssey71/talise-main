@@ -401,6 +401,7 @@ export async function POST(req: Request) {
         "withdraw",
         "roundup",
         "goal",
+        "swap",
       ]);
       const trigger = meta.kind as EarnTrigger;
       if (ALLOWED.has(trigger)) {

@@ -4,9 +4,6 @@ import SwiftUI
 /// authenticated tab bar depending on `AppSession.phase`.
 struct AppRoot: View {
     @Environment(AppSession.self) private var session
-    @Environment(\.scenePhase) private var scenePhase
-    /// When the app left the foreground — drives the 2-minute inactivity lock.
-    @State private var backgroundedAt: Date?
 
     var body: some View {
         Group {
@@ -87,6 +84,10 @@ struct MainTabView: View {
     // UX (Payment-Intent confirm cards, voice input, deeper grounding)
     // is ready — but it shouldn't ship to users half-baked.
     enum Tab: Hashable { case home, invest, rewards, profile }
+    @Environment(AppSession.self) private var session
+    @Environment(\.scenePhase) private var scenePhase
+    /// When the app left the foreground — drives the 2-minute inactivity lock.
+    @State private var backgroundedAt: Date?
     @State private var tab: Tab = .home
     @State private var depositCoverVisible = false
     @State private var withdrawCoverVisible = false

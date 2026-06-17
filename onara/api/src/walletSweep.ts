@@ -47,6 +47,16 @@ const DEFAULT_SLIPPAGE = 0.01
 
 const CETUS_AGGREGATOR_ENDPOINT = 'https://api-sui.cetus.zone/router_v3'
 
+/// Talise swap fee — 1% of every conversion is skimmed to the treasury
+/// via the Cetus aggregator's NATIVE overlay fee (baked into the route +
+/// swap moveCalls; no manual coin split). Keep in sync with
+/// `SWAP_FEE_BPS` in web/app/api/swap/prepare/route.ts (100 bps).
+const SWAP_FEE_RATE = 0.01
+/// Treasury that collects the overlay fee. Mirrors `TREASURY_WALLET` in
+/// web/lib/navi-supply.ts.
+const TREASURY_WALLET =
+  '0xc0bf1c51e44f8cfa4a06f16a2408effa3507ac4582744c7ead56078b5e251a48'
+
 /// USDsui destination type. Env-overridable for testnet redeploys; in
 /// practice mainnet is the only place this matters.
 const DEFAULT_USDSUI_TYPE =
@@ -127,6 +137,9 @@ function getAggregator(network: string, signer: string): AggregatorClient {
     client: getAggregatorClient(network) as never,
     signer,
     env: envNum as never,
+    // 1% Talise fee → treasury, taken natively during the swap.
+    overlayFeeRate: SWAP_FEE_RATE,
+    overlayFeeReceiver: TREASURY_WALLET,
   })
   _aggKey = key
   return _agg
@@ -156,8 +169,9 @@ function getGrpc(bindings: Bindings): SuiGrpcClient {
 
 /// Add a single Cetus-aggregator leg to `tx` that converts `amount` of
 /// `coinType` (owned by `owner`) into `destType` and transfers the
-/// resulting Coin<dest> back to `owner`. Returns the Coin<dest> arg in
-/// case a caller wants to chain further commands (we don't).
+/// resulting Coin<dest> back to `owner`. Returns the quoted destType
+/// output amount (raw u64 string) so the caller can total the sweep's
+/// estimated USDsui out (used for the swap rewards-points credit).
 async function addCetusLeg(
   tx: Transaction,
   owner: string,
@@ -165,7 +179,7 @@ async function addCetusLeg(
   destType: string,
   amount: string,
   aggregator: AggregatorClient,
-): Promise<TransactionObjectArgument> {
+): Promise<string> {
   // 1. Resolve the input coin from the owner's address. coinWithBalance
   //    handles both Coin<T> objects and the May-2026 Address Balance
   //    pool (for SUI). useGasCoin: false — when this is later wrapped
@@ -206,22 +220,25 @@ async function addCetusLeg(
 
   // 3. Drop the output USDsui into the owner's wallet.
   tx.transferObjects([outputCoin], owner)
-  return outputCoin
+  // Quoted output (raw u64) — net of the overlay fee per the aggregator's
+  // accounting. Summed by the caller for the points credit.
+  return router.amountOut.toString()
 }
 
 async function buildWalletSweepTx(
   req: WalletSweepRequest,
   destType: string,
   aggregator: AggregatorClient,
-): Promise<Transaction> {
+): Promise<{ tx: Transaction; estUsdsuiOut: bigint }> {
   const tx = new Transaction()
   tx.setSender(req.owner)
 
+  let estUsdsuiOut = 0n
   for (const leg of req.coins) {
     // Skip self-swaps — the aggregator accepts a same-type route but
     // it's wasted gas. Caller shouldn't ask for one, but be defensive.
     if (leg.coinType === destType) continue
-    await addCetusLeg(
+    const out = await addCetusLeg(
       tx,
       req.owner,
       leg.coinType,
@@ -229,8 +246,14 @@ async function buildWalletSweepTx(
       leg.amount,
       aggregator,
     )
+    try {
+      estUsdsuiOut += BigInt(out)
+    } catch {
+      // Defensive: a non-numeric quote shouldn't sink the whole sweep —
+      // it just won't contribute to the points estimate.
+    }
   }
-  return tx
+  return { tx, estUsdsuiOut }
 }
 
 // ─── Route ───────────────────────────────────────────────────────────────────
@@ -260,12 +283,14 @@ async function handleWalletSweep(c: Context<{ Bindings: Bindings }>) {
   const aggregator = getAggregator(bindings.SUI_NETWORK, req.owner)
 
   let bytes: Uint8Array
+  let estUsdsuiOut = 0n
   try {
-    const tx = await buildWalletSweepTx(req, destType, aggregator)
+    const built = await buildWalletSweepTx(req, destType, aggregator)
+    estUsdsuiOut = built.estUsdsuiOut
     // onlyTransactionKind: true — the bytes are wrapped into a sponsored
     // TransactionData downstream by /api/zk/sponsor, so we must not bake
     // gas data into them here.
-    bytes = await tx.build({
+    bytes = await built.tx.build({
       client: grpc as never,
       onlyTransactionKind: true,
     })
@@ -289,6 +314,10 @@ async function handleWalletSweep(c: Context<{ Bindings: Bindings }>) {
     ok: true,
     bytesB64: toBase64(bytes),
     sender: req.owner,
+    // Quoted USDsui output (raw u64, 6-dp) summed across legs — net of the
+    // 1% overlay fee. The web layer forwards it so iOS can credit swap
+    // rewards points (kind: "swap") at sponsor-execute time.
+    estUsdsuiOut: estUsdsuiOut.toString(),
   })
 }
 
