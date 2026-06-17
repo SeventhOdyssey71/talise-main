@@ -1209,27 +1209,74 @@ export async function claimOnChain(
   const bytes = await tx.build({ client: client as never });
   const { signature } = await kp.signTransaction(bytes);
 
-  const result = (await client.executeTransaction({
-    transaction: bytes,
-    signatures: [signature],
-    include: { effects: true },
-  } as never)) as Record<string, unknown>;
+  // Broadcast over JSON-RPC HTTP via Hayabusa — the ONLY write path that
+  // works reliably. The web's gRPC chain 502s ("Bad Gateway") on the public
+  // fullnode's executeTransaction and Hayabusa refuses gRPC writes; the
+  // JSON-RPC `sui_executeTransactionBlock` path works (it's how Onara
+  // broadcasts through Hayabusa). gRPC is fine for the read-only tx.build above.
+  return await broadcastSignedTxViaHayabusa(bytes, signature);
+}
 
-  if ((result.$kind as string | undefined) === "FailedTransaction") {
-    const failed = result.FailedTransaction as
-      | { effects?: { status?: { error?: unknown } } }
-      | undefined;
-    throw new Error(`cheque::claim failed: ${extractStatusError(failed?.effects?.status)}`);
+/**
+ * Broadcast a fully-signed tx via JSON-RPC over HTTP, Hayabusa first then the
+ * direct fullnode. Returns the digest; throws on a genuine on-chain failure
+ * (MoveAbort etc.) and on transport exhaustion. Used by the cheque claim,
+ * whose worker-signed tx can't go through Onara's zkLogin sponsor path.
+ */
+async function broadcastSignedTxViaHayabusa(
+  txBytes: Uint8Array,
+  signature: string
+): Promise<string> {
+  const hayabusa = (
+    process.env.HAYABUSA_GRPC_URL ?? "https://hayabusa.mainnet.unconfirmed.cloud:443"
+  ).trim();
+  const endpoints = [hayabusa, "https://fullnode.mainnet.sui.io:443"].filter(Boolean);
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "sui_executeTransactionBlock",
+    params: [toBase64(txBytes), [signature], { showEffects: true }, "WaitForLocalExecution"],
+  });
+  let lastErr = "no endpoint attempted";
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        signal: AbortSignal.timeout(20_000),
+      });
+      const text = await resp.text();
+      let json: { result?: { digest?: string; effects?: { status?: { status?: string; error?: string } } }; error?: { message?: string } };
+      try {
+        json = JSON.parse(text);
+      } catch {
+        lastErr = `${url}: non-JSON (HTTP ${resp.status})`;
+        continue; // transport/gateway error — try next endpoint
+      }
+      if (json.error) {
+        lastErr = `${url}: ${json.error.message ?? "rpc error"}`;
+        continue;
+      }
+      const eff = json.result?.effects?.status;
+      if (eff?.status && eff.status !== "success") {
+        // Deterministic on-chain failure (MoveAbort, etc.) — don't retry.
+        throw new Error(`cheque::claim failed on-chain: ${eff.error ?? "unknown"}`);
+      }
+      const digest = json.result?.digest;
+      if (!digest) {
+        lastErr = `${url}: no digest in response`;
+        continue;
+      }
+      return digest;
+    } catch (e) {
+      const m = (e as Error).message ?? String(e);
+      if (m.startsWith("cheque::claim failed on-chain")) throw e; // propagate real failure
+      lastErr = `${url}: ${m}`;
+      continue; // transport error — try next endpoint
+    }
   }
-  const txInner = result.Transaction as
-    | { digest?: string; effects?: { status?: { success?: boolean; error?: unknown } } }
-    | undefined;
-  if (txInner?.effects?.status && txInner.effects.status.success === false) {
-    throw new Error(`cheque::claim failed: ${extractStatusError(txInner.effects.status)}`);
-  }
-  const digest = txInner?.digest;
-  if (!digest) throw new Error("cheque::claim produced no digest");
-  return digest;
+  throw new Error(`cheque::claim broadcast failed: ${lastErr}`);
 }
 
 /**
