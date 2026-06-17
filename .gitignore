@@ -121,3 +121,7 @@ ios/File.txt
 # APNs / Apple auth keys — PRIVATE. Never commit. Live in Vercel env, not git.
 *.p8
 AuthKey_*
+
+# Talise marketing — generated content binaries (regenerate from sources)
+marketing/higgsfield-flow/music/*.mp3
+marketing/higgsfield-flow/characters/hero-*.png
