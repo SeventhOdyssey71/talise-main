@@ -62,25 +62,10 @@ struct WithdrawFlowView: View {
                             }
                             .buttonStyle(TilePress())
 
-                            Button {
-                                withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
-                                    expanded = expanded == .cheques ? nil : .cheques
-                                }
-                            } label: {
-                                ActionTile(
-                                    icon: "hi.cheque",
-                                    title: "Cheques",
-                                    caption: "Money, in a link",
-                                    expandable: true,
-                                    isExpanded: expanded == .cheques
-                                )
-                            }
-                            .buttonStyle(TilePress())
-
                             // Private transactions — shielded USDsui (Talise's
                             // own ZK privacy layer), live on mainnet as a capped
-                            // pilot. Opens the shielded-send flow on the web app
-                            // (where the proof is built client-side).
+                            // pilot. Runs inside the app (in-app web layer) so the
+                            // proof is built client-side; the relayer only relays.
                             Button { showPrivateSoon = true } label: {
                                 ActionTile(icon: "hi.lock", title: "Send private tx", caption: "Shielded · private beta")
                             }
@@ -88,7 +73,22 @@ struct WithdrawFlowView: View {
                         }
                         .zIndex(3)
 
-                        // ── Cheques group, expanded inline under the grid ──
+                        // ── Cheques group: full-width dropdown row (like Work) ──
+                        Button {
+                            withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+                                expanded = expanded == .cheques ? nil : .cheques
+                            }
+                        } label: {
+                            GroupRow(
+                                icon: "hi.cheque",
+                                title: "Cheques",
+                                caption: "Write · Cash · My cheques",
+                                isExpanded: expanded == .cheques
+                            )
+                        }
+                        .buttonStyle(TilePress())
+                        .zIndex(3)
+
                         if expanded == .cheques {
                             SubActionList(rows: [
                                 .init(icon: "hi.write", title: "Write a cheque") {

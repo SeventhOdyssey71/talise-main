@@ -18,13 +18,6 @@ struct EarnView: View {
     /// in sync with the on-chain compound supplies.
     @State private var rewardsSummary: RewardsSummary?
 
-    // ── Private-yield smoke test (talise_yield::yield_router on mainnet) ──
-    // A small, explicit "test deposit" that routes a tiny USDsui amount into
-    // the live router (Scallop venue). Gated behind a tap + confirmation; this
-    // is a founder smoke-test of the on-chain engine, not a user feature yet.
-    @State private var testDepositing = false
-    @State private var testDepositStatus: String?
-
     var body: some View {
         // Invest = the money-management hub. Venues + Supply +
         // Withdraw are the explicit actions; Round-up, Goals, and
@@ -40,7 +33,6 @@ struct EarnView: View {
                 // venue row already shows the rate, and deposit + withdraw
                 // both live inside the venue sheet now.)
                 RoundupCard(summary: rewardsSummary, onChange: { Task { await loadRewards() } })
-                testDepositRow
                 GoalsSection()
                 if let error {
                     Text(error)
@@ -66,64 +58,6 @@ struct EarnView: View {
                 // cards so the supplied amount updates.
                 Task { await load() }
             }
-        }
-    }
-
-    // MARK: - Private-yield smoke test
-
-    private var testDepositRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                Task { await testDeposit() }
-            } label: {
-                HStack(spacing: 10) {
-                    if testDepositing { ProgressView().tint(TaliseColor.accent) }
-                    Text(testDepositing ? "Routing $1 to the best rate…" : "Earn $1 · auto-routed to the best rate")
-                        .font(TaliseFont.body(13, weight: .light))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                    Spacer()
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(TaliseColor.fgDim)
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(TaliseColor.surface))
-            }
-            .buttonStyle(.plain)
-            .disabled(testDepositing)
-            if let s = testDepositStatus {
-                Text(s)
-                    .font(TaliseFont.mono(11, weight: .light))
-                    .foregroundStyle(TaliseColor.fgDim)
-            }
-        }
-    }
-
-    /// SAM-style "earn at the best rate": one sponsored supply routed to the
-    /// highest live APY among the wired USDsui venues (NAVI + Scallop). The
-    /// server resolves `venue:"best"` from the live comparison at deposit time.
-    private func testDeposit() async {
-        struct BestBody: Encodable { let venue: String; let amount: Double }
-        testDepositing = true
-        testDepositStatus = nil
-        defer { testDepositing = false }
-        do {
-            let built: BuildKindResponse = try await APIClient.shared.post(
-                "/api/earn/supply/prepare",
-                body: BestBody(venue: "best", amount: 1.0)
-            )
-            let result = try await ZkLoginCoordinator.shared.signAndSubmit(
-                transactionKindB64: built.transactionKindB64,
-                intent: "Earn at the best rate",
-                rewards: ZkLoginCoordinator.RewardsMeta(kind: "invest", amountUsd: 1.0, venue: "best")
-            )
-            testDepositStatus = "Earning · \(String(result.digest.prefix(12)))…"
-            await load()
-        } catch ZkLoginCoordinator.SessionError.rebindRequired {
-            testDepositStatus = "Sign in again — your session needs a refresh."
-        } catch {
-            testDepositStatus = error.localizedDescription
         }
     }
 
@@ -167,12 +101,11 @@ struct EarnView: View {
                 venueSkeletonRow
                 RowDivider()
                 venueSkeletonRow
-            } else if let cmp = comparison, !cmp.venues.isEmpty {
-                let venues = orderedVenues(cmp)
-                ForEach(Array(venues.enumerated()), id: \.element.id) { idx, v in
-                    venueRow(v, best: v.venue == cmp.best?.venue)
-                    if idx < venues.count - 1 { RowDivider() }
-                }
+            } else if let cmp = comparison, let earn = earnSummary(cmp) {
+                // ONE clean "Earn" row. The SAM router consolidates funds into
+                // the best venue + auto-rebalances, so the user sees a single
+                // position at the best live rate — never a per-venue list.
+                earnRow(earn)
             } else {
                 emptyState
             }
@@ -180,6 +113,61 @@ struct EarnView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 4)
         .earnHeroGlass(cornerRadius: 20)
+    }
+
+    /// The single "Earn" position. Routes taps to the best venue (highest live
+    /// APY); the SAM router consolidates + auto-rebalances funds there.
+    private func earnSummary(_ cmp: YieldComparison) -> YieldVenue? {
+        let visible = visibleVenues(cmp.venues)
+        guard !visible.isEmpty else { return nil }
+        return cmp.best.flatMap { b in visible.first { $0.venue == b.venue } }
+            ?? visible.max(by: { $0.apy < $1.apy })
+            ?? visible.first
+    }
+
+    /// One unified "Earn" row: best live rate + the user's TOTAL supplied/earned
+    /// aggregated across venues (no per-venue breakdown on the main screen).
+    @ViewBuilder
+    private func earnRow(_ best: YieldVenue) -> some View {
+        let visible = comparison.map { visibleVenues($0.venues) } ?? [best]
+        let totalSupplied = visible.reduce(0.0) { $0 + ($1.supplied ?? 0) }
+        let totalEarned = visible.reduce(0.0) { $0 + ($1.earned ?? 0) }
+        let hasPosition = totalSupplied > 0
+        let live = best.apy >= 0.0001
+        let apyText = live ? String(format: "%.2f%%", best.apy * 100) : "—"
+        let subtitle: String = {
+            guard hasPosition else { return "Tap to add money" }
+            let s = "Supplied \(TaliseFormat.local2(totalSupplied))"
+            return totalEarned > 0 ? s + " · Earned +\(TaliseFormat.local2(totalEarned))" : s
+        }()
+
+        Button {
+            manageTarget = best
+        } label: {
+            PremiumListRow(
+                icon: "leaf.fill",
+                kind: hasPosition ? .earn : .neutral,
+                title: "Earn",
+                subtitle: subtitle,
+                showsChevron: true
+            ) {
+                HStack(spacing: 8) {
+                    Text("BEST")
+                        .font(TaliseFont.mono(9, weight: .regular))
+                        .tracking(1)
+                        .foregroundStyle(TaliseColor.accent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(TaliseColor.accent.opacity(0.15)))
+                    Text(apyText)
+                        .font(TaliseFont.heading(22, weight: .medium))
+                        .kerning(-0.8)
+                        .foregroundStyle(live ? TaliseColor.accent : TaliseColor.fgDim)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var venueSkeletonRow: some View {
