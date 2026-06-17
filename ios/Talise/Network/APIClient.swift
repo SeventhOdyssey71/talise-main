@@ -159,7 +159,15 @@ final class APIClient {
         guard let http = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
-        if http.statusCode == 401 { throw APIError.unauthorized }
+        if http.statusCode == 401 {
+            // A 401 on an authed request = the bearer is dead. Signal the app
+            // to sign out cleanly (callers no longer need to show "session
+            // expired" copy — they're routed to sign-in).
+            Task { @MainActor in
+                NotificationCenter.default.post(name: .taliseSessionExpired, object: nil)
+            }
+            throw APIError.unauthorized
+        }
         if !(200...299).contains(http.statusCode) {
             let msg = String(data: data, encoding: .utf8)
             throw APIError.status(http.statusCode, message: msg)

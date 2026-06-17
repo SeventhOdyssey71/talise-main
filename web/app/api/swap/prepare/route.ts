@@ -7,6 +7,7 @@ import { toBase64 } from "@mysten/sui/utils";
 import { DeepBookClient } from "@mysten/deepbook-v3";
 import { sui, network, COIN_TYPES } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
+import { TREASURY_WALLET } from "@/lib/navi-supply";
 import { onara } from "@/lib/onara";
 import { memoTtl } from "@/lib/perf-cache";
 
@@ -36,6 +37,10 @@ export const runtime = "nodejs";
  */
 
 const SLIPPAGE_BPS = 100; // 1.00%
+/** Talise swap fee — 0.5% of the swap output, routed to the treasury on every
+ *  swap / auto-swap. Based on the min-out so the on-chain split never exceeds
+ *  the actual output coin. */
+const SWAP_FEE_BPS = 50; // 0.50%
 
 // ─── Route table ────────────────────────────────────────────────────
 // Maps the allowed `fromCoinType` strings to (a) the DeepBook pool key
@@ -336,7 +341,18 @@ export async function POST(req: Request) {
         outCoinArg = baseOut;
       }
 
-      // Send the USDsui back to the user.
+      // 0.5% swap fee → treasury (every swap / auto-swap). Split off the
+      // output before the user gets it; based on min-out so it never exceeds
+      // the actual coin.
+      const swapFeeMicros = (minOut * BigInt(SWAP_FEE_BPS)) / 10_000n;
+      if (swapFeeMicros > 0n) {
+        const [feeCoin] = tx.splitCoins(
+          outCoinArg as Parameters<typeof tx.splitCoins>[0],
+          [tx.pure.u64(swapFeeMicros)]
+        );
+        tx.transferObjects([feeCoin], tx.pure.address(TREASURY_WALLET));
+      }
+      // Send the rest of the USDsui back to the user.
       tx.transferObjects(
         [outCoinArg as Parameters<typeof tx.transferObjects>[0][number]],
         user.sui_address
@@ -426,6 +442,16 @@ export async function POST(req: Request) {
         outCoinArg = baseOut;
       }
 
+      // 0.5% swap fee → treasury (based on hop-2 min-out, so the split never
+      // exceeds the actual output).
+      const swapFeeMicros = (hop2Min * BigInt(SWAP_FEE_BPS)) / 10_000n;
+      if (swapFeeMicros > 0n) {
+        const [feeCoin] = tx.splitCoins(
+          outCoinArg as Parameters<typeof tx.splitCoins>[0],
+          [tx.pure.u64(swapFeeMicros)]
+        );
+        tx.transferObjects([feeCoin], tx.pure.address(TREASURY_WALLET));
+      }
       tx.transferObjects(
         [outCoinArg as Parameters<typeof tx.transferObjects>[0][number]],
         user.sui_address

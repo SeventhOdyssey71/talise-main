@@ -1151,6 +1151,10 @@ final class ZkLoginCoordinator {
             if http.statusCode == 401,
                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                (parsed["code"] as? String) == "session_rebind_required" {
+                // Signal the app to sign out cleanly (no "session over" copy).
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .taliseSessionExpired, object: nil)
+                }
                 throw SessionError.rebindRequired
             }
             // Surface the server's friendly `error` field rather than

@@ -132,17 +132,9 @@ struct SuccessfulTxView: View {
 
                 // Atomic-flow receipt — the human-readable version of the
                 // same tx the "Share Receipt" button opens on SuiVision.
-                // Spells out that pay + round-up + receipt all landed in
-                // ONE signature (no wallet, no gas). Suppressed for
-                // cross-border sends where recipientDisplay is nil — there
-                // the bank leg isn't final yet, so "recorded on-chain"
-                // would read as fully-settled when it isn't.
-                if let recipientDisplay, !recipientDisplay.isEmpty {
-                    atomicReceiptCard(recipient: recipientDisplay)
-                        .padding(.horizontal, 32)
-                        .padding(.top, 22)
-                        .scrapbookFadeUp(delay: 0.46)
-                }
+                // (The "1 atomic transaction" breakdown card was removed — the
+                // success headline + "Saved" pill carry the result cleanly;
+                // the step-by-step detail was visual noise.)
 
                 Spacer()
 

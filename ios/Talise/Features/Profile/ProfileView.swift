@@ -49,7 +49,7 @@ struct ProfileView: View {
                 hero
                 statsStrip
                 walletSection
-                bankAccountsSection
+                // Bank-account linking deferred — entry removed for now.
                 preferencesSection
                 securitySection
                 helpSection
@@ -71,7 +71,7 @@ struct ProfileView: View {
         // calm, on-brand, reassures that the self-custodial wallet is safe.
         .sheet(isPresented: $signOutConfirm) {
             SignOutSheet(onConfirm: { session.signOut() })
-                .presentationDetents([.height(430)])
+                .presentationDetents([.height(300)])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(TaliseColor.bg)
         }
@@ -847,12 +847,6 @@ private struct SignOutSheet: View {
     let onConfirm: () -> Void
     @Environment(\.dismiss) private var dismiss
 
-    private let points: [(String, String)] = [
-        ("checkmark.shield", "Your wallet is self-custodial — nothing is deleted."),
-        ("at", "Your @handle and balance stay exactly as they are."),
-        ("g.circle", "Sign back in with the same Google account anytime."),
-    ]
-
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
@@ -862,7 +856,7 @@ private struct SignOutSheet: View {
                     .foregroundStyle(TaliseColor.accent)
             }
             .frame(width: 64, height: 64)
-            .padding(.top, 28)
+            .padding(.top, 30)
 
             Text("Sign out?")
                 .font(TaliseFont.heading(22, weight: .medium))
@@ -870,33 +864,12 @@ private struct SignOutSheet: View {
                 .foregroundStyle(TaliseColor.fg)
                 .padding(.top, 16)
 
-            Text("You'll come right back where you left off.")
+            Text("Your wallet stays safe. Sign back in anytime.")
                 .font(TaliseFont.body(14, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 32)
                 .padding(.top, 8)
-
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(points, id: \.0) { (icon, text) in
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: icon)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(TaliseColor.accent)
-                            .frame(width: 18)
-                        Text(text)
-                            .font(TaliseFont.body(13.5, weight: .light))
-                            .foregroundStyle(TaliseColor.fgMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(TaliseColor.surface))
-            .padding(.horizontal, 22)
-            .padding(.top, 22)
 
             Spacer(minLength: 0)
 

@@ -9,7 +9,7 @@ import {
   buildSupplyUsdsuiMargin,
   fetchSupplierCapId,
 } from "@/lib/deepbook-margin";
-import { appendNaviSupply } from "@/lib/navi-supply";
+import { appendNaviSupply, SAVE_TREASURY_FEE_BPS, TREASURY_WALLET } from "@/lib/navi-supply";
 import { buildScallopSupply } from "@/lib/yield/ptb";
 import { getYieldComparison } from "@/lib/yield";
 import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
@@ -86,13 +86,23 @@ export async function POST(req: Request) {
       // @t2000/sdk 2.11's NaviAdapter.addSaveToTx is now public, so
       // we can build the supply PTB inline without going through the
       // web-only /api/t2000/execute route.
-      await appendNaviSupply(tx, user.sui_address, amount);
+      // Saving into yield is a "Save" — skim the 1% treasury fee like the
+      // spend-and-save round-up legs do, then supply the remainder.
+      await appendNaviSupply(tx, user.sui_address, amount, {
+        treasuryFeeBps: SAVE_TREASURY_FEE_BPS,
+      });
     } else if (venue === "scallop") {
       // Scallop USDsui market — mint sUSDsui (interest-bearing receipt coin)
       // straight to the user. Direct supply (no yield_router position) — the
       // sCoin accrues via exchange rate and the user can redeem any time.
       const onchain = BigInt(Math.round(amount * 10 ** USDSUI_DECIMALS));
       const usdsui = coinWithBalance({ type: USDSUI_TYPE, balance: onchain, useGasCoin: false })(tx);
+      // 1% treasury fee on the saved amount (same as the round-up legs).
+      const feeOnchain = (onchain * BigInt(SAVE_TREASURY_FEE_BPS)) / 10_000n;
+      if (feeOnchain > 0n) {
+        const [fee] = tx.splitCoins(usdsui, [tx.pure.u64(feeOnchain)]);
+        tx.transferObjects([fee], tx.pure.address(TREASURY_WALLET));
+      }
       const sUsdsui = buildScallopSupply(tx, usdsui);
       tx.transferObjects([sUsdsui], tx.pure.address(user.sui_address));
     } else {

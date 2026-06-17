@@ -4,6 +4,9 @@ import SwiftUI
 /// authenticated tab bar depending on `AppSession.phase`.
 struct AppRoot: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.scenePhase) private var scenePhase
+    /// When the app left the foreground — drives the 2-minute inactivity lock.
+    @State private var backgroundedAt: Date?
 
     var body: some View {
         Group {
@@ -227,10 +230,38 @@ struct MainTabView: View {
                 NotificationCenter.default.post(name: .taliseHomeShouldRefresh, object: nil)
             }
         }
+        // Session expired anywhere (a dead bearer on a read, or a rebind-
+        // required on signing) → just sign the user out cleanly. No "your
+        // session is over" messaging; they land back on the sign-in screen.
+        .onReceive(NotificationCenter.default.publisher(for: .taliseSessionExpired)) { _ in
+            if case .ready = session.phase { session.signOut() }
+        }
+        // Inactivity lock: if the app was backgrounded for more than 2 minutes,
+        // require a fresh sign-in on return. Closing the app and coming back
+        // after a couple minutes of inactivity = sign back in.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background, .inactive:
+                if backgroundedAt == nil { backgroundedAt = Date() }
+            case .active:
+                if let since = backgroundedAt {
+                    backgroundedAt = nil
+                    if Date().timeIntervalSince(since) > 120,
+                       case .ready = session.phase {
+                        session.signOut()
+                    }
+                }
+            @unknown default:
+                break
+            }
+        }
     }
 }
 
 extension Notification.Name {
+    /// Posted when the session is detected dead (401 on an authed read, or a
+    /// rebind-required on signing). AppRoot observes it and signs out cleanly.
+    static let taliseSessionExpired = Notification.Name("io.talise.sessionExpired")
     static let taliseRequestDepositCover = Notification.Name("io.talise.requestDepositCover")
     static let taliseRequestWithdrawCover = Notification.Name("io.talise.requestWithdrawCover")
     /// Direct-to-Send full cover. Used by the Withdraw flow's "Onchain
