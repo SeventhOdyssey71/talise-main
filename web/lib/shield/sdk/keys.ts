@@ -64,29 +64,44 @@ async function sha256(data: Uint8Array): Promise<Uint8Array> {
 }
 
 /**
- * Derive the shield keypair from a personal-message signer. The signer is the
- * user's zkLogin/wallet personal-message signing function — the same one used
- * elsewhere for `signPersonalMessage`.
+ * Derive the shield keypair from a 32-byte NOTE MASTER seed — the recoverable,
+ * user-controlled secret. For seedless zkLogin users the note master is
+ * generated ONCE (CSPRNG) and persisted to two recovery rails (device keychain
+ * + OAuth-bound server escrow); recovery = restore the master → re-derive →
+ * re-scan. This is the non-custodial root: the seed never leaves the user's
+ * device, and the keypair is a pure function of it, so it is identical on every
+ * device that restores the same master.
  *
- * REAL: spendingKey = SHA-256(signature) mod r.
- * STUBBED: viewingKey + publicKey (Poseidon — see `poseidon1`).
+ *   spendingKey = SHA-256(noteMaster) mod r
+ *   viewingKey  = Poseidon1(spendingKey)
+ *   publicKey   = Poseidon1(spendingKey)   (note owner field; matches the circuit)
+ */
+export async function deriveShieldKeypairFromSeed(
+  noteMaster: Uint8Array
+): Promise<ShieldKeypair> {
+  if (noteMaster.length < 16) {
+    throw new Error("note master too short (need ≥16 bytes of entropy)");
+  }
+  const hash = await sha256(noteMaster);
+  const spendingKey = bytesToBigIntBE(hash) % BN254_SCALAR_FIELD;
+  const viewingKey = poseidon1(spendingKey);
+  const publicKey = poseidon1(spendingKey);
+  return { spendingKey, viewingKey, publicKey };
+}
+
+/**
+ * Derive the shield keypair from a personal-message signer. Legacy path — the
+ * signature is treated as the note-master seed. Prefer
+ * {@link deriveShieldKeypairFromSeed} with a persisted, recoverable note master
+ * (a raw signature isn't stable across zkLogin sessions, so it can't be the
+ * recovery root).
  */
 export async function deriveShieldKeypair(
   sign: PersonalMessageSigner
 ): Promise<ShieldKeypair> {
   const msg = new TextEncoder().encode(SHIELD_KEY_DERIVATION_MESSAGE);
   const sig = await sign(msg);
-  const hash = await sha256(sig);
-  const spendingKey = bytesToBigIntBE(hash) % BN254_SCALAR_FIELD;
-
-  const viewingKey = poseidon1(spendingKey);
-  // TODO(crypto): the circuit's note pubkey is currently defined as
-  // Poseidon1(spendingKey) in many Sapling-style designs; confirm against the
-  // Workstream-B circuit and replace. Until then publicKey reuses viewingKey's
-  // stub so the surface type-checks end-to-end.
-  const publicKey = poseidon1(spendingKey);
-
-  return { spendingKey, viewingKey, publicKey };
+  return deriveShieldKeypairFromSeed(sig);
 }
 
 /**

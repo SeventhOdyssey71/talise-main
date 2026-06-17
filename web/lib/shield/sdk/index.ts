@@ -16,6 +16,7 @@
 
 export {
   deriveShieldKeypair,
+  deriveShieldKeypairFromSeed,
   deriveShieldEncScalar,
   poseidon1,
   BN254_SCALAR_FIELD,

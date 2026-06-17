@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import Security
 
 /// Top-level Withdraw flow. Replaces the old direct-to-Send sheet the
 /// paper-plane button used to open. Now lands on a full-page options
@@ -1333,7 +1334,7 @@ struct PrivateSendFlowView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            SendAmountView(
+            PrivateAmountView(
                 draft: draft,
                 onNext: { path.append(.recipient) },
                 onCancel: { close() }
@@ -1350,7 +1351,7 @@ struct PrivateSendFlowView: View {
                         onClose: { close() }
                     )
                 case .review:
-                    SendReviewView(
+                    PrivateReviewView(
                         draft: draft,
                         onConfirm: { await confirm() },
                         onBack: { pop() }
@@ -1389,7 +1390,10 @@ struct PrivateSendFlowView: View {
         let micros = UInt64((draft.amountUsdsui * 1_000_000).rounded())
         let recipientDisplay = resolved.displayName ?? resolved.display ?? String(resolved.address.prefix(10))
         do {
-            let digest = try await prover.send(micros: micros, recipient: resolved.address)
+            // Load (or first-time create + escrow) the user's note master, then
+            // hand it to the in-page prover for client-side key derivation.
+            let seedHex = await ShieldKeyStore.noteMasterHex()
+            let digest = try await prover.send(micros: micros, recipient: resolved.address, seedHex: seedHex)
             draft.success = SendSuccess(
                 digest: digest,
                 displayAmount: draft.rawAmount,
@@ -1442,12 +1446,14 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
         }
     }
 
-    /// Run a shielded send. `micros` = USDsui base units; `recipient` = 0x addr.
-    func send(micros: UInt64, recipient: String) async throws -> String {
+    /// Run a shielded send. `micros` = USDsui base units; `recipient` = 0x addr;
+    /// `seedHex` = the user's note master (drives client-side key derivation).
+    func send(micros: UInt64, recipient: String, seedHex: String) async throws -> String {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             self.continuation = cont
             let safeRecipient = recipient.replacingOccurrences(of: "'", with: "")
-            let js = "window.taliseShieldSend && window.taliseShieldSend('\(micros)','\(safeRecipient)')"
+            let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
+            let js = "window.taliseShieldSend && window.taliseShieldSend('\(micros)','\(safeRecipient)','\(safeSeed)')"
             webView.evaluateJavaScript(js) { _, err in
                 if let err {
                     self.finish(.failure(ShieldError.message(err.localizedDescription)))
@@ -1481,4 +1487,306 @@ struct ShieldProverHost: UIViewRepresentable {
     let controller: ShieldProverController
     func makeUIView(context: Context) -> WKWebView { controller.webView }
     func updateUIView(_ webView: WKWebView, context: Context) {}
+}
+
+/// The user's shielded NOTE MASTER — root of their private notes. Two recovery
+/// rails: the PRIMARY copy is in the iCloud-synchronizable Keychain (follows the
+/// user across their devices); the RECOVERY copy is the server escrow (restored
+/// on a fresh device after re-sign-in). Recovery = re-sign-in → restore → re-
+/// scan. The master is generated with the secure RNG on first use and never
+/// shown; the shield keypair is derived from it client-side in the prover.
+enum ShieldKeyStore {
+    private static let service = "io.talise.shield"
+    private static let account = "note-master.v1"
+
+    /// Hex of the note master, creating + persisting one on first use.
+    static func noteMasterHex() async -> String {
+        let data = await loadOrCreate()
+        return data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func loadOrCreate() async -> Data {
+        if let d = readKeychain() { return d }
+        // Fresh device / first use → try the recovery escrow before minting.
+        if let restored = await restoreFromEscrow() {
+            writeKeychain(restored)
+            return restored
+        }
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, 32, &bytes)
+        let data = Data(bytes)
+        writeKeychain(data)
+        // Escrow is authoritative if one already existed (two-device race): the
+        // server echoes the stored master, and we adopt + re-pin it locally.
+        if let adopted = await backupToEscrow(data), adopted != data {
+            writeKeychain(adopted)
+            return adopted
+        }
+        return data
+    }
+
+    private static func baseQuery() -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: kCFBooleanTrue as Any,  // iCloud rail
+        ]
+    }
+
+    private static func readKeychain() -> Data? {
+        var q = baseQuery()
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess,
+              let d = item as? Data, d.count >= 16 else { return nil }
+        return d
+    }
+
+    private static func writeKeychain(_ d: Data) {
+        let q = baseQuery()
+        SecItemDelete(q as CFDictionary)
+        var add = q
+        add[kSecValueData as String] = d
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    private struct EscrowResp: Decodable { let noteMaster: String? }
+    private struct EscrowBody: Encodable { let noteMaster: String }
+
+    private static func restoreFromEscrow() async -> Data? {
+        guard let r: EscrowResp = try? await APIClient.shared.get("/api/shield/key-escrow"),
+              let hex = r.noteMaster else { return nil }
+        return dataFromHex(hex)
+    }
+
+    private static func backupToEscrow(_ d: Data) async -> Data? {
+        let hex = d.map { String(format: "%02x", $0) }.joined()
+        guard let r: EscrowResp = try? await APIClient.shared.post(
+            "/api/shield/key-escrow", body: EscrowBody(noteMaster: hex)
+        ), let stored = r.noteMaster else { return nil }
+        return dataFromHex(stored)
+    }
+
+    private static func dataFromHex(_ hex: String) -> Data? {
+        var data = Data()
+        var idx = hex.startIndex
+        while idx < hex.endIndex {
+            let next = hex.index(idx, offsetBy: 2, limitedBy: hex.endIndex) ?? hex.endIndex
+            guard let b = UInt8(hex[idx..<next], radix: 16) else { return nil }
+            data.append(b)
+            idx = next
+        }
+        return data.count >= 16 ? data : nil
+    }
+}
+
+// MARK: - Private-send branded screens
+
+/// Amount entry for a SHIELDED send. Same muscle-memory as the normal Send
+/// keypad, but visibly its own thing: a lock-marked "Private send" header, a
+/// shielded accent, and the $10 pilot cap baked into the input.
+struct PrivateAmountView: View {
+    @Bindable var draft: SendDraft
+    var onNext: () -> Void
+    var onCancel: () -> Void
+
+    private var amount: Double { Double(draft.rawAmount) ?? 0 }
+    private var overCap: Bool { amount > 10 }
+    private var canContinue: Bool { amount > 0 && !overCap }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Spacer(minLength: 12)
+            amountBlock
+            Spacer(minLength: 12)
+            shieldedPill.padding(.bottom, 18)
+            SendNumpad(input: $draft.rawAmount)
+                .padding(.horizontal, 24).padding(.bottom, 12)
+            reviewButton.padding(.horizontal, 24).padding(.bottom, 18)
+        }
+        .taliseScreenBackground()
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var header: some View {
+        HStack {
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .frame(width: 38, height: 38)
+                    .glassCircle()
+            }
+            Spacer()
+            HStack(spacing: 6) {
+                HugeIcon(name: "hi.lock", size: 13, tint: TaliseColor.greenMint)
+                MicroLabel(text: "Private send", color: TaliseColor.fgMuted).kerning(2.0)
+            }
+            Spacer()
+            Color.clear.frame(width: 38, height: 38)
+        }
+        .padding(.horizontal, 20).padding(.top, 12)
+    }
+
+    private var amountBlock: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("$").font(TaliseFont.display(40, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
+                Text(draft.rawAmount.isEmpty ? "0" : draft.rawAmount)
+                    .font(TaliseFont.display(72, weight: .medium)).kerning(-1)
+                    .foregroundStyle(TaliseColor.fg)
+            }
+            Text(overCap ? "Pilot limit is $10 per private send" : "USDsui · shielded")
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(overCap ? TaliseColor.danger : TaliseColor.fgMuted)
+        }
+    }
+
+    private var shieldedPill: some View {
+        HStack(spacing: 8) {
+            Circle().fill(TaliseColor.greenMint).frame(width: 7, height: 7)
+            Text("SHIELDED · UP TO $10")
+                .font(TaliseFont.mono(11, weight: .regular)).tracking(1.5)
+                .foregroundStyle(TaliseColor.fgMuted)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 9)
+        .background(Capsule().fill(TaliseColor.surface2))
+    }
+
+    private var reviewButton: some View {
+        Button(action: { if canContinue { onNext() } }) {
+            Text("Review")
+                .font(TaliseFont.body(16, weight: .semibold))
+                .foregroundStyle(canContinue ? TaliseColor.bg : TaliseColor.fgDim)
+                .frame(maxWidth: .infinity).padding(.vertical, 16)
+                .background(RoundedRectangle(cornerRadius: 16)
+                    .fill(canContinue ? TaliseColor.greenMint : TaliseColor.surface2))
+        }
+        .buttonStyle(TilePress())
+        .disabled(!canContinue)
+    }
+}
+
+/// Review + confirm for a shielded send. Explains the privacy guarantee plainly
+/// and runs the proof. Sets `draft.amountUsdsui` from the typed amount (private
+/// sends are USDsui 1:1, no cross-border quote).
+struct PrivateReviewView: View {
+    @Bindable var draft: SendDraft
+    var onConfirm: () async -> Void
+    var onBack: () -> Void
+
+    @State private var sending = false
+
+    private var recipientName: String {
+        draft.resolved?.displayName ?? draft.resolved?.display ?? draft.recipientInput
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 18) {
+                    lockHero
+                    rowsCard
+                    privacyNote
+                }
+                .padding(.horizontal, 22).padding(.top, 6)
+            }
+            Spacer(minLength: 0)
+            confirmButton.padding(.horizontal, 24).padding(.bottom, 18)
+        }
+        .taliseScreenBackground()
+        .toolbar(.hidden, for: .navigationBar)
+        .onAppear { draft.amountUsdsui = Double(draft.rawAmount) ?? 0 }
+    }
+
+    private var header: some View {
+        HStack {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .frame(width: 38, height: 38)
+                    .glassCircle()
+            }
+            Spacer()
+            MicroLabel(text: "Review", color: TaliseColor.fgMuted).kerning(2.0)
+            Spacer()
+            Color.clear.frame(width: 38, height: 38)
+        }
+        .padding(.horizontal, 20).padding(.top, 12)
+    }
+
+    private var lockHero: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Circle().fill(TaliseColor.greenMint.opacity(0.12)).frame(width: 64, height: 64)
+                HugeIcon(name: "hi.lock", size: 26, tint: TaliseColor.greenMint)
+            }
+            Text("$\(draft.rawAmount)")
+                .font(TaliseFont.display(34, weight: .medium)).kerning(-0.5)
+                .foregroundStyle(TaliseColor.fg)
+            Text("shielded · USDsui")
+                .font(TaliseFont.mono(11, weight: .regular)).tracking(1.5)
+                .foregroundStyle(TaliseColor.fgMuted)
+        }
+        .padding(.top, 8)
+    }
+
+    private var rowsCard: some View {
+        VStack(spacing: 0) {
+            reviewRow("To", recipientName)
+            Divider().overlay(TaliseColor.line)
+            reviewRow("Amount", "$\(draft.rawAmount)")
+            Divider().overlay(TaliseColor.line)
+            reviewRow("Network fee", "None")
+        }
+        .padding(.horizontal, 16).padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 18).fill(TaliseColor.surface))
+    }
+
+    private func reviewRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).font(TaliseFont.body(14, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
+            Spacer()
+            Text(value).font(TaliseFont.body(14, weight: .regular)).foregroundStyle(TaliseColor.fg)
+                .lineLimit(1).truncationMode(.middle)
+        }
+        .padding(.vertical, 15)
+    }
+
+    private var privacyNote: some View {
+        HStack(alignment: .top, spacing: 10) {
+            HugeIcon(name: "hi.lock", size: 15, tint: TaliseColor.greenMint).padding(.top, 1)
+            Text("Sent shielded — the link between you and the recipient stays private on-chain, and your money never leaves your control. Early pilot, capped at $10.")
+                .font(TaliseFont.body(12.5, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 16).fill(TaliseColor.surface2.opacity(0.5)))
+    }
+
+    private var confirmButton: some View {
+        Button {
+            guard !sending else { return }
+            sending = true
+            Task { await onConfirm(); sending = false }
+        } label: {
+            HStack(spacing: 10) {
+                if sending { ProgressView().tint(TaliseColor.bg) }
+                Text(sending ? "Sending privately…" : "Send privately")
+                    .font(TaliseFont.body(16, weight: .semibold))
+                    .foregroundStyle(TaliseColor.bg)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 16)
+            .background(RoundedRectangle(cornerRadius: 16).fill(TaliseColor.greenMint))
+        }
+        .buttonStyle(TilePress())
+        .disabled(sending)
+    }
 }

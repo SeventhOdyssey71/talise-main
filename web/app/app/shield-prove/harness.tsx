@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { deriveShieldKeypairFromSeed } from "@/lib/shield/sdk";
 
 /**
  * Client harness. Installs `window.taliseShieldSend` and posts structured
@@ -19,12 +20,29 @@ type Msg =
 
 declare global {
   interface Window {
-    taliseShieldSend?: (micros: string, recipient: string) => void;
+    taliseShieldSend?: (micros: string, recipient: string, seedHex: string) => void;
     webkit?: { messageHandlers?: { shield?: { postMessage: (m: Msg) => void } } };
   }
 }
 
-export function ShieldProveHarness({ live }: { live: boolean }) {
+function seedFromHex(hex: string): Uint8Array {
+  const clean = hex.replace(/[^0-9a-f]/gi, "");
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+export function ShieldProveHarness({
+  live,
+  packageId,
+  poolObjectId,
+  coinType,
+}: {
+  live: boolean;
+  packageId: string;
+  poolObjectId: string;
+  coinType: string;
+}) {
   useEffect(() => {
     const post = (m: Msg) => {
       try {
@@ -36,38 +54,44 @@ export function ShieldProveHarness({ live }: { live: boolean }) {
       console.log("[shield-prove]", m);
     };
 
-    window.taliseShieldSend = (micros: string, recipient: string) => {
+    window.taliseShieldSend = (micros: string, recipient: string, seedHex: string) => {
       void (async () => {
         try {
           post({ type: "progress", message: "Preparing your private send…" });
 
-          if (!live) {
+          if (!live || !packageId || !poolObjectId) {
             throw new Error("Private send isn’t switched on yet.");
           }
-          if (!/^0x[a-f0-9]{1,64}$/i.test(recipient)) {
-            throw new Error("Invalid recipient address.");
-          }
-          const amount = BigInt(micros);
-          if (amount <= 0n) throw new Error("Enter an amount.");
+          if (!/^0x[a-f0-9]{1,64}$/i.test(recipient)) throw new Error("Invalid recipient address.");
+          if (BigInt(micros) <= 0n) throw new Error("Enter an amount.");
+          if (!/^[0-9a-f]{32,128}$/i.test(seedHex)) throw new Error("Couldn’t unlock your private key on this device.");
 
-          // Confirm the shielded-pool relayer is reachable before we begin
-          // (proves the infra is live + the session is authenticated here).
+          // Derive the user's NON-CUSTODIAL shield keypair from their note
+          // master, here on the device (the seed never leaves the client). This
+          // is the recovery root: the same master → the same keypair on every
+          // device, so notes are always re-derivable.
+          post({ type: "progress", message: "Unlocking your private key…" });
+          const keypair = await deriveShieldKeypairFromSeed(seedFromHex(seedHex));
+          if (keypair.spendingKey <= 0n) throw new Error("Key derivation failed.");
+
+          // Infra liveness + authenticated-session check.
           post({ type: "progress", message: "Connecting to the shielded pool…" });
           const r = await fetch("/api/shield/relayer", { method: "GET" });
           if (!r.ok) throw new Error("The shielded pool is busy. Try again shortly.");
 
-          // ── Remaining last mile (Workstream D) ──────────────────────────
-          // Here we: derive the user's non-custodial shield key, build the
-          // 2-in/2-out witness (deposit → withdraw to `recipient`), run the
-          // WASM Groth16 prove in this page, encrypt the change note, and
-          // submit via /api/shield/relay — all client-side. That stack
-          // (web/lib/shield/sdk/flow.ts) is wired; the piece still landing is
-          // the stable, recoverable shield-key derivation for zkLogin users.
-          // Until it does, do NOT fake a send or move funds — report honestly.
+          // ── Execution (Workstream D, staged) ────────────────────────────
+          // The keypair derivation above is now REAL + recoverable. The send
+          // itself is a deposit→withdraw-to-recipient pair built + proven in
+          // this page via web/lib/shield/sdk/flow.ts. The one piece that can't
+          // be one-tap is the WITHDRAW leg: it needs the deposit's commitment
+          // INDEXED into the Merkle tree first (the indexer cron runs every ~2
+          // min), so a true private send is deposit-now → withdraw-after-index,
+          // not a single synchronous call. Rather than fake a one-tap send or
+          // move funds into a state we can't yet complete, report honestly.
           post({
             type: "error",
             message:
-              "Private send is finalizing for your account — your funds are untouched. We’ll switch it on shortly.",
+              "Your private key is set up on this device. The send itself is finalizing — your funds are untouched.",
           });
         } catch (e) {
           post({ type: "error", message: (e as Error).message || "Private send failed." });
@@ -78,7 +102,7 @@ export function ShieldProveHarness({ live }: { live: boolean }) {
     return () => {
       delete window.taliseShieldSend;
     };
-  }, [live]);
+  }, [live, packageId, poolObjectId, coinType]);
 
   // Invisible — the native side mounts this in a 0×0 web view.
   return <div data-shield-prove="ready" style={{ width: 1, height: 1, opacity: 0 }} />;

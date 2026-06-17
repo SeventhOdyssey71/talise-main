@@ -1,4 +1,5 @@
-import { shieldConfigured } from "@/lib/shield/onchain";
+import { shieldConfigured, SHIELD } from "@/lib/shield/onchain";
+import { USDSUI_TYPE } from "@/lib/usdsui";
 import { ShieldProveHarness } from "./harness";
 
 export const dynamic = "force-dynamic";
@@ -21,5 +22,12 @@ export const dynamic = "force-dynamic";
  * fails cleanly rather than silently.
  */
 export default function ShieldProvePage() {
-  return <ShieldProveHarness live={shieldConfigured()} />;
+  return (
+    <ShieldProveHarness
+      live={shieldConfigured()}
+      packageId={SHIELD.packageId ?? ""}
+      poolObjectId={SHIELD.poolUsdsui ?? ""}
+      coinType={USDSUI_TYPE}
+    />
+  );
 }
