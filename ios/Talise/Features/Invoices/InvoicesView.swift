@@ -110,7 +110,9 @@ struct InvoicesView: View {
             }
         }
         .sheet(item: $shareItem) { item in
-            ShareSheet(items: [URL(string: item.url) ?? item.url])
+            // Share as a STRING, not a URL object — a URL serializes as a
+            // bplist `public.url` that pastes as garbage in messaging apps.
+            ShareSheet(items: [item.url])
         }
     }
 

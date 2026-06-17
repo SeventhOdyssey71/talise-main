@@ -449,7 +449,7 @@ struct ConfirmPaymentSheet: View {
         guard !digest.isEmpty else { return }
         let urlString = "https://suivision.xyz/txblock/\(digest)"
         let av = UIActivityViewController(
-            activityItems: [URL(string: urlString) ?? urlString],
+            activityItems: [urlString], // string, not URL — avoids bplist paste garbage
             applicationActivities: nil
         )
         guard let scene = UIApplication.shared.connectedScenes

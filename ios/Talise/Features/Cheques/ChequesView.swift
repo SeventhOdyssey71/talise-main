@@ -480,7 +480,11 @@ private struct ChequeIssuedView: View {
             }.padding(.horizontal, 22).padding(.bottom, 24)
         }
         .background(TaliseColor.bg.ignoresSafeArea())
-        .sheet(isPresented: $sharing) { ShareSheet(items: [URL(string: resp.claimUrl) ?? resp.claimUrl]) }
+        // Share the link as a STRING (public.plain-text), not a URL object.
+        // Sharing a URL makes messaging apps (WhatsApp) grab the bplist-encoded
+        // `public.url` representation, which pasted as "bplist00…%00%00~" garbage.
+        // A string is auto-linked cleanly by every app.
+        .sheet(isPresented: $sharing) { ShareSheet(items: [resp.claimUrl]) }
     }
 
     /// Reclaim ("Claim back") the unclaimed cheque the creator just issued.

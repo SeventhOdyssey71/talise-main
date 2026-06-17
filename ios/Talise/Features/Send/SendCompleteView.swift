@@ -63,7 +63,7 @@ struct SendCompleteView: View {
         guard let digest = draft.success?.digest, !digest.isEmpty else { return }
         let url = "https://suivision.xyz/txblock/\(digest)"
         let av = UIActivityViewController(
-            activityItems: [URL(string: url) ?? url],
+            activityItems: [url], // string, not URL — avoids bplist paste garbage
             applicationActivities: nil
         )
         guard let scene = UIApplication.shared.connectedScenes
