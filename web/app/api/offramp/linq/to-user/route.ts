@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { db, ensureSchema, userById, userBySuiAddress } from "@/lib/db";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { createOrder, getRate, linqConfigured, checkDailyOfframpCap, cashoutFeatureOpen, CASHOUT_CLOSED_MESSAGE } from "@/lib/linq";
+import { createOrder, getRate, linqConfigured, checkDailyOfframpCap, cashoutFeatureOpen, CASHOUT_CLOSED_MESSAGE, isUsdsuiCoinType } from "@/lib/linq";
 import { resolveLinqBank } from "@/lib/linq-banks";
 import { resolveRecipient } from "@/lib/suins";
 import { getPrimaryBankAccount, last4 } from "@/lib/bank-accounts";
@@ -166,12 +166,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not start the payout.", reason }, { status: 502 });
   }
 
-  // Linq pays (USDsui that ARRIVES) × the order's LOCKED rate. To credit the
-  // recipient an exact NGN figure, the sender sends amountNgn / lockedRate.
+  // Coin guard: never let the sender deposit USDSUI into an order Linq is
+  // watching for a different coin.
+  if (!isUsdsuiCoinType(order.coinType)) {
+    console.warn("[offramp/linq/to-user] unexpected coinType:", order.coinType);
+    return NextResponse.json(
+      { error: "Could not start the payout.", reason: "off-ramp coin mismatch" },
+      { status: 502 }
+    );
+  }
+
+  // CRITICAL: send EXACTLY what Linq recorded on the order (order.amountStableCoin)
+  // — that's the amount its deposit watcher matches. Recomputing the send figure
+  // from the locked rate drifted from what Linq expected whenever the rate ticked
+  // between the rate fetch and create, so the deposit was never recognized →
+  // timeout → failed payout. Credit order.amountNGN (Linq's locked computation).
   const lockedRate =
     order.rate > 0 ? order.rate : order.amountNGN / Math.max(initialUsdsui, 1e-6);
-  const sendUsdsui = r6(reqNgn / lockedRate);
-  const creditNgn = r2(sendUsdsui * lockedRate);
+  const sendUsdsui = r6(order.amountStableCoin > 0 ? order.amountStableCoin : initialUsdsui);
+  const creditNgn = r2(order.amountNGN > 0 ? order.amountNGN : sendUsdsui * lockedRate);
 
   await ensureSchema();
   try {

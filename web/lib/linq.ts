@@ -27,6 +27,23 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 const DEFAULT_BASE_URL =
   "https://confidential-brianna-uselinq-52e2b233.koyeb.app";
 
+/**
+ * The ONLY coin Talise off-ramps. Linq also supports USDC, but we move USDSUI
+ * end-to-end — sending it explicitly (rather than relying on Linq's "usdsui"
+ * default) guarantees the deposit wallet watches for the same coin the client
+ * sends. `USDSUI_CONTRACT` is the on-chain type; we assert order.coinType
+ * matches it before letting the client deposit.
+ */
+export const LINQ_COIN = "usdsui" as const;
+export const USDSUI_CONTRACT =
+  "0x44f838219cf67b058f3b37907b655f226153c18e33dfcd0da559a844fea9b1c1::usdsui::USDSUI";
+
+/** True if a Linq order's coinType is our USDSUI (case-insensitive substring). */
+export function isUsdsuiCoinType(coinType: string | null | undefined): boolean {
+  const t = (coinType ?? "").toLowerCase();
+  return t.includes("::usdsui::usdsui") || t.includes(USDSUI_CONTRACT.toLowerCase());
+}
+
 export interface LinqConfig {
   baseUrl: string;
   apiKey: string;
@@ -162,6 +179,11 @@ export interface CreateOrderInput {
    * stuck pending manual support. Always the address that SENT the deposit.
    */
   refundAddress?: string;
+  /**
+   * Stablecoin to off-ramp. Defaults to USDSUI — the only coin Talise moves.
+   * Sent explicitly so the deposit wallet never ends up watching for USDC.
+   */
+  coin?: "usdsui" | "usdc";
   /** Your own reference (echoed in webhooks). */
   customerRef?: string;
   /** Unique per order — re-sending the same key returns the original order. */
@@ -197,6 +219,8 @@ export async function createOrder(
       bankName: input.bankName,
       accountName: input.accountName,
       currency: "NGN",
+      // Pin the coin to USDSUI explicitly (never rely on the server default).
+      coin: input.coin ?? LINQ_COIN,
       // Auto-refund target if the bank payout fails (Linq sweeps the deposit
       // back here). Omitted only when the caller couldn't supply one.
       ...(input.refundAddress ? { refundAddress: input.refundAddress } : {}),
