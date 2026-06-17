@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { fromBase64, toBase64 } from "@mysten/sui/utils";
 import { db, ensureSchema, schemaVersionGate } from "@/lib/db";
@@ -1084,7 +1085,9 @@ export async function buildChequeCreateSponsored(input: {
   }
 
   const onaraClient = onara();
-  const client = sui();
+  // Build against the DIRECT fullnode (not the Hayabusa read-proxy, which
+  // 502s on tx.build's simulate). Same gRPC API as sui().
+  const client = chequeChainClient();
 
   // Sponsor address + reference gas price in parallel (same as sponsor-prepare).
   const [{ address: sponsor }, gasPrice] = await Promise.all([
@@ -1095,6 +1098,10 @@ export async function buildChequeCreateSponsored(input: {
   const tx = new Transaction();
   tx.setSender(input.creatorAddress);
 
+  // Matches the DEPLOYED cheque::create — (registry, Balance, expiry, clock).
+  // The on-chain package has no binding/hashlock args; the claim secret +
+  // recipient gating are enforced off-chain at /claim/release. `bound`/
+  // `hashlockBytes` above still drive the DB-side claim condition + display.
   tx.moveCall({
     target: `${pkg}::cheque::create`,
     typeArguments: [USDSUI_TYPE],
@@ -1104,9 +1111,6 @@ export async function buildChequeCreateSponsored(input: {
       // the same primitive the gasless send uses, here fed to cheque::create.
       tx.balance({ type: USDSUI_TYPE, balance: input.amountMicros }),
       tx.pure.u64(BigInt(Math.trunc(input.expiryMs))),
-      // v2: Option<address> binding + Option<vector<u8>> hashlock.
-      tx.pure.option("address", bound),
-      tx.pure.option("vector<u8>", hashlockBytes),
       tx.object(SUI_CLOCK_ID),
     ],
   });
@@ -1178,10 +1182,20 @@ export async function parseCreatedChequeObjectId(
  * Returns the tx digest on success; throws with the validator's reason on
  * failure (so releaseCheque rolls the DB lock back).
  */
+/** Direct fullnode gRPC client for cheque tx.build — bypasses the Hayabusa
+ *  read-proxy, which 502s ("Bad Gateway") on tx.build's simulate/dry-run step.
+ *  Same gRPC API as `sui()`. Broadcast still goes over JSON-RPC (Hayabusa). */
+function chequeChainClient(): SuiGrpcClient {
+  return new SuiGrpcClient({
+    network: "mainnet",
+    baseUrl: process.env.SUI_GRPC_URL?.trim() || "https://fullnode.mainnet.sui.io:443",
+  });
+}
+
 export async function claimOnChain(
   chequeObjectId: string,
   recipientAddress: string,
-  secret: string
+  _secret: string
 ): Promise<string> {
   const pkg = chequePackageId();
   const registry = chequeRegistryId();
@@ -1189,10 +1203,13 @@ export async function claimOnChain(
     throw new Error("cheque on-chain rail not configured");
   }
   const kp = escrowKeypair();
-  const client = sui();
+  const client = chequeChainClient();
 
   const tx = new Transaction();
   tx.setSender(kp.getPublicKey().toSuiAddress());
+  // Matches the DEPLOYED cheque::claim — (registry, cheque, recipient, clock).
+  // No on-chain secret/hashlock arg: the secret + country gates are validated
+  // off-chain at /claim/release BEFORE this worker-signed claim runs.
   tx.moveCall({
     target: `${pkg}::cheque::claim`,
     typeArguments: [USDSUI_TYPE],
@@ -1200,8 +1217,6 @@ export async function claimOnChain(
       tx.object(registry),
       tx.object(chequeObjectId),
       tx.pure.address(recipientAddress),
-      // Preimage of the cheque's hashlock (empty for address-bound cheques).
-      tx.pure.vector("u8", Array.from(Buffer.from(secret, "utf8"))),
       tx.object(SUI_CLOCK_ID),
     ],
   });
