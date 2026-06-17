@@ -1003,9 +1003,9 @@ private struct EarnManageSheet: View {
             let reasonAmount: String = all
                 ? String(format: "$%.2f", venue.supplied ?? 0)
                 : String(format: "$%.2f", amtUsd ?? 0)
-            try await PinGate.shared.requireUserPresence(
-                reason: "Withdraw \(reasonAmount) from earnings"
-            )
+            // Slide-to-confirm only — no PIN/biometric gate (matches every
+            // other transaction flow). The user already slid to confirm.
+            _ = reasonAmount
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
                 transactionKindB64: built.transactionKindB64,
                 intent: all

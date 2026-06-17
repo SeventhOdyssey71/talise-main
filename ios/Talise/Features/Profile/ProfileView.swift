@@ -51,7 +51,8 @@ struct ProfileView: View {
                 walletSection
                 // Bank-account linking deferred — entry removed for now.
                 preferencesSection
-                securitySection
+                // Security section removed — transactions are slide-to-confirm
+                // only (no PIN / biometric gate). [[slide-only-transactions]]
                 helpSection
                 signOutButton
                 deleteAccountButton
