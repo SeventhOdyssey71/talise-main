@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
+import { denyUnlessAppApproved } from "@/lib/app-access";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import {
   archiveGoal,
   depositToGoal,
   getGoal,
   updateGoal,
+  GOAL_DEPOSIT_MAX_USD,
   type SavingsGoal,
 } from "@/lib/rewards/goals";
 
@@ -109,6 +112,19 @@ export async function PATCH(req: Request, ctx: Ctx) {
 export async function POST(req: Request, ctx: Ctx) {
   const userId = await auth(req);
   if (!userId) return NextResponse.json({ error: "not authenticated" }, { status: 401 });
+  // Private-beta guardrail: only allowlisted accounts may mint points. Same
+  // gate the money APIs use — keeps non-approved sessions out of the ledger.
+  const denied = await denyUnlessAppApproved(userId);
+  if (denied) return denied;
+  // Bound abuse: a goal deposit is an UNVERIFIED self-report that mints
+  // points, so throttle it hard per account.
+  const rl = await rateLimitAsync({ key: `goal-deposit:user:${userId}`, limit: 12, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many deposits. Try again shortly." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } }
+    );
+  }
   const id = await resolveId(ctx);
   if (!id) return NextResponse.json({ error: "bad id" }, { status: 400 });
   let body: { amountUsd?: unknown };
@@ -121,6 +137,13 @@ export async function POST(req: Request, ctx: Ctx) {
   if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
     return NextResponse.json(
       { error: "amountUsd must be positive" },
+      { status: 400 }
+    );
+  }
+  // Reject absurd amounts outright (depositToGoal also clamps as a backstop).
+  if (amountUsd > GOAL_DEPOSIT_MAX_USD) {
+    return NextResponse.json(
+      { error: `amountUsd exceeds the $${GOAL_DEPOSIT_MAX_USD.toLocaleString()} per-deposit limit` },
       { status: 400 }
     );
   }

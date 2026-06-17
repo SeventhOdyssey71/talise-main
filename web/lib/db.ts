@@ -106,7 +106,15 @@ interface DbAdapter {
   batch(stmts: ReadonlyArray<BatchStmt>, mode?: "read" | "write"): Promise<ExecuteResult[]>;
 }
 
-let _sql: Sql | null = null;
+// HMR-safe pool. Next.js dev re-evaluates this module on every edit; caching
+// the postgres pool on globalThis makes each reload REUSE it instead of
+// opening a fresh pool of `max` connections and orphaning the old one. Without
+// this, repeated edits leak connections until the Postgres (PgBouncer) pooler
+// saturates and every DB query hangs — which surfaces as /admin and any
+// DB-backed route getting stuck on "Loading…". In production there is no HMR,
+// so this is purely a dev-safety measure (the branch is a plain singleton).
+const _pgGlobal = globalThis as unknown as { __talisePgPool?: Sql };
+let _sql: Sql | null = _pgGlobal.__talisePgPool ?? null;
 let _adapter: DbAdapter | null = null;
 let _schemaReadyP: Promise<void> | null = null;
 
@@ -152,6 +160,12 @@ function getSql(): Sql {
     max: 8,
     idle_timeout: 30,
     connect_timeout: 10,
+    // Recycle connections every 10 min. Without this, a long-lived process
+    // (a `pnpm dev` server, a warm lambda) can hold a socket the serverless
+    // Postgres pooler has silently dropped; reusing that dead socket makes
+    // queries hang indefinitely (observed: the whole /admin board wedged on
+    // "Loading…"). max_lifetime forces a fresh connect well before that bites.
+    max_lifetime: 60 * 10,
     // Don't transform — keep snake_case column names exactly as queried.
     transform: { undefined: null },
     // Silence NOTICE chatter from idempotent migrations. CREATE TABLE
@@ -176,6 +190,8 @@ function getSql(): Sql {
       },
     },
   });
+  // Stash on globalThis so the next HMR reload reuses this exact pool.
+  _pgGlobal.__talisePgPool = _sql;
   return _sql;
 }
 
@@ -285,12 +301,45 @@ export function db(): DbAdapter {
 // ───────────────────────────────────────────────────────────────────
 // Schema migrations — Postgres flavor
 
+/**
+ * Max time to wait for the (idempotent) schema-ensure before giving up.
+ * Generous for the DDL itself — its real job is to bound a HANG: if the DB
+ * connection is wedged, doEnsureSchema() never settles, and because the
+ * promise is memoized below, EVERY caller of ensureSchema() (i.e. every
+ * route) would hang forever until the process restarts. Racing a timeout
+ * turns that permanent wedge into a transient error that retries on the
+ * next request with a fresh connection.
+ */
+const SCHEMA_READY_TIMEOUT_MS = 15_000;
+
 export function ensureSchema(): Promise<void> {
   if (_schemaReadyP) return _schemaReadyP;
-  _schemaReadyP = doEnsureSchema().catch((err) => {
-    _schemaReadyP = null;
-    throw err;
-  });
+  _schemaReadyP = (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        doEnsureSchema(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `ensureSchema timed out after ${SCHEMA_READY_TIMEOUT_MS}ms — DB unreachable or connection stale`
+                )
+              ),
+            SCHEMA_READY_TIMEOUT_MS
+          );
+        }),
+      ]);
+    } catch (err) {
+      // Reset so the NEXT request retries from scratch (fresh connection)
+      // instead of awaiting a forever-pending promise.
+      _schemaReadyP = null;
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  })();
   return _schemaReadyP;
 }
 

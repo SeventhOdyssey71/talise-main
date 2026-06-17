@@ -44,7 +44,11 @@ export const POINT_RATES: Record<EarnTrigger, number> = {
   invest: 3,
   withdraw: 0,
   roundup: 5,
-  goal: 4,
+  // Goal deposits earn NOTHING. A goal deposit is an UNVERIFIED self-report
+  // (no money moves on-chain), so awarding points for it is freely farmable —
+  // one account rigged it to 1,008,671,212 pts. Tracking still works; points
+  // don't. (Closes the "goal" trigger on sponsor-execute too.)
+  goal: 0,
   // Auto-swap into USDsui (Cetus) — reward the conversion that puts the
   // user into the spendable/savable stablecoin. 1 pt per $1 converted.
   swap: 1,

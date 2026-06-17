@@ -174,11 +174,22 @@ export async function updateGoal(
 }
 
 /**
- * Tracking-only deposit. Bumps current_usd + mints a rewards_event via
- * the canonical earn engine (4 pts/$1, `trigger: "goal"`).
- *
- * The amount must be > 0. We DON'T cap at the goal's target — letting
- * users overshoot is fine and matches how real piggy-banks behave.
+ * Hard ceiling on a single tracking deposit. Mirrors the $10k per-tx earn
+ * cap the send routes enforce. A goal deposit moves NO money on-chain (it's
+ * a self-reported envelope), so without this an authenticated client could
+ * POST any amountUsd and mint 4×amount points — which is exactly how one
+ * account reached 1,008,671,212 pts. We clamp the amount itself (not just
+ * the points) so `current_usd` can't be inflated to an absurd figure either.
+ */
+export const GOAL_DEPOSIT_MAX_USD = 10_000;
+
+/**
+ * Goal deposits earn ZERO points. The deposit is an UNVERIFIED self-report
+ * (no on-chain backing), so any proportional reward is freely farmable — one
+ * account rigged it to 1,008,671,212 pts. We keep the deposit as a tracking
+ * entry (bumps current_usd, clamped to GOAL_DEPOSIT_MAX_USD) but mint no
+ * points. If goal deposits ever move real money on-chain, re-introduce points
+ * keyed to the verified transfer, not to a self-reported number.
  */
 export async function depositToGoal(input: {
   userId: number;
@@ -186,23 +197,22 @@ export async function depositToGoal(input: {
   amountUsd: number;
 }): Promise<{ goal: SavingsGoal; points: number }> {
   await ensureSchema();
-  const amount = Number(input.amountUsd);
-  if (!Number.isFinite(amount) || amount <= 0) {
+  const raw = Number(input.amountUsd);
+  if (!Number.isFinite(raw) || raw <= 0) {
     throw new Error("amountUsd must be positive");
   }
+  // Clamp the tracked amount — defense in depth even against direct callers.
+  const amount = Math.min(raw, GOAL_DEPOSIT_MAX_USD);
   const existing = await getGoal(input.userId, input.goalId);
   if (!existing) throw new Error("goal not found");
   if (existing.archived) throw new Error("goal is archived");
 
-  // Atomic — earlier revision did the `UPDATE savings_goals` then
-  // called `awardForTx` separately, so a server crash between them
-  // could leave the goal bumped without the points event (or vice
-  // versa). Now all four writes commit together: goal balance bump,
-  // rewards_events row, users.points_total bump, lifetime_saved_usd
-  // bump. Same statement set awardForTx + recordRewardsEvent perform
-  // internally, just hoisted into one libsql batch.
-  const GOAL_POINTS_PER_USD = 4;
-  const points = Math.floor(amount * GOAL_POINTS_PER_USD);
+  // Goal deposits mint NO points (unverified self-report — see above), and
+  // no longer bump the global `lifetime_saved_usd` stat (also farmable via a
+  // self-report). The goal's own `current_usd` still tracks the envelope, and
+  // a 0-point `goal_deposit` event is written so the activity feed shows the
+  // deposit. Atomic batch so balance + feed commit together.
+  const points = 0;
   const metaJson = JSON.stringify({
     amountUsd: amount,
     goalId: input.goalId,
@@ -220,14 +230,6 @@ export async function depositToGoal(input: {
               (user_id, kind, points, metadata, created_at)
               VALUES (?, 'goal_deposit', ?, ?, ?)`,
         args: [input.userId, points, metaJson, Date.now()],
-      },
-      {
-        sql: "UPDATE users SET points_total = COALESCE(points_total, 0) + ? WHERE id = ?",
-        args: [points, input.userId],
-      },
-      {
-        sql: "UPDATE users SET lifetime_saved_usd = COALESCE(lifetime_saved_usd, 0) + ? WHERE id = ?",
-        args: [amount, input.userId],
       },
     ],
     "write"
