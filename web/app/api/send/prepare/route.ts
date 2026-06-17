@@ -8,7 +8,7 @@ import { sui, COIN_TYPES, USDSUI_DECIMALS } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 import { getRoundupConfig } from "@/lib/rewards/roundup";
-import { appendNaviSupply } from "@/lib/navi-supply";
+import { appendNaviSupply, SAVE_TREASURY_FEE_BPS } from "@/lib/navi-supply";
 import { checkSendAllowed, recordSend } from "@/lib/send-limits";
 import { screenTransfer } from "@/lib/screening";
 
@@ -193,7 +193,7 @@ export async function POST(req: Request) {
           const microUnits = Math.round(cappedUsd * 1e6);
           if (microUnits > 0) {
             roundupUsd = cappedUsd;
-            await appendNaviSupply(tx, user.sui_address, roundupUsd);
+            await appendNaviSupply(tx, user.sui_address, roundupUsd, { treasuryFeeBps: SAVE_TREASURY_FEE_BPS });
             // Tag the supply leg with a Payment Kit marker so the
             // activity classifier + rewards engine recognize it as
             // a round-up (not a manual invest). Same digest, second

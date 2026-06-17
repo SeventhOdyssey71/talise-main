@@ -4,7 +4,7 @@ import { denyUnlessAppApproved } from "@/lib/app-access";
 import { userById } from "@/lib/db";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { getRate, verifyBank, linqConfigured, OFFRAMP_MAX_USD } from "@/lib/linq";
+import { getRate, verifyBank, linqConfigured, checkDailyOfframpCap } from "@/lib/linq";
 import { resolveLinqBank } from "@/lib/linq-banks";
 
 export const runtime = "nodejs";
@@ -111,14 +111,11 @@ export async function POST(req: Request) {
     ? Math.round(reqNgn * 100) / 100
     : Math.round(reqUsdsui * rate * 100) / 100;
 
-  // Beta cap: $200 per withdrawal (server-enforced in quote + create + to-user).
-  if (amountUsdsui > OFFRAMP_MAX_USD) {
+  // Per-account DAILY cap: $200/day across all cash-outs (KYC unlocks more).
+  const cap = await checkDailyOfframpCap(userId, amountUsdsui);
+  if (!cap.ok) {
     return NextResponse.json(
-      {
-        error: `Cash-outs are capped at $${OFFRAMP_MAX_USD} per withdrawal during beta.`,
-        code: "OFFRAMP_CAP",
-        maxUsd: OFFRAMP_MAX_USD,
-      },
+      { error: cap.error, code: cap.code, maxUsd: cap.max, usedToday: cap.used, remainingToday: cap.remaining },
       { status: 400 }
     );
   }

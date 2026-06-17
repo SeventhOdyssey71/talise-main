@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { db, ensureSchema, userById, userBySuiAddress } from "@/lib/db";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { createOrder, getRate, linqConfigured, OFFRAMP_MAX_USD } from "@/lib/linq";
+import { createOrder, getRate, linqConfigured, checkDailyOfframpCap } from "@/lib/linq";
 import { resolveLinqBank } from "@/lib/linq-banks";
 import { resolveRecipient } from "@/lib/suins";
 import { getPrimaryBankAccount, last4 } from "@/lib/bank-accounts";
@@ -129,14 +129,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "rate_unavailable" }, { status: 503 });
   }
 
-  // Beta cap: $200 per withdrawal (server-enforced in quote + create + to-user).
-  if (initialUsdsui > OFFRAMP_MAX_USD) {
+  // Per-account DAILY cap: $200/day across all cash-outs (KYC unlocks more).
+  // The sender (who debits USDsui) is the capped account.
+  const cap = await checkDailyOfframpCap(userId, initialUsdsui);
+  if (!cap.ok) {
     return NextResponse.json(
-      {
-        error: `Cash-outs are capped at $${OFFRAMP_MAX_USD} per withdrawal during beta.`,
-        code: "OFFRAMP_CAP",
-        maxUsd: OFFRAMP_MAX_USD,
-      },
+      { error: cap.error, code: cap.code, maxUsd: cap.max, usedToday: cap.used, remainingToday: cap.remaining },
       { status: 400 }
     );
   }

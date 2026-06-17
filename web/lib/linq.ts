@@ -261,7 +261,48 @@ export function parseLinqWebhook(json: Record<string, unknown>): LinqWebhookEven
   };
 }
 
-// ─── Beta off-ramp cap ────────────────────────────────────────────────────
-/** Per-withdrawal USD cap during beta. Enforced server-side in every Linq
- *  entry point (quote / create / to-user). */
+// ─── Off-ramp cap (per-account, per-day) ──────────────────────────────────
+/** Daily off-ramp USD cap PER ACCOUNT. Enforced server-side in every Linq
+ *  entry point (quote / create / to-user / concierge request) against the
+ *  trailing-24h sum of the user's cash-outs. KYC unlocks higher limits. */
 export const OFFRAMP_MAX_USD = 200;
+
+/** Rolling window for the daily cap. */
+export const OFFRAMP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export type OfframpCapStatus = {
+  ok: boolean;
+  used: number;
+  remaining: number;
+  max: number;
+  /** User-facing message + code when `ok` is false. */
+  error?: string;
+  code?: string;
+};
+
+/**
+ * Check a proposed off-ramp of `addUsd` against the user's per-account daily
+ * cap. Sums the trailing-24h cash-outs from `linq_offramps` (via db) and
+ * returns whether this one fits, plus a KYC-upsell message when it doesn't.
+ */
+export async function checkDailyOfframpCap(
+  userId: number | string,
+  addUsd: number
+): Promise<OfframpCapStatus> {
+  const { sumRecentOfframpUsd } = await import("@/lib/db");
+  const used = await sumRecentOfframpUsd(userId, Date.now() - OFFRAMP_WINDOW_MS);
+  const remaining = Math.max(0, OFFRAMP_MAX_USD - used);
+  const ok = addUsd <= remaining + 1e-9;
+  return {
+    ok,
+    used,
+    remaining,
+    max: OFFRAMP_MAX_USD,
+    ...(ok
+      ? {}
+      : {
+          error: `Cash-outs are capped at $${OFFRAMP_MAX_USD} per day. You have $${remaining.toFixed(2)} left today — verify your identity (KYC) to raise your limit.`,
+          code: "OFFRAMP_DAILY_CAP",
+        }),
+  };
+}

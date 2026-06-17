@@ -34,6 +34,17 @@ import { memoTtl } from "./perf-cache";
 // `SUPPORTED_ASSETS.USDsui.symbol` in @t2000/sdk 2.11.
 const NAVI_ASSET = "USDsui";
 
+/**
+ * Treasury wallet that collects the save / spend-and-save fee. Env-overridable
+ * so it can be rotated without a redeploy; defaults to the founder treasury.
+ */
+export const TREASURY_WALLET =
+  process.env.TALISE_TREASURY_WALLET?.trim() ||
+  "0xc0bf1c51e44f8cfa4a06f16a2408effa3507ac4582744c7ead56078b5e251a48";
+
+/** Save / spend-and-save treasury fee, in basis points (100 = 1%). */
+export const SAVE_TREASURY_FEE_BPS = 100;
+
 let _adapter: NaviAdapter | null = null;
 let _adapterReady: Promise<NaviAdapter> | null = null;
 let _naviJsonRpcClient: SuiJsonRpcClient | null = null;
@@ -112,7 +123,17 @@ export async function initNaviAdapter(): Promise<boolean> {
 export async function appendNaviSupply(
   tx: Transaction,
   senderAddress: string,
-  amountUsdsui: number
+  amountUsdsui: number,
+  opts?: {
+    /**
+     * Treasury fee in basis points skimmed from the supplied amount and sent to
+     * {@link TREASURY_WALLET} in the SAME atomic PTB (100 = 1%). Set this ONLY
+     * on the save / spend-and-save (round-up) legs; the direct Earn deposit
+     * passes nothing (it is the yield product, not a save). Of `amountUsdsui`,
+     * `feeBps` goes to the treasury and the remainder is supplied to yield.
+     */
+    treasuryFeeBps?: number;
+  }
 ): Promise<void> {
   const a = await adapter();
   const onchain = BigInt(Math.round(amountUsdsui * 10 ** USDSUI_DECIMALS));
@@ -122,6 +143,19 @@ export async function appendNaviSupply(
   const coin = tx.add(
     coinWithBalance({ type: USDSUI_TYPE, balance: onchain, useGasCoin: false })
   );
+
+  // Treasury fee: split `feeBps` off the supply coin and send it to the
+  // treasury wallet atomically, then supply the remainder. `splitCoins`
+  // mutates `coin` to hold the leftover, so the supply leg gets (100% − fee).
+  const feeBps = BigInt(Math.max(0, Math.floor(opts?.treasuryFeeBps ?? 0)));
+  if (feeBps > 0n) {
+    const fee = (onchain * feeBps) / 10_000n;
+    if (fee > 0n) {
+      const [feeCoin] = tx.splitCoins(coin, [fee]);
+      tx.transferObjects([feeCoin], TREASURY_WALLET);
+    }
+  }
+
   await a.addSaveToTx(tx, senderAddress, coin, NAVI_ASSET);
 }
 

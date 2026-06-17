@@ -1047,6 +1047,29 @@ export async function schemaVersionGate(
   };
 }
 
+/**
+ * Sum of a user's off-ramp USDsui (≈ USD 1:1) in the trailing window, from the
+ * `linq_offramps` ledger. Powers the per-account DAILY cash-out cap. Terminal-
+ * failure rows are excluded so a bounced/cancelled order doesn't burn the
+ * allowance. `manual_requested` (concierge) rows are also excluded — concierge
+ * is the manually-reviewed "do more" path (the KYC escape hatch), so it neither
+ * consumes nor is bounded by the automated self-serve daily cap.
+ */
+export async function sumRecentOfframpUsd(
+  userId: number | string,
+  sinceMs: number
+): Promise<number> {
+  await ensureSchema();
+  const r = await db().execute({
+    sql: `SELECT COALESCE(SUM(amount_usdsui), 0) AS total
+            FROM linq_offramps
+           WHERE user_id = ? AND created_at >= ?
+             AND status NOT IN ('failed', 'cancelled', 'rejected', 'expired', 'manual_requested')`,
+    args: [String(userId), sinceMs],
+  });
+  return Number(r.rows[0]?.total ?? 0);
+}
+
 export async function dbHealth(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
   const t0 = Date.now();
   try {
