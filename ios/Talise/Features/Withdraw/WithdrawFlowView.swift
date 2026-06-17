@@ -148,10 +148,8 @@ struct WithdrawFlowView: View {
             }
             .background(TaliseColor.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $showPrivateSoon) {
-                PrivateSoonSheet()
-                    .presentationDetents([.medium])
-                    .presentationDragIndicator(.visible)
+            .fullScreenCover(isPresented: $showPrivateSoon) {
+                PrivateSendFlowView(onDone: { showPrivateSoon = false })
             }
         }
         .tint(TaliseColor.fg)
@@ -1317,143 +1315,170 @@ struct TaliseLoadingRing: View {
 
 // MARK: - Private transactions (coming soon)
 
-/// "Send private tx" entry. The shielded pool is live on mainnet as a capped
-/// pilot; the actual send runs on the web app (`/private`), where the Groth16
-/// proof is built client-side — the relayer only sponsors gas, it never sees the
-/// note secrets. This sheet sets honest expectations (what it does + the pilot
-/// caveats) and hands off. See docs/strategy/PRIVACY-BUILD-PLAN.md.
-private struct PrivateSoonSheet: View {
+/// NATIVE shielded-send flow. Mirrors the normal Send flow's simple UI (amount
+/// keypad → recipient → review → result) by reusing its screens, so "Send
+/// private tx" feels exactly like a regular send — no web page. The only
+/// difference is `confirm()`: instead of a normal transfer it runs a SHIELDED
+/// send (deposit into the pool, then withdraw to the recipient — which severs
+/// the on-chain sender↔recipient link). The Groth16 proof is built client-side
+/// in a HIDDEN, never-shown in-app web layer (privacy holds — the relayer only
+/// relays, never sees note secrets). $10/tx pilot cap is enforced on-chain.
+struct PrivateSendFlowView: View {
+    var onDone: (() -> Void)?
+
     @Environment(\.dismiss) private var dismiss
-    @State private var showWeb = false
+    @State private var path: [SendStep] = []
+    @State private var draft = SendDraft(currency: CurrencySettings.shared.current)
+    @StateObject private var prover = ShieldProverController()
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(TaliseColor.fg)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(TaliseColor.surface2))
+        NavigationStack(path: $path) {
+            SendAmountView(
+                draft: draft,
+                onNext: { path.append(.recipient) },
+                onCancel: { close() }
+            )
+            .navigationDestination(for: SendStep.self) { step in
+                switch step {
+                case .amount:
+                    Color.clear.onAppear { path.removeAll() }
+                case .recipient:
+                    SendRecipientView(
+                        draft: draft,
+                        onNext: { path.append(.review) },
+                        onBack: { pop() },
+                        onClose: { close() }
+                    )
+                case .review:
+                    SendReviewView(
+                        draft: draft,
+                        onConfirm: { await confirm() },
+                        onBack: { pop() }
+                    )
+                case .sending:
+                    SendInProgressView(draft: draft, onDone: { close() })
+                        .navigationBarBackButtonHidden(true)
+                case .complete:
+                    SendCompleteView(draft: draft, onDone: { close() })
+                        .navigationBarBackButtonHidden(true)
+                case .failure:
+                    SendFailureView(
+                        draft: draft,
+                        onTryAgain: { draft.errorMessage = nil; path = [] },
+                        onDone: { close() }
+                    )
+                    .navigationBarBackButtonHidden(true)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-
-            Spacer(minLength: 0)
-            VStack(spacing: 16) {
-                ZStack {
-                    Circle().fill(TaliseColor.greenMint.opacity(0.12)).frame(width: 72, height: 72)
-                    HugeIcon(name: "hi.lock", size: 30, tint: TaliseColor.greenMint)
-                }
-                Text("Private transactions")
-                    .font(TaliseFont.heading(22, weight: .semibold))
-                    .kerning(-0.4)
-                    .foregroundStyle(TaliseColor.fg)
-                Text("Send USDsui shielded — the amount and the link between sender and recipient stay private on-chain, and your money never leaves your control.")
-                    .font(TaliseFont.body(14, weight: .light))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 8)
-
-                // Honest pilot disclosure — operator-trusted keys + the per-tx cap.
-                VStack(spacing: 8) {
-                    PrivatePilotNote(text: "Early pilot — up to $10 per transaction.")
-                    PrivatePilotNote(text: "The pool's keys are operator-secured while the trustless setup is finalized.")
-                }
-                .padding(.top, 2)
-            }
-            .padding(.horizontal, 28)
-            Spacer(minLength: 0)
-
-            Button {
-                showWeb = true
-            } label: {
-                Text("Continue to private send")
-                    .font(TaliseFont.body(16, weight: .semibold))
-                    .foregroundStyle(TaliseColor.bg)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(RoundedRectangle(cornerRadius: 16).fill(TaliseColor.greenMint))
-            }
-            .buttonStyle(TilePress())
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(TaliseColor.bg.ignoresSafeArea())
-        // Stays INSIDE the app — an in-app WKWebView (not Safari), so the
-        // shielded proof is built in the app's own web layer.
-        .fullScreenCover(isPresented: $showWeb) { PrivateWebScreen() }
+        .tint(TaliseColor.fg)
+        // The prover web layer is mounted 0×0 and hidden — the user only ever
+        // sees the native screens above. It exists solely to build the proof.
+        .background(
+            ShieldProverHost(controller: prover)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        )
     }
+
+    private func confirm() async {
+        guard let resolved = draft.resolved, draft.amountUsdsui > 0 else { return }
+        draft.errorMessage = nil
+        path.append(.sending)
+        let micros = UInt64((draft.amountUsdsui * 1_000_000).rounded())
+        let recipientDisplay = resolved.displayName ?? resolved.display ?? String(resolved.address.prefix(10))
+        do {
+            let digest = try await prover.send(micros: micros, recipient: resolved.address)
+            draft.success = SendSuccess(
+                digest: digest,
+                displayAmount: draft.rawAmount,
+                currency: draft.currency,
+                usdsui: draft.amountUsdsui,
+                recipientAddress: resolved.address,
+                recipientDisplay: recipientDisplay
+            )
+            path = [.complete]
+        } catch {
+            draft.errorMessage = error.localizedDescription
+            path = [.failure]
+        }
+    }
+
+    private func pop() { if !path.isEmpty { path.removeLast() } }
+    private func close() { onDone?(); dismiss() }
 }
 
-/// One muted, bullet-prefixed disclosure line for the privacy pilot sheet.
-private struct PrivatePilotNote: View {
-    let text: String
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Circle().fill(TaliseColor.fgMuted.opacity(0.5)).frame(width: 4, height: 4).padding(.top, 7)
-            Text(text)
-                .font(TaliseFont.body(12.5, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
+/// Drives the shielded send. Owns a hidden `WKWebView` that loads the
+/// authenticated `/shield-prove` harness (via the bearer→web-session bridge);
+/// the native flow calls `send(micros:recipient:)`, the harness runs the
+/// deposit→withdraw legs (Groth16 proof built in-page, client-side), and posts
+/// progress + the final digest back over a script-message handler.
+@MainActor
+final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageHandler, WKNavigationDelegate {
+    let webView: WKWebView
+    @Published var status: String = ""
+    private var continuation: CheckedContinuation<String, Error>?
+
+    enum ShieldError: LocalizedError {
+        case message(String)
+        var errorDescription: String? { if case .message(let m) = self { return m }; return nil }
     }
-}
 
-/// Full-screen IN-APP host for the shielded-send flow. The private flow runs in
-/// the app's own web layer (where the Groth16 proof is built client-side) — it
-/// never bounces to Safari. We load the bearer→web-session bridge so the
-/// WKWebView is authenticated as the signed-in user, then it lands on /private.
-private struct PrivateWebScreen: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            PrivateWebView()
-                .ignoresSafeArea(edges: .bottom)
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(TaliseColor.fg)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(TaliseColor.surface2))
-            }
-            .padding(.trailing, 16)
-            .padding(.top, 12)
-        }
-        .background(TaliseColor.bg.ignoresSafeArea())
-    }
-}
-
-/// WKWebView that opens the in-app private-send flow. It hits
-/// `/api/auth/web-session?next=/private` with the app's Bearer token on the
-/// top-level request; the server mints the web-session cookie and 302s to
-/// /private, so the page + its same-origin shield API calls are authenticated
-/// without ever leaving the app.
-private struct PrivateWebView: UIViewRepresentable {
-    func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
-        let webView = WKWebView(frame: .zero, configuration: config)
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
-
-        if let url = URL(string: AppConfig.shared.apiBaseURL + "/api/auth/web-session?next=/private") {
+    override init() {
+        let cfg = WKWebViewConfiguration()
+        let ucc = WKUserContentController()
+        cfg.userContentController = ucc
+        webView = WKWebView(frame: .zero, configuration: cfg)
+        super.init()
+        ucc.add(self, name: "shield")
+        webView.navigationDelegate = self
+        if let url = URL(string: AppConfig.shared.apiBaseURL + "/api/auth/web-session?next=/shield-prove") {
             var req = URLRequest(url: url)
             if let bearer = SecureSessionStore.shared.read() {
                 req.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization")
             }
             webView.load(req)
         }
-        return webView
     }
 
+    /// Run a shielded send. `micros` = USDsui base units; `recipient` = 0x addr.
+    func send(micros: UInt64, recipient: String) async throws -> String {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
+            self.continuation = cont
+            let safeRecipient = recipient.replacingOccurrences(of: "'", with: "")
+            let js = "window.taliseShieldSend && window.taliseShieldSend('\(micros)','\(safeRecipient)')"
+            webView.evaluateJavaScript(js) { _, err in
+                if let err {
+                    self.finish(.failure(ShieldError.message(err.localizedDescription)))
+                }
+            }
+        }
+    }
+
+    func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any] else { return }
+        switch body["type"] as? String {
+        case "progress":
+            status = body["message"] as? String ?? ""
+        case "result":
+            finish(.success(body["digest"] as? String ?? ""))
+        case "error":
+            finish(.failure(ShieldError.message(body["message"] as? String ?? "Private send failed")))
+        default:
+            break
+        }
+    }
+
+    private func finish(_ result: Result<String, Error>) {
+        continuation?.resume(with: result)
+        continuation = nil
+    }
+}
+
+/// Hosts the prover's hidden web view (never visibly rendered).
+struct ShieldProverHost: UIViewRepresentable {
+    let controller: ShieldProverController
+    func makeUIView(context: Context) -> WKWebView { controller.webView }
     func updateUIView(_ webView: WKWebView, context: Context) {}
 }

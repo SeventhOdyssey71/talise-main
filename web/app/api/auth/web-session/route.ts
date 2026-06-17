@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  * Anti-open-redirect: the destination is restricted to a fixed allowlist of
  * internal app paths; anything else falls back to /private.
  */
-const ALLOWED_NEXT = new Set(["/private"]);
+const ALLOWED_NEXT = new Set(["/private", "/shield-prove"]);
 
 export async function GET(req: Request) {
   const entryId = await readEntryIdFromRequest(req);
