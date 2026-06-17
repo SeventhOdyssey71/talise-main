@@ -85,9 +85,6 @@ struct MainTabView: View {
     // is ready — but it shouldn't ship to users half-baked.
     enum Tab: Hashable { case home, invest, rewards, profile }
     @Environment(AppSession.self) private var session
-    @Environment(\.scenePhase) private var scenePhase
-    /// When the app left the foreground — drives the 2-minute inactivity lock.
-    @State private var backgroundedAt: Date?
     @State private var tab: Tab = .home
     @State private var depositCoverVisible = false
     @State private var withdrawCoverVisible = false
@@ -250,30 +247,12 @@ struct MainTabView: View {
                 NotificationCenter.default.post(name: .taliseHomeShouldRefresh, object: nil)
             }
         }
-        // Session expired anywhere (a dead bearer on a read, or a rebind-
-        // required on signing) → just sign the user out cleanly. No "your
-        // session is over" messaging; they land back on the sign-in screen.
+        // Sign out ONLY when the session ACTUALLY expires — a dead bearer on a
+        // read (401) or a rebind-required on signing posts .taliseSessionExpired.
+        // No inactivity/background timer: backgrounding the app never logs the
+        // user out; they stay signed in until the session genuinely lapses.
         .onReceive(NotificationCenter.default.publisher(for: .taliseSessionExpired)) { _ in
             if case .ready = session.phase { session.signOut() }
-        }
-        // Inactivity lock: if the app was backgrounded for more than 2 minutes,
-        // require a fresh sign-in on return. Closing the app and coming back
-        // after a couple minutes of inactivity = sign back in.
-        .onChange(of: scenePhase) { _, phase in
-            switch phase {
-            case .background, .inactive:
-                if backgroundedAt == nil { backgroundedAt = Date() }
-            case .active:
-                if let since = backgroundedAt {
-                    backgroundedAt = nil
-                    if Date().timeIntervalSince(since) > 120,
-                       case .ready = session.phase {
-                        session.signOut()
-                    }
-                }
-            @unknown default:
-                break
-            }
         }
     }
 }

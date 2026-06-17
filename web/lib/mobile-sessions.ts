@@ -8,8 +8,9 @@ import { db, ensureSchema, schemaVersionGate } from "./db";
  * same user id payload.
  *
  * Storage: a `mobile_sessions` table keyed by SHA-256(token). We never
- * store the token plaintext on the server. Tokens have a 24h TTL and are
- * rotated automatically on every cold start of the mobile app.
+ * store the token plaintext on the server. Tokens have a long, SLIDING TTL
+ * (60 days, pushed forward on every authed request) so an active user stays
+ * signed in and the session only ends when it genuinely lapses.
  *
  * Each session also stores the Google id_token (JWT) and Shinami salt
  * that the user signed in with. These two are what the zkLogin signer
@@ -20,7 +21,15 @@ import { db, ensureSchema, schemaVersionGate } from "./db";
  * as the proof was minted while it was fresh — so for signing purposes
  * we keep the JWT until the bearer rotates.
  */
-const MOBILE_SESSION_TTL_MS = 1000 * 60 * 60 * 24;
+// Long-lived, SLIDING session. A consumer wallet shouldn't log people out on
+// a fixed timer — the app keeps the user signed in and only the session's own
+// genuine expiry ends it. 60-day window, slid forward on every authed request
+// (see verifyMobileBearer), so an active user effectively never expires; only
+// a session unused for 60 straight days lapses.
+const MOBILE_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 60; // 60 days
+// Throttle the sliding UPDATE: only extend once the session has aged ≥1 day
+// since its expiry was last bumped, so we don't write on every request.
+const MOBILE_SESSION_SLIDE_THRESHOLD_MS = 1000 * 60 * 60 * 24; // 1 day
 
 // Gate the schema DDL to ONCE per process. verifyMobileBearer() (and
 // issueMobileBearer) used to re-run ~7 CREATE/INDEX/ALTER statements on
@@ -149,7 +158,22 @@ export async function verifyMobileBearer(signedToken: string): Promise<number | 
   const r = row.rows[0] as unknown as { user_id: number; expires_at: number; revoked: number } | undefined;
   if (!r) return null;
   if (r.revoked) return null;
-  if (r.expires_at < Date.now()) return null;
+  const now = Date.now();
+  if (r.expires_at < now) return null;
+
+  // Sliding refresh: this token was just used, so push its expiry forward to
+  // now + TTL. Throttled to at most once/day per session (only when the new
+  // expiry would advance by ≥1 day) to avoid a DB write on every request.
+  // Fire-and-forget — never block or fail the auth check on the slide.
+  const freshExpiry = now + MOBILE_SESSION_TTL_MS;
+  if (freshExpiry - r.expires_at >= MOBILE_SESSION_SLIDE_THRESHOLD_MS) {
+    void db()
+      .execute({
+        sql: `UPDATE mobile_sessions SET expires_at = ? WHERE token_hash = ? AND revoked = 0`,
+        args: [freshExpiry, hash(token)],
+      })
+      .catch(() => {});
+  }
   return r.user_id;
 }
 
