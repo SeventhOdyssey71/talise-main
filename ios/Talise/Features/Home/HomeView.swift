@@ -105,17 +105,27 @@ struct HomeView: View {
         .onReceive(NotificationCenter.default.publisher(for: .taliseHomeShouldRefresh)) { _ in
             Task { await loadAll(force: true) }
         }
-        .alert("Convert to USDsui", isPresented: $sweepAlertVisible) {
-            Button("Cancel", role: .cancel) {}
-            Button("Convert") { Task { await executeSweep() } }
-        } message: {
-            Text(sweepAlertMessage)
+        // Clean custom "Swap to USDsui" sheets (replace the bare system
+        // alerts) — shown when a received non-USDsui coin can be converted.
+        .sheet(isPresented: $sweepAlertVisible) {
+            SwapToUsdsuiSheet(
+                title: "Convert to USDsui",
+                message: sweepAlertMessage,
+                onConfirm: { Task { await executeSweep() } }
+            )
+            .presentationDetents([.height(440)])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(TaliseColor.bg)
         }
-        .alert("Convert all to USDsui", isPresented: $walletSweepAlertVisible) {
-            Button("Cancel", role: .cancel) {}
-            Button("Convert") { Task { await executeWalletSweep() } }
-        } message: {
-            Text(walletSweepAlertMessage)
+        .sheet(isPresented: $walletSweepAlertVisible) {
+            SwapToUsdsuiSheet(
+                title: "Convert all to USDsui",
+                message: walletSweepAlertMessage,
+                onConfirm: { Task { await executeWalletSweep() } }
+            )
+            .presentationDetents([.height(440)])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(TaliseColor.bg)
         }
         .sheet(item: $receiptEntry) { entry in
             TxReceiptView(entry: entry)
@@ -1415,5 +1425,81 @@ private struct TaliseLogoMark: View {
                 ctx.fill(path, with: .color(.white))
             }
         }
+    }
+}
+
+/// Clean, on-brand "Swap to USDsui" confirmation — replaces the bare system
+/// alert shown when a received non-USDsui coin can be converted. Mint accent,
+/// gas-sponsored reassurance, the estimate copy passed in from Home.
+private struct SwapToUsdsuiSheet: View {
+    let title: String
+    let message: String
+    let onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Circle().fill(TaliseColor.accent.opacity(0.14))
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(TaliseColor.accent)
+            }
+            .frame(width: 64, height: 64)
+            .padding(.top, 28)
+
+            Text(title)
+                .font(TaliseFont.heading(22, weight: .medium))
+                .kerning(-0.4)
+                .foregroundStyle(TaliseColor.fg)
+                .padding(.top, 16)
+
+            Text(message)
+                .font(TaliseFont.body(14, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 26)
+                .padding(.top, 10)
+
+            HStack(spacing: 8) {
+                Image(systemName: "bolt.fill").font(.system(size: 11, weight: .bold))
+                Text("Sponsored — gas is on us").font(TaliseFont.mono(11, weight: .regular)).tracking(0.5)
+            }
+            .foregroundStyle(TaliseColor.accent)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(Capsule().fill(TaliseColor.accent.opacity(0.12)))
+            .padding(.top, 18)
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 10) {
+                Button {
+                    dismiss()
+                    onConfirm()
+                } label: {
+                    Text("Convert")
+                        .font(TaliseFont.body(16, weight: .semibold))
+                        .foregroundStyle(TaliseColor.bg)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Capsule().fill(TaliseColor.accent))
+                }
+                .buttonStyle(.plain)
+
+                Button { dismiss() } label: {
+                    Text("Not now")
+                        .font(TaliseFont.body(15, weight: .medium))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity)
+        .background(TaliseColor.bg.ignoresSafeArea())
     }
 }

@@ -65,13 +65,12 @@ struct WithdrawFlowView: View {
                             .buttonStyle(TilePress())
 
                             // Private transactions — shielded USDsui (Talise's
-                            // own ZK privacy layer), live on mainnet as a capped
-                            // pilot. Runs inside the app (in-app web layer) so the
-                            // proof is built client-side; the relayer only relays.
-                            Button { showPrivateSoon = true } label: {
-                                ActionTile(icon: "hi.lock", title: "Send private tx", caption: "Shielded · private beta")
-                            }
-                            .buttonStyle(TilePress())
+                            // own ZK privacy layer). LOCKED ("coming soon") until
+                            // the trustless setup + end-to-end send are finished.
+                            // The native flow (PrivateSendFlowView) is built and
+                            // ready behind this lock; non-interactive while locked.
+                            ActionTile(icon: "hi.lock", title: "Send private tx", caption: "Shielded · coming soon", locked: true)
+                                .allowsHitTesting(false)
                         }
                         .zIndex(3)
 
@@ -267,13 +266,26 @@ private struct ActionTile: View {
     let caption: String
     var expandable = false
     var isExpanded = false
+    /// Locked = a not-yet-available feature: dimmed, non-interactive, with a
+    /// small "Coming soon" pill instead of the chevron.
+    var locked = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 IconChip(icon: icon)
                 Spacer()
-                if expandable {
+                if locked {
+                    HStack(spacing: 4) {
+                        Image(systemName: "lock.fill").font(.system(size: 8, weight: .bold))
+                        Text("SOON").font(TaliseFont.mono(8, weight: .regular)).tracking(1)
+                    }
+                    .foregroundStyle(TaliseColor.fgDim)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(TaliseColor.surface2))
+                    .padding(.top, 2)
+                } else if expandable {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(TaliseColor.fgDim)
@@ -285,10 +297,10 @@ private struct ActionTile: View {
             Text(title)
                 .font(TaliseFont.heading(16, weight: .semibold))
                 .kerning(-0.3)
-                .foregroundStyle(TaliseColor.fg)
+                .foregroundStyle(locked ? TaliseColor.fgMuted : TaliseColor.fg)
             Text(caption)
                 .font(TaliseFont.body(12.5, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
+                .foregroundStyle(TaliseColor.fgDim)
                 .lineLimit(1)
                 .padding(.top, 3)
         }
@@ -304,6 +316,8 @@ private struct ActionTile: View {
                 .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .opacity(locked ? 0.5 : 1)
+        .saturation(locked ? 0.4 : 1)
     }
 }
 

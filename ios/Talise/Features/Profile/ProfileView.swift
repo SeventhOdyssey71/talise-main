@@ -67,11 +67,13 @@ struct ProfileView: View {
         // AutoSwapSettings archived 2026-05-29 — sheet removed alongside
         // the autoswap system. The Preferences row that opened it has been
         // neutralized to a no-op (search showAutoSwap below).
-        .alert("Sign out?", isPresented: $signOutConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Sign out", role: .destructive) { session.signOut() }
-        } message: {
-            Text("Your wallet stays safe. Sign in with the same Google account to come back.")
+        // Clean custom sign-out sheet (replaces the bare system alert) —
+        // calm, on-brand, reassures that the self-custodial wallet is safe.
+        .sheet(isPresented: $signOutConfirm) {
+            SignOutSheet(onConfirm: { session.signOut() })
+                .presentationDetents([.height(430)])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(TaliseColor.bg)
         }
         // Account deletion (Guideline 5.1.1(v)). A clean confirmation SHEET —
         // calm, on-brand, with the consequences laid out — replaces the old
@@ -838,6 +840,94 @@ struct ProfileView: View {
 // lists the consequences cleanly, and keeps the destructive action a deliberate
 // second tap. Closes by swipe / Keep my account; confirm runs the parent's
 // deletion and shows a spinner in place.
+/// Clean, on-brand sign-out confirmation — replaces the default system alert.
+/// Calm (sign-out isn't destructive): mint accent, reassures the self-custodial
+/// wallet is untouched and re-entry is one Google sign-in away.
+private struct SignOutSheet: View {
+    let onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private let points: [(String, String)] = [
+        ("checkmark.shield", "Your wallet is self-custodial — nothing is deleted."),
+        ("at", "Your @handle and balance stay exactly as they are."),
+        ("g.circle", "Sign back in with the same Google account anytime."),
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Circle().fill(TaliseColor.accent.opacity(0.14))
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                    .font(.system(size: 24, weight: .regular))
+                    .foregroundStyle(TaliseColor.accent)
+            }
+            .frame(width: 64, height: 64)
+            .padding(.top, 28)
+
+            Text("Sign out?")
+                .font(TaliseFont.heading(22, weight: .medium))
+                .kerning(-0.4)
+                .foregroundStyle(TaliseColor.fg)
+                .padding(.top, 16)
+
+            Text("You'll come right back where you left off.")
+                .font(TaliseFont.body(14, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 28)
+                .padding(.top, 8)
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(points, id: \.0) { (icon, text) in
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: icon)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(TaliseColor.accent)
+                            .frame(width: 18)
+                        Text(text)
+                            .font(TaliseFont.body(13.5, weight: .light))
+                            .foregroundStyle(TaliseColor.fgMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(TaliseColor.surface))
+            .padding(.horizontal, 22)
+            .padding(.top, 22)
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 10) {
+                Button(action: onConfirm) {
+                    Text("Sign out")
+                        .font(TaliseFont.body(16, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xE08D8A))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Capsule().fill(TaliseColor.surface2))
+                }
+                .buttonStyle(.plain)
+
+                Button { dismiss() } label: {
+                    Text("Stay signed in")
+                        .font(TaliseFont.body(15, weight: .medium))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity)
+        .background(TaliseColor.bg.ignoresSafeArea())
+    }
+}
+
 private struct DeleteAccountSheet: View {
     let deleting: Bool
     let onConfirm: () -> Void
