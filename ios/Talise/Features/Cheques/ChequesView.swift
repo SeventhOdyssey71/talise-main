@@ -785,6 +785,10 @@ struct MyChequesView: View {
 
 struct ChequeClaimView: View {
     var onDone: () -> Void
+    /// Pre-filled cheque link when the view is opened from a deep link
+    /// (talise://c/… or a universal link). When set, we auto-open the
+    /// cheque on appear so the recipient lands straight on the claim card.
+    var initialLink: String? = nil
     @State private var linkText = ""
     @State private var preview: ChequePreviewResp?
     @State private var parsed: (id: String, secret: String)?
@@ -811,6 +815,13 @@ struct ChequeClaimView: View {
         .background(TaliseColor.bg.ignoresSafeArea())
         .coverDismiss(onDone)
         .presentationDragIndicator(.visible)
+        .task {
+            // Deep-link entry: auto-open the cheque from the pre-filled link.
+            if let link = initialLink, !link.isEmpty, preview == nil, !loading {
+                linkText = link
+                await load()
+            }
+        }
     }
 
     private var paste: some View {

@@ -75,9 +75,15 @@ struct TaliseApp: App {
                     }
                 }
                 .onOpenURL { url in
-                    // talise://auth/callback handled inside the
-                    // ASWebAuthenticationSession completion. Reserved here
-                    // for talise://pay/<handle>?amount=... in future.
+                    // talise://auth/callback is handled inside the
+                    // ASWebAuthenticationSession completion. Here we route
+                    // cheque deep links: talise://c/<id>#<secret>.
+                    DeepLink.route(url)
+                }
+                // Universal links: https://(www.)talise.io/c/<id>#<secret>.
+                // Same routing as the custom scheme.
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    if let url = activity.webpageURL { DeepLink.route(url) }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     switch newPhase {

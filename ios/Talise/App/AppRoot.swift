@@ -96,6 +96,9 @@ struct MainTabView: View {
     @State private var claimSheetVisible = false
     @State private var chequeWriteCoverVisible = false
     @State private var chequeClaimCoverVisible = false
+    /// Cheque link from a deep link (talise://c/… or universal link), passed
+    /// into ChequeClaimView so it auto-opens the cheque.
+    @State private var pendingChequeClaimLink: String?
     @State private var myChequesCoverVisible = false
     @State private var streamCoverVisible = false
     @State private var myStreamsCoverVisible = false
@@ -170,7 +173,10 @@ struct MainTabView: View {
             ChequeWriteView(onDone: { chequeWriteCoverVisible = false })
         }
         .fullScreenCover(isPresented: $chequeClaimCoverVisible) {
-            ChequeClaimView(onDone: { chequeClaimCoverVisible = false })
+            ChequeClaimView(
+                onDone: { chequeClaimCoverVisible = false },
+                initialLink: pendingChequeClaimLink
+            )
         }
         .fullScreenCover(isPresented: $myChequesCoverVisible) {
             MyChequesView(onDone: { myChequesCoverVisible = false })
@@ -205,8 +211,21 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestChequeWriteCover)) { _ in
             chequeWriteCoverVisible = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestChequeClaimCover)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .taliseRequestChequeClaimCover)) { note in
+            // A deep link carries the cheque URL string in `object`; a manual
+            // open (Withdraw hub) carries nil → the paste field shows instead.
+            pendingChequeClaimLink = note.object as? String
+            DeepLink.pendingChequeLink = nil // warm path consumed it
             chequeClaimCoverVisible = true
+        }
+        .task {
+            // Cold launch via a cheque deep link: the notification fired
+            // before this view existed, so replay the stashed link now.
+            if let link = DeepLink.pendingChequeLink {
+                DeepLink.pendingChequeLink = nil
+                pendingChequeClaimLink = link
+                chequeClaimCoverVisible = true
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .taliseRequestMyChequesCover)) { _ in
             myChequesCoverVisible = true
@@ -286,6 +305,33 @@ extension Notification.Name {
     /// Work hub entry points (posted from the Withdraw hub): invoices + contracts.
     static let taliseRequestInvoicesCover = Notification.Name("io.talise.requestInvoicesCover")
     static let taliseRequestContractsCover = Notification.Name("io.talise.requestContractsCover")
+}
+
+/// Routes incoming deep links / universal links into the app.
+///
+/// Cheque links — `talise://c/<id>#<secret>` (custom scheme) or
+/// `https://(www.)talise.io/c/<id>#<secret>` (universal link) — open the
+/// in-app claim flow. We BOTH post the cover notification (warm case, the
+/// tab UI is already mounted) AND stash `pendingChequeLink` so a COLD launch
+/// (UI not mounted yet) can replay it once `MainTabView` appears.
+enum DeepLink {
+    /// Consumed by MainTabView on appear for the cold-launch case.
+    static var pendingChequeLink: String?
+
+    static func route(_ url: URL) {
+        let isCheque: Bool
+        if url.scheme == "talise" {
+            isCheque = (url.host == "c")
+        } else {
+            isCheque = url.path.hasPrefix("/c/")
+        }
+        guard isCheque else { return }
+        let link = url.absoluteString
+        pendingChequeLink = link
+        NotificationCenter.default.post(
+            name: .taliseRequestChequeClaimCover, object: link
+        )
+    }
 }
 
 /// Floating pill nav with the Figma's "Glass" treatment.
