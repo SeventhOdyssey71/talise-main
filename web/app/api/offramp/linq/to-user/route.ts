@@ -154,6 +154,9 @@ export async function POST(req: Request) {
       bankCode: bankRow.bank_code,
       bankName,
       accountName,
+      // The SENDER funds the deposit, so a failed payout refunds to the
+      // sender — never the recipient (who never sent anything).
+      refundAddress: sender.sui_address,
       customerRef: String(userId),
       idempotencyKey: id,
     });

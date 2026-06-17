@@ -133,6 +133,9 @@ export async function POST(req: Request) {
       bankCode,
       bankName,
       accountName,
+      // The user sends the deposit from their own wallet, so refund there if
+      // the bank payout fails — no stuck funds, no manual support needed.
+      refundAddress: user.sui_address,
       customerRef: String(userId),
       idempotencyKey: id,
     });

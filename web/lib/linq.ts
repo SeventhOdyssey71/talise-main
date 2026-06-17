@@ -59,7 +59,9 @@ export function linqConfigured(): boolean {
  * builds and any direct API call too.
  */
 export function cashoutFeatureOpen(): boolean {
-  return process.env.FEATURE_CASHOUT?.trim().toLowerCase() === "true";
+  // OPEN by default now that failed payouts auto-refund (refundAddress is set
+  // on every order). Close again by setting FEATURE_CASHOUT=false in Vercel.
+  return process.env.FEATURE_CASHOUT?.trim().toLowerCase() !== "false";
 }
 
 /** User-facing copy when cash-out is gated closed. */
@@ -154,6 +156,12 @@ export interface CreateOrderInput {
   bankCode: string;
   bankName: string;
   accountName: string;
+  /**
+   * Sui wallet to auto-refund the stablecoin to if the bank payout fails.
+   * STRONGLY RECOMMENDED — without it, a failed payout leaves the deposit
+   * stuck pending manual support. Always the address that SENT the deposit.
+   */
+  refundAddress?: string;
   /** Your own reference (echoed in webhooks). */
   customerRef?: string;
   /** Unique per order — re-sending the same key returns the original order. */
@@ -189,6 +197,9 @@ export async function createOrder(
       bankName: input.bankName,
       accountName: input.accountName,
       currency: "NGN",
+      // Auto-refund target if the bank payout fails (Linq sweeps the deposit
+      // back here). Omitted only when the caller couldn't supply one.
+      ...(input.refundAddress ? { refundAddress: input.refundAddress } : {}),
       customerRef: input.customerRef,
       idempotencyKey: input.idempotencyKey,
     },

@@ -47,7 +47,9 @@ export async function GET(req: Request) {
   // DEFAULT CLOSED: a feature is on only when its env var is exactly "true".
   // iOS hides the corresponding entry point when the flag is false.
   const features = {
-    cashout: process.env.FEATURE_CASHOUT?.trim().toLowerCase() === "true",
+    // Cash-out is OPEN by default (failed payouts auto-refund via refundAddress).
+    // Close with FEATURE_CASHOUT=false. Scan-to-pay stays closed until opened.
+    cashout: process.env.FEATURE_CASHOUT?.trim().toLowerCase() !== "false",
     scanToPay: process.env.FEATURE_SCAN_TO_PAY?.trim().toLowerCase() === "true",
   };
 
