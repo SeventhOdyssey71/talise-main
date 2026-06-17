@@ -55,6 +55,11 @@ struct HomeView: View {
     @State private var walletSweepAlertVisible = false
     @State private var walletSweepAlertMessage = ""
     @State private var walletSweeping = false
+    /// Transient bottom toast for swap results — replaces re-presenting the
+    /// confirm sheet after a swap completes (which read as a wrong "convert
+    /// again" prompt). nil = hidden.
+    @State private var swapToast: String?
+    @State private var swapToastIsError = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -127,6 +132,25 @@ struct HomeView: View {
             .presentationDragIndicator(.visible)
             .presentationBackground(TaliseColor.bg)
         }
+        .overlay(alignment: .bottom) {
+            if let swapToast {
+                HStack(spacing: 8) {
+                    Image(systemName: swapToastIsError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(swapToastIsError ? TaliseColor.danger : TaliseColor.accent)
+                    Text(swapToast)
+                        .font(TaliseFont.body(13.5, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                        .lineLimit(2)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .background(Capsule().fill(TaliseColor.surface2))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+                .padding(.bottom, 28)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: swapToast)
         .sheet(item: $receiptEntry) { entry in
             TxReceiptView(entry: entry)
                 .presentationDetents([.medium, .large])
@@ -1072,6 +1096,16 @@ struct HomeView: View {
         }
     }
 
+    /// Show a transient bottom toast (auto-dismisses) for a swap result.
+    private func flashToast(_ message: String, isError: Bool = false) {
+        swapToastIsError = isError
+        swapToast = message
+        Task {
+            try? await Task.sleep(nanoseconds: 2_800_000_000)
+            await MainActor.run { if swapToast == message { swapToast = nil } }
+        }
+    }
+
     private func executeSweep() async {
         sweeping = true
         defer { sweeping = false }
@@ -1091,19 +1125,18 @@ struct HomeView: View {
                 transactionKindB64: built.transactionKindB64,
                 intent: intent
             )
-            sweepAlertMessage = "Converted to USDsui · digest \(result.digest.prefix(10))…"
-            sweepAlertVisible = true
+            _ = result
+            // Success → a transient toast, NOT a re-presented confirm sheet.
+            flashToast("Converted to USDsui")
             await loadAll(force: true)
         } catch APIError.status(_, let msg) {
-            sweepAlertMessage = msg ?? "Conversion couldn't be built right now."
-            sweepAlertVisible = true
+            flashToast(msg ?? "Couldn't convert right now.", isError: true)
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
             // Unrecoverable session — route to the clean re-auth path
             // instead of an opaque retry-forever alert (mirrors Send).
             session.signOut()
         } catch {
-            sweepAlertMessage = error.localizedDescription
-            sweepAlertVisible = true
+            flashToast(error.localizedDescription, isError: true)
         }
     }
 
@@ -1191,18 +1224,17 @@ struct HomeView: View {
                 transactionKindB64: built.bytesB64,
                 intent: intent
             )
-            walletSweepAlertMessage = "Converted to USDsui · digest \(result.digest.prefix(10))…"
-            walletSweepAlertVisible = true
+            _ = result
+            // Success → a transient toast, NOT a re-presented confirm sheet.
+            flashToast("Converted to USDsui")
             await loadAll(force: true)
         } catch APIError.status(_, let msg) {
-            walletSweepAlertMessage = msg ?? "Conversion couldn't be built right now."
-            walletSweepAlertVisible = true
+            flashToast(msg ?? "Couldn't convert right now.", isError: true)
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
             // Unrecoverable session — clean re-auth (mirrors Send).
             session.signOut()
         } catch {
-            walletSweepAlertMessage = error.localizedDescription
-            walletSweepAlertVisible = true
+            flashToast(error.localizedDescription, isError: true)
         }
     }
 }

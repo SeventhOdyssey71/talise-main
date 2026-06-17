@@ -5,6 +5,7 @@ import { userById } from "@/lib/db";
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { DeepBookClient } from "@mysten/deepbook-v3";
+import { AggregatorClient } from "@cetusprotocol/aggregator-sdk";
 import { sui, network, COIN_TYPES } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { TREASURY_WALLET } from "@/lib/navi-supply";
@@ -37,10 +38,10 @@ export const runtime = "nodejs";
  */
 
 const SLIPPAGE_BPS = 100; // 1.00%
-/** Talise swap fee — 0.5% of the swap output, routed to the treasury on every
+/** Talise swap fee — 1% of the swap output, routed to the treasury on every
  *  swap / auto-swap. Based on the min-out so the on-chain split never exceeds
  *  the actual output coin. */
-const SWAP_FEE_BPS = 50; // 0.50%
+const SWAP_FEE_BPS = 100; // 1.00%
 
 // ─── Route table ────────────────────────────────────────────────────
 // Maps the allowed `fromCoinType` strings to (a) the DeepBook pool key
@@ -291,172 +292,45 @@ export async function POST(req: Request) {
         })
       );
 
-    if (route.kind === "direct") {
-      // 1-hop direct swap.
-      const inputCoinArg = tx.add(
-        coinWithBalance({
-          type: fromCoinType,
-          balance: fromMicros,
-          useGasCoin: false,
-        })
-      );
-
-      // Quote the expected output to compute minOut + surface to iOS.
-      // We need the coin scalars from the SDK config.
-      const inScalar = scalarOf(fromCoinType);
-      const outScalar = scalarOf(USDSUI_TYPE);
-      const quotedOut = await quoteDirect(
-        route.poolKey,
-        route.inputSide,
-        fromMicros,
-        inScalar,
-        outScalar
-      );
-      const minOut =
-        (quotedOut * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
-      estimatedToMicros = quotedOut;
-
-      let outCoinArg: unknown;
-      if (route.inputSide === "base") {
-        // input is base → swapExactBaseForQuote → returns [base, quote, deep]
-        const [, quoteOut] = dbc.swapExactBaseForQuote({
-          poolKey: route.poolKey,
-          amount: fromMicros,
-          deepAmount: 0n,
-          minOut: minOut,
-          baseCoin: inputCoinArg,
-          deepCoin: zeroDeepInput(),
-        })(tx);
-        outCoinArg = quoteOut;
-      } else {
-        // input is quote → swapExactQuoteForBase → returns [base, quote, deep]
-        const [baseOut] = dbc.swapExactQuoteForBase({
-          poolKey: route.poolKey,
-          amount: fromMicros,
-          deepAmount: 0n,
-          minOut: minOut,
-          quoteCoin: inputCoinArg,
-          deepCoin: zeroDeepInput(),
-        })(tx);
-        outCoinArg = baseOut;
-      }
-
-      // 0.5% swap fee → treasury (every swap / auto-swap). Split off the
-      // output before the user gets it; based on min-out so it never exceeds
-      // the actual coin.
-      const swapFeeMicros = (minOut * BigInt(SWAP_FEE_BPS)) / 10_000n;
-      if (swapFeeMicros > 0n) {
-        const [feeCoin] = tx.splitCoins(
-          outCoinArg as Parameters<typeof tx.splitCoins>[0],
-          [tx.pure.u64(swapFeeMicros)]
-        );
-        tx.transferObjects([feeCoin], tx.pure.address(TREASURY_WALLET));
-      }
-      // Send the rest of the USDsui back to the user.
-      tx.transferObjects(
-        [outCoinArg as Parameters<typeof tx.transferObjects>[0][number]],
-        user.sui_address
-      );
-    } else {
-      // 2-hop swap via USDC.
-      const inputCoinArg = tx.add(
-        coinWithBalance({
-          type: fromCoinType,
-          balance: fromMicros,
-          useGasCoin: false,
-        })
-      );
-
-      const inScalar = scalarOf(fromCoinType);
-      const usdcScalar = scalarOf(COIN_TYPES.USDC);
-      const usdsuiScalar = scalarOf(USDSUI_TYPE);
-
-      // Quote hop 1 (input → USDC).
-      const hop1Out = await quoteDirect(
-        route.hop1.poolKey,
-        route.hop1.inputSide,
-        fromMicros,
-        inScalar,
-        usdcScalar
-      );
-      const hop1Min =
-        (hop1Out * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
-
-      // Quote hop 2 (USDC → USDSUI), feeding the quoted hop1 amount.
-      const hop2Out = await quoteDirect(
-        route.hop2.poolKey,
-        route.hop2.inputSide,
-        hop1Out,
-        usdcScalar,
-        usdsuiScalar
-      );
-      const hop2Min =
-        (hop2Out * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
-      estimatedToMicros = hop2Out;
-
-      // Hop 1 MoveCall.
-      let intermediateCoinArg: unknown;
-      if (route.hop1.inputSide === "base") {
-        const [, quoteOut] = dbc.swapExactBaseForQuote({
-          poolKey: route.hop1.poolKey,
-          amount: fromMicros,
-          deepAmount: 0n,
-          minOut: hop1Min,
-          baseCoin: inputCoinArg,
-          deepCoin: zeroDeepInput(),
-        })(tx);
-        intermediateCoinArg = quoteOut;
-      } else {
-        const [baseOut] = dbc.swapExactQuoteForBase({
-          poolKey: route.hop1.poolKey,
-          amount: fromMicros,
-          deepAmount: 0n,
-          minOut: hop1Min,
-          quoteCoin: inputCoinArg,
-          deepCoin: zeroDeepInput(),
-        })(tx);
-        intermediateCoinArg = baseOut;
-      }
-
-      // Hop 2 MoveCall.
-      let outCoinArg: unknown;
-      if (route.hop2.inputSide === "base") {
-        const [, quoteOut] = dbc.swapExactBaseForQuote({
-          poolKey: route.hop2.poolKey,
-          amount: hop1Out,
-          deepAmount: 0n,
-          minOut: hop2Min,
-          baseCoin: intermediateCoinArg,
-          deepCoin: zeroDeepInput(),
-        })(tx);
-        outCoinArg = quoteOut;
-      } else {
-        const [baseOut] = dbc.swapExactQuoteForBase({
-          poolKey: route.hop2.poolKey,
-          amount: hop1Out,
-          deepAmount: 0n,
-          minOut: hop2Min,
-          quoteCoin: intermediateCoinArg,
-          deepCoin: zeroDeepInput(),
-        })(tx);
-        outCoinArg = baseOut;
-      }
-
-      // 0.5% swap fee → treasury (based on hop-2 min-out, so the split never
-      // exceeds the actual output).
-      const swapFeeMicros = (hop2Min * BigInt(SWAP_FEE_BPS)) / 10_000n;
-      if (swapFeeMicros > 0n) {
-        const [feeCoin] = tx.splitCoins(
-          outCoinArg as Parameters<typeof tx.splitCoins>[0],
-          [tx.pure.u64(swapFeeMicros)]
-        );
-        tx.transferObjects([feeCoin], tx.pure.address(TREASURY_WALLET));
-      }
-      tx.transferObjects(
-        [outCoinArg as Parameters<typeof tx.transferObjects>[0][number]],
-        user.sui_address
+    // ─── Cetus aggregator swap ──────────────────────────────────────────
+    // Route across 20+ Sui DEXs for the best fill (deeper than a single
+    // DeepBook pair). The 1% Talise fee is taken NATIVELY by the aggregator's
+    // overlay fee → treasury during the swap (no manual coin split). Routing
+    // was verified live for SUI→USDsui. NOTE: smoke-test a real swap on the
+    // next build — the DeepBook path remains in git history as a fallback.
+    const aggregator = new AggregatorClient({
+      client,
+      signer: user.sui_address,
+      overlayFeeRate: SWAP_FEE_BPS / 10_000, // 1.00% → treasury
+      overlayFeeReceiver: TREASURY_WALLET,
+    });
+    const cetusRouter = await aggregator.findRouters({
+      from: fromCoinType,
+      target: USDSUI_TYPE,
+      amount: fromMicros.toString(),
+      byAmountIn: true,
+    });
+    if (!cetusRouter || cetusRouter.insufficientLiquidity) {
+      return NextResponse.json(
+        { error: "No swap route available right now. Try again shortly.", code: "NO_ROUTE" },
+        { status: 503 }
       );
     }
+    estimatedToMicros = BigInt(cetusRouter.amountOut.toString());
+
+    // The input coin (the user's non-USDsui balance — never the gas coin,
+    // which Onara owns in the sponsored leg).
+    const inputCoin = tx.add(
+      coinWithBalance({ type: fromCoinType, balance: fromMicros, useGasCoin: false })
+    );
+    const outCoin = await aggregator.routerSwap({
+      router: cetusRouter,
+      inputCoin,
+      slippage: SLIPPAGE_BPS / 10_000, // 1.00%
+      txb: tx,
+    });
+    // Send the swapped USDsui (net of the 1% overlay fee) to the user.
+    tx.transferObjects([outCoin], user.sui_address);
 
     const tPtbDone = Date.now();
 
