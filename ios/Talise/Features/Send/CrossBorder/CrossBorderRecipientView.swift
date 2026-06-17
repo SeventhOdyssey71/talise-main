@@ -68,7 +68,7 @@ struct CrossBorderRecipientView: View {
 
     private var originRow: some View {
         HStack(spacing: 10) {
-            Text(draft.origin.flag).font(.system(size: 20))
+            RoundedFlag(code: draft.origin.code, size: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Eyebrow(text: "You pay from")
                 Text("\(draft.origin.name) · \(draft.origin.currencyCode)")
@@ -113,7 +113,7 @@ struct CrossBorderRecipientView: View {
             #endif
         } label: {
             HStack(spacing: 8) {
-                Text(country.flag).font(.system(size: 18))
+                RoundedFlag(code: country.code, size: 30, dimmed: !isBookable)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(country.name)
                         .font(TaliseFont.body(13, weight: .regular))

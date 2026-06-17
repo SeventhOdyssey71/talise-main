@@ -90,6 +90,7 @@ struct StreamSetupView: View {
             }
             .background(TaliseColor.bg.ignoresSafeArea())
             .overlay(alignment: .bottom) { startBar }
+            .coverDismiss(onDone)
             .presentationDragIndicator(.visible)
         }
     }
@@ -436,6 +437,7 @@ struct StreamsListView: View {
             .padding(.horizontal, 22).padding(.top, 18).padding(.bottom, 30)
         }
         .background(TaliseColor.bg.ignoresSafeArea())
+        .coverDismiss(onDone)
         .presentationDragIndicator(.visible)
         .task { await load() }
     }

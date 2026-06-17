@@ -1,5 +1,26 @@
 import SwiftUI
 
+// MARK: - Cover dismiss (shared)
+
+extension View {
+    /// A simple top-trailing "X" that dismisses a full-screen cover page (used
+    /// across the cheque + stream + work covers so every page has a clear way
+    /// back). Top-trailing so it never overlaps the left-aligned page headers.
+    func coverDismiss(_ onClose: @escaping () -> Void) -> some View {
+        overlay(alignment: .topTrailing) {
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fg)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(TaliseColor.surface2))
+            }
+            .padding(.trailing, 16)
+            .padding(.top, 12)
+        }
+    }
+}
+
 // MARK: - DTOs
 
 private struct ChequeCreateResp: Decodable {
@@ -244,6 +265,7 @@ struct ChequeWriteView: View {
         }
         .background(TaliseColor.bg.ignoresSafeArea())
         .overlay(alignment: .bottom) { issueBar }
+        .coverDismiss(onDone)
         .presentationDragIndicator(.visible)
     }
 
@@ -783,6 +805,7 @@ struct ChequeClaimView: View {
             .padding(.horizontal, 22).padding(.top, 18).padding(.bottom, 40)
         }
         .background(TaliseColor.bg.ignoresSafeArea())
+        .coverDismiss(onDone)
         .presentationDragIndicator(.visible)
     }
 
