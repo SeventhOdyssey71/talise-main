@@ -1,5 +1,6 @@
 import postgres, { type Sql } from "postgres";
 import { createHash } from "node:crypto";
+import { encryptAtRest, decryptAtRest } from "@/lib/crypto-at-rest";
 
 /**
  * Talise database layer — Postgres.
@@ -1363,6 +1364,14 @@ export type TxRow = {
   created_at: number;
 };
 
+/** Decrypt the at-rest-encrypted salt on a freshly-read user row (in place). */
+function hydrateUser<T extends { salt?: string | null } | null | undefined>(u: T): T {
+  if (u && typeof u.salt === "string" && u.salt) {
+    (u as { salt: string | null }).salt = decryptAtRest(u.salt);
+  }
+  return u;
+}
+
 export async function upsertUser(input: {
   googleSub: string;
   email: string;
@@ -1395,13 +1404,13 @@ export async function upsertUser(input: {
       sql: "SELECT * FROM users WHERE google_sub = ? LIMIT 1",
       args: [input.googleSub],
     });
-    const u = row.rows[0] as unknown as User;
+    const u = hydrateUser(row.rows[0] as unknown as User);
     await ensureReferralCode(u.id, input.name ?? input.email);
     const refreshed = await c.execute({
       sql: "SELECT * FROM users WHERE id = ? LIMIT 1",
       args: [u.id],
     });
-    return { user: refreshed.rows[0] as unknown as User, isNew: false };
+    return { user: hydrateUser(refreshed.rows[0] as unknown as User), isNew: false };
   }
 
   // Default new users to a 'personal' account_type. Onboarding/KYC was
@@ -1420,7 +1429,7 @@ export async function upsertUser(input: {
       input.name ?? null,
       input.picture ?? null,
       input.suiAddress,
-      input.salt,
+      encryptAtRest(input.salt),
       input.country ?? null,
       "personal",
       now,
@@ -1432,13 +1441,13 @@ export async function upsertUser(input: {
     sql: "SELECT * FROM users WHERE google_sub = ? LIMIT 1",
     args: [input.googleSub],
   });
-  const created = row.rows[0] as unknown as User;
+  const created = hydrateUser(row.rows[0] as unknown as User);
   await ensureReferralCode(created.id, input.name ?? input.email);
   const refreshed = await c.execute({
     sql: "SELECT * FROM users WHERE id = ? LIMIT 1",
     args: [created.id],
   });
-  return { user: refreshed.rows[0] as unknown as User, isNew: true };
+  return { user: hydrateUser(refreshed.rows[0] as unknown as User), isNew: true };
 }
 
 export async function realignAddress(
@@ -1449,7 +1458,7 @@ export async function realignAddress(
   await ensureSchema();
   await db().execute({
     sql: "UPDATE users SET sui_address = ?, salt = ? WHERE id = ?",
-    args: [suiAddress, salt, userId],
+    args: [suiAddress, encryptAtRest(salt), userId],
   });
 }
 
@@ -1459,7 +1468,7 @@ export async function userById(id: number): Promise<User | null> {
     sql: "SELECT * FROM users WHERE id = ? LIMIT 1",
     args: [id],
   });
-  const u = (r.rows[0] as unknown as User) ?? null;
+  const u = hydrateUser((r.rows[0] as unknown as User) ?? null);
   // A deleted account no longer exists for any authed surface. The web
   // session cookie is stateless (no server-side store to revoke), but every
   // authed route resolves the user through here — so filtering deleted rows
@@ -1480,7 +1489,7 @@ export async function userByIdIncludingDeleted(id: number): Promise<User | null>
     sql: "SELECT * FROM users WHERE id = ? LIMIT 1",
     args: [id],
   });
-  return (r.rows[0] as unknown as User) ?? null;
+  return hydrateUser((r.rows[0] as unknown as User) ?? null);
 }
 
 export async function userByGoogleSub(sub: string): Promise<User | null> {
@@ -1489,7 +1498,7 @@ export async function userByGoogleSub(sub: string): Promise<User | null> {
     sql: "SELECT * FROM users WHERE google_sub = ? LIMIT 1",
     args: [sub],
   });
-  return (r.rows[0] as unknown as User) ?? null;
+  return hydrateUser((r.rows[0] as unknown as User) ?? null);
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -1541,7 +1550,7 @@ export async function localAppleSalt(issSub: string): Promise<string | null> {
     sql: "SELECT salt FROM apple_salts WHERE iss_sub = ? LIMIT 1",
     args: [issSub],
   });
-  return (r.rows[0]?.salt as string | undefined) ?? null;
+  return decryptAtRest(r.rows[0]?.salt as string | undefined) ?? null;
 }
 
 /**
@@ -1560,13 +1569,13 @@ export async function getOrCreateLocalAppleSalt(
     sql: `INSERT INTO apple_salts (iss_sub, salt, created_at)
           VALUES (?, ?, ?)
           ON CONFLICT (iss_sub) DO NOTHING`,
-    args: [issSub, candidateSalt, Date.now()],
+    args: [issSub, encryptAtRest(candidateSalt), Date.now()],
   });
   const r = await c.execute({
     sql: "SELECT salt FROM apple_salts WHERE iss_sub = ? LIMIT 1",
     args: [issSub],
   });
-  const stored = r.rows[0]?.salt as string | undefined;
+  const stored = decryptAtRest(r.rows[0]?.salt as string | undefined) ?? undefined;
   if (!stored) {
     throw new Error(`apple_salts insert/select failed for ${issSub}`);
   }
@@ -1585,7 +1594,7 @@ export async function userBySuiAddress(address: string): Promise<User | null> {
     sql: "SELECT * FROM users WHERE LOWER(sui_address) = LOWER(?) LIMIT 1",
     args: [address],
   });
-  return (r.rows[0] as unknown as User) ?? null;
+  return hydrateUser((r.rows[0] as unknown as User) ?? null);
 }
 
 /**
@@ -1714,7 +1723,7 @@ export async function userByBusinessHandle(
     sql: "SELECT * FROM users WHERE business_handle = ? LIMIT 1",
     args: [handle.toLowerCase()],
   });
-  return (r.rows[0] as unknown as User) ?? null;
+  return hydrateUser((r.rows[0] as unknown as User) ?? null);
 }
 
 export async function updateUserProfile(
@@ -2005,7 +2014,7 @@ export async function userByReferralCode(code: string): Promise<User | null> {
     sql: "SELECT * FROM users WHERE referral_code = ? LIMIT 1",
     args: [normalized],
   });
-  return (r.rows[0] as unknown as User) ?? null;
+  return hydrateUser((r.rows[0] as unknown as User) ?? null);
 }
 
 /**
@@ -2022,7 +2031,7 @@ export async function userByHandle(handle: string): Promise<User | null> {
     sql: "SELECT * FROM users WHERE LOWER(talise_username) = ? LIMIT 1",
     args: [normalized],
   });
-  return (r.rows[0] as unknown as User) ?? null;
+  return hydrateUser((r.rows[0] as unknown as User) ?? null);
 }
 
 /**

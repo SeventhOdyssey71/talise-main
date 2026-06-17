@@ -1,6 +1,7 @@
 import { randomBytes, createHash } from "node:crypto";
 import { sign, verify } from "./auth";
 import { db, ensureSchema, schemaVersionGate } from "./db";
+import { encryptAtRest, decryptAtRest } from "@/lib/crypto-at-rest";
 
 /**
  * Bearer tokens for the iOS app. The Talise web flow continues to use
@@ -134,8 +135,8 @@ export async function issueMobileBearer(
       hash(token),
       userId,
       opts.deviceId ?? null,
-      opts.jwt ?? null,
-      opts.salt ?? null,
+      encryptAtRest(opts.jwt ?? null),
+      encryptAtRest(opts.salt ?? null),
       opts.ephemeralPubKeyB64 ?? null,
       opts.maxEpoch ?? null,
       opts.randomness ?? null,
@@ -220,8 +221,8 @@ export async function mobileSigningContext(
   } | undefined;
   if (!r) return null;
   return {
-    jwt: r.jwt,
-    salt: r.salt,
+    jwt: decryptAtRest(r.jwt) as string,
+    salt: decryptAtRest(r.salt) as string,
     ephemeralPubKeyB64: r.ephemeral_pubkey_b64,
     maxEpoch: r.max_epoch,
     randomness: r.randomness,

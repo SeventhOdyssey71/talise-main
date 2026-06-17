@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { db, ensureSchema } from "./db";
 import { resolveLinqBank } from "./linq-banks";
+import { encryptAtRest, decryptAtRest } from "@/lib/crypto-at-rest";
 
 /**
  * Linked NGN bank accounts — off-ramp Phase 2.
@@ -70,7 +71,7 @@ export function maskBankAccount(row: BankAccountRow): LinkedBankAccount {
     bankCode: row.bank_code,
     bankName: bank?.name ?? row.bank_code,
     accountName: row.account_name,
-    last4: last4(row.account_number),
+    last4: last4(decryptAtRest(row.account_number) ?? row.account_number),
     attested: Boolean(row.attestation_digest),
     isPrimary: toBool(row.is_primary),
   };
@@ -119,6 +120,9 @@ export async function getPrimaryBankAccount(
     args: [String(userId)],
   });
   const row = (res.rows as unknown as BankAccountRow[])[0];
+  if (row && typeof row.account_number === "string") {
+    row.account_number = decryptAtRest(row.account_number) ?? row.account_number;
+  }
   return row ?? null;
 }
 
@@ -202,6 +206,9 @@ export async function getBankAccountById(
     args: [id, String(userId)],
   });
   const row = (res.rows as unknown as BankAccountRow[])[0];
+  if (row && typeof row.account_number === "string") {
+    row.account_number = decryptAtRest(row.account_number) ?? row.account_number;
+  }
   return row ?? null;
 }
 
@@ -242,14 +249,18 @@ export async function upsertBankAccount(input: {
       id,
       userId,
       input.bankCode,
-      input.accountNumber,
+      encryptAtRest(input.accountNumber),
       input.accountName,
       input.attestationDigest,
       now,
       now,
     ],
   });
-  return (res.rows as unknown as BankAccountRow[])[0];
+  const row = (res.rows as unknown as BankAccountRow[])[0];
+  if (row && typeof row.account_number === "string") {
+    row.account_number = decryptAtRest(row.account_number) ?? row.account_number;
+  }
+  return row;
 }
 
 /**
