@@ -1359,15 +1359,52 @@ export async function reclaimExpiredOnChain(chequeObjectId: string): Promise<str
  * signs (then POSTs to /api/zk/sponsor-execute). Throws on misconfig / build
  * failure.
  */
+/**
+ * Resolve a cheque object's OWN type-defining package via JSON-RPC. Cheques
+ * created under an earlier deployment carry that package in their type
+ * (`<pkg>::cheque::Cheque<…>`); reclaim MUST target it or the call
+ * TypeMismatches. Returns null if the type can't be read.
+ */
+async function chequePackageOfObject(objectId: string): Promise<string | null> {
+  const url = "https://fullnode.mainnet.sui.io:443";
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "sui_getObject",
+        params: [objectId, { showType: true }],
+      }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    const j = (await resp.json()) as { result?: { data?: { type?: string } } };
+    const type = j.result?.data?.type;
+    if (typeof type !== "string") return null;
+    const m = type.match(/^(0x[0-9a-fA-F]+)::cheque::Cheque/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function reclaimChequeBuilder(input: {
   chequeObjectId: string;
   creatorAddress: string;
 }): Promise<{ bytes: string; sponsor: string }> {
-  const pkg = chequePackageId();
-  if (!pkg) throw new Error("cheque on-chain rail not configured (CHEQUE_PACKAGE_ID)");
+  // Reclaim must target the cheque's OWN package (not CHEQUE_PACKAGE_ID) —
+  // old cheques live on an earlier package and would TypeMismatch otherwise.
+  // reclaim is CREATOR-signed (no worker needed), so old cheques ARE
+  // reclaimable even though they can't be claimed.
+  const pkg =
+    (await chequePackageOfObject(input.chequeObjectId)) ?? chequePackageId();
+  if (!pkg) throw new Error("could not resolve the cheque's package");
 
   const onaraClient = onara();
-  const client = sui();
+  // Build against the DIRECT fullnode (not the Hayabusa read-proxy that 502s
+  // on tx.build's simulate). Broadcast still goes through Onara's sponsor path.
+  const client = chequeChainClient();
   const [{ address: sponsor }, gasPrice] = await Promise.all([
     onaraClient.status(),
     client.getReferenceGasPrice().then((r) => r.referenceGasPrice),
