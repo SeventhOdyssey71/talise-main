@@ -30,8 +30,17 @@ export function adminToken(): string | null {
   return t && t.length > 0 ? t : null;
 }
 
-/** Local-dev escape hatch: non-prod AND no token configured → open. */
+/**
+ * Local-dev escape hatch: open ONLY on a developer's own machine.
+ *
+ * Hard requirement: NOT on any Vercel deployment. Vercel sets `VERCEL=1` on
+ * production AND preview/staging, so this guarantees the admin board + raw-DB
+ * browser can never be reachable without auth on a deployed environment — even
+ * a preview build that forgot to set ADMIN_TOKEN. Locally (`pnpm dev`, no
+ * VERCEL) it stays open, still flagged by the unauthenticated banner.
+ */
 export function isDevOpen(): boolean {
+  if (process.env.VERCEL) return false;
   return process.env.NODE_ENV !== "production" && adminToken() === null;
 }
 

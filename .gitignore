@@ -118,8 +118,11 @@ web/app/admin/
 marketing/exports/
 ios/File.txt
 
-# APNs / Apple auth keys — PRIVATE. Never commit. Live in Vercel env, not git.
+# APNs / Apple auth keys + certs — PRIVATE. Never commit. Live in Vercel env, not git.
 *.p8
+*.p12
+*.pem
+*.key
 AuthKey_*
 
 # Talise marketing — generated content binaries (regenerate from sources)
