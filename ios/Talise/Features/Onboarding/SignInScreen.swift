@@ -48,7 +48,7 @@ struct SignInScreen: View {
                 hero
                     .frame(width: 96, height: 96)
 
-                Text(returningUser ? "Welcome back" : "Welcome to Talise")
+                Text(returningUser ? "Welcome back" : "Sign in to Talise")
                     .font(TaliseFont.heading(26, weight: .semibold))
                     .kerning(kern(26))
                     .foregroundStyle(TaliseColor.fg)
@@ -56,7 +56,7 @@ struct SignInScreen: View {
 
                 Text(returningUser
                      ? "Sign in to your Talise account."
-                     : "One Google account. One Sui address.\nNo seed phrase, no setup.")
+                     : "One tap with Apple or Google.\nNo seed phrase, no setup.")
                     .font(TaliseFont.body(14, weight: .light))
                     .kerning(kern(14))
                     .foregroundStyle(TaliseColor.fgMuted)

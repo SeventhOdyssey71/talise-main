@@ -59,7 +59,11 @@ struct OnboardingRoot: View {
             return
         }
         #endif
-        _step = State(initialValue: .splash)
+        // Onboarding removed: the app opens STRAIGHT on "Sign in to Talise".
+        // No splash/welcome carousel, no handle/PIN/permissions steps —
+        // new users sign in and land in the app, then claim their @talise
+        // name in-app from Home. [[sign-in-only-entry]]
+        _step = State(initialValue: .signIn)
     }
 
     var body: some View {
@@ -112,20 +116,16 @@ struct OnboardingRoot: View {
                         // but-never-onboarded row — `existing == true`,
                         // accountType nil — also re-enters onboarding:
                         // it never picked a handle or PIN.)
-                        if user.accountType != nil {
-                            UserDefaults.standard.removeObject(forKey: Self.stepKey)
-                            if existing {
-                                // Brief "Welcome back, <name>" beat
-                                // before Home. Gated on the server's
-                                // explicit `existing` flag so an older
-                                // backend (no flag) degrades to the
-                                // previous instant hand-off.
-                                advance(to: .welcomeBack)
-                            } else {
-                                session.handleSignedIn(user: user)
-                            }
+                        // Onboarding removed — EVERY successful sign-in goes
+                        // straight into the app. Returning users get the brief
+                        // "Welcome back" beat; everyone else (incl. brand-new
+                        // accounts) hands off immediately. New users claim their
+                        // @talise name in-app from Home, not in a flow here.
+                        UserDefaults.standard.removeObject(forKey: Self.stepKey)
+                        if existing && user.accountType != nil {
+                            advance(to: .welcomeBack)
                         } else {
-                            advance(to: .handlePicker)
+                            session.handleSignedIn(user: user)
                         }
                     })
                     .transition(.slide)

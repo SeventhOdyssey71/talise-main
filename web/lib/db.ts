@@ -1355,10 +1355,16 @@ export async function upsertUser(input: {
     return { user: refreshed.rows[0] as unknown as User, isNew: false };
   }
 
+  // Default new users to a 'personal' account_type. Onboarding/KYC was
+  // removed — a new user signs in and goes STRAIGHT into the app, so the
+  // KYC step that used to set this never runs. A populated account_type
+  // also keeps the client's phase logic on the `.ready` path (a null type
+  // routed to the old `.onboarding`/KYC screen). Users can still upgrade
+  // to 'business' later from settings.
   await c.execute({
     sql: `INSERT INTO users
-      (google_sub, email, name, picture, sui_address, salt, country, created_at, last_seen_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (google_sub, email, name, picture, sui_address, salt, country, account_type, created_at, last_seen_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       input.googleSub,
       input.email,
@@ -1367,6 +1373,7 @@ export async function upsertUser(input: {
       input.suiAddress,
       input.salt,
       input.country ?? null,
+      "personal",
       now,
       now,
     ],
