@@ -164,6 +164,15 @@ export function isFallbackEligible(err: unknown): boolean {
     msg.includes("503") ||
     msg.includes("502") ||
     msg.includes("504") ||
+    msg.includes("500") ||
+    // Gateways return the STATUS TEXT, not the number — the public fullnode
+    // 502s on executeTransaction as a bare "Bad Gateway", which contains no
+    // "502" substring, so the chain never failed over (the cheque-claim
+    // broadcast bug). Match the text forms too.
+    msg.includes("bad gateway") ||
+    msg.includes("gateway timeout") ||
+    msg.includes("service unavailable") ||
+    msg.includes("internal server error") ||
     msg.includes("fetch failed") ||
     msg.includes("network error") ||
     msg.includes("unavailable") ||
