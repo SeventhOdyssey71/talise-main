@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { db, ensureSchema, userById } from "@/lib/db";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { createOrder, getRate, linqConfigured, checkDailyOfframpCap } from "@/lib/linq";
+import { createOrder, getRate, linqConfigured, checkDailyOfframpCap, cashoutFeatureOpen, CASHOUT_CLOSED_MESSAGE } from "@/lib/linq";
 import { resolveLinqBank } from "@/lib/linq-banks";
 
 export const runtime = "nodejs";
@@ -24,6 +24,11 @@ export const runtime = "nodejs";
  * Body: { amountUsdsui, bankCode, accountNumber, accountName, bankName? }
  */
 export async function POST(req: Request) {
+  // Product gate (FEATURE_CASHOUT) — closed for launch. Refuse BEFORE creating
+  // any order so no deposit address is issued and no user is debited.
+  if (!cashoutFeatureOpen()) {
+    return NextResponse.json({ error: CASHOUT_CLOSED_MESSAGE, code: "CASHOUT_CLOSED" }, { status: 503 });
+  }
   if (!linqConfigured()) {
     return NextResponse.json({ error: "off-ramp not configured" }, { status: 503 });
   }

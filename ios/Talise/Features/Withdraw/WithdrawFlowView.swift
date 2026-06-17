@@ -20,6 +20,8 @@ import Security
 struct WithdrawFlowView: View {
     var onClose: () -> Void
 
+    @Environment(AppSession.self) private var session
+
     /// Which action group (if any) is expanded inline.
     private enum ActionGroup { case cheques, work }
     @State private var expanded: ActionGroup?
@@ -47,12 +49,17 @@ struct WithdrawFlowView: View {
                             columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)],
                             spacing: 14
                         ) {
-                            NavigationLink {
-                                UnifiedCashOutFlow()
-                            } label: {
-                                ActionTile(icon: "hi.bank", title: "Cash out", caption: "To your bank")
+                            // Cash-out to bank is server-gated (FEATURE_CASHOUT).
+                            // Hidden until the flag opens it — fail-closed when
+                            // `me` hasn't loaded.
+                            if session.currentUser?.cashoutEnabled == true {
+                                NavigationLink {
+                                    UnifiedCashOutFlow()
+                                } label: {
+                                    ActionTile(icon: "hi.bank", title: "Cash out", caption: "To your bank")
+                                }
+                                .buttonStyle(TilePress())
                             }
-                            .buttonStyle(TilePress())
 
                             Button { handOff(.taliseRequestSendCover) } label: {
                                 ActionTile(icon: "hi.send", title: "Send", caption: "@handle or address")

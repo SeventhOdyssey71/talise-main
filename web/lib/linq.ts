@@ -51,6 +51,21 @@ export function linqConfigured(): boolean {
   return Boolean(process.env.LINQ_API_KEY?.trim());
 }
 
+/**
+ * Product gate for bank cash-out. CLOSED by default for the TestFlight launch.
+ * Open by setting `FEATURE_CASHOUT=true` in Vercel — the SAME flag the app's
+ * UI reads via /api/me, so one env var opens both the UI and this backend at
+ * once. Gating here (not just the UI) closes cash-out for already-installed
+ * builds and any direct API call too.
+ */
+export function cashoutFeatureOpen(): boolean {
+  return process.env.FEATURE_CASHOUT?.trim().toLowerCase() === "true";
+}
+
+/** User-facing copy when cash-out is gated closed. */
+export const CASHOUT_CLOSED_MESSAGE =
+  "Cash-out to bank isn't available yet — it's coming soon. Your balance is untouched.";
+
 function baseUrl(): string {
   return process.env.LINQ_BASE_URL?.trim() || DEFAULT_BASE_URL;
 }

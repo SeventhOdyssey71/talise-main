@@ -8,6 +8,13 @@ enum AccountType: String, Codable {
     case business
 }
 
+/// Server feature gates (from `/api/me`). Default false = closed, so a
+/// missing flag keeps the feature hidden until Vercel env opens it.
+struct UserFeatures: Codable, Hashable {
+    var cashout: Bool = false
+    var scanToPay: Bool = false
+}
+
 struct UserDTO: Codable, Hashable {
     let id: String
     let email: String
@@ -27,6 +34,15 @@ struct UserDTO: Codable, Hashable {
     /// SuiNS canonical, e.g. "alice.talise.sui". Convenience companion
     /// to taliseHandle so views don't need to recompose the string.
     let taliseSubname: String?
+
+    /// Server-driven feature gates from `/api/me` (flipped via Vercel env,
+    /// no app build needed). Optional + fail-CLOSED so an older payload or a
+    /// missing field hides the gated entry point rather than exposing it.
+    var features: UserFeatures? = nil
+    /// Cash-out to bank entry point visible?
+    var cashoutEnabled: Bool { features?.cashout ?? false }
+    /// Scan-to-pay entry point visible?
+    var scanToPayEnabled: Bool { features?.scanToPay ?? false }
 
     /// Canonical display ONLY when the user actually owns a resolvable
     /// SuiNS handle. Returns nil otherwise so callers can show a

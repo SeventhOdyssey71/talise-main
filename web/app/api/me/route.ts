@@ -42,6 +42,15 @@ export async function GET(req: Request) {
   // an idle one lapses and the next /api/me 401s → client auto-logs-out.
   await refreshSessionCookie();
 
+  // Server-driven feature gates — flip these in Vercel (Project → Settings →
+  // Environment Variables) to open a feature WITHOUT shipping a new build.
+  // DEFAULT CLOSED: a feature is on only when its env var is exactly "true".
+  // iOS hides the corresponding entry point when the flag is false.
+  const features = {
+    cashout: process.env.FEATURE_CASHOUT?.trim().toLowerCase() === "true",
+    scanToPay: process.env.FEATURE_SCAN_TO_PAY?.trim().toLowerCase() === "true",
+  };
+
   const base = {
     id: String(user.id),
     email: user.email,
@@ -53,6 +62,7 @@ export async function GET(req: Request) {
     accountType: user.account_type,
     businessName: user.business_name,
     businessHandle: user.business_handle,
+    features,
   };
 
   const fresh = new URL(req.url).searchParams.get("fresh") === "1";

@@ -197,21 +197,25 @@ struct HomeView: View {
             // (the one place we use glass): an ultra-thin material disc with a
             // hairline white edge so it blends into the green header gradient
             // instead of clashing as a solid surface2 puck.
-            Button {
-                scanToPaySheetVisible = true
-            } label: {
-                Image(systemName: "qrcode.viewfinder")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(
-                        Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
-                    )
-                    .contentShape(Circle())
+            // Scan-to-pay is server-gated (FEATURE_SCAN_TO_PAY). Hidden until
+            // the flag opens it — fail-closed when `me` hasn't loaded.
+            if session.currentUser?.scanToPayEnabled == true {
+                Button {
+                    scanToPaySheetVisible = true
+                } label: {
+                    Image(systemName: "qrcode.viewfinder")
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay(
+                            Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+                        )
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Scan to pay")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Scan to pay")
         }
         .frame(height: 38)
         .fullScreenCover(isPresented: $scanToPaySheetVisible) {
