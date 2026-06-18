@@ -181,7 +181,7 @@ struct BridgeCashOutView: View {
                 }
                 .buttonStyle(.plain).disabled(!canSwap).opacity(canSwap ? 1 : 0.6)
             }
-            Text(balanceUsdsui.map { "\(String(format: "%.2f", $0)) USDsui available · 1% fee" } ?? "Loading…")
+            Text(balanceUsdsui.map { "\(String(format: "%.2f", $0)) USDsui available" } ?? "Loading…")
                 .font(TaliseFont.body(11.5, weight: .light)).foregroundStyle(TaliseColor.fgDim)
             if let swapError {
                 Text(swapError).font(TaliseFont.body(12.5, weight: .light)).foregroundStyle(Color(hex: 0xFF6B6B))

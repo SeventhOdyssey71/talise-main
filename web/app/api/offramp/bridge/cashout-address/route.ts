@@ -16,8 +16,10 @@ import { sui, COIN_TYPES } from "@/lib/sui";
 /** Best-effort USDC pocket balance (raw u64 micros string) for the user. */
 async function usdcPocketMicros(address: string): Promise<string> {
   try {
+    // gRPC getBalance returns { balance: { balance: "<raw u64>" } } (NOT
+    // `totalBalance` like the JSON-RPC client) — see balances route.
     const b = await sui().getBalance({ owner: address, coinType: COIN_TYPES.USDC });
-    return String((b as { totalBalance?: string }).totalBalance ?? "0");
+    return String((b as { balance?: { balance?: string } }).balance?.balance ?? "0");
   } catch {
     return "0";
   }

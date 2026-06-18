@@ -94,7 +94,8 @@ export async function POST(req: Request) {
       owner: user.sui_address,
       coinType: COIN_TYPES.USDC,
     });
-    const have = BigInt((bal as { totalBalance?: string }).totalBalance ?? "0");
+    // gRPC shape: { balance: { balance: "<raw u64>" } } — not `totalBalance`.
+    const have = BigInt((bal as { balance?: { balance?: string } }).balance?.balance ?? "0");
     if (have < amountMicros) {
       return NextResponse.json(
         {
