@@ -420,9 +420,8 @@ struct ProfileView: View {
                 currencyRow
                 sectionDivider
                 pocketsRow
-                sectionDivider
-                // autoSwapRow removed 2026-05-29 alongside the autoswap archive.
-                notifyRow
+                // "Email me when I receive" (notifyRow) hidden for now — email
+                // notifications are being reworked; the impl stays dormant below.
                 if let err = settingsError {
                     sectionDivider
                     HStack {

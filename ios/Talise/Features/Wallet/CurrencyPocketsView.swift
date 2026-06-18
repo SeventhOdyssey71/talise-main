@@ -146,20 +146,10 @@ struct CurrencyPocketsView: View {
         .buttonStyle(.plain)
     }
 
-    /// Small flat disc carrying the currency symbol — solid surface chip,
-    /// sized for a list row.
+    /// Circular flag icon for the currency — the shared RoundedFlag used
+    /// across the app (vendored circle-flags in Assets/Flags).
     private func currencyDisc(_ c: TaliseCurrency) -> some View {
-        ZStack {
-            Circle().fill(TaliseColor.surface2)
-            Text(c.symbol)
-                .font(TaliseFont.heading(14, weight: .medium))
-                .foregroundStyle(TaliseColor.fg)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .padding(.horizontal, 4)
-        }
-        .frame(width: 38, height: 38)
-        .clipShape(Circle())
+        RoundedFlag(code: c.flagCode, size: 38)
     }
 
     private var disclaimer: some View {
@@ -308,10 +298,7 @@ private struct AddCurrencySheet: View {
             dismiss()
         } label: {
             HStack(spacing: 14) {
-                Text(c.symbol)
-                    .font(TaliseFont.heading(16, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                    .frame(width: 32, alignment: .leading)
+                RoundedFlag(code: c.flagCode, size: 32)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(c.name)
                         .font(TaliseFont.body(14, weight: .light))

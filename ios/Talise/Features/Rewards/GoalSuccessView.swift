@@ -22,17 +22,13 @@ struct GoalSuccessView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // Target hero — the goal motif, in brand green on a soft disc,
-                // dropping in with the same scrapbook wobble as the piggy.
-                ZStack {
-                    Circle()
-                        .fill(TaliseColor.accent.opacity(0.14))
-                        .frame(width: 184, height: 184)
-                    Image(systemName: "target")
-                        .font(.system(size: 104, weight: .regular))
-                        .foregroundStyle(TaliseColor.accent)
-                }
-                .scrapbookEntry(delay: 0.05, tilt: -6)
+                // Target hero — the hand-drawn crosshair illustration, dropping
+                // in with the same scrapbook wobble as the savings piggy.
+                Image("GoalTarget")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 260, height: 260)
+                    .scrapbookEntry(delay: 0.05, tilt: -6)
 
                 Spacer().frame(height: 30)
 

@@ -9,6 +9,27 @@ struct TaliseCurrency: Identifiable, Equatable, Hashable, Codable {
     let name: String       // "US Dollar", "Nigerian Naira", …
     var id: String { code }
 
+    /// ISO alpha-2 (or "eu") for the circular flag icon in Assets/Flags,
+    /// rendered via RoundedFlag. Currency code → country.
+    var flagCode: String {
+        switch code {
+        case "USD": return "us"
+        case "NGN": return "ng"
+        case "GHS": return "gh"
+        case "KES": return "ke"
+        case "EUR": return "eu"
+        case "GBP": return "gb"
+        case "CAD": return "ca"
+        case "ZAR": return "za"
+        case "JPY": return "jp"
+        case "SGD": return "sg"
+        case "PHP": return "ph"
+        case "IDR": return "id"
+        case "VND": return "vn"
+        default:    return "us"
+        }
+    }
+
     static let allSupported: [TaliseCurrency] = [
         .init(code: "USD", symbol: "$",   name: "US Dollar"),
         .init(code: "NGN", symbol: "₦",   name: "Nigerian Naira"),
