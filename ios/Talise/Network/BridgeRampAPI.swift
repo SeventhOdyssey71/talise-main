@@ -17,13 +17,14 @@ enum BridgeRampAPI {
     /// deposit instructions once a virtual account exists.
     static func onrampSession(
         amountCents: Int,
-        currency: String
+        currency: String,
+        provider: String = "bridge"
     ) async throws -> OnrampSessionResponse {
         try await APIClient.shared.post(
             "/api/onramp/v2/session",
             body: OnrampSessionRequest(
                 amountCents: amountCents,
-                provider: "bridge",
+                provider: provider,
                 sourceCurrency: currency.lowercased()
             )
         )
@@ -34,6 +35,39 @@ enum BridgeRampAPI {
     static func cashOutAddress(_ req: CashOutRequest) async throws -> CashOutResponse {
         try await APIClient.shared.post("/api/offramp/bridge/cashout-address", body: req)
     }
+
+    /// Step 1 — swap USDsui → USDC into the user's own wallet (the "USDC
+    /// pocket"), 1% fee to treasury. Sponsored bytes → signAndExecuteRaw.
+    static func swapToUsdc(amountUsdsui: Double) async throws -> SwapToUsdcResponse {
+        try await APIClient.shared.post(
+            "/api/offramp/bridge/swap-to-usdc-prepare",
+            body: ["amountUsdsui": amountUsdsui]
+        )
+    }
+
+    /// Step 2 — plain USDC send from the pocket to the Bridge cash-out address
+    /// (resolved server-side). Sponsored bytes → signAndExecuteRaw.
+    static func sendUsdc(amountUsdc: Double, currency: String) async throws -> SendUsdcResponse {
+        struct Body: Codable { let amountUsdc: Double; let currency: String }
+        return try await APIClient.shared.post(
+            "/api/offramp/bridge/send-usdc-prepare",
+            body: Body(amountUsdc: amountUsdc, currency: currency.lowercased())
+        )
+    }
+}
+
+struct SwapToUsdcResponse: Codable {
+    let bytes: String
+    let mode: String
+    let amountUsdsui: Double
+    let estimatedUsdcMicros: String
+}
+
+struct SendUsdcResponse: Codable {
+    let bytes: String
+    let mode: String
+    let amountUsdc: Double
+    let destinationPaymentRail: String
 }
 
 // MARK: - On-ramp
@@ -57,9 +91,12 @@ struct BridgeDepositInstructions: Codable {
     let currency: String
     let paymentRails: [String]?
     let bankName: String?
+    let bankAddress: String?
     let accountNumber: String?
     let routingNumber: String?
+    let accountType: String?
     let beneficiaryName: String?
+    let beneficiaryAddress: String?
     let iban: String?
     let bic: String?
     let depositMessage: String?
@@ -81,6 +118,11 @@ struct CashOutRequest: Codable {
     var iban: String? = nil
     var bic: String? = nil
     var country: String? = nil
+    // Account-holder address — Bridge requires it for US ACH payout accounts.
+    var street: String? = nil
+    var city: String? = nil
+    var state: String? = nil
+    var postalCode: String? = nil
 }
 
 struct CashOutResponse: Codable {
@@ -89,4 +131,12 @@ struct CashOutResponse: Codable {
     let currency: String
     let destinationPaymentRail: String
     let note: String?
+    // Payout bank summary (when an existing route is reused) — shown so the
+    // user can confirm which account the wire lands in.
+    let bankName: String?
+    let accountLast4: String?
+    let accountOwnerName: String?
+    let accountType: String?
+    /// USDC pocket balance, raw u64 micros string (6 decimals).
+    let usdcMicros: String?
 }

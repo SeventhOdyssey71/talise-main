@@ -11,6 +11,17 @@ import {
   cashoutBankSummary,
 } from "@/lib/bridge/offramp";
 import type { BridgeFiatCurrency } from "@/lib/bridge/onramp";
+import { sui, COIN_TYPES } from "@/lib/sui";
+
+/** Best-effort USDC pocket balance (raw u64 micros string) for the user. */
+async function usdcPocketMicros(address: string): Promise<string> {
+  try {
+    const b = await sui().getBalance({ owner: address, coinType: COIN_TYPES.USDC });
+    return String((b as { totalBalance?: string }).totalBalance ?? "0");
+  } catch {
+    return "0";
+  }
+}
 
 export const runtime = "nodejs";
 
@@ -86,7 +97,10 @@ export async function POST(req: Request) {
     //    persistent cash-out route for this corridor, return it with no form.
     const existing = await findExistingCashout(customerId, currency, wantRail);
     if (existing) {
-      const bank = await cashoutBankSummary(customerId, existing.externalAccountId);
+      const [bank, usdcMicros] = await Promise.all([
+        cashoutBankSummary(customerId, existing.externalAccountId),
+        usdcPocketMicros(user.sui_address),
+      ]);
       return NextResponse.json({
         address: existing.address,
         currency,
@@ -96,6 +110,7 @@ export async function POST(req: Request) {
         accountLast4: bank?.last4 ?? null,
         accountOwnerName: bank?.accountOwnerName ?? null,
         accountType: bank?.accountType ?? null,
+        usdcMicros,
       });
     }
 
