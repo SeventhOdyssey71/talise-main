@@ -29,9 +29,13 @@ export type BridgeDepositInstructions = {
   currency: string;
   payment_rails?: string[];
   bank_name?: string;
+  /** Receiving bank's mailing address (e.g. Lead Bank, Kansas City MO). */
+  bank_address?: string;
   bank_account_number?: string;
   bank_routing_number?: string;
   bank_beneficiary_name?: string;
+  /** Account holder's address on file — sending forms ask for it. */
+  bank_beneficiary_address?: string;
   iban?: string;
   bic?: string;
   /** Some rails require this memo on the deposit. */

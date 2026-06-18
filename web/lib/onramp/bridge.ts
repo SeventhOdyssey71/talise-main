@@ -171,9 +171,15 @@ export const bridgeAdapter: OnrampProvider = {
         currency: di.currency,
         paymentRails: di.payment_rails,
         bankName: di.bank_name,
+        bankAddress: di.bank_address,
         accountNumber: di.bank_account_number,
         routingNumber: di.bank_routing_number,
+        // Bridge USD virtual accounts at Lead Bank are checking accounts; the
+        // API doesn't echo the type, so surface the known constant for forms
+        // that demand it. (Only meaningful for USD/ACH; harmless for SEPA.)
+        accountType: di.currency?.toLowerCase() === "usd" ? "checking" : undefined,
         beneficiaryName: di.bank_beneficiary_name,
+        beneficiaryAddress: di.bank_beneficiary_address,
         iban: di.iban,
         bic: di.bic,
         depositMessage: di.deposit_message,

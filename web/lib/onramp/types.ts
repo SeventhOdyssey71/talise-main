@@ -183,9 +183,15 @@ export interface SessionResult {
     currency: string;
     paymentRails?: string[];
     bankName?: string;
+    /** Receiving bank's mailing address (some sending forms require it). */
+    bankAddress?: string;
     accountNumber?: string;
     routingNumber?: string;
+    /** "checking" | "savings" — Bridge USD virtual accounts are checking. */
+    accountType?: string;
     beneficiaryName?: string;
+    /** Account holder's address — sending forms ask for recipient address. */
+    beneficiaryAddress?: string;
     iban?: string;
     bic?: string;
     depositMessage?: string;
