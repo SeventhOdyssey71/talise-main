@@ -142,28 +142,25 @@ function Hero({ err }: { err?: string }) {
 }
 
 /**
- * Apple App Store download badge, styled to live next to the Google sign-in
- * button without looking like a mismatched pair. Same height, same pill
- * radius, but inverted color (black surface, white text + Apple glyph) so
- * the two CTAs read as a clear "web vs native" choice.
- *
- * `href="#"` for now — wire to the real App Store URL once Talise is
- * approved for distribution.
+ * Apple / iOS download button. The native beta is LIVE on TestFlight, so this
+ * links straight to the public TestFlight invite. Styled as a white pill with
+ * the Apple glyph (the conventional "get it on iOS" look) so it pairs with the
+ * forest-green Join-waitlist CTA as a clear "web vs native" choice.
  */
+const TESTFLIGHT_URL = "https://testflight.apple.com/join/BFNEPYtM";
+
 function AppStoreButton() {
-  // iOS is still in private beta / pending App Store review, so this is
-  // a non-interactive placeholder. Rendered as a <div role="img"> so
-  // assistive tech doesn't announce it as a clickable button. Matches
-  // the height of the Join-waitlist pill so the two read as a pair.
   return (
-    <div
-      role="img"
-      aria-label="iOS app coming soon"
-      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-dashed border-[color-mix(in_srgb,var(--color-accent-deep)_38%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent-deep)_5%,transparent)] px-7 text-[14px] font-medium text-[var(--color-fg-dim)] cursor-not-allowed select-none sm:w-auto"
+    <a
+      href={TESTFLIGHT_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Get the Talise iOS beta on TestFlight"
+      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-white px-7 text-[14px] font-semibold text-black shadow-[0_6px_18px_-6px_rgba(0,0,0,0.45)] transition-colors hover:bg-white/90 sm:w-auto"
     >
       <AppleGlyph />
-      <span>iOS · Coming soon</span>
-    </div>
+      <span>iOS · TestFlight</span>
+    </a>
   );
 }
 
