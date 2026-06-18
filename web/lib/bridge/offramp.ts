@@ -37,7 +37,23 @@ export type BridgeExternalAccount = {
   account_owner_name: string;
   account_type: string;
   active: boolean;
+  bank_name?: string;
+  last_4?: string;
+  account?: {
+    last_4?: string;
+    routing_number?: string;
+    checking_or_savings?: string;
+  };
 };
+
+/** List a customer's registered payout (external) bank accounts. */
+export async function listExternalAccounts(
+  customerId: string
+): Promise<{ data: BridgeExternalAccount[] }> {
+  return bridgeFetch<{ data: BridgeExternalAccount[] }>(
+    `customers/${encodeURIComponent(customerId)}/external_accounts`
+  );
+}
 
 /** Register a US ACH payout account. */
 export async function createUsAchExternalAccount(input: {
@@ -205,7 +221,7 @@ export async function findExistingCashout(
   customerId: string,
   currency: string,
   wantRail: string
-): Promise<{ address: string; rail: string } | undefined> {
+): Promise<{ address: string; rail: string; externalAccountId?: string } | undefined> {
   try {
     const transfers = await listTransfers(customerId);
     const templates = (transfers.data ?? []).filter(
@@ -226,6 +242,7 @@ export async function findExistingCashout(
       return {
         address: addr,
         rail: pick?.destination?.payment_rail?.toLowerCase() ?? wantRail,
+        externalAccountId: pick?.destination?.external_account_id,
       };
     }
   } catch {
@@ -243,12 +260,38 @@ export async function findExistingCashout(
       return {
         address: pick.address,
         rail: pick.destination_payment_rail?.toLowerCase() ?? wantRail,
+        externalAccountId: pick.external_account_id,
       };
     }
   } catch {
     /* ignore */
   }
   return undefined;
+}
+
+/**
+ * A human-friendly summary of the payout bank behind a cash-out route, for the
+ * app to display ("paying out to Lead ••1324"). Best-effort — returns null if
+ * the external account can't be fetched.
+ */
+export async function cashoutBankSummary(
+  customerId: string,
+  externalAccountId: string | undefined
+): Promise<{ bankName?: string; last4?: string; accountOwnerName?: string; accountType?: string } | null> {
+  if (!externalAccountId) return null;
+  try {
+    const ext = await listExternalAccounts(customerId);
+    const a = (ext.data ?? []).find((x) => x.id === externalAccountId);
+    if (!a) return null;
+    return {
+      bankName: a.bank_name,
+      last4: a.last_4 ?? a.account?.last_4,
+      accountOwnerName: a.account_owner_name,
+      accountType: a.account?.checking_or_savings,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**

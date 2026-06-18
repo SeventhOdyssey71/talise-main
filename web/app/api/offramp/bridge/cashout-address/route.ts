@@ -8,6 +8,7 @@ import {
   createIbanExternalAccount,
   createStaticOfframpTemplate,
   findExistingCashout,
+  cashoutBankSummary,
 } from "@/lib/bridge/offramp";
 import type { BridgeFiatCurrency } from "@/lib/bridge/onramp";
 
@@ -85,11 +86,16 @@ export async function POST(req: Request) {
     //    persistent cash-out route for this corridor, return it with no form.
     const existing = await findExistingCashout(customerId, currency, wantRail);
     if (existing) {
+      const bank = await cashoutBankSummary(customerId, existing.externalAccountId);
       return NextResponse.json({
         address: existing.address,
         currency,
         destinationPaymentRail: existing.rail,
         note: "Send USDsui to this address to cash out to your bank.",
+        bankName: bank?.bankName ?? null,
+        accountLast4: bank?.last4 ?? null,
+        accountOwnerName: bank?.accountOwnerName ?? null,
+        accountType: bank?.accountType ?? null,
       });
     }
 
