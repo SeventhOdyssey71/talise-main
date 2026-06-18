@@ -18,7 +18,11 @@ import {
 import { computeRequirements } from "./requirements";
 import { bridgeDeveloperFeePercent } from "@/lib/bridge/client";
 import { createKycLink, mapBridgeKycStatus } from "@/lib/bridge/customers";
-import { createVirtualAccount, type BridgeFiatCurrency } from "@/lib/bridge/onramp";
+import {
+  createVirtualAccount,
+  listVirtualAccounts,
+  type BridgeFiatCurrency,
+} from "@/lib/bridge/onramp";
 import { verifyBridgeWebhook, parseBridgeWebhook } from "@/lib/bridge/webhook";
 
 /**
@@ -130,13 +134,33 @@ export const bridgeAdapter: OnrampProvider = {
     )
       ? (input.sourceCurrency as BridgeFiatCurrency)
       : "usd";
-    const va = await createVirtualAccount({
-      customerId: input.providerCustomerId,
-      suiAddress: input.destinationAddress,
-      sourceCurrency,
-      developerFeePercent: bridgeDeveloperFeePercent(), // Talise's 1% take
-      idempotencyKey: `va-${input.providerCustomerId}-${sourceCurrency}`,
-    });
+    // Reuse an existing matching virtual account if the customer already has
+    // one (created here before, or in the Bridge dashboard) — this returns the
+    // SAME persistent deposit instructions and avoids minting duplicates.
+    let va: Awaited<ReturnType<typeof createVirtualAccount>> | null = null;
+    try {
+      const existing = await listVirtualAccounts(input.providerCustomerId);
+      va =
+        (existing.data ?? []).find(
+          (v) =>
+            v.destination?.address?.toLowerCase() ===
+              input.destinationAddress.toLowerCase() &&
+            (v.source_deposit_instructions?.currency ?? "").toLowerCase() ===
+              sourceCurrency &&
+            (v.status === "activated" || v.status === "active")
+        ) ?? null;
+    } catch {
+      va = null; // list failed — fall through to create
+    }
+    if (!va) {
+      va = await createVirtualAccount({
+        customerId: input.providerCustomerId,
+        suiAddress: input.destinationAddress,
+        sourceCurrency,
+        developerFeePercent: bridgeDeveloperFeePercent(), // Talise's take
+        idempotencyKey: `va-${input.providerCustomerId}-${sourceCurrency}`,
+      });
+    }
     const di = va.source_deposit_instructions;
     return {
       provider: NAME,

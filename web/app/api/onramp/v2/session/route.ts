@@ -118,6 +118,14 @@ export async function POST(req: Request) {
     });
   }
 
+  // If we just created the customer and it needs hosted KYC, return the KYC
+  // URL only. A non-active customer can't be issued a virtual account (Bridge
+  // rejects it), so attempting the session here would error — the client shows
+  // the verify-identity step first, then retries once the customer is active.
+  if (kycUrl) {
+    return NextResponse.json({ provider: provider.name, kycUrl });
+  }
+
   const session = await provider.createOnrampSession({
     providerCustomerId,
     amountCents,
