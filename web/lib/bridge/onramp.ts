@@ -101,7 +101,22 @@ export async function listVirtualAccounts(
 export type BridgeTransfer = {
   id: string;
   state: string;
-  amount: string;
+  amount: string | null;
+  currency?: string;
+  on_behalf_of?: string;
+  source?: { payment_rail?: string; currency?: string; from_address?: string | null };
+  destination?: {
+    payment_rail?: string;
+    currency?: string;
+    external_account_id?: string;
+  };
+  developer_fee_percent?: string;
+  /** Static templates accept any amount from any sender; reusable cash-out. */
+  features?: {
+    flexible_amount?: boolean;
+    static_template?: boolean;
+    allow_any_from_address?: boolean;
+  };
   source_deposit_instructions?: BridgeDepositInstructions & { to_address?: string };
 };
 

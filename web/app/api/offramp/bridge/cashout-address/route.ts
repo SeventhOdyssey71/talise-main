@@ -6,10 +6,62 @@ import { bridgeConfigured } from "@/lib/bridge/client";
 import {
   createUsAchExternalAccount,
   createIbanExternalAccount,
-  createSuiLiquidationAddress,
+  createStaticOfframpTemplate,
+  listTransfers,
   listLiquidationAddresses,
 } from "@/lib/bridge/offramp";
 import type { BridgeFiatCurrency } from "@/lib/bridge/onramp";
+
+/**
+ * Find an existing persistent cash-out address for this corridor — a static
+ * transfer template ("payment route") first, then a liquidation address for
+ * back-compat. Prefers an exact `wantRail` match but falls back to any active
+ * route in the same currency, so whatever the user (or the Bridge dashboard)
+ * set up is reused rather than duplicated. Returns the address + its real rail.
+ */
+async function findExistingCashout(
+  customerId: string,
+  currency: string,
+  wantRail: string
+): Promise<{ address: string; rail: string } | undefined> {
+  try {
+    const transfers = await listTransfers(customerId);
+    const templates = (transfers.data ?? []).filter(
+      (t) =>
+        t.features?.static_template === true &&
+        t.amount == null &&
+        t.state !== "canceled" &&
+        t.state !== "returned" &&
+        t.destination?.currency?.toLowerCase() === currency &&
+        !!t.source_deposit_instructions?.to_address
+    );
+    const pick =
+      templates.find(
+        (t) => t.destination?.payment_rail?.toLowerCase() === wantRail
+      ) ?? templates[0];
+    const addr = pick?.source_deposit_instructions?.to_address;
+    if (addr) {
+      return { address: addr, rail: pick?.destination?.payment_rail?.toLowerCase() ?? wantRail };
+    }
+  } catch {
+    /* fall through to liquidation addresses */
+  }
+  try {
+    const las = await listLiquidationAddresses(customerId);
+    const active = (las.data ?? []).filter(
+      (x) => x.destination_currency?.toLowerCase() === currency && x.state === "active"
+    );
+    const pick =
+      active.find((x) => x.destination_payment_rail?.toLowerCase() === wantRail) ??
+      active[0];
+    if (pick?.address) {
+      return { address: pick.address, rail: pick.destination_payment_rail?.toLowerCase() ?? wantRail };
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
 
 export const runtime = "nodejs";
 
@@ -64,6 +116,10 @@ export async function POST(req: Request) {
     iban?: string;
     bic?: string;
     country?: string;
+    street?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
   };
   try {
     body = await req.json();
@@ -73,18 +129,40 @@ export async function POST(req: Request) {
 
   const rail = String(body.rail ?? "").toLowerCase();
   const currency = String(body.currency ?? "").toLowerCase() as BridgeFiatCurrency;
-  if (!body.accountOwnerName) {
-    return NextResponse.json({ error: "accountOwnerName required" }, { status: 400 });
-  }
+  // Destination payout rail: explicit "wire" wins; else USD→ACH, EUR→SEPA.
+  const wantRail = rail === "wire" ? "wire" : currency === "eur" ? "sepa" : "ach";
 
   try {
-    // 1. Register the payout bank account. Stable idempotency key per
-    //    user+currency so repeat calls within Bridge's 24h window reuse it.
+    // 1. REUSE-FIRST: if the user (or the Bridge dashboard) already has a
+    //    persistent cash-out route for this corridor, return it with no form.
+    const existing = await findExistingCashout(customerId, currency, wantRail);
+    if (existing) {
+      return NextResponse.json({
+        address: existing.address,
+        currency,
+        destinationPaymentRail: existing.rail,
+        note: "Send USDsui to this address to cash out to your bank.",
+      });
+    }
+
+    // 2. CREATE: no route yet — register the payout account from the form, then
+    //    create a persistent static transfer template (the "payment route"
+    //    shape) and return its Sui deposit address.
+    if (!body.accountOwnerName) {
+      return NextResponse.json({ error: "accountOwnerName required" }, { status: 400 });
+    }
     let externalAccountId: string;
-    if (rail === "ach" || currency === "usd") {
+    if (currency === "usd") {
       if (!body.accountNumber || !body.routingNumber) {
         return NextResponse.json(
-          { error: "accountNumber + routingNumber required for ACH" },
+          { error: "accountNumber + routingNumber required for USD" },
+          { status: 400 }
+        );
+      }
+      // Bridge requires the account holder's address on US payout accounts.
+      if (!body.street || !body.city || !body.state || !body.postalCode) {
+        return NextResponse.json(
+          { error: "street, city, state, postalCode required for USD" },
           { status: 400 }
         );
       }
@@ -94,10 +172,17 @@ export async function POST(req: Request) {
         accountNumber: body.accountNumber,
         routingNumber: body.routingNumber,
         checkingOrSavings: body.checkingOrSavings,
+        address: {
+          street_line_1: body.street,
+          city: body.city,
+          state: body.state,
+          postal_code: body.postalCode,
+          country: (body.country || "USA").toUpperCase(),
+        },
         idempotencyKey: `ext-${userId}-usd`,
       });
       externalAccountId = ext.id;
-    } else if (rail === "sepa" || currency === "eur") {
+    } else if (currency === "eur") {
       if (!body.iban || !body.bic || !body.firstName || !body.lastName || !body.country) {
         return NextResponse.json(
           { error: "iban, bic, firstName, lastName, country required for SEPA" },
@@ -117,45 +202,31 @@ export async function POST(req: Request) {
       externalAccountId = ext.id;
     } else {
       return NextResponse.json(
-        { error: "unsupported rail (use ach/usd or sepa/eur)", code: "UNSUPPORTED_RAIL" },
+        { error: "unsupported currency (use usd or eur)", code: "UNSUPPORTED_RAIL" },
         { status: 400 }
       );
     }
 
-    const destinationPaymentRail = currency === "eur" ? "sepa" : "ach";
-
-    // 2. Reuse an existing matching liquidation address if one exists for this
-    //    corridor, else create one. (Idempotent without extra storage.)
-    let address: string | undefined;
-    try {
-      const existing = await listLiquidationAddresses(customerId);
-      const match = existing.data?.find(
-        (la) =>
-          la.currency?.toLowerCase() === "usdsui" &&
-          la.destination_currency?.toLowerCase() === currency &&
-          la.external_account_id === externalAccountId &&
-          la.state === "active"
-      );
-      address = match?.address;
-    } catch {
-      /* list failed → fall through to create */
-    }
-
+    const tpl = await createStaticOfframpTemplate({
+      customerId,
+      externalAccountId,
+      destinationPaymentRail: wantRail,
+      destinationCurrency: currency,
+      developerFeePercent: "0.1",
+      idempotencyKey: `tpl-${userId}-${currency}-${wantRail}`,
+    });
+    const address = tpl.source_deposit_instructions?.to_address;
     if (!address) {
-      const la = await createSuiLiquidationAddress({
-        customerId,
-        externalAccountId,
-        destinationPaymentRail,
-        destinationCurrency: currency,
-        idempotencyKey: `la-${userId}-${currency}`,
-      });
-      address = la.address;
+      return NextResponse.json(
+        { error: "Couldn't set up cash-out. Please try again.", code: "BRIDGE_ERROR" },
+        { status: 502 }
+      );
     }
 
     return NextResponse.json({
       address, // the persistent Sui address to send USDsui to
       currency,
-      destinationPaymentRail,
+      destinationPaymentRail: wantRail,
       note: "Send USDsui to this address to cash out to your bank.",
     });
   } catch (e) {

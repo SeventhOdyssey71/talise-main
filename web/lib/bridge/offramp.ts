@@ -181,6 +181,56 @@ export async function listLiquidationAddresses(
   );
 }
 
+/** List a customer's transfers, including persistent static templates. */
+export async function listTransfers(
+  customerId: string
+): Promise<{ count: number; data: BridgeTransfer[] }> {
+  return bridgeFetch<{ count: number; data: BridgeTransfer[] }>(
+    `transfers?customer_id=${encodeURIComponent(customerId)}&limit=50`
+  );
+}
+
+/**
+ * Create a PERSISTENT static off-ramp template (USDC on Sui → fiat). This is
+ * the "payment route" shape the Bridge dashboard creates: no `amount` and no
+ * `from_address`, with `flexible_amount` + `static_template` +
+ * `allow_any_from_address` so the returned Sui deposit address
+ * (`source_deposit_instructions.to_address`) is reusable for any amount, any
+ * sender. Sending USDsui→USDC to that address pays out fiat over
+ * `destinationPaymentRail` (e.g. "wire" / "ach") to `externalAccountId`.
+ */
+export async function createStaticOfframpTemplate(input: {
+  customerId: string;
+  externalAccountId: string;
+  destinationPaymentRail: string; // "wire" | "ach" | "sepa"
+  destinationCurrency: BridgeFiatCurrency;
+  /** Talise fee, string percent (e.g. "0.1"). */
+  developerFeePercent?: string;
+  idempotencyKey: string;
+}): Promise<BridgeTransfer> {
+  return bridgeFetch<BridgeTransfer>("transfers", {
+    method: "POST",
+    idempotencyKey: input.idempotencyKey,
+    body: {
+      on_behalf_of: input.customerId,
+      ...(input.developerFeePercent
+        ? { developer_fee_percent: input.developerFeePercent }
+        : {}),
+      source: { payment_rail: BRIDGE_SUI_RAIL, currency: BRIDGE_SUI_CURRENCY },
+      destination: {
+        payment_rail: input.destinationPaymentRail,
+        currency: input.destinationCurrency,
+        external_account_id: input.externalAccountId,
+      },
+      features: {
+        flexible_amount: true,
+        static_template: true,
+        allow_any_from_address: true,
+      },
+    },
+  });
+}
+
 /**
  * One-off off-ramp transfer (USDC on Sui → fiat). Matches Bridge's canonical
  * off-ramp shape: the source is the user's Sui wallet (`fromAddress`) sending
