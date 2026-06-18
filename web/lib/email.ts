@@ -83,10 +83,10 @@ export async function sendInboundReceivedEmail(opts: {
   amountUsd: number;
   senderName: string;
 }): Promise<SendResult> {
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_BASE_URL ||
-    "https://talise.io";
+  // "Open Talise" deep-links into the iOS app via its registered URL scheme
+  // (CFBundleURLSchemes: "talise"), so tapping it on a phone opens the app
+  // rather than a web page. Recipients are Talise users (the app is installed).
+  const openApp = "talise://";
   const amount = `$${opts.amountUsd.toFixed(2)}`;
   const safeSender = opts.senderName.replace(
     /[<>&]/g,
@@ -99,7 +99,7 @@ export async function sendInboundReceivedEmail(opts: {
       <tr><td style="font-size:13px;letter-spacing:.12em;color:#7fae5f;text-transform:uppercase">Talise</td></tr>
       <tr><td style="padding-top:14px;font-size:28px;font-weight:600;color:#caffb8">💰 ${amount} received</td></tr>
       <tr><td style="padding-top:10px;font-size:15px;line-height:1.55;color:#a9c79a">${safeSender} sent you ${amount}. It's already in your Talise balance. Hold it in dollars, send it onward, or put it to work.</td></tr>
-      <tr><td style="padding-top:24px"><a href="${appUrl}" style="display:inline-block;background:#caffb8;color:#0b0f0a;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:999px">Open Talise</a></td></tr>
+      <tr><td style="padding-top:24px"><a href="${openApp}" style="display:inline-block;background:#caffb8;color:#0b0f0a;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:999px">Open Talise</a></td></tr>
     </table>
   </td></tr></table>
   </body></html>`;
