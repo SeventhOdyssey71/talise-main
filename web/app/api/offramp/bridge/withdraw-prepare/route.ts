@@ -39,7 +39,12 @@ export const runtime = "nodejs";
 
 const SLIPPAGE_BPS = 100; // 1.00%
 const SWAP_FEE_BPS = 100; // 1.00% Talise fee → treasury (Cetus overlay)
-const MIN_WITHDRAW_USDSUI = 1; // floor; Bridge enforces its own wire minimum
+// Bridge will not process a wire payout below $1.00, and it evaluates the NET
+// USDC that arrives (after our 1% fee + swap spread). So the floor that matters
+// is the *output*, not the input — gate on estimatedUsdc ≥ $1.00. The input
+// floor below is a cheap pre-check before we even quote the swap.
+const BRIDGE_MIN_USDC_MICROS = 1_000_000n; // $1.00 USDC
+const MIN_WITHDRAW_USDSUI = 1.05; // ~1.04 USDC net — clears Bridge's $1.00 floor with margin
 
 export async function POST(req: Request) {
   const onaraUrl = process.env.ONARA_URL;
@@ -148,6 +153,19 @@ export async function POST(req: Request) {
       );
     }
     const estimatedUsdcMicros = BigInt(cetusRouter.amountOut.toString());
+    // Net-output floor: Bridge rejects (and silently holds) any deposit under
+    // $1.00 USDC — exactly what stranded the earlier $0.99 test. Block it here
+    // with an actionable message instead of stranding the user's funds.
+    if (estimatedUsdcMicros < BRIDGE_MIN_USDC_MICROS) {
+      return NextResponse.json(
+        {
+          error:
+            "Bridge's minimum payout is $1.00. After the 1% fee, withdraw a little more so at least $1.00 reaches your bank.",
+          code: "BELOW_BRIDGE_MIN",
+        },
+        { status: 400 }
+      );
+    }
 
     const inputCoin = tx.add(
       coinWithBalance({ type: USDSUI_TYPE, balance: fromMicros, useGasCoin: false })
