@@ -215,6 +215,10 @@ private struct GoalActionSheet: View {
     @State private var busy = false
     @State private var error: String?
     @State private var lastPointsAwarded: Int?
+    /// Non-nil after a successful deposit → shows the full-screen success
+    /// cover (and, by replacing the form, prevents an accidental re-tap that
+    /// would stack a second deposit). Holds the pre-formatted amount added.
+    @State private var depositDone: String?
 
     init(goal: SavingsGoal, onChanged: @escaping () -> Void) {
         self.goal = goal
@@ -250,6 +254,18 @@ private struct GoalActionSheet: View {
                     Button("Done") { dismiss() }
                         .foregroundStyle(TaliseColor.accent)
                 }
+            }
+            .fullScreenCover(isPresented: Binding(
+                get: { depositDone != nil },
+                set: { if !$0 { depositDone = nil } }
+            )) {
+                GoalSuccessView(
+                    amountText: depositDone ?? "",
+                    goalName: goal.name,
+                    // Back to Invest: clear the cover, then close the sheet so
+                    // the user lands back on the Invest screen.
+                    onDismiss: { depositDone = nil; dismiss() }
+                )
             }
         }
     }
@@ -385,6 +401,10 @@ private struct GoalActionSheet: View {
             lastPointsAwarded = resp.pointsAwarded
             depositText = ""
             onChanged()
+            // Show the success cover (and stop the form from being re-tapped,
+            // which was stacking duplicate deposits). Amount shown in the
+            // user's display currency, same as the rest of the goal UI.
+            depositDone = TaliseFormat.local2(amountUsd)
         } catch {
             self.error = error.localizedDescription
         }
