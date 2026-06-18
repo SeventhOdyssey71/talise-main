@@ -17,6 +17,15 @@ function formatUsd(n: number): string {
   return `$${r.toFixed(2).replace(/0$/, "")}`;
 }
 
+/**
+ * Whether to email the recipient when they receive money. OFF by default —
+ * the push notification is the credit alert; receive-emails are paused. Flip
+ * with `RECEIVE_EMAIL_ENABLED=true` in Vercel to turn them back on.
+ */
+function receiveEmailEnabled(): boolean {
+  return process.env.RECEIVE_EMAIL_ENABLED?.trim().toLowerCase() === "true";
+}
+
 /** "caleb" / "caleb.sui" → "caleb@talise"; leaves real display names alone. */
 function senderLabel(raw: string): string {
   const s = raw.trim();
@@ -45,17 +54,21 @@ export async function notifyInboundSettlement(input: {
 }): Promise<void> {
   try {
     const recipient = await userBySuiAddress(input.recipientAddress);
-    if (!recipient?.email) return; // external address, or no email on file
+    if (!recipient) return; // external (non-Talise) address — nothing to notify
 
-    const res = await sendInboundReceivedEmail({
-      to: recipient.email,
-      amountUsd: input.amountUsd,
-      senderName: input.senderName,
-    });
-    if (!res.ok) {
-      console.warn(
-        `[notify] inbound email failed to=${recipient.email}: ${res.reason}`
-      );
+    // Email on receive — OFF by default; the push below is the primary credit
+    // notification. Toggle back on with RECEIVE_EMAIL_ENABLED=true in Vercel.
+    if (recipient.email && receiveEmailEnabled()) {
+      const res = await sendInboundReceivedEmail({
+        to: recipient.email,
+        amountUsd: input.amountUsd,
+        senderName: input.senderName,
+      });
+      if (!res.ok) {
+        console.warn(
+          `[notify] inbound email failed to=${recipient.email}: ${res.reason}`
+        );
+      }
     }
 
     // Push (APNs) — fire to every registered device. No-ops cleanly when APNs
