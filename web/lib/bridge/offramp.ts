@@ -191,6 +191,67 @@ export async function listTransfers(
 }
 
 /**
+ * Find an existing persistent cash-out address for a corridor — a static
+ * transfer template ("payment route") first, then a liquidation address for
+ * back-compat. Prefers an exact `wantRail` match but falls back to any active
+ * route in the same currency, so whatever the user (or the Bridge dashboard)
+ * set up is reused rather than duplicated. Returns the Sui deposit address +
+ * its real payout rail, or undefined if no route exists yet.
+ *
+ * Shared by the cash-out setup route (to surface the address) and the
+ * withdraw-prepare route (to target the swap-and-send PTB at it).
+ */
+export async function findExistingCashout(
+  customerId: string,
+  currency: string,
+  wantRail: string
+): Promise<{ address: string; rail: string } | undefined> {
+  try {
+    const transfers = await listTransfers(customerId);
+    const templates = (transfers.data ?? []).filter(
+      (t) =>
+        t.features?.static_template === true &&
+        t.amount == null &&
+        t.state !== "canceled" &&
+        t.state !== "returned" &&
+        t.destination?.currency?.toLowerCase() === currency &&
+        !!t.source_deposit_instructions?.to_address
+    );
+    const pick =
+      templates.find(
+        (t) => t.destination?.payment_rail?.toLowerCase() === wantRail
+      ) ?? templates[0];
+    const addr = pick?.source_deposit_instructions?.to_address;
+    if (addr) {
+      return {
+        address: addr,
+        rail: pick?.destination?.payment_rail?.toLowerCase() ?? wantRail,
+      };
+    }
+  } catch {
+    /* fall through to liquidation addresses */
+  }
+  try {
+    const las = await listLiquidationAddresses(customerId);
+    const active = (las.data ?? []).filter(
+      (x) => x.destination_currency?.toLowerCase() === currency && x.state === "active"
+    );
+    const pick =
+      active.find((x) => x.destination_payment_rail?.toLowerCase() === wantRail) ??
+      active[0];
+    if (pick?.address) {
+      return {
+        address: pick.address,
+        rail: pick.destination_payment_rail?.toLowerCase() ?? wantRail,
+      };
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+/**
  * Create a PERSISTENT static off-ramp template (USDC on Sui → fiat). This is
  * the "payment route" shape the Bridge dashboard creates: no `amount` and no
  * `from_address`, with `flexible_amount` + `static_template` +
