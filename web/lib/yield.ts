@@ -12,6 +12,7 @@ import {
 import { getGlobalNum, setGlobalNum, refreshInBackground } from "./snapshots";
 import { samConfigured, fetchSamApy, readSamPosition } from "./yield/sam";
 import { fetchScallopUsdsuiApy } from "./yield/venues-mainnet";
+import { SCALLOP_SUPPLY_ENABLED } from "./yield/ptb";
 
 /** Resolve a promise to `fallback` if it doesn't settle within `ms`. The
  *  underlying work keeps running; we just stop waiting on the hot path. */
@@ -202,10 +203,11 @@ export async function getYieldComparison(
       },
     });
   }
-  // Scallop — USDsui supply market, the second always-live router venue. Live
-  // APY from Scallop's market API; position read joins once the deposit flow
-  // tracks the user's sUSDsui (Suilend + AlphaLend follow with their readers).
-  if (scallopApy != null) {
+  // Scallop — USDsui supply market. GATED: supply currently reverts on a stale
+  // version object (see SCALLOP_SUPPLY_ENABLED in lib/yield/ptb.ts), so we don't
+  // surface it as a depositable venue — that would route "best" to a venue whose
+  // deposit reverts on chain. Re-enable once the version object is refreshed.
+  if (SCALLOP_SUPPLY_ENABLED && scallopApy != null) {
     venues.push({
       id: "scallop",
       name: "Scallop lending",

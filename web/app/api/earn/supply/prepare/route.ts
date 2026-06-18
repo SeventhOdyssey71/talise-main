@@ -10,7 +10,7 @@ import {
   fetchSupplierCapId,
 } from "@/lib/deepbook-margin";
 import { appendNaviSupply, SAVE_TREASURY_FEE_BPS, TREASURY_WALLET } from "@/lib/navi-supply";
-import { buildScallopSupply } from "@/lib/yield/ptb";
+import { buildScallopSupply, SCALLOP_SUPPLY_ENABLED } from "@/lib/yield/ptb";
 import { getYieldComparison } from "@/lib/yield";
 import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 
@@ -32,8 +32,15 @@ export const runtime = "nodejs";
 // (NAVI account-based + Scallop sUSDsui) — the SAM-style "earn at the best
 // rate" toggle. DeepBook stays selectable but is excluded from the best
 // auto-pick (its USDsui margin APY is ~0).
-const SUPPORTED_VENUES = new Set(["deepbook", "navi", "scallop", "best"]);
-const BEST_CANDIDATES = new Set(["navi", "scallop"]);
+// Scallop is gated by SCALLOP_SUPPLY_ENABLED — its supply currently reverts on
+// a stale version object, so while disabled it's neither selectable nor a
+// "best" candidate, and deposits route to NAVI (live).
+const SUPPORTED_VENUES = new Set(
+  ["deepbook", "navi", "best", ...(SCALLOP_SUPPLY_ENABLED ? ["scallop"] : [])]
+);
+const BEST_CANDIDATES = new Set(
+  ["navi", ...(SCALLOP_SUPPLY_ENABLED ? ["scallop"] : [])]
+);
 
 export async function POST(req: Request) {
   const userId = await readEntryIdFromRequest(req);

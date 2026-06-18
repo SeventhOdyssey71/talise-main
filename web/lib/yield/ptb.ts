@@ -106,6 +106,16 @@ const SCALLOP = {
 } as const;
 export const SCALLOP_SUSDSUI_TYPE = SCALLOP.sUsdsuiType;
 
+/**
+ * Scallop supply is DISABLED: the pinned `version` object above is stale vs
+ * Scallop's current protocol version, so `mint::mint` aborts in
+ * `version::assert_current_version` (code 513) and every supply reverts on
+ * chain. Until we resolve the live version object via Scallop's SDK, deposits
+ * route to NAVI (live, works). Flip back to `true` once `SCALLOP.version`
+ * (and pkg, if upgraded) are refreshed to the current on-chain values.
+ */
+export const SCALLOP_SUPPLY_ENABLED = false;
+
 /** Supply `usdsuiCoin` to Scallop; returns the `Coin<SCALLOP_USDSUI>` receipt. */
 export function buildScallopSupply(
   tx: Transaction,
