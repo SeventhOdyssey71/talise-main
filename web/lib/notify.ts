@@ -3,21 +3,24 @@ import "server-only";
 import { userBySuiAddress, deviceTokensForUser } from "@/lib/db";
 import { sendInboundReceivedEmail } from "@/lib/email";
 import { sendApnsPush } from "@/lib/apns";
-import { CC, formatLocal, type Currency } from "@/lib/fx";
 
 /**
- * Map a recipient's stored country (ISO alpha-2) to their display currency,
- * so the credit notification reads in the SAME currency they see in-app
- * (a Nigerian user gets "₦8,100 received", not "$5.00"). Inverts the
- * currency→country `CC` map; unknown / unset country falls back to USD.
+ * Format a USD amount for notification copy: "$0.2", "$5", "$12.34". We show
+ * the ACTUAL USD value received (USDsui is dollar-denominated), NOT a
+ * local-currency conversion — converting was the source of a wrong figure in
+ * the push (a $0.36 credit displayed as "₦597"). USD is exact and matches the
+ * dollars the user actually holds.
  */
-function currencyForCountry(country: string | null | undefined): Currency {
-  const cc = (country ?? "").trim().toLowerCase();
-  if (!cc) return "USD";
-  for (const [cur, code] of Object.entries(CC)) {
-    if (code === cc) return cur as Currency;
-  }
-  return "USD";
+function formatUsd(n: number): string {
+  const r = Math.round((Number(n) || 0) * 100) / 100;
+  if (Number.isInteger(r)) return `$${r}`;
+  return `$${r.toFixed(2).replace(/0$/, "")}`;
+}
+
+/** Recipient's `name@talise` handle, or a safe fallback. */
+function accountLabel(handle: string | null | undefined): string {
+  const h = (handle ?? "").trim().replace(/\.sui$/i, "").replace(/\.talise$/i, "").replace(/^@/, "");
+  return h ? `${h}@talise` : "your Talise account";
 }
 
 /**
@@ -82,12 +85,11 @@ export async function notifyInboundSettlement(input: {
     try {
       const tokens = await deviceTokensForUser(recipient.id);
       if (tokens.length > 0) {
-        // Currency-aware, amount-forward copy matching what they see in-app.
-        // The app NAME ("Talise") + app ICON render as the notification
-        // header automatically, so the title leads with the money.
-        const currency = currencyForCountry(recipient.country);
-        const amountText = formatLocal(input.amountUsd, currency); // "₦8,100"
-        const title = `${amountText} received`;
+        // Amount-forward copy in the user's ACTUAL dollars (not a converted
+        // local amount). The app NAME ("Talise") + icon render as the header.
+        const amountText = formatUsd(input.amountUsd); // "$0.2"
+        const acct = accountLabel(recipient.talise_username);
+        const title = `💰 You just received ${amountText} in ${acct}`;
         const label = senderLabel(input.senderName);
         const pbody = `from ${label}`;
         // Branded mint card the NSE attaches → the expanded notification

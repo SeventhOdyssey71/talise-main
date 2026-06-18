@@ -571,15 +571,8 @@ struct ProfileView: View {
     private var helpSection: some View {
         section(title: "Help") {
             VStack(spacing: 0) {
-                // The product web app lives on app.talise.io (host-routed);
-                // www.talise.io/home does not exist, so link the app host
-                // directly rather than apiBaseURL + a dead path.
-                linkRow(icon: "arrow.up.right.square", label: "Open on web") {
-                    open("https://app.talise.io")
-                }
-                sectionDivider
                 linkRow(icon: "questionmark.circle", label: "Support") {
-                    open("mailto:hello@talise.io")
+                    openSupport()
                 }
                 sectionDivider
                 // App Review requires Privacy Policy + Terms reachable
@@ -831,6 +824,24 @@ struct ProfileView: View {
     private func open(_ s: String) {
         guard let url = URL(string: s) else { return }
         UIApplication.shared.open(url)
+    }
+
+    /// Support: open the mail composer pre-addressed to Talise support with a
+    /// subject. `mailto:` silently no-ops on a device with no Mail account, so
+    /// we check first and fall back to the website — Support always does
+    /// something instead of feeling broken.
+    private func openSupport() {
+        let subject = "Talise support".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Talise%20support"
+        if let mail = URL(string: "mailto:hello@talise.io?subject=\(subject)"),
+           UIApplication.shared.canOpenURL(mail) {
+            UIApplication.shared.open(mail) { ok in
+                if !ok, let web = URL(string: "https://talise.io") {
+                    UIApplication.shared.open(web)
+                }
+            }
+        } else {
+            open("https://talise.io")
+        }
     }
 }
 

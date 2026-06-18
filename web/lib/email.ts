@@ -95,14 +95,15 @@ export async function sendInboundReceivedEmail(opts: {
   const html = `<!doctype html><html><body style="margin:0;background:#0b0f0a;font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:32px 0">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
     <table role="presentation" width="420" cellpadding="0" cellspacing="0" style="max-width:420px;background:#11160f;border:1px solid #1f2a18;border-radius:18px;padding:32px">
+      <tr><td style="padding-bottom:22px"><img src="${appUrl}/email-logo.png" width="40" height="37" alt="Talise" style="display:block;border:0;outline:none"></td></tr>
       <tr><td style="font-size:13px;letter-spacing:.12em;color:#7fae5f;text-transform:uppercase">Talise</td></tr>
-      <tr><td style="padding-top:14px;font-size:28px;font-weight:600;color:#caffb8">${amount} received</td></tr>
-      <tr><td style="padding-top:10px;font-size:15px;line-height:1.55;color:#a9c79a">${safeSender} sent you ${amount}. It's already in your Talise balance &mdash; hold it in dollars, send it onward, or earn yield on it.</td></tr>
+      <tr><td style="padding-top:14px;font-size:28px;font-weight:600;color:#caffb8">💰 ${amount} received</td></tr>
+      <tr><td style="padding-top:10px;font-size:15px;line-height:1.55;color:#a9c79a">${safeSender} sent you ${amount}. It's already in your Talise balance. Hold it in dollars, send it onward, or put it to work.</td></tr>
       <tr><td style="padding-top:24px"><a href="${appUrl}" style="display:inline-block;background:#caffb8;color:#0b0f0a;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:999px">Open Talise</a></td></tr>
     </table>
   </td></tr></table>
   </body></html>`;
-  return send({ to: opts.to, subject: `You received ${amount} on Talise`, html });
+  return send({ to: opts.to, subject: `💰 You received ${amount} on Talise`, html });
 }
 
 /**
