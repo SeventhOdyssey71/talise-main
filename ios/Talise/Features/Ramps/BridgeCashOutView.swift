@@ -496,6 +496,8 @@ struct BridgeCashOutView: View {
                 hasRoute = false
             } else if msg.contains("BELOW_BRIDGE_MIN") {
                 withdrawError = "Bridge's minimum is $1.00 — send at least $1.00 in USDC."
+            } else if msg.contains("INSUFFICIENT_USDC") {
+                withdrawError = "Not enough USDC in your pocket — swap USDsui → USDC first."
             } else {
                 withdrawError = "We couldn't complete your withdrawal. Please try again."
             }

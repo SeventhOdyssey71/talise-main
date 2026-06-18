@@ -86,9 +86,30 @@ export async function POST(req: Request) {
     );
   }
 
+  const client = sui();
+  // Pre-check the USDC pocket so an empty/short pocket returns a clean message
+  // instead of a coin-resolution 500 at build time.
+  try {
+    const bal = await client.getBalance({
+      owner: user.sui_address,
+      coinType: COIN_TYPES.USDC,
+    });
+    const have = BigInt((bal as { totalBalance?: string }).totalBalance ?? "0");
+    if (have < amountMicros) {
+      return NextResponse.json(
+        {
+          error: "Not enough USDC in your pocket. Swap USDsui → USDC first.",
+          code: "INSUFFICIENT_USDC",
+        },
+        { status: 400 }
+      );
+    }
+  } catch {
+    /* balance read failed — fall through and let the build surface it */
+  }
+
   try {
     const onaraClient = onara();
-    const client = sui();
     const net = network();
     const sponsorPromise = memoTtl(`onara:status:${onaraUrl}`, 60_000, () => onaraClient.status());
     const gasPricePromise = memoTtl(`sui:gas-price:${net}`, 1_500, async () => {
