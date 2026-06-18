@@ -10,6 +10,7 @@ import { memoTtl } from "@/lib/perf-cache";
 import { bridgeConfigured } from "@/lib/bridge/client";
 import { getOnrampKyc } from "@/lib/onramp/kyc-store";
 import { findExistingCashout } from "@/lib/bridge/offramp";
+import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 import type { BridgeFiatCurrency } from "@/lib/bridge/onramp";
 
 export const runtime = "nodejs";
@@ -125,6 +126,17 @@ export async function POST(req: Request) {
       coinWithBalance({ type: COIN_TYPES.USDC, balance: amountMicros, useGasCoin: false })
     );
     tx.transferObjects([usdc], route.address);
+
+    // Onara's sponsorship policy requires an allowlisted MoveCall in the PTB; a
+    // bare native transfer has none and gets rejected at execute. The standard
+    // Talise receipt (`processRegistryPayment`, a non-transfer "withdraw" kind =
+    // 1-micro self-ping marker, NOT money to a third party) supplies that
+    // MoveCall and tags the tx — same primitive every other sponsored flow uses.
+    appendPaymentKitReceipt(tx, {
+      kind: "withdraw",
+      sender: user.sui_address,
+      refs: { venue: "bridge" },
+    });
 
     const [{ address: sponsor }, gasPrice] = await Promise.all([sponsorPromise, gasPricePromise]);
     tx.setGasOwner(sponsor);
