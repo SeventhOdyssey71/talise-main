@@ -438,8 +438,12 @@ export async function POST(req: Request) {
       // leg only has opaque bytes). Best-effort, same-instance — see perf-cache.
       setPendingInbound(userId, {
         to,
+        // Prefer the sender's @talise handle so the recipient's notification
+        // reads "from sele@talise" (not "someone on Talise" / a display name).
         amountUsd: amountNum,
-        senderName: user.business_name ?? user.name ?? "Someone on Talise",
+        senderName: user.talise_username
+          ? `${user.talise_username}@talise`
+          : (user.business_name ?? user.name ?? "Someone on Talise"),
       });
 
       console.log(

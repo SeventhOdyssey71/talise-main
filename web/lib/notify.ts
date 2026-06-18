@@ -17,28 +17,6 @@ function formatUsd(n: number): string {
   return `$${r.toFixed(2).replace(/0$/, "")}`;
 }
 
-/** Recipient's `name@talise` handle, or a safe fallback. */
-function accountLabel(handle: string | null | undefined): string {
-  const h = (handle ?? "").trim().replace(/\.sui$/i, "").replace(/\.talise$/i, "").replace(/^@/, "");
-  return h ? `${h}@talise` : "your Talise account";
-}
-
-/**
- * Absolute URL of the branded notification card the iOS Notification Service
- * Extension downloads and attaches. Same origin the rest of the app/emails
- * use; defaults to the iOS API host. `amount` is the already-localized
- * display string so the card matches the banner copy exactly.
- */
-function creditCardImageUrl(amountText: string, sender: string): string {
-  const base = (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_BASE_URL ||
-    "https://app.talise.io"
-  ).replace(/\/+$/, "");
-  const qs = new URLSearchParams({ amount: amountText, from: sender });
-  return `${base}/api/notify/card?${qs.toString()}`;
-}
-
 /** "caleb" / "caleb.sui" → "caleb@talise"; leaves real display names alone. */
 function senderLabel(raw: string): string {
   const s = raw.trim();
@@ -85,17 +63,12 @@ export async function notifyInboundSettlement(input: {
     try {
       const tokens = await deviceTokensForUser(recipient.id);
       if (tokens.length > 0) {
-        // Amount-forward copy in the user's ACTUAL dollars (not a converted
-        // local amount). The app NAME ("Talise") + icon render as the header.
+        // Title leads with the money (USD, not a converted local amount); the
+        // body names the sender by their @talise handle. The app NAME
+        // ("Talise") + icon render as the header automatically.
         const amountText = formatUsd(input.amountUsd); // "$0.2"
-        const acct = accountLabel(recipient.talise_username);
-        const title = `💰 You just received ${amountText} in ${acct}`;
-        const label = senderLabel(input.senderName);
-        const pbody = `from ${label}`;
-        // Branded mint card the NSE attaches → the expanded notification
-        // shows Talise's theme (the OS owns the banner chrome; this is the
-        // only way to put our look inside a notification).
-        const imageUrl = creditCardImageUrl(amountText, label);
+        const title = `💰 You just received ${amountText}`;
+        const pbody = `from ${senderLabel(input.senderName)}`;
         await Promise.all(
           tokens.map((t) =>
             sendApnsPush(t, {
@@ -105,8 +78,6 @@ export async function notifyInboundSettlement(input: {
               category: "TALISE_CREDIT",
               interruptionLevel: "active",
               relevanceScore: 1,
-              mutableContent: true,
-              imageUrl,
               data: { kind: "credit", route: "activity", amountUsd: input.amountUsd },
             }).then((r) => {
               if (!r.ok && !r.skipped) {
