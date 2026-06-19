@@ -30,11 +30,11 @@ const OG_TITLE = "Talise — money that moves like a message";
 const OG_DESC =
   "A gasless dollar wallet on Sui. Send digital dollars as easily as a text — no gas, no seed phrases, no bank. Sign in with Google.";
 const OG_IMAGE = {
-  url: "/og.jpg",
+  url: "/og.png",
   width: 1200,
   height: 630,
-  type: "image/jpeg",
-  alt: "Talise — money moving freely as messages. No gas, no seed phrases.",
+  type: "image/png",
+  alt: "Talise. Money that moves like a message. Hold, send, cash out.",
 };
 
 export const metadata: Metadata = {
