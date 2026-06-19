@@ -44,7 +44,11 @@ export default function HeroV2() {
         .from(q(".v2-word"), { opacity: 0, y: 20, duration: 0.7, stagger: 0.08 }, "-=0.15")
         .to(q(".v2-hl"), { scaleX: 1, duration: 0.5, ease: "power2.out" }, "-=0.3")
         .from(q(".v2-sub"), { opacity: 0, y: 12, duration: 0.6 }, "-=0.45")
-        .from(q(".v2-cta"), { opacity: 0, y: 12, duration: 0.5, stagger: 0.08 }, "-=0.4")
+        // Animate the CTA ROW as one unit (not each button). The "Get the app"
+        // button carries `transition-transform` for its hover lift, which fights
+        // a GSAP `y` tween on the button itself and freezes it 12px low. Moving
+        // the transform to the wrapper keeps both buttons perfectly aligned.
+        .from(q(".v2-cta-row"), { opacity: 0, y: 12, duration: 0.5 }, "-=0.4")
         .from(q(".v2-card"), { opacity: 0, y: 24, duration: 0.8, ease: "power2.out" }, "-=0.55")
         .from(q(".v2-nav"), { opacity: 0, y: 16, duration: 0.6 }, "-=0.5");
     }, root);
@@ -81,7 +85,7 @@ export default function HeroV2() {
             phrase, no gas to think about, money that finally makes sense.
           </p>
 
-          <div className="mt-9 grid w-full max-w-[420px] grid-cols-2 gap-3">
+          <div className="v2-cta-row mt-9 grid w-full max-w-[420px] grid-cols-2 gap-3">
             <a
               href={TESTFLIGHT_URL}
               target="_blank"
