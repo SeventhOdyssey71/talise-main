@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { userById } from "@/lib/db";
+import { usdWithdrawalAllowed, USD_WITHDRAWAL_CLOSED_MESSAGE } from "@/lib/offramp-access";
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { AggregatorClient } from "@cetusprotocol/aggregator-sdk";
@@ -48,6 +49,13 @@ export async function POST(req: Request) {
   }
   const user = await userById(userId);
   if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });
+  // USD withdrawal is gated to an allowlist during pilot (rolandojude18 only).
+  if (!usdWithdrawalAllowed(user)) {
+    return NextResponse.json(
+      { error: USD_WITHDRAWAL_CLOSED_MESSAGE, code: "USD_WITHDRAWAL_CLOSED" },
+      { status: 403 }
+    );
+  }
 
   let body: { amountUsdsui?: number };
   try {
