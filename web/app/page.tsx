@@ -2,10 +2,6 @@ import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
 import { Reveal } from "@/components/Reveal";
-import HeroDark from "./_premium/HeroDark";
-import RenaissanceStory from "./_premium/RenaissanceStory";
-import GlassBand from "./_premium/GlassBand";
-import SmoothScroll from "./_premium/SmoothScroll";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   SentIcon,
@@ -40,16 +36,16 @@ export default async function Landing({
   const params = await searchParams;
 
   return (
-    <div className="relative min-h-screen overflow-hidden text-[var(--color-fg)]">
+    <div className="landing-mint relative min-h-screen overflow-hidden text-[var(--color-fg)]">
       <div className="talise-top-glow" aria-hidden />
 
-      <SmoothScroll />
       <TopBar />
 
       <main className="relative z-10 mx-auto w-full max-w-[1440px] px-6 pb-32 md:px-12 lg:px-16">
-        <HeroDark err={params.err} />
-        <RenaissanceStory />
-        <GlassBand />
+        <Hero err={params.err} />
+        <HowItComposes />
+        <FeatureGrid />
+        <WhoItsFor />
         <SecuritySection />
         <ByTheNumbers />
         <FinalCta />
@@ -89,12 +85,57 @@ function TopBar() {
   );
 }
 
-// The app-screens collage + stat row, shown under the premium hero. (The old
-// headline/CTA block moved into PremiumHero — see app/_premium/PremiumHero.tsx.)
-function HeroCollage() {
+function Hero({ err }: { err?: string }) {
   return (
-    <section className="pb-4 pt-4 text-center md:pt-8">
+    <section className="pt-12 pb-12 text-center md:pt-20 md:pb-16">
+      {/* Centered headline; the accent line ("In their currency.") is the
+          same sans font as the rest of the headline, set apart only by the
+          forest accent colour. */}
+      <h1 className="motion-headline mx-auto max-w-[940px] text-[clamp(40px,6vw,72px)] font-medium leading-[1.05] tracking-[-0.025em] text-[var(--color-fg)]">
+        On Talise, a payment is
+        <br />
+        <span
+          className="text-[var(--color-accent)]"
+        >
+          a financial action.
+        </span>
+      </h1>
+
+      <p className="motion-subtitle mx-auto mt-6 max-w-[600px] text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
+        Send money and it can round up, earn, and mint a receipt — in one tap.
+        One signature, composed into a single transaction on Sui. No wallet, no
+        gas token, no chain to think about. Private beta. Join the waitlist.
+      </p>
+
+      {/* Dual CTAs: waitlist + iOS placeholder. On small screens they
+          stack; on sm+ they sit side by side. */}
+      <div
+        id="cta"
+        className="motion-cta mx-auto mt-9 flex w-full max-w-[280px] flex-col items-stretch gap-2 sm:max-w-none sm:flex-row sm:items-center sm:justify-center"
+      >
+        {/* Talise is in private beta — every Get started/Sign up CTA
+            routes to the waitlist, not Google sign-in. When we
+            flip the doors open this swaps back to SignInButton.
+            w-full + items-stretch on mobile so the two CTAs are
+            visually paired (same width); auto-width on sm+ keeps
+            them content-sized side by side. */}
+        <Link
+          href="/waitlist"
+          className="inline-flex h-11 w-full items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-7 text-[14px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] sm:w-auto"
+        >
+          Join waitlist
+        </Link>
+        <AppStoreButton />
+      </div>
+
+      {err && <ErrorBanner err={err} />}
+
+      {/* Big phone collage below the text, centered. The artwork is a
+          pre-composed image of two iPhone screens (Earn + Home) with
+          watercolor accent foliage — sits in a soft green wash that
+          ties into the page-level TopGlow. */}
       <PhoneCollage />
+
       <StatRow />
     </section>
   );
