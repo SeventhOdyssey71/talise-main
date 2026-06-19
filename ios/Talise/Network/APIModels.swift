@@ -473,12 +473,20 @@ struct SavingsGoal: Codable, Identifiable, Hashable {
     let color: String?
     let createdAtMs: Double
     let archived: Bool
+    /// Server-derived "reached target" flag. Optional so older API responses
+    /// (without the field) still decode; falls back to the local computation.
+    let completed: Bool?
 
     /// 0…1 fill ratio for the progress ring. Caps at 1 even when the user
     /// has overshot the target.
     var progress: Double {
         guard targetUsd > 0 else { return 0 }
         return min(1, max(0, currentUsd / targetUsd))
+    }
+
+    /// Whether this goal has hit its target — drives the Completed section.
+    var isComplete: Bool {
+        completed ?? (targetUsd > 0 && currentUsd >= targetUsd)
     }
 
     /// "23 days left" / "Past due" / nil if no deadline.
@@ -515,9 +523,12 @@ struct SavingsGoalUpdateRequest: Codable {
     let archive: Bool?
 }
 
-/// POST body for /api/rewards/goals/[id] (tracking deposit).
+/// POST body for /api/rewards/goals/[id] (tracking deposit or withdrawal).
+/// `action: "withdraw"` un-tracks funds back out of the goal; nil/"deposit"
+/// is the default add-to-goal.
 struct GoalDepositRequest: Codable {
     let amountUsd: Double
+    var action: String? = nil
 }
 
 /// Response from a goal mutation (create / patch / deposit). `pointsAwarded`

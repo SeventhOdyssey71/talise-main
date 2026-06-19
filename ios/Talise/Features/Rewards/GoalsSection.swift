@@ -23,6 +23,12 @@ struct GoalsSection: View {
     @State private var selected: SavingsGoal?
     @State private var showingNewGoal = false
 
+    /// Goals still being saved toward (shown in the main row).
+    private var activeGoals: [SavingsGoal] { goals.filter { !$0.isComplete } }
+    /// Goals that hit their target — moved out of the active row into the
+    /// "Completed" section below.
+    private var completedGoals: [SavingsGoal] { goals.filter { $0.isComplete } }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader("Savings goals")
@@ -32,7 +38,7 @@ struct GoalsSection: View {
                         GoalCardSkeleton()
                         GoalCardSkeleton()
                     } else {
-                        ForEach(goals) { goal in
+                        ForEach(activeGoals) { goal in
                             GoalCard(goal: goal)
                                 .onTapGesture { selected = goal }
                         }
@@ -43,6 +49,23 @@ struct GoalsSection: View {
                 .padding(.horizontal, 4)
             }
             .frame(height: 148)
+
+            // Completed goals leave the active row and live here.
+            if !completedGoals.isEmpty {
+                SectionHeader("Completed")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(completedGoals) { goal in
+                            GoalCard(goal: goal)
+                                .opacity(0.7)
+                                .onTapGesture { selected = goal }
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+                .frame(height: 148)
+            }
+
             if let error, !error.isEmpty {
                 Text(error)
                     .font(TaliseFont.mono(10, weight: .light))
@@ -322,6 +345,21 @@ private struct GoalActionSheet: View {
                     Task { await runDeposit() }
                 }
                 .disabled(busy || !canDeposit)
+
+                // Withdraw the typed amount back out of the goal (un-track) —
+                // the funds were always liquid in the earning balance.
+                if goal.currentUsd > 0 {
+                    Button {
+                        Task { await runWithdraw() }
+                    } label: {
+                        Text(busy ? "Withdrawing…" : "Withdraw from goal")
+                            .font(TaliseFont.body(14, weight: .medium))
+                            .foregroundStyle(TaliseColor.fgMuted)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                    }
+                    .disabled(busy || !canDeposit)
+                }
             }
             .padding(20)
             .earnHeroGlass(cornerRadius: 20)
@@ -405,6 +443,28 @@ private struct GoalActionSheet: View {
             // which was stacking duplicate deposits). Amount shown in the
             // user's display currency, same as the rest of the goal UI.
             depositDone = TaliseFormat.local2(amountUsd)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Withdraw the typed amount back out of the goal. Mirrors runDeposit but
+    /// sends action:"withdraw"; the server floors at the goal's balance and
+    /// mints no points. Dismisses so the refreshed list reflects the change.
+    private func runWithdraw() async {
+        let cleaned = depositText.replacingOccurrences(of: ",", with: ".")
+        guard let amount = Double(cleaned), amount > 0 else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let amountUsd = CurrencySettings.shared.convertToUsd(local: amount)
+            let _: SavingsGoalMutationResponse = try await APIClient.shared.post(
+                "/api/rewards/goals/\(goal.id)",
+                body: GoalDepositRequest(amountUsd: amountUsd, action: "withdraw")
+            )
+            depositText = ""
+            onChanged()
+            dismiss()
         } catch {
             self.error = error.localizedDescription
         }
