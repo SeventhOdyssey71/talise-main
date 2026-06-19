@@ -41,14 +41,14 @@ export function TierCard({
   const pct = hasNext && total > 0 ? Math.max(4, (points / total) * 100) : 0;
 
   return (
-    <GlassCard className="p-5">
+    <GlassCard className="p-7 md:p-9">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <Eyebrow className="!text-accent">{label}</Eyebrow>
+          <Eyebrow>{label}</Eyebrow>
           {/* Big ink number — hero stat */}
           <div className="mt-1.5 flex items-baseline gap-1.5">
             <span
-              className="tabular-nums text-fg"
+              className="tabular-nums text-[#15300c]"
               style={{
                 fontSize: 46,
                 fontWeight: 600,
@@ -58,10 +58,10 @@ export function TierCard({
             >
               {points.toLocaleString()}
             </span>
-            <span className="text-[13px] text-fg-dim">pts</span>
+            <span className="text-[13px] text-[#3d7a29]">pts</span>
           </div>
         </div>
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
           <HugeiconsIcon icon={icon} size={20} strokeWidth={1.8} />
         </span>
       </div>
@@ -69,23 +69,23 @@ export function TierCard({
       {hasNext ? (
         <div className="mt-5 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[11px] text-fg-muted">
+            <span className="font-mono text-[11px] text-[#3a5230]">
               {(toNext as number).toLocaleString()} to {nextLabel}
             </span>
-            <span className="font-mono text-[10px] tabular-nums text-fg-dim">
+            <span className="font-mono text-[10px] tabular-nums text-[#3d7a29]">
               {points.toLocaleString()} / {total.toLocaleString()}
             </span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#15300c]/10">
             <div
-              className="h-full rounded-full bg-accent-deep transition-[width] duration-500 ease-out"
+              className="h-full rounded-full bg-[#3d7a29] transition-[width] duration-500 ease-out"
               style={{ width: `${pct}%` }}
             />
           </div>
         </div>
       ) : tier ? (
-        <p className="mt-4 font-mono text-[11px] text-accent">
-          Top tier — every point still counts toward perks
+        <p className="mt-4 font-mono text-[11px] text-[#3d7a29]">
+          Top tier, every point still counts toward perks
         </p>
       ) : null}
     </GlassCard>

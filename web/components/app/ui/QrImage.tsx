@@ -6,8 +6,8 @@ import QRCode from "qrcode";
 export type QrImageProps = { value: string; size?: number; className?: string };
 
 /**
- * Renders `value` as a QR code on a white rounded panel (so dark-mode camera
- * scans reliably). Uses the `qrcode` package to produce a data URL.
+ * Renders `value` as a QR code (ink modules on white) on a white rounded panel
+ * so cameras scan reliably. Uses the `qrcode` package to produce a data URL.
  */
 export function QrImage({ value, size = 220, className = "" }: QrImageProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
@@ -18,7 +18,7 @@ export function QrImage({ value, size = 220, className = "" }: QrImageProps) {
       width: size * 2, // 2x for crisp rendering on retina
       margin: 1,
       errorCorrectionLevel: "M",
-      color: { dark: "#0a0e0b", light: "#ffffff" },
+      color: { dark: "#15300c", light: "#ffffff" },
     })
       .then((url) => {
         if (!cancelled) setDataUrl(url);
@@ -33,15 +33,15 @@ export function QrImage({ value, size = 220, className = "" }: QrImageProps) {
 
   return (
     <div
-      className={`inline-flex items-center justify-center border border-line bg-white p-3 shadow-[0_14px_34px_-18px_rgba(35,78,20,0.18)] ${className}`}
-      style={{ borderRadius: 14, width: size + 24, height: size + 24 }}
+      className={`inline-flex items-center justify-center border border-[#15300c]/15 bg-white p-3 shadow-[0_14px_34px_-18px_rgba(21,48,12,0.18)] ${className}`}
+      style={{ borderRadius: 18, width: size + 24, height: size + 24 }}
     >
       {dataUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={dataUrl} alt="QR code" width={size} height={size} style={{ display: "block" }} />
       ) : (
         <div
-          style={{ width: size, height: size, background: "color-mix(in srgb, var(--color-accent-deep) 8%, #ffffff)" }}
+          style={{ width: size, height: size, background: "#CAFFB8" }}
           className="animate-pulse rounded-lg"
         />
       )}

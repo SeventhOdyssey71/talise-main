@@ -146,12 +146,15 @@ export function SupplyCard() {
     <div className="space-y-4">
       {/* Headline — big ink number style, APY is the hero stat */}
       <div className="space-y-0.5">
-        <h1 className="text-[24px] font-medium leading-tight tracking-[-0.03em] text-fg sm:text-[28px]">
+        <h1
+          className="text-[24px] font-[800] uppercase leading-tight tracking-[-0.02em] text-[#15300c] sm:text-[28px]"
+          style={{ fontFamily: "var(--font-display-v2)" }}
+        >
           {best
             ? `Earn up to ${(best.apy * 100).toFixed(2)}% on your ${moneyWord}`
             : `Earn on your ${moneyWord}`}
         </h1>
-        <p className="text-[13px] text-fg-muted">
+        <p className="text-[13px] text-[#3a5230]">
           A separate lending service, not part of your balance.
         </p>
       </div>
@@ -174,12 +177,12 @@ export function SupplyCard() {
             />
           ))
         ) : (
-          <GlassCard className="px-5 py-5 text-center" radius={14}>
-            <p className="text-[13px] text-fg-muted">No live venues right now.</p>
+          <GlassCard className="px-5 py-5 text-center" radius={28}>
+            <p className="text-[13px] text-[#3a5230]">No live venues right now.</p>
             <button
               type="button"
               onClick={() => void refresh()}
-              className="mt-1 font-mono text-[11px] uppercase tracking-wider text-accent"
+              className="mt-1 font-mono text-[11px] uppercase tracking-wider text-[#3d7a29]"
             >
               Refresh
             </button>
@@ -189,31 +192,31 @@ export function SupplyCard() {
 
       {/* Supply card / success state */}
       {successDigest ? (
-        <GlassCard className="px-5 py-7 text-center" radius={14} tint="#caffb8">
+        <GlassCard className="px-5 py-7 text-center" radius={28} tint="#CAFFB8">
           {/* Piggy drops in + a coin falls into the slot with a little gulp —
               the web port of the iOS savings-success piggy. Plays once. */}
           <div className="mx-auto mb-1 grid place-items-center">
             <PiggySave size={120} />
           </div>
-          <p className="text-[17px] font-medium tracking-[-0.02em] text-fg">Now earning</p>
-          <p className="mt-1 font-mono text-[11px] text-fg-dim">
+          <p className="text-[17px] font-semibold tracking-[-0.02em] text-[#15300c]">Now earning</p>
+          <p className="mt-1 font-mono text-[11px] text-[#3d7a29]">
             {successDigest.slice(0, 18)}…
           </p>
           <button
             type="button"
             onClick={() => setSuccessDigest(null)}
-            className="mt-4 font-mono text-[11px] uppercase tracking-wider text-accent"
+            className="mt-4 font-mono text-[11px] uppercase tracking-wider text-[#15300c]"
           >
             Earn more
           </button>
         </GlassCard>
       ) : (
-        <GlassCard className="space-y-4 p-5" radius={14}>
+        <GlassCard className="space-y-4 p-5" radius={28}>
           <div className="space-y-2">
             <Eyebrow>Amount</Eyebrow>
-            {/* Amount input — rounded-xl border, not talise-glass */}
-            <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3">
-              <span className="text-[26px] font-medium text-fg-muted">{symbol}</span>
+            {/* Amount input — glass chip */}
+            <div className="flex items-center gap-2 rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 backdrop-blur-sm">
+              <span className="text-[26px] font-medium text-[#3a5230]">{symbol}</span>
               <input
                 inputMode="decimal"
                 value={amount}
@@ -223,16 +226,16 @@ export function SupplyCard() {
                   setError(null);
                 }}
                 placeholder="0.00"
-                className="w-full bg-transparent text-[26px] font-medium tracking-[-0.02em] tabular-nums text-fg outline-none placeholder:text-fg-dim"
+                className="w-full bg-transparent text-[26px] font-medium tracking-[-0.02em] tabular-nums text-[#15300c] outline-none placeholder:text-[#3d7a29]"
               />
-              <span className="text-[13px] font-medium text-fg-muted">{currency}</span>
+              <span className="text-[13px] font-medium text-[#3a5230]">{currency}</span>
             </div>
           </div>
 
           {projection && (
             <div className="space-y-1.5">
               <MicroLabel>You&apos;ll earn</MicroLabel>
-              <GlassCard className="overflow-hidden !p-0" radius={12}>
+              <GlassCard className="overflow-hidden !p-0" radius={20} tint="#CAFFB8">
                 <ProjectionRow label="Day" value={formatUsd(projection.day)} />
                 <Divider />
                 <ProjectionRow label="Week" value={formatUsd(projection.week)} />
@@ -244,7 +247,7 @@ export function SupplyCard() {
             </div>
           )}
 
-          {error && <p className="text-[13px] text-danger">{error}</p>}
+          {error && <p className="text-[13px] text-[#c0532f]">{error}</p>}
 
           <PrimaryButton full disabled={!canSupply} loading={working} onClick={onSupplyTapped}>
             {amountUsd > 0
@@ -293,26 +296,26 @@ function VenueRow({
   const hasPosition = venue.supplied > 0;
   const body = (
     <div className="flex items-center gap-3 px-4 py-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
         <HugeiconsIcon icon={Plant02Icon} size={17} strokeWidth={1.8} />
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-[14px] font-medium text-fg">{venueLabel(venue.venue)}</span>
+          <span className="text-[14px] font-semibold text-[#15300c]">{venueLabel(venue.venue)}</span>
           {best && (
-            <span className="rounded-full bg-accent-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-accent">
+            <span className="rounded-full bg-[#CAFFB8] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-[#15300c]">
               Best
             </span>
           )}
         </div>
-        <span className="block truncate font-mono text-[11px] text-fg-dim">
+        <span className="block truncate font-mono text-[11px] text-[#3d7a29]">
           {hasPosition ? `Supplied ${formatUsd(venue.supplied, { fixed: true })}` : "Idle"}
         </span>
       </div>
       <div className="flex items-center gap-1.5">
         <span
           className={`text-[20px] font-medium tracking-[-0.02em] tabular-nums ${
-            venue.apy >= 0.0001 ? "text-fg" : "text-fg-dim"
+            venue.apy >= 0.0001 ? "text-[#15300c]" : "text-[#3d7a29]"
           }`}
         >
           {formatApy(venue.apy)}
@@ -321,7 +324,7 @@ function VenueRow({
           <HugeiconsIcon
             icon={ArrowRight02Icon}
             size={14}
-            className="text-fg-dim"
+            className="text-[#3d7a29]"
             strokeWidth={2}
           />
         )}
@@ -331,13 +334,13 @@ function VenueRow({
 
   if (onWithdraw) {
     return (
-      <GlassCard as="button" onClick={onWithdraw} interactive radius={14} className="!p-0">
+      <GlassCard as="button" onClick={onWithdraw} interactive radius={24} className="!p-0">
         {body}
       </GlassCard>
     );
   }
   return (
-    <GlassCard radius={14} className="!p-0">
+    <GlassCard radius={24} className="!p-0">
       {body}
     </GlassCard>
   );
@@ -345,15 +348,15 @@ function VenueRow({
 
 function VenueSkeleton() {
   return (
-    <GlassCard radius={14} className="flex items-center justify-between px-4 py-3.5 opacity-70 !p-0">
+    <GlassCard radius={24} className="flex items-center justify-between px-4 py-3.5 opacity-70 !p-0">
       <div className="flex items-center gap-3 px-4 py-3">
-        <div className="size-9 shrink-0 rounded-full bg-surface-2" />
+        <div className="size-9 shrink-0 rounded-full bg-[#15300c]/10" />
         <div className="space-y-2">
-          <div className="h-2.5 w-16 rounded-full bg-surface-2" />
-          <div className="h-2 w-24 rounded-full bg-surface-2" />
+          <div className="h-2.5 w-16 rounded-full bg-[#15300c]/10" />
+          <div className="h-2 w-24 rounded-full bg-[#15300c]/10" />
         </div>
       </div>
-      <div className="pr-4 h-4 w-12 rounded-full bg-surface-2" />
+      <div className="pr-4 h-4 w-12 rounded-full bg-[#15300c]/10" />
     </GlassCard>
   );
 }
@@ -369,10 +372,10 @@ function ProjectionRow({
 }) {
   return (
     <div className="flex items-center justify-between px-4 py-2.5">
-      <span className="text-[13px] text-fg-muted">{label}</span>
+      <span className="text-[13px] text-[#3a5230]">{label}</span>
       <span
         className={`text-[14px] font-medium tracking-[-0.01em] tabular-nums ${
-          accent ? "text-accent" : "text-fg"
+          accent ? "font-semibold text-[#15300c]" : "text-[#15300c]"
         }`}
       >
         {value}
@@ -382,5 +385,5 @@ function ProjectionRow({
 }
 
 function Divider() {
-  return <div className="mx-4 h-px bg-line" />;
+  return <div className="mx-4 h-px bg-[#15300c]/15" />;
 }

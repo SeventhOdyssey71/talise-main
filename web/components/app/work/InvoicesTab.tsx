@@ -186,7 +186,7 @@ function VoidSheet({
   return (
     <Sheet open={!!invoice} onClose={onClose} title="Void invoice">
       <div className="space-y-4">
-        <p className="text-[14px] text-fg-muted">
+        <p className="text-[14px] text-[#3a5230]">
           Voiding this invoice stops its pay link from working. This can&apos;t be undone.
         </p>
         <div className="flex items-center gap-2">
@@ -242,18 +242,18 @@ function InvoiceRow({
       <button
         type="button"
         onClick={onOpen}
-        className="talise-history-row flex w-full items-center gap-3.5 px-4 py-3.5 text-left"
+        className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors hover:bg-[#15300c]/[0.04]"
         aria-label={`Open invoice ${title}`}
       >
         {/* Circular icon chip */}
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
           <HugeiconsIcon icon={Invoice01Icon} size={17} strokeWidth={1.8} />
         </span>
 
         {/* Title + meta */}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[15px] font-medium text-fg">{title}</span>
-          <span className="block truncate font-mono text-[11px] text-fg-dim">
+          <span className="block truncate text-[15px] font-medium text-[#15300c]">{title}</span>
+          <span className="block truncate font-mono text-[11px] text-[#3d7a29]">
             {inv.id.slice(0, 8)}… · {created}
           </span>
         </span>
@@ -261,7 +261,7 @@ function InvoiceRow({
         {/* Amount + status */}
         <span className="flex shrink-0 flex-col items-end gap-1.5">
           <span
-            className="text-[15px] font-semibold text-fg"
+            className="text-[15px] font-semibold text-[#15300c]"
             style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}
           >
             {formatUsd(inv.amountUsd, { fixed: true })}
@@ -273,7 +273,7 @@ function InvoiceRow({
           icon={ArrowRight02Icon}
           size={15}
           strokeWidth={2}
-          className="shrink-0 text-fg-dim"
+          className="shrink-0 text-[#3d7a29]"
         />
       </button>
 
@@ -283,7 +283,7 @@ function InvoiceRow({
           <button
             type="button"
             onClick={guard(onCopy)}
-            className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-accent"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[#15300c]/15 bg-white/60 px-3 py-1.5 text-[12px] text-[#3a5230] backdrop-blur-sm transition-colors hover:bg-[#CAFFB8] hover:text-[#15300c]"
           >
             <HugeiconsIcon icon={Copy01Icon} size={12} strokeWidth={2} />
             Copy link
@@ -291,7 +291,7 @@ function InvoiceRow({
           <button
             type="button"
             onClick={guard(onVoid)}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-fg-dim transition-colors hover:text-[var(--color-danger)]"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] text-[#3d7a29] transition-colors hover:text-[#c0532f]"
           >
             <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
             Void
@@ -305,7 +305,7 @@ function InvoiceRow({
           <button
             type="button"
             onClick={guard(onCopy)}
-            className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-[12px] text-fg-muted transition-colors hover:bg-accent-soft hover:text-accent"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[#15300c]/15 bg-white/60 px-3 py-1.5 text-[12px] text-[#3a5230] backdrop-blur-sm transition-colors hover:bg-[#CAFFB8] hover:text-[#15300c]"
           >
             <HugeiconsIcon icon={Copy01Icon} size={12} strokeWidth={2} />
             Copy link
@@ -313,7 +313,7 @@ function InvoiceRow({
         </div>
       )}
 
-      {divider && <div className="mx-4 border-t border-line" />}
+      {divider && <div className="mx-4 border-t border-[#15300c]/10" />}
     </div>
   );
 }
@@ -449,7 +449,7 @@ function CreateInvoiceSheet({
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
               placeholder="Acme Inc."
-              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/45"
             />
           </Field>
           <Field label="Customer email" hint="For your records only (optional)">
@@ -458,20 +458,20 @@ function CreateInvoiceSheet({
               onChange={(e) => setCustomerEmail(e.target.value)}
               placeholder="billing@acme.com"
               type="email"
-              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/45"
             />
           </Field>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Currency" hint="Display only — settles 1:1 as USDsui">
+          <Field label="Currency" hint="Display only, settles 1:1 as USDsui">
             <select
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
-              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none"
+              className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm focus:ring-2 focus:ring-[#3d7a29]/45"
             >
               {currencies.map((c) => (
-                <option key={c.code} value={c.code} className="bg-surface text-fg">
+                <option key={c.code} value={c.code} className="bg-[#f7fcf2] text-[#15300c]">
                   {c.code} — {c.label}
                 </option>
               ))}
@@ -482,7 +482,7 @@ function CreateInvoiceSheet({
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
-              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none"
+              className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm focus:ring-2 focus:ring-[#3d7a29]/45"
             />
           </Field>
         </div>
@@ -496,19 +496,19 @@ function CreateInvoiceSheet({
                 <input
                   value={it.description}
                   onChange={(e) => setItem(i, { description: e.target.value })}
-                  placeholder="Design work — week 1"
-                  className="talise-glass min-w-0 flex-1 rounded-xl px-3 py-2.5 text-[14px] text-fg outline-none placeholder:text-fg-dim"
+                  placeholder="Design work, week 1"
+                  className="min-w-0 flex-1 rounded-xl border border-[#15300c]/15 bg-white/60 px-3 py-2.5 text-[14px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/45"
                 />
                 <input
                   value={it.qty}
                   onChange={(e) => setItem(i, { qty: e.target.value.replace(/[^\d.]/g, "") })}
                   inputMode="decimal"
                   aria-label="Quantity"
-                  className="talise-glass w-14 rounded-xl px-2.5 py-2.5 text-center text-[14px] text-fg outline-none"
+                  className="w-14 rounded-xl border border-[#15300c]/15 bg-white/60 px-2.5 py-2.5 text-center text-[14px] text-[#15300c] outline-none backdrop-blur-sm focus:ring-2 focus:ring-[#3d7a29]/45"
                   style={{ fontVariantNumeric: "tabular-nums" }}
                 />
-                <div className="talise-glass flex w-24 items-center rounded-xl px-2.5 py-2.5">
-                  <span className="text-[13px] text-fg-dim">{symbol}</span>
+                <div className="flex w-24 items-center rounded-xl border border-[#15300c]/15 bg-white/60 px-2.5 py-2.5 backdrop-blur-sm focus-within:ring-2 focus-within:ring-[#3d7a29]/45">
+                  <span className="text-[13px] text-[#3d7a29]">{symbol}</span>
                   <input
                     value={it.unitUsd}
                     onChange={(e) =>
@@ -517,7 +517,7 @@ function CreateInvoiceSheet({
                     inputMode="decimal"
                     placeholder="0.00"
                     aria-label="Unit price"
-                    className="w-full bg-transparent pl-1 text-right text-[14px] text-fg outline-none placeholder:text-fg-dim"
+                    className="w-full bg-transparent pl-1 text-right text-[14px] text-[#15300c] outline-none placeholder:text-[#3d7a29]"
                     style={{ fontVariantNumeric: "tabular-nums" }}
                   />
                 </div>
@@ -526,7 +526,7 @@ function CreateInvoiceSheet({
                   onClick={() => removeItem(i)}
                   disabled={items.length === 1}
                   aria-label="Remove line item"
-                  className="flex size-9 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:text-[var(--color-danger)] disabled:opacity-30"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-xl text-[#3d7a29] transition-colors hover:text-[#c0532f] disabled:opacity-30"
                 >
                   <HugeiconsIcon icon={Delete02Icon} size={16} strokeWidth={1.8} />
                 </button>
@@ -536,7 +536,7 @@ function CreateInvoiceSheet({
           <button
             type="button"
             onClick={addItem}
-            className="mt-2.5 inline-flex items-center gap-1.5 text-[13px] text-accent transition-opacity hover:opacity-80"
+            className="mt-2.5 inline-flex items-center gap-1.5 text-[13px] text-[#3d7a29] transition-opacity hover:opacity-80"
           >
             <HugeiconsIcon icon={Add01Icon} size={14} strokeWidth={2} />
             Add line item
@@ -548,15 +548,15 @@ function CreateInvoiceSheet({
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
             placeholder="Thanks for your business!"
-            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/45"
           />
         </Field>
 
         {/* Live total */}
-        <div className="flex items-center justify-between rounded-xl border border-line bg-surface-2 px-4 py-3.5">
-          <span className="text-[14px] text-fg-muted">Invoice total</span>
+        <div className="flex items-center justify-between rounded-xl border border-[#15300c]/10 bg-white/60 px-4 py-3.5 backdrop-blur-sm">
+          <span className="text-[14px] text-[#3a5230]">Invoice total</span>
           <span
-            className="text-[22px] font-semibold text-fg"
+            className="text-[22px] font-semibold text-[#15300c]"
             style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
           >
             {money(total)}

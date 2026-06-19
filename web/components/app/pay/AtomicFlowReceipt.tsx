@@ -55,17 +55,17 @@ function StepRow({
       animate={{ opacity: 1, y: 0 }}
       transition={transition}
     >
-      <span className="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-accent-soft">
+      <span className="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8]">
         <HugeiconsIcon
           icon={CheckmarkCircle02Icon}
           size={13}
-          color="var(--color-accent)"
+          color="#3d7a29"
           strokeWidth={2.2}
         />
       </span>
-      <span className="text-[13px] leading-5 text-fg">
+      <span className="text-[13px] leading-5 text-[#15300c]">
         {text}
-        {emphasis ? <span className="font-mono text-fg-muted"> {emphasis}</span> : null}
+        {emphasis ? <span className="font-mono text-[#3a5230]"> {emphasis}</span> : null}
       </span>
     </motion.li>
   );
@@ -88,7 +88,7 @@ export function AtomicFlowReceipt({
       text: (
         <>
           Paid <span className="font-mono">{amountText}</span> to{" "}
-          <span className="text-fg">{recipientDisplay}</span>
+          <span className="text-[#15300c]">{recipientDisplay}</span>
         </>
       ),
     },
@@ -105,17 +105,17 @@ export function AtomicFlowReceipt({
   steps.push({ text: <>Receipt recorded on-chain</> });
 
   return (
-    <div className="w-full rounded-2xl border border-line bg-surface px-5 py-4 text-left shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+    <div className="w-full rounded-[28px] border border-[#15300c]/15 bg-white/60 px-5 py-4 text-left backdrop-blur-sm">
       {/* Header: the POINT — every leg above landed in a single signature. */}
       <div className="mb-3 flex items-center justify-between">
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-accent">
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#3d7a29]">
           1 atomic transaction
         </span>
         <a
           href={explorerUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 font-mono text-[10px] text-fg-dim transition-colors hover:text-fg"
+          className="inline-flex items-center gap-1 font-mono text-[10px] text-[#3d7a29] transition-colors hover:text-[#15300c]"
         >
           View on SuiVision
           <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={2} />

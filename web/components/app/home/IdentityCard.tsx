@@ -34,29 +34,29 @@ export function IdentityCard({ me }: { me: Me | null }) {
   }
 
   return (
-    <GlassCard className="flex min-h-[180px] flex-col p-6 sm:p-7" radius={14}>
+    <GlassCard className="flex min-h-[180px] flex-col p-7 md:p-9">
       <div className="flex items-start justify-between gap-3">
-        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-dim">
+        <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
           Your money lands here
         </span>
         <span
           className="flex size-6 items-center justify-center rounded-full"
-          style={{ background: "var(--color-accent-soft)" }}
+          style={{ background: "#CAFFB8" }}
           aria-hidden
         >
-          <span className="size-2 rounded-full" style={{ background: "var(--color-accent-deep)" }} />
+          <span className="size-2 rounded-full" style={{ background: "#3d7a29" }} />
         </span>
       </div>
 
       {handle ? (
         <div className="mt-5 flex-1">
           <div
-            className="font-display font-semibold text-fg"
-            style={{ fontSize: 26, letterSpacing: "-0.03em", lineHeight: 1.1 }}
+            className="font-[800] uppercase text-[#15300c]"
+            style={{ fontFamily: "var(--font-display-v2)", fontSize: 26, letterSpacing: "-0.02em", lineHeight: 1.1 }}
           >
             {handle}@talise
           </div>
-          <p className="mt-1.5 text-[13px] text-fg-muted">
+          <p className="mt-1.5 text-[13px] text-[#3a5230]">
             Friends can send you USDsui by name.
           </p>
         </div>
@@ -66,40 +66,40 @@ export function IdentityCard({ me }: { me: Me | null }) {
           className="group mt-5 flex-1"
         >
           <div
-            className="font-display font-semibold text-fg transition-colors group-hover:text-accent"
-            style={{ fontSize: 24, letterSpacing: "-0.03em", lineHeight: 1.12 }}
+            className="font-[800] uppercase text-[#15300c] transition-colors group-hover:text-[#3d7a29]"
+            style={{ fontFamily: "var(--font-display-v2)", fontSize: 24, letterSpacing: "-0.02em", lineHeight: 1.12 }}
           >
             Claim your @name
           </div>
-          <p className="mt-1.5 inline-flex items-center gap-1 text-[13px] text-fg-muted">
+          <p className="mt-1.5 inline-flex items-center gap-1 text-[13px] text-[#3a5230]">
             So friends can send you USDsui by name.
             <HugeiconsIcon
               icon={ArrowUpRight01Icon}
               size={13}
               strokeWidth={2.2}
-              color="var(--color-accent)"
+              color="#3d7a29"
             />
           </p>
         </Link>
       )}
 
-      <div className="mt-6 flex items-center justify-between gap-3 border-t border-line pt-4">
+      <div className="mt-6 flex items-center justify-between gap-3 border-t border-[#15300c]/10 pt-4">
         <button
           type="button"
           onClick={copyAddress}
           disabled={!address}
           className="group inline-flex min-w-0 items-center gap-2 disabled:opacity-50"
         >
-          <span className="truncate font-mono text-[11px] text-fg-muted">{short}</span>
+          <span className="truncate font-mono text-[11px] text-[#3a5230]">{short}</span>
           <HugeiconsIcon
             icon={copied ? Tick02Icon : Copy01Icon}
             size={14}
             strokeWidth={2}
-            color={copied ? "var(--color-accent)" : undefined}
-            className={copied ? "" : "text-fg-dim transition-colors group-hover:text-fg-muted"}
+            color={copied ? "#3d7a29" : undefined}
+            className={copied ? "" : "text-[#3d7a29] transition-colors group-hover:text-[#3a5230]"}
           />
         </button>
-        <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-fg-dim">
+        <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-[#3d7a29]">
           Settles in seconds
         </span>
       </div>

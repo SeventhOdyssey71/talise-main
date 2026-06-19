@@ -18,15 +18,15 @@ export type StatusPillProps = { label: string; tone?: StatusTone };
 // warm ochre for pending/paused, fg-muted on surface-2 for neutral/completed,
 // and a deep terracotta on a soft-red wash for danger (all AA on light).
 const TONES: Record<StatusTone, { color: string; bg: string }> = {
-  funded: { color: "var(--color-accent)", bg: "var(--color-accent-soft)" },
-  active: { color: "var(--color-accent)", bg: "var(--color-accent-soft)" },
-  success: { color: "var(--color-accent)", bg: "var(--color-accent-soft)" },
-  claimed: { color: "var(--color-accent)", bg: "var(--color-accent-soft)" },
-  completed: { color: "var(--color-fg-muted)", bg: "var(--color-surface-2)" },
-  paused: { color: "#8a6a16", bg: "color-mix(in srgb, #d9a52a 22%, #ffffff)" },
-  pending: { color: "#8a6a16", bg: "color-mix(in srgb, #d9a52a 22%, #ffffff)" },
-  danger: { color: "#b3473b", bg: "color-mix(in srgb, #c95a4a 16%, #ffffff)" },
-  neutral: { color: "var(--color-fg-dim)", bg: "var(--color-surface-2)" },
+  funded: { color: "#3d7a29", bg: "#CAFFB8" },
+  active: { color: "#3d7a29", bg: "#CAFFB8" },
+  success: { color: "#3d7a29", bg: "#CAFFB8" },
+  claimed: { color: "#3d7a29", bg: "#CAFFB8" },
+  completed: { color: "#3a5230", bg: "rgba(21,48,12,0.06)" },
+  paused: { color: "#8a6a16", bg: "#FFE59E" },
+  pending: { color: "#8a6a16", bg: "#FFE59E" },
+  danger: { color: "#c0532f", bg: "rgba(255,158,122,0.32)" },
+  neutral: { color: "#3d7a29", bg: "rgba(21,48,12,0.06)" },
 };
 
 /** Small capsule status badge, mono uppercase label, tone-tinted. */

@@ -54,35 +54,38 @@ export function EarnDisclosureSheet({
     <Sheet open={open} onClose={onClose} title="Before you start" size="md">
       <div className="space-y-5 pb-1">
         <div className="space-y-1">
-          <h2 className="text-[20px] font-medium tracking-[-0.02em] text-fg">
+          <h2
+            className="text-[20px] font-[800] uppercase tracking-[-0.02em] text-[#15300c]"
+            style={{ fontFamily: "var(--font-display-v2)" }}
+          >
             {apy > 0
               ? `Earn around ${(apy * 100).toFixed(2)}% on your ${moneyWord}`
               : `Earn on your ${moneyWord}`}
           </h2>
-          <p className="text-[13px] text-fg-muted">A few things to know first.</p>
+          <p className="text-[13px] text-[#3a5230]">A few things to know first.</p>
         </div>
 
         {/* Disclosure points — flat card with hairline dividers */}
-        <GlassCard className="overflow-hidden !p-0" radius={12}>
+        <GlassCard className="overflow-hidden !p-0" radius={20}>
           {POINTS.map((p, i) => (
             <div key={p.title}>
-              {i > 0 && <div className="mx-4 h-px bg-line" />}
+              {i > 0 && <div className="mx-4 h-px bg-[#15300c]/10" />}
               <div className="flex items-start gap-3.5 px-4 py-4">
-                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
                   <HugeiconsIcon icon={p.icon} size={17} strokeWidth={1.8} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[14px] font-medium tracking-[-0.01em] text-fg">
+                  <p className="text-[14px] font-semibold tracking-[-0.01em] text-[#15300c]">
                     {p.title}
                   </p>
-                  <p className="mt-1 text-[12px] leading-snug text-fg-muted">{p.body}</p>
+                  <p className="mt-1 text-[12px] leading-snug text-[#3a5230]">{p.body}</p>
                 </div>
               </div>
             </div>
           ))}
         </GlassCard>
 
-        <p className="text-[12px] leading-snug text-fg-dim">
+        <p className="text-[12px] leading-snug text-[#3d7a29]">
           By continuing you&apos;re choosing to use this optional service. You can
           withdraw your money at any time. This is not financial advice.
         </p>

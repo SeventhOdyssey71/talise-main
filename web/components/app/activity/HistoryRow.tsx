@@ -55,22 +55,22 @@ export function HistoryRow({
         data-direction="sent"
         className="talise-history-row group relative flex w-full items-center gap-3 px-3 py-3 text-left transition-[transform,background-color,border-color] duration-150 ease-out active:scale-[0.995]"
       >
-        {/* Bank/withdraw chip — warm danger disc (money out) */}
+        {/* Bank/withdraw chip — coral disc (money out) */}
         <span
           className="flex size-9 shrink-0 items-center justify-center rounded-full"
-          style={{ background: "color-mix(in srgb, #c95a4a 16%, #ffffff)" }}
+          style={{ background: "#FF9E7A" }}
         >
-          <HugeiconsIcon icon={BankIcon} size={17} color="#b3473b" strokeWidth={2} />
+          <HugeiconsIcon icon={BankIcon} size={17} color="#c0532f" strokeWidth={2} />
         </span>
 
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span
-            className="truncate text-[14px] font-medium text-fg"
+            className="truncate text-[14px] font-medium text-[#15300c]"
             style={{ letterSpacing: "-0.01em" }}
           >
             {bank ? `Cash out → ${bank}` : "Cash out"}
           </span>
-          <span className="flex min-w-0 items-center gap-1 text-[12px] text-fg-dim">
+          <span className="flex min-w-0 items-center gap-1 text-[12px] text-[#3d7a29]">
             <span className="truncate">{offrampBankLine(offramp)}</span>
             <span className="opacity-40">·</span>
             <span className="shrink-0">{time}</span>
@@ -80,7 +80,7 @@ export function HistoryRow({
         <span className="flex shrink-0 flex-col items-end gap-1 pl-2">
           <span
             className="whitespace-nowrap text-[15px] font-semibold tabular-nums"
-            style={{ color: "var(--color-danger)", letterSpacing: "-0.02em" }}
+            style={{ color: "#c0532f", letterSpacing: "-0.02em" }}
           >
             −{hidden ? MASK_AMOUNT : formatNgn(offramp.amountNgn)}
           </span>
@@ -90,11 +90,10 @@ export function HistoryRow({
               style={
                 offrampState(offramp.status) === "failed"
                   ? {
-                      color: "var(--color-danger)",
-                      background:
-                        "color-mix(in srgb, var(--color-danger) 12%, transparent)",
+                      color: "#c0532f",
+                      background: "color-mix(in srgb, #c0532f 12%, transparent)",
                     }
-                  : { color: "var(--color-fg-muted)", background: "var(--color-surface-2)" }
+                  : { color: "#3a5230", background: "rgba(21,48,12,0.06)" }
               }
             >
               {chip}
@@ -120,12 +119,12 @@ export function HistoryRow({
       {/* Title + sublabel */}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span
-          className="truncate text-[14px] font-medium text-fg"
+          className="truncate text-[14px] font-medium text-[#15300c]"
           style={{ letterSpacing: "-0.01em" }}
         >
           {titleOf(row)}
         </span>
-        <span className="flex min-w-0 items-center gap-1 text-[12px] text-fg-dim">
+        <span className="flex min-w-0 items-center gap-1 text-[12px] text-[#3d7a29]">
           {sub && <span className="truncate">{sub}</span>}
           {sub && <span className="opacity-40">·</span>}
           <span className="shrink-0">{time}</span>
@@ -142,7 +141,7 @@ export function HistoryRow({
 
 /**
  * Map category onto the `data-direction` attribute consumed by the
- * `.app-clean .talise-history-row` hover rules in globals.css.
+ * `.landing-mint .talise-history-row` hover rules in globals.css.
  */
 function directionAttr(
   category: Category
@@ -178,7 +177,7 @@ function Amount({
   if (hidden) {
     if (category === "swap") {
       return (
-        <span className="whitespace-nowrap text-[13px] tabular-nums text-fg-muted">
+        <span className="whitespace-nowrap text-[13px] tabular-nums text-[#3a5230]">
           {MASK_AMOUNT}
         </span>
       );
@@ -186,7 +185,7 @@ function Amount({
     const inflow = isInflow(row);
     return (
       <span
-        className={`whitespace-nowrap text-[15px] font-semibold tabular-nums ${inflow ? "text-accent" : "text-fg"}`}
+        className={`whitespace-nowrap text-[15px] font-semibold tabular-nums ${inflow ? "text-[#3d7a29]" : "text-[#15300c]"}`}
         style={{ letterSpacing: "-0.02em" }}
       >
         {inflow ? "+" : "−"}
@@ -213,7 +212,7 @@ function Amount({
           ? `→ ${legs[0]}`
           : `${legs[0]} → ${legs[1]}`;
     return (
-      <span className="whitespace-nowrap text-[13px] tabular-nums text-fg-muted">
+      <span className="whitespace-nowrap text-[13px] tabular-nums text-[#3a5230]">
         {text}
       </span>
     );
@@ -222,7 +221,7 @@ function Amount({
   const inflow = isInflow(row);
   const prefix = inflow ? "+" : "−";
   // Inflow = forest green (positive credit); outflow = ink (neutral debit)
-  const color = inflow ? "text-accent" : "text-fg";
+  const color = inflow ? "text-[#3d7a29]" : "text-[#15300c]";
   const weight = "font-semibold";
 
   let text: string;

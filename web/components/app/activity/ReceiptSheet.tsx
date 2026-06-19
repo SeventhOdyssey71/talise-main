@@ -98,17 +98,17 @@ function CashOutReceipt({
 
   return (
     <div className="flex flex-col items-center gap-5 pb-2 pt-1">
-      {/* Hero badge — bank glyph on a warm danger disc (money out) */}
+      {/* Hero badge — bank glyph on a coral disc (money out) */}
       <div className="flex flex-col items-center gap-2">
         <span
           className="flex items-center justify-center rounded-full"
           style={{
             width: 56,
             height: 56,
-            background: "color-mix(in srgb, #c95a4a 16%, #ffffff)",
+            background: "#FF9E7A",
           }}
         >
-          <HugeiconsIcon icon={BankIcon} size={24} color="#b3473b" strokeWidth={2} />
+          <HugeiconsIcon icon={BankIcon} size={24} color="#c0532f" strokeWidth={2} />
         </span>
         <Eyebrow>Cash out</Eyebrow>
       </div>
@@ -116,8 +116,8 @@ function CashOutReceipt({
       {/* Big NGN payout */}
       <div className="flex flex-col items-center gap-1 text-center">
         <span
-          className="font-display font-semibold text-fg tabular-nums"
-          style={{ fontSize: 38, lineHeight: 1.06, letterSpacing: "-0.03em" }}
+          className="font-semibold text-[#15300c] tabular-nums"
+          style={{ fontFamily: "var(--font-display-v2)", fontSize: 38, lineHeight: 1.06, letterSpacing: "-0.03em" }}
         >
           {done ? "You received " : ""}
           {formatNgn(offramp.amountNgn)}
@@ -125,7 +125,7 @@ function CashOutReceipt({
       </div>
 
       {/* Details card */}
-      <GlassCard className="w-full" radius={14}>
+      <GlassCard className="w-full">
         <DetailRow label="To" value={offrampBankLine(offramp)} />
         <Divider />
         <DetailRow label="You sent" value={sentUsdsui} />
@@ -139,7 +139,7 @@ function CashOutReceipt({
           label="Status"
           value={offrampFriendlyStatus(offramp.status)}
           valueClass={
-            failed ? "text-[color:var(--color-danger)]" : done ? "text-accent" : "text-fg"
+            failed ? "text-[#c0532f]" : done ? "text-[#3d7a29]" : "text-[#15300c]"
           }
         />
         <Divider />
@@ -154,7 +154,7 @@ function CashOutReceipt({
           href={suiscanUrl(row.digest)}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent-deep text-[15px] font-semibold text-white shadow-[0_4px_14px_-4px_rgba(35,78,20,0.38)] transition-[transform,background-color] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#15300c] text-[15px] font-semibold text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
         >
           <HugeiconsIcon icon={LinkSquare02Icon} size={16} strokeWidth={2} />
           View on Suiscan
@@ -162,7 +162,7 @@ function CashOutReceipt({
         <button
           type="button"
           onClick={copyDigest}
-          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_35%,var(--color-line))] hover:text-accent"
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-full border-2 border-[#15300c] text-[14px] font-medium text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
         >
           <HugeiconsIcon
             icon={copied ? Tick02Icon : Copy01Icon}
@@ -248,13 +248,13 @@ function SendReceipt({ row }: { row: ActivityRow }) {
       {/* Big amount — sign-carrying headline in display currency, USDsui sub-line */}
       <div className="flex flex-col items-center gap-1 text-center">
         <span
-          className="font-display font-semibold text-fg tabular-nums"
-          style={{ fontSize: 38, lineHeight: 1.06, letterSpacing: "-0.03em" }}
+          className="font-semibold text-[#15300c] tabular-nums"
+          style={{ fontFamily: "var(--font-display-v2)", fontSize: 38, lineHeight: 1.06, letterSpacing: "-0.03em" }}
         >
           {heroPrimary}
         </span>
         {hasUsd && (
-          <span className="font-mono text-[11px] tabular-nums text-fg-dim">
+          <span className="font-mono text-[11px] tabular-nums text-[#3d7a29]">
             {sign}
             {Math.abs(row.amountUsdsui as number).toLocaleString("en-US", {
               minimumFractionDigits: 2,
@@ -265,8 +265,8 @@ function SendReceipt({ row }: { row: ActivityRow }) {
         )}
       </div>
 
-      {/* Details card — flat white + hairline, thin dividers between rows */}
-      <GlassCard className="w-full" radius={14}>
+      {/* Details card — flat cream surface, thin dividers between rows */}
+      <GlassCard className="w-full">
         {partyRow && (
           <>
             <DetailRow
@@ -281,14 +281,14 @@ function SendReceipt({ row }: { row: ActivityRow }) {
         <Divider />
         <DetailRow label="Network" value="Sui Mainnet" />
         <Divider />
-        <DetailRow label="Fee" value="$0 — sponsored" valueClass="text-accent" />
+        <DetailRow label="Fee" value="$0 — sponsored" valueClass="text-[#3d7a29]" />
         {roundup != null && (
           <>
             <Divider />
             <DetailRow
               label="Rounded up"
               value={`+${formatLocal(roundup, { fixed: true })} saved`}
-              valueClass="text-accent"
+              valueClass="text-[#3d7a29]"
             />
           </>
         )}
@@ -302,7 +302,7 @@ function SendReceipt({ row }: { row: ActivityRow }) {
           href={suiscanUrl(row.digest)}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent-deep text-[15px] font-semibold text-white shadow-[0_4px_14px_-4px_rgba(35,78,20,0.38)] transition-[transform,background-color] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#15300c] text-[15px] font-semibold text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
         >
           <HugeiconsIcon icon={LinkSquare02Icon} size={16} strokeWidth={2} />
           View on Suiscan
@@ -310,7 +310,7 @@ function SendReceipt({ row }: { row: ActivityRow }) {
         <button
           type="button"
           onClick={copyDigest}
-          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_35%,var(--color-line))] hover:text-accent"
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-full border-2 border-[#15300c] text-[14px] font-medium text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
         >
           <HugeiconsIcon
             icon={copied ? Tick02Icon : Copy01Icon}
@@ -328,7 +328,7 @@ function DetailRow({
   label,
   value,
   mono = false,
-  valueClass = "text-fg",
+  valueClass = "text-[#15300c]",
 }: {
   label: string;
   value: string;
@@ -337,7 +337,7 @@ function DetailRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3">
-      <span className="shrink-0 text-[13px] text-fg-muted">{label}</span>
+      <span className="shrink-0 text-[13px] text-[#3a5230]">{label}</span>
       <span
         className={`min-w-0 truncate text-right ${mono ? "font-mono text-[12px]" : "text-[13px] font-medium"} ${valueClass}`}
       >
@@ -348,5 +348,5 @@ function DetailRow({
 }
 
 function Divider() {
-  return <div className="mx-4 h-px bg-line" />;
+  return <div className="mx-4 h-px bg-[#15300c]/10" />;
 }

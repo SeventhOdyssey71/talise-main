@@ -63,11 +63,11 @@ export function ReceiveSheet({
   return (
     <Sheet open={open} onClose={onClose} title="Receive" size="sm">
       <div className="flex flex-col items-center pb-2 text-center">
-        <p className="max-w-[18rem] text-[14px] leading-relaxed text-fg-muted">
+        <p className="max-w-[18rem] text-[14px] leading-relaxed text-[#3a5230]">
           {me?.taliseHandle ? (
             <>
               Friends can send you USDsui at{" "}
-              <span className="font-medium text-fg">{me.taliseHandle}@talise</span> — or scan this code.
+              <span className="font-medium text-[#15300c]">{me.taliseHandle}@talise</span>, or scan this code.
             </>
           ) : (
             "Show this code or share your address to get paid in USDsui. $0.00 fee, lands instantly."
@@ -84,7 +84,7 @@ export function ReceiveSheet({
           <button
             type="button"
             onClick={copyLink}
-            className="mt-5 inline-flex max-w-full items-center gap-2.5 rounded-xl bg-accent-deep px-4 py-2.5 text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
+            className="mt-5 inline-flex max-w-full items-center gap-2.5 rounded-full bg-[#15300c] px-4 py-2.5 text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
           >
             <span className="truncate font-mono text-[12px]">{payLinkShort}</span>
             <HugeiconsIcon
@@ -99,9 +99,9 @@ export function ReceiveSheet({
           type="button"
           onClick={copyAddress}
           disabled={!address}
-          className="talise-glass mt-3 inline-flex max-w-full items-center gap-2.5 rounded-full px-4 py-2 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:scale-[0.98] disabled:opacity-50"
+          className="mt-3 inline-flex max-w-full items-center gap-2.5 rounded-full border border-[#15300c]/15 bg-white/60 px-4 py-2 backdrop-blur-sm transition-colors hover:border-[#15300c]/30 active:scale-[0.98] disabled:opacity-50"
         >
-          <span className="truncate font-mono text-[12px] text-fg-muted">
+          <span className="truncate font-mono text-[12px] text-[#3a5230]">
             {payLink ? "or " : ""}
             {short}
           </span>
@@ -109,12 +109,12 @@ export function ReceiveSheet({
             icon={copied ? Tick02Icon : Copy01Icon}
             size={15}
             strokeWidth={2}
-            color={copied ? "var(--color-accent)" : undefined}
-            className={copied ? "" : "text-fg-dim"}
+            color={copied ? "#3d7a29" : undefined}
+            className={copied ? "" : "text-[#3d7a29]"}
           />
         </button>
 
-        <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.18em] text-fg-dim">
+        <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.18em] text-[#3d7a29]">
           USDsui on Sui · $0.00 fee
         </p>
       </div>

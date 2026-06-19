@@ -36,9 +36,9 @@ const TONE_ICON = {
 } as const;
 
 const TONE_COLOR = {
-  success: "var(--color-accent)",
-  danger: "var(--color-danger)",
-  neutral: "var(--color-fg-muted)",
+  success: "#3d7a29",
+  danger: "#c0532f",
+  neutral: "#3a5230",
 } as const;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -61,17 +61,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         aria-live="polite"
         aria-atomic="false"
       >
-        {/* `app-clean` ON each pill: this stack renders OUTSIDE the themed
-            page wrapper, so without it the pills inherit the dark-root
-            tokens — near-white text + pale mint icon on a white glass pill
-            (the invisible "Pay link copied" bug). The combined
-            `.app-clean.talise-glass` selector in globals.css handles exactly
-            this portaled-panel case. */}
+        {/* v2 toast pill: this stack renders OUTSIDE the themed page wrapper,
+            so it carries its own explicit colors (cream pill, ink text) rather
+            than inheriting any root tokens. */}
         {items.map((t) => (
           <div
             key={t.id}
             role="status"
-            className="app-clean talise-glass talise-toast-in pointer-events-auto flex max-w-[92vw] items-center gap-2.5 rounded-full px-4 py-2.5 text-sm text-fg shadow-2xl sm:max-w-md"
+            className="talise-toast-in pointer-events-auto flex max-w-[92vw] items-center gap-2.5 rounded-full border border-[#15300c]/12 bg-[#f7fcf2] px-4 py-2.5 text-sm text-[#15300c] shadow-[0_10px_40px_-12px_rgba(21,48,12,0.45)] sm:max-w-md"
             style={{ borderRadius: 999 }}
           >
             <HugeiconsIcon

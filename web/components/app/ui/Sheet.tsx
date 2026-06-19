@@ -41,17 +41,17 @@ export function Sheet({ open, onClose, title, children, size = "md" }: SheetProp
           // Don't yank focus into the first input (pops the mobile keyboard);
           // Radix still traps focus within the panel.
           onOpenAutoFocus={(e) => e.preventDefault()}
-          className={`app-clean talise-glass talise-sheet-panel fixed inset-x-0 bottom-0 z-[101] mx-auto w-full text-fg outline-none ${MAX_W[size]} sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2`}
-          style={{ borderRadius: 12, maxHeight: "92vh" }}
+          className={`talise-sheet-panel fixed inset-x-0 bottom-0 z-[101] mx-auto w-full border border-[#15300c]/10 bg-[#f7fcf2] text-[#15300c] outline-none ${MAX_W[size]} sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2`}
+          style={{ borderRadius: 24, maxHeight: "92vh", boxShadow: "0 24px 60px -20px rgba(21,48,12,0.45)" }}
         >
           {/* Mobile grab handle */}
           <div className="flex justify-center pt-2.5 sm:hidden">
-            <span className="h-1 w-10 rounded-full bg-line" />
+            <span className="h-1 w-10 rounded-full bg-[#15300c]/15" />
           </div>
 
           <div className="flex items-center justify-between gap-3 px-5 pb-2 pt-3 sm:pt-5">
             {title ? (
-              <Dialog.Title className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-dim">
+              <Dialog.Title className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
                 {title}
               </Dialog.Title>
             ) : (
@@ -59,7 +59,7 @@ export function Sheet({ open, onClose, title, children, size = "md" }: SheetProp
             )}
             <Dialog.Close
               aria-label="Close"
-              className="flex size-8 items-center justify-center rounded-full text-fg-dim outline-none transition-colors hover:bg-accent-soft hover:text-fg focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)]"
+              className="flex size-8 items-center justify-center rounded-full text-[#3d7a29] outline-none transition-colors hover:bg-[#CAFFB8] hover:text-[#15300c] focus-visible:ring-2 focus-visible:ring-[#3d7a29]/45"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={18} strokeWidth={2} />
             </Dialog.Close>

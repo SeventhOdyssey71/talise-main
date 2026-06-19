@@ -1,6 +1,6 @@
 export type SpinnerProps = { size?: number };
 
-/** Minimal spinner — a mint arc on a faint ring. */
+/** Minimal spinner — a forest arc on a faint ring. */
 export function Spinner({ size = 18 }: SpinnerProps) {
   const stroke = Math.max(2, Math.round(size / 9));
   return (
@@ -13,8 +13,8 @@ export function Spinner({ size = 18 }: SpinnerProps) {
         height: size,
         borderWidth: stroke,
         borderStyle: "solid",
-        borderColor: "color-mix(in srgb, var(--color-accent) 22%, transparent)",
-        borderTopColor: "var(--color-accent)",
+        borderColor: "color-mix(in srgb, #3d7a29 22%, transparent)",
+        borderTopColor: "#3d7a29",
       }}
     />
   );

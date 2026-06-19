@@ -42,23 +42,23 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge, className = "
   const inner = (
     <>
       <span
-        className="flex size-9 items-center justify-center rounded-xl text-accent sm:size-11 sm:rounded-xl"
-        style={{ background: "var(--color-accent-soft)" }}
+        className="flex size-9 items-center justify-center rounded-xl text-[#15300c] sm:size-11 sm:rounded-xl"
+        style={{ background: "#CAFFB8" }}
       >
-        <HugeiconsIcon icon={icon} size={19} strokeWidth={1.9} color="var(--color-accent)" />
+        <HugeiconsIcon icon={icon} size={19} strokeWidth={1.9} color="#15300c" />
       </span>
       <span className="mt-2 flex min-w-0 flex-col sm:mt-2.5">
-        <span className="truncate text-[13px] font-medium leading-tight text-fg sm:text-[14px]">
+        <span className="truncate text-[13px] font-medium leading-tight text-[#15300c] sm:text-[14px]">
           {label}
         </span>
         {/* Sublabel only on >=sm — on a 4-up mobile row it wraps ("Pay / anyone")
             and looks broken; the label alone reads clean. */}
-        <span className="mt-0.5 hidden text-[11px] leading-tight text-fg-dim sm:block">
+        <span className="mt-0.5 hidden text-[11px] leading-tight text-[#3d7a29] sm:block">
           {sublabel}
         </span>
       </span>
       {badge && (
-        <span className="absolute right-2.5 top-2.5 rounded-full border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider text-fg-dim sm:text-[9px]">
+        <span className="absolute right-2.5 top-2.5 rounded-full border border-[#15300c]/15 bg-white/60 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider text-[#3d7a29] backdrop-blur-sm sm:text-[9px]">
           {badge}
         </span>
       )}
@@ -66,7 +66,7 @@ function ActionTile({ icon, label, sublabel, href, onClick, badge, className = "
   );
 
   const cls =
-    `talise-glass relative flex flex-col items-start rounded-xl px-3 py-3 text-left transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:translate-y-0 active:scale-[0.98] sm:rounded-xl sm:px-3.5 sm:py-4 ${className}`;
+    `relative flex flex-col items-start rounded-[20px] border border-[#15300c]/15 bg-white/60 px-3 py-3 text-left backdrop-blur-sm transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-[#15300c]/30 active:translate-y-0 active:scale-[0.98] sm:px-3.5 sm:py-4 ${className}`;
 
   if (href) {
     return (

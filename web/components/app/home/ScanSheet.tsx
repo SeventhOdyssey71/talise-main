@@ -111,7 +111,7 @@ export function ScanSheet({ open, onClose }: { open: boolean; onClose: () => voi
   return (
     <Sheet open={open} onClose={onClose} title="Scan to pay" size="md">
       <div className="space-y-4">
-        <div className="relative mx-auto aspect-square w-full max-w-[280px] overflow-hidden rounded-xl bg-black">
+        <div className="relative mx-auto aspect-square w-full max-w-[280px] overflow-hidden rounded-[20px] bg-[#15300c]">
           <video
             ref={videoRef}
             playsInline
@@ -130,7 +130,7 @@ export function ScanSheet({ open, onClose }: { open: boolean; onClose: () => voi
             </div>
           )}
         </div>
-        <p className="text-center text-[13px] text-fg-muted">
+        <p className="text-center text-[13px] text-[#3a5230]">
           Point at a Talise QR or a Sui address to pay.
         </p>
         {(state === "denied" || state === "error") && (

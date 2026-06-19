@@ -33,10 +33,10 @@ function Tile({
   accent?: boolean;
 }) {
   return (
-    <GlassCard className="p-4">
+    <GlassCard className="p-5 md:p-6" tint={accent ? "#CAFFB8" : undefined}>
       <MicroLabel>{label}</MicroLabel>
       <div
-        className={`mt-2 tabular-nums ${accent ? "text-accent" : "text-fg"}`}
+        className="mt-2 tabular-nums text-[#15300c]"
         style={{ fontSize: 22, fontWeight: 500, letterSpacing: "-0.025em", lineHeight: 1.15 }}
       >
         {value}

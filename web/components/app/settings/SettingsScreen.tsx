@@ -180,8 +180,8 @@ export function SettingsScreen() {
 
   if (!me) {
     return (
-      <GlassCard className="p-6">
-        <p className="text-fg-muted">Sign in to manage your settings.</p>
+      <GlassCard className="p-7 md:p-9">
+        <p className="text-[#3a5230]">Sign in to manage your settings.</p>
       </GlassCard>
     );
   }
@@ -195,12 +195,12 @@ export function SettingsScreen() {
       {/* ── Profile ──────────────────────────────────────────────────────── */}
       <section className="space-y-3">
         <Eyebrow>Profile</Eyebrow>
-        <GlassCard className="divide-y divide-line overflow-hidden p-0" radius={14}>
+        <GlassCard className="divide-y divide-[#15300c]/10 overflow-hidden p-0">
 
           {/* Display name row */}
           <div className="px-5 py-4">
             <label className="block">
-              <span className="mb-2 block text-[11px] font-medium uppercase tracking-[0.18em] text-fg-dim">
+              <span className="mb-2 block font-mono text-[11px] font-medium uppercase tracking-[0.28em] text-[#3d7a29]">
                 Display name
               </span>
               <div className="flex items-center gap-2.5">
@@ -212,7 +212,7 @@ export function SettingsScreen() {
                   }}
                   placeholder="Your name"
                   maxLength={64}
-                  className="min-w-0 flex-1 rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors"
+                  className="min-w-0 flex-1 rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:border-[#3d7a29] focus:ring-1 focus:ring-[#3d7a29]/30 transition-colors"
                 />
                 <PrimaryButton
                   onClick={() => void saveName()}
@@ -231,8 +231,8 @@ export function SettingsScreen() {
             {me.taliseHandle ? (
               <div className="flex items-center gap-3.5">
                 <span
-                  className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-                  style={{ background: "var(--color-accent-soft)" }}
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full text-[#3d7a29]"
+                  style={{ background: "#CAFFB8" }}
                 >
                   <HugeiconsIcon
                     icon={CheckmarkBadge02Icon}
@@ -241,14 +241,14 @@ export function SettingsScreen() {
                   />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[15px] font-medium text-fg">Your handle</p>
+                  <p className="text-[15px] font-medium text-[#15300c]">Your handle</p>
                   {/* Talise handles display as name@talise everywhere; the
                       minted SuiNS name (name.talise.sui) only appears in the
                       explanatory line below. */}
-                  <p className="mt-0.5 break-all font-mono text-[13px] text-fg-muted">
+                  <p className="mt-0.5 break-all font-mono text-[13px] text-[#3a5230]">
                     {me.taliseHandle}@talise
                   </p>
-                  <p className="mt-1 text-[12px] leading-relaxed text-fg-dim">
+                  <p className="mt-1 text-[12px] leading-relaxed text-[#3d7a29]">
                     Anyone can pay you at this name. It&apos;s minted on SuiNS as{" "}
                     {me.taliseHandle}.talise.sui and can&apos;t be changed.
                   </p>
@@ -269,24 +269,24 @@ export function SettingsScreen() {
       {/* ── Preferences ──────────────────────────────────────────────────── */}
       <section className="space-y-3">
         <Eyebrow>Preferences</Eyebrow>
-        <GlassCard className="divide-y divide-line overflow-hidden p-0" radius={14}>
+        <GlassCard className="divide-y divide-[#15300c]/10 overflow-hidden p-0">
 
           {/* Display currency — CurrencyPicker renders its own row markup */}
           <CurrencyPicker />
 
           {/* Country */}
-          <label className="flex w-full cursor-pointer items-center gap-3.5 px-5 py-3.5 transition-colors hover:bg-surface-2">
+          <label className="flex w-full cursor-pointer items-center gap-3.5 px-5 py-3.5 transition-colors hover:bg-[#CAFFB8]/40">
             <span
-              className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-              style={{ background: "var(--color-accent-soft)" }}
+              className="flex size-10 shrink-0 items-center justify-center rounded-full text-[#3d7a29]"
+              style={{ background: "#CAFFB8" }}
             >
               <HugeiconsIcon icon={GlobalIcon} size={20} strokeWidth={1.8} />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-[15px] font-medium text-fg">
+              <span className="block text-[15px] font-medium text-[#15300c]">
                 Country
               </span>
-              <span className="block truncate text-[13px] text-fg-dim">
+              <span className="block truncate text-[13px] text-[#3d7a29]">
                 Helps us show the right ramps and rails.
               </span>
             </span>
@@ -295,7 +295,7 @@ export function SettingsScreen() {
                 <Spinner size={15} />
               ) : (
                 <>
-                  <span className="rounded-full bg-surface-2 px-3 py-1 text-[13px] font-medium text-fg">
+                  <span className="rounded-full border border-[#15300c]/15 bg-white/60 px-3 py-1 text-[13px] font-medium text-[#15300c] backdrop-blur-sm">
                     {countryName || "Select"}
                   </span>
                   <select
@@ -323,7 +323,7 @@ export function SettingsScreen() {
               busy={savingNotify} onChange={toggleNotify}) when receive emails
               are back on. */}
           <div className="flex w-full items-center gap-3.5 px-5 py-3.5 opacity-90">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-fg-dim">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-[#15300c]/10 bg-white/50 text-[#3d7a29] backdrop-blur-sm">
               <HugeiconsIcon
                 icon={Notification01Icon}
                 size={20}
@@ -331,11 +331,11 @@ export function SettingsScreen() {
               />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-2 text-[15px] font-medium text-fg-muted">
+              <span className="flex items-center gap-2 text-[15px] font-medium text-[#3a5230]">
                 Email me when I receive
                 <StatusPill label="Soon" tone="neutral" />
               </span>
-              <span className="block truncate text-[13px] text-fg-dim">
+              <span className="block truncate text-[13px] text-[#3d7a29]">
                 One short email per incoming transfer.
               </span>
             </span>
@@ -348,20 +348,20 @@ export function SettingsScreen() {
       {/* ── Wallet ───────────────────────────────────────────────────────── */}
       <section className="space-y-3">
         <Eyebrow>Wallet</Eyebrow>
-        <GlassCard className="divide-y divide-line overflow-hidden p-0" radius={14}>
+        <GlassCard className="divide-y divide-[#15300c]/10 overflow-hidden p-0">
 
           {/* Sui address */}
           <div className="flex items-center gap-3.5 px-5 py-4">
             <span
-              className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-              style={{ background: "var(--color-accent-soft)" }}
+              className="flex size-10 shrink-0 items-center justify-center rounded-full text-[#3d7a29]"
+              style={{ background: "#CAFFB8" }}
             >
               <HugeiconsIcon icon={Wallet01Icon} size={20} strokeWidth={1.8} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[15px] font-medium text-fg">Sui address</p>
+              <p className="text-[15px] font-medium text-[#15300c]">Sui address</p>
               <p
-                className="mt-0.5 break-all font-mono text-[12px] leading-relaxed text-fg-muted"
+                className="mt-0.5 break-all font-mono text-[12px] leading-relaxed text-[#3a5230]"
                 title={me.suiAddress}
               >
                 {me.suiAddress}
@@ -374,12 +374,12 @@ export function SettingsScreen() {
             <button
               type="button"
               onClick={copyAddress}
-              className="inline-flex items-center gap-2 rounded-full border border-line bg-surface-2 px-4 py-2 text-sm font-medium text-fg transition-colors hover:border-accent/40 hover:bg-accent-soft active:scale-[0.97]"
+              className="inline-flex items-center gap-2 rounded-full border-2 border-[#15300c] px-4 py-2 text-sm font-medium text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2] active:scale-[0.97]"
             >
               <HugeiconsIcon
                 icon={copied ? Tick02Icon : Copy01Icon}
                 size={16}
-                className={copied ? "text-accent" : "text-fg-muted"}
+                className={copied ? "text-[#3d7a29]" : "text-[#3a5230]"}
                 strokeWidth={2}
               />
               {copied ? "Copied" : "Copy address"}
@@ -388,12 +388,12 @@ export function SettingsScreen() {
               href={`https://suiscan.xyz/mainnet/account/${me.suiAddress}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-full border border-line bg-surface-2 px-4 py-2 text-sm font-medium text-fg transition-colors hover:border-accent/40 hover:bg-accent-soft active:scale-[0.97]"
+              className="inline-flex items-center gap-2 rounded-full border-2 border-[#15300c] px-4 py-2 text-sm font-medium text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2] active:scale-[0.97]"
             >
               <HugeiconsIcon
                 icon={ArrowUpRight01Icon}
                 size={16}
-                className="text-fg-muted"
+                className="text-[#3a5230]"
                 strokeWidth={2}
               />
               View on Suiscan
@@ -402,8 +402,8 @@ export function SettingsScreen() {
 
           {/* USDsui explainer */}
           <div className="px-5 py-4">
-            <p className="text-[12px] leading-relaxed text-fg-dim">
-              Your balance is held in USDsui — a fully-backed dollar stablecoin on
+            <p className="text-[12px] leading-relaxed text-[#3d7a29]">
+              Your balance is held in USDsui, a fully-backed dollar stablecoin on
               Sui, always 1:1 with USD. The currency you pick above only changes
               how amounts are shown.
             </p>
@@ -415,30 +415,28 @@ export function SettingsScreen() {
       {/* ── Account ──────────────────────────────────────────────────────── */}
       <section className="space-y-3">
         <Eyebrow>Account</Eyebrow>
-        <GlassCard className="divide-y divide-line overflow-hidden p-0" radius={14}>
+        <GlassCard className="divide-y divide-[#15300c]/10 overflow-hidden p-0">
           <a
             href="/auth/logout"
-            className="flex w-full items-center gap-3.5 px-5 py-3.5 transition-colors hover:bg-surface-2"
+            className="flex w-full items-center gap-3.5 px-5 py-3.5 transition-colors hover:bg-[#FF9E7A]/20"
           >
             <span
               className="flex size-10 shrink-0 items-center justify-center rounded-full"
-              style={{
-                background: "color-mix(in srgb, var(--color-danger) 12%, var(--color-surface-2))",
-              }}
+              style={{ background: "#FF9E7A" }}
             >
               <HugeiconsIcon
                 icon={Logout01Icon}
                 size={18}
                 strokeWidth={2}
-                style={{ color: "var(--color-danger)" }}
+                style={{ color: "#c0532f" }}
               />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-[15px] font-medium" style={{ color: "var(--color-danger)" }}>
+              <span className="block text-[15px] font-medium" style={{ color: "#c0532f" }}>
                 Sign out
               </span>
-              <span className="block text-[13px] text-fg-dim">
-                Your wallet stays safe — sign back in anytime.
+              <span className="block text-[13px] text-[#3d7a29]">
+                Your wallet stays safe, sign back in anytime.
               </span>
             </span>
           </a>
@@ -471,11 +469,11 @@ function Toggle({
       disabled={busy || disabled}
       onClick={() => onChange(!on)}
       className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
-        on ? "bg-accent-deep" : "border border-line bg-surface-2"
+        on ? "bg-[#15300c]" : "border border-[#15300c]/15 bg-white/60 backdrop-blur-sm"
       }`}
     >
       <span
-        className={`absolute flex size-5 items-center justify-center rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.18)] transition-transform ${
+        className={`absolute flex size-5 items-center justify-center rounded-full bg-white shadow-[0_1px_4px_rgba(21,48,12,0.25)] transition-transform ${
           on ? "translate-x-[22px]" : "translate-x-[3px]"
         }`}
       >

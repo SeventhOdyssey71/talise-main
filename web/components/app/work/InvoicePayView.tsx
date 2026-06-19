@@ -133,19 +133,24 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
 
   // Shared cell typography for the line-items table header.
   const thCls =
-    "py-2.5 font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim";
+    "py-2.5 font-mono text-[10px] font-medium uppercase tracking-wider text-[#3d7a29]";
 
   return (
-    <main className="landing-mint talise-appshell relative min-h-dvh overflow-hidden bg-bg px-5 py-10 text-fg sm:py-16">
-      {/* Background glow lives in its own absolutely-positioned layer — putting
-          talise-top-glow on <main> applied its filter: blur() to the whole page. */}
-      <div className="talise-top-glow" aria-hidden />
+    <main
+      className="relative min-h-dvh overflow-hidden px-5 py-10 text-[#15300c] sm:py-16"
+      style={{ background: "radial-gradient(120% 90% at 15% 0%, #e6f9d6 0%, #f7fcf2 45%, #ffeede 100%)" }}
+    >
       <div className="relative z-10 mx-auto w-full max-w-xl">
         {/* Brand row */}
         <div className="mb-6 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 text-fg">
+          <Link href="/" className="flex items-center gap-2 text-[#15300c]">
             <Diamond />
-            <span className="font-display text-[18px] font-semibold lowercase tracking-[-0.02em]">talise</span>
+            <span
+              className="text-[18px] font-[800] lowercase tracking-[-0.03em]"
+              style={{ fontFamily: "var(--font-display-v2)" }}
+            >
+              talise
+            </span>
           </Link>
           <StatusPill label={statusLabel} tone={statusTone} />
         </div>
@@ -162,8 +167,8 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
                 className="inline-block -rotate-12 rounded-md border-2 px-3 py-1 font-mono text-[16px] font-bold uppercase opacity-45 sm:text-[18px]"
                 style={{
                   letterSpacing: "0.28em",
-                  color: invoice.status === "paid" ? "var(--color-accent)" : "#b3473b",
-                  borderColor: invoice.status === "paid" ? "var(--color-accent)" : "#b3473b",
+                  color: invoice.status === "paid" ? "#3d7a29" : "#c0532f",
+                  borderColor: invoice.status === "paid" ? "#3d7a29" : "#c0532f",
                 }}
               >
                 {invoice.status === "paid" ? "Paid" : "Void"}
@@ -174,48 +179,48 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
           {/* Document header — big heading, issuer underneath */}
           <div className="px-5 pb-6 pt-7 sm:px-8">
             <h1
-              className="font-display text-[34px] font-semibold leading-none tracking-tight text-fg sm:text-[40px]"
-              style={{ letterSpacing: "-0.03em" }}
+              className="text-[34px] font-[800] uppercase leading-none tracking-[-0.02em] text-[#15300c] sm:text-[40px]"
+              style={{ fontFamily: "var(--font-display-v2)" }}
             >
               Invoice
             </h1>
-            <p className="mt-2.5 text-[15px] font-medium text-fg">
+            <p className="mt-2.5 text-[15px] font-medium text-[#15300c]">
               {issuer.name || issuer.handle}
             </p>
             {issuer.name && issuer.name !== issuer.handle && (
-              <p className="mt-0.5 font-mono text-[12px] text-fg-dim">{issuer.handle}</p>
+              <p className="mt-0.5 font-mono text-[12px] text-[#3d7a29]">{issuer.handle}</p>
             )}
 
             {/* Meta — date / invoice no / due on the left, prepared-for on the right */}
             <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
               <dl className="space-y-1.5 text-[13px]">
                 <div className="flex gap-2">
-                  <dt className="w-[88px] shrink-0 font-mono text-[10px] font-medium uppercase leading-[1.7] tracking-wider text-fg-dim">
+                  <dt className="w-[88px] shrink-0 font-mono text-[10px] font-medium uppercase leading-[1.7] tracking-wider text-[#3d7a29]">
                     Date
                   </dt>
-                  <dd className="text-fg">{createdLabel}</dd>
+                  <dd className="text-[#15300c]">{createdLabel}</dd>
                 </div>
                 <div className="flex gap-2">
-                  <dt className="w-[88px] shrink-0 font-mono text-[10px] font-medium uppercase leading-[1.7] tracking-wider text-fg-dim">
+                  <dt className="w-[88px] shrink-0 font-mono text-[10px] font-medium uppercase leading-[1.7] tracking-wider text-[#3d7a29]">
                     Invoice no.
                   </dt>
-                  <dd className="break-all font-mono text-[12px] leading-[1.6] text-fg-muted">
+                  <dd className="break-all font-mono text-[12px] leading-[1.6] text-[#3a5230]">
                     {invoice.id}
                   </dd>
                 </div>
                 {dueLabel && (
                   <div className="flex gap-2">
-                    <dt className="w-[88px] shrink-0 font-mono text-[10px] font-medium uppercase leading-[1.7] tracking-wider text-fg-dim">
+                    <dt className="w-[88px] shrink-0 font-mono text-[10px] font-medium uppercase leading-[1.7] tracking-wider text-[#3d7a29]">
                       Due date
                     </dt>
-                    <dd className="text-fg">{dueLabel}</dd>
+                    <dd className="text-[#15300c]">{dueLabel}</dd>
                   </div>
                 )}
               </dl>
               {invoice.customerName && (
                 <div className="sm:max-w-[45%] sm:text-right">
                   <Eyebrow>Prepared for</Eyebrow>
-                  <p className="mt-1 text-[15px] font-medium text-fg">{invoice.customerName}</p>
+                  <p className="mt-1 text-[15px] font-medium text-[#15300c]">{invoice.customerName}</p>
                 </div>
               )}
             </div>
@@ -226,7 +231,7 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
           <div className="px-5 sm:px-8">
             <table className="w-full text-left text-[14px]">
               <thead>
-                <tr className="border-y border-line">
+                <tr className="border-y border-[#15300c]/10">
                   <th className={`${thCls} pr-3`}>Description</th>
                   {hasItems && (
                     <>
@@ -240,22 +245,22 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
               <tbody>
                 {hasItems ? (
                   invoice.lineItems.map((li, i) => (
-                    <tr key={i} className="border-b border-line">
-                      <td className="py-3 pr-3 text-fg">{li.description}</td>
+                    <tr key={i} className="border-b border-[#15300c]/10">
+                      <td className="py-3 pr-3 text-[#15300c]">{li.description}</td>
                       <td
-                        className="px-2 py-3 text-right text-fg-muted sm:px-3"
+                        className="px-2 py-3 text-right text-[#3a5230] sm:px-3"
                         style={{ fontVariantNumeric: "tabular-nums" }}
                       >
                         {li.qty}
                       </td>
                       <td
-                        className="whitespace-nowrap px-2 py-3 text-right text-fg-muted sm:px-3"
+                        className="whitespace-nowrap px-2 py-3 text-right text-[#3a5230] sm:px-3"
                         style={{ fontVariantNumeric: "tabular-nums" }}
                       >
                         {money(li.unitUsd)}
                       </td>
                       <td
-                        className="whitespace-nowrap py-3 pl-3 text-right font-medium text-fg"
+                        className="whitespace-nowrap py-3 pl-3 text-right font-medium text-[#15300c]"
                         style={{ fontVariantNumeric: "tabular-nums" }}
                       >
                         {money(Math.round(li.qty * li.unitUsd * 100) / 100)}
@@ -263,10 +268,10 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
                     </tr>
                   ))
                 ) : (
-                  <tr className="border-b border-line">
-                    <td className="py-3 pr-3 text-fg">{invoice.memo || "Amount due"}</td>
+                  <tr className="border-b border-[#15300c]/10">
+                    <td className="py-3 pr-3 text-[#15300c]">{invoice.memo || "Amount due"}</td>
                     <td
-                      className="whitespace-nowrap py-3 pl-3 text-right font-medium text-fg"
+                      className="whitespace-nowrap py-3 pl-3 text-right font-medium text-[#15300c]"
                       style={{ fontVariantNumeric: "tabular-nums" }}
                     >
                       {money(invoice.amountUsd)}
@@ -282,30 +287,30 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
               <div className="w-full max-w-[260px] space-y-2">
                 {hasItems && (
                   <div className="flex items-baseline justify-between gap-6">
-                    <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim">
+                    <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-[#3d7a29]">
                       Subtotal
                     </span>
                     <span
-                      className="text-[14px] text-fg-muted"
+                      className="text-[14px] text-[#3a5230]"
                       style={{ fontVariantNumeric: "tabular-nums" }}
                     >
                       {money(subtotalUsd)}
                     </span>
                   </div>
                 )}
-                <div className="flex items-baseline justify-between gap-6 border-t border-line pt-2">
-                  <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-fg">
+                <div className="flex items-baseline justify-between gap-6 border-t border-[#15300c]/10 pt-2">
+                  <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-[#15300c]">
                     Total
                   </span>
                   <span
-                    className="text-[22px] font-semibold text-fg"
+                    className="text-[22px] font-semibold text-[#15300c]"
                     style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
                   >
                     {money(invoice.amountUsd)}
                   </span>
                 </div>
                 {invoice.currency !== "USD" && (
-                  <p className="text-right font-mono text-[11px] text-fg-dim">
+                  <p className="text-right font-mono text-[11px] text-[#3d7a29]">
                     Settles as {invoice.amountUsd.toFixed(2)} USDsui · 1:1 USD
                   </p>
                 )}
@@ -313,37 +318,37 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
             </div>
 
             {/* Document footer — payment terms + notes */}
-            <div className="grid grid-cols-1 gap-4 border-t border-line py-5 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 border-t border-[#15300c]/10 py-5 sm:grid-cols-2">
               <div>
                 <Eyebrow>Payment terms</Eyebrow>
-                <p className="mt-1.5 text-[13px] text-fg-muted">
+                <p className="mt-1.5 text-[13px] text-[#3a5230]">
                   {dueLabel ? `Due by ${dueLabel}` : "Due on receipt"}
                 </p>
               </div>
               {hasItems && invoice.memo && (
                 <div>
                   <Eyebrow>Notes</Eyebrow>
-                  <p className="mt-1.5 text-[13px] text-fg-muted">{invoice.memo}</p>
+                  <p className="mt-1.5 text-[13px] text-[#3a5230]">{invoice.memo}</p>
                 </div>
               )}
             </div>
           </div>
 
           {/* Pay CTA / status block */}
-          <div className="border-t border-line px-5 py-5 sm:px-8">
+          <div className="border-t border-[#15300c]/10 px-5 py-5 sm:px-8">
             {invoice.status === "open" ? (
               <>
                 <PrimaryButton href={payHref} full>
                   <HugeiconsIcon icon={ArrowRight02Icon} size={18} strokeWidth={2} />
                   Pay {money(invoice.amountUsd)}
                 </PrimaryButton>
-                <p className="mt-3 text-center text-[12px] text-fg-dim">
-                  Sign in with Google to pay — no gas, no wallet setup. Money moves as USDsui.
+                <p className="mt-3 text-center text-[12px] text-[#3d7a29]">
+                  Sign in with Google to pay, no gas, no wallet setup. Money moves as USDsui.
                 </p>
               </>
             ) : invoice.status === "paid" ? (
               <div className="space-y-3">
-                <div className="flex items-center justify-center gap-2 rounded-xl bg-accent-soft py-3 text-[14px] text-accent">
+                <div className="flex items-center justify-center gap-2 rounded-xl bg-[#CAFFB8] py-3 text-[14px] text-[#15300c]">
                   <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} strokeWidth={2} />
                   Paid
                   {invoice.paidAt
@@ -356,24 +361,24 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
                   . Thank you.
                 </div>
                 {invoice.payDigest && (
-                  <div className="rounded-xl border border-line px-4 py-3.5">
+                  <div className="rounded-xl border border-[#15300c]/10 px-4 py-3.5">
                     <MicroLabel>On-chain receipt</MicroLabel>
                     <a
                       href={`https://suiscan.xyz/mainnet/tx/${invoice.payDigest}`}
                       target="_blank"
                       rel="noreferrer noopener"
-                      className="mt-1.5 block break-all font-mono text-[12px] text-accent underline-offset-2 hover:underline"
+                      className="mt-1.5 block break-all font-mono text-[12px] text-[#3d7a29] underline-offset-2 hover:underline"
                     >
                       {invoice.payDigest}
                     </a>
-                    <p className="mt-1.5 text-[11px] text-fg-dim">
+                    <p className="mt-1.5 text-[11px] text-[#3d7a29]">
                       Settled on Sui — verify this payment on-chain.
                     </p>
                   </div>
                 )}
               </div>
             ) : (
-              <div className="flex items-center justify-center gap-2 rounded-xl bg-surface-2 py-3 text-[14px] text-fg-dim">
+              <div className="flex items-center justify-center gap-2 rounded-xl border border-[#15300c]/15 bg-white/60 py-3 text-[14px] text-[#3d7a29] backdrop-blur-sm">
                 <HugeiconsIcon icon={Cancel01Icon} size={18} strokeWidth={2} />
                 This invoice was voided by the issuer.
               </div>
@@ -386,15 +391,15 @@ export function InvoicePayView({ invoice, issuer, origin }: InvoicePayViewProps)
           <button
             type="button"
             onClick={copyLink}
-            className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] text-fg-dim transition-colors hover:text-fg"
+            className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] text-[#3d7a29] transition-colors hover:text-[#15300c]"
           >
             <HugeiconsIcon icon={Copy01Icon} size={14} strokeWidth={2} />
             {copied ? "Link copied" : "Copy invoice link"}
           </button>
         </div>
-        <p className="mt-5 text-center text-[12px] text-fg-dim">
+        <p className="mt-5 text-center text-[12px] text-[#3d7a29]">
           Powered by{" "}
-          <Link href="/" className="text-fg-muted underline-offset-2 hover:underline">
+          <Link href="/" className="text-[#3a5230] underline-offset-2 hover:underline">
             Talise
           </Link>{" "}
           — money that moves like a message.

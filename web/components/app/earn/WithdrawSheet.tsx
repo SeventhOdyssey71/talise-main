@@ -89,12 +89,15 @@ export function WithdrawSheet({
     <Sheet open={!!venue} onClose={onClose} title="Position" size="md">
       {v && (
         <div className="space-y-5 pb-1">
-          <h2 className="text-[20px] font-medium tracking-[-0.02em] text-fg">
+          <h2
+            className="text-[20px] font-[800] uppercase tracking-[-0.02em] text-[#15300c]"
+            style={{ fontFamily: "var(--font-display-v2)" }}
+          >
             Your {venueLabel(v.venue)} earnings
           </h2>
 
           {/* Position stat rows — clean flat card */}
-          <GlassCard className="overflow-hidden !p-0" radius={12}>
+          <GlassCard className="overflow-hidden !p-0" radius={20}>
             <PositionRow label="Supplied" value={formatUsd(supplied, { fixed: true })} />
             <Divider />
             <PositionRow label="APY" value={formatApy(apy || bestApy)} accent />
@@ -118,8 +121,8 @@ export function WithdrawSheet({
           {/* Partial withdraw */}
           <div className="space-y-1.5">
             <MicroLabel>Withdraw amount</MicroLabel>
-            <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3">
-              <span className="text-[20px] font-medium text-fg-muted">{symbol}</span>
+            <div className="flex items-center gap-2 rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 backdrop-blur-sm">
+              <span className="text-[20px] font-medium text-[#3a5230]">{symbol}</span>
               <input
                 inputMode="decimal"
                 value={partial}
@@ -129,20 +132,20 @@ export function WithdrawSheet({
                   setError(null);
                 }}
                 placeholder="0.00"
-                className="w-full bg-transparent text-[20px] font-medium tracking-[-0.01em] tabular-nums text-fg outline-none placeholder:text-fg-dim"
+                className="w-full bg-transparent text-[20px] font-medium tracking-[-0.01em] tabular-nums text-[#15300c] outline-none placeholder:text-[#3d7a29]"
               />
               <GlassPill
                 size="sm"
-                tint="#3c7a2a"
+                tint="#CAFFB8"
                 onClick={() => setPartial((supplied * rate).toFixed(2))}
               >
                 MAX
               </GlassPill>
-              <span className="text-[12px] font-medium text-fg-muted">{currency}</span>
+              <span className="text-[12px] font-medium text-[#3a5230]">{currency}</span>
             </div>
           </div>
 
-          {error && <p className="text-[13px] text-danger">{error}</p>}
+          {error && <p className="text-[13px] text-[#c0532f]">{error}</p>}
 
           {/* Actions */}
           <div className="space-y-2.5">
@@ -204,10 +207,10 @@ function PositionRow({
 }) {
   return (
     <div className="flex items-center justify-between px-4 py-3">
-      <span className="text-[13px] text-fg-muted">{label}</span>
+      <span className="text-[13px] text-[#3a5230]">{label}</span>
       <span
         className={`text-[14px] font-medium tracking-[-0.01em] tabular-nums ${
-          accent ? "text-accent" : "text-fg"
+          accent ? "text-[#3d7a29]" : "text-[#15300c]"
         }`}
       >
         {value}
@@ -217,5 +220,5 @@ function PositionRow({
 }
 
 function Divider() {
-  return <div className="mx-4 h-px bg-line" />;
+  return <div className="mx-4 h-px bg-[#15300c]/10" />;
 }

@@ -9,22 +9,22 @@ import {
 import type { Category } from "./types";
 
 /**
- * Directional palette — light-mint treatment. On the white→faint-mint
- * card the disc is a soft tinted fill and the glyph sits at full
- * saturation so it reads as a coloured icon on a coloured disc:
- *   sent     → warm danger red   (outflow)
- *   received → forest green       (inflow credit)
- *   withdraw → forest green       (pool → wallet credit)
- *   invest   → forest accent      (yield motion)
- *   swap     → forest accent      (system/DEX conversion)
- *   neutral  → pale-mint disc, forest glyph
- *
- * The disc fill is a low-alpha wash of the colour over white; the glyph
- * uses the deep saturation so it stays legible on the light canvas.
+ * Directional palette — v2 brand-fill treatment. The disc is a solid brand
+ * fill and the glyph sits in a deep ink so it reads on the coloured disc:
+ *   sent     → coral fill, muted-coral glyph   (outflow)
+ *   received → mint fill, forest glyph          (inflow credit)
+ *   withdraw → mint fill, forest glyph          (pool → wallet credit)
+ *   invest   → mint fill, forest glyph          (yield motion)
+ *   swap     → mint fill, forest glyph          (system/DEX conversion)
+ *   neutral  → mint disc, brand-ink glyph
  */
-const RED = "#c95a4a";
-const RED_FG = "#b3473b";
-const GREEN_FG = "var(--color-accent)";
+// v2 directional palette. Outflow (sent) uses the coral brand fill with the
+// muted-coral ink glyph; all inflow/system motions use the mint brand fill
+// with the deep-forest glyph. Neutral falls back to a pale glass mint disc.
+const CORAL = "#FF9E7A";
+const CORAL_FG = "#c0532f";
+const MINT = "#CAFFB8";
+const GREEN_FG = "#3d7a29";
 
 export type BadgeStyle = {
   bg: string;
@@ -36,38 +36,38 @@ export function badgeStyle(category: Category): BadgeStyle {
   switch (category) {
     case "sent":
       return {
-        bg: `color-mix(in srgb, ${RED} 16%, #ffffff)`,
-        fg: RED_FG,
+        bg: CORAL,
+        fg: CORAL_FG,
         icon: ArrowUpRightIcon,
       };
     case "received":
       return {
-        bg: "var(--color-accent-soft)",
+        bg: MINT,
         fg: GREEN_FG,
         icon: ArrowDownLeftIcon,
       };
     case "withdraw":
       return {
-        bg: "var(--color-accent-soft)",
+        bg: MINT,
         fg: GREEN_FG,
         icon: PlantIcon,
       };
     case "invest":
       return {
-        bg: "var(--color-accent-soft)",
-        fg: "var(--color-accent)",
+        bg: MINT,
+        fg: GREEN_FG,
         icon: PlantIcon,
       };
     case "swap":
       return {
-        bg: "var(--color-accent-soft)",
-        fg: "var(--color-accent)",
+        bg: MINT,
+        fg: GREEN_FG,
         icon: ArrowDataTransferHorizontalIcon,
       };
     default:
       return {
-        bg: "var(--color-surface-2)",
-        fg: "var(--color-fg)",
+        bg: "#CAFFB8",
+        fg: "#15300c",
         icon: Coins01Icon,
       };
   }
@@ -77,13 +77,13 @@ export function badgeStyle(category: Category): BadgeStyle {
 export function tintColor(category: Category): string | null {
   switch (category) {
     case "sent":
-      return RED;
+      return CORAL_FG;
     case "received":
     case "withdraw":
-      return "var(--color-accent-deep)";
+      return "#3d7a29";
     case "invest":
     case "swap":
-      return "var(--color-accent-deep)";
+      return "#3d7a29";
     default:
       return null;
   }

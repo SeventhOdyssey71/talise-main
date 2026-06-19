@@ -22,12 +22,12 @@ export function GlassPill({
   const pad = size === "sm" ? "px-3 py-1.5 text-xs gap-1.5" : "px-4 py-2 text-sm gap-2";
   const style: CSSProperties = { borderRadius: 999 };
   if (tint) {
-    // Soft tint fill over white + tint-coloured text — reads as a light
-    // pale-mint chip on the mint canvas rather than a dark glass capsule.
-    style.background = `color-mix(in srgb, ${tint} 12%, #ffffff)`;
-    style.color = tint;
+    // A solid brand-fill chip (mint/coral/lilac/butter) with ink text, instead
+    // of the default translucent glass.
+    style.background = tint;
+    style.color = "#15300c";
   }
-  const cls = `talise-glass inline-flex items-center font-medium text-fg transition-[transform,border-color] duration-150 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:scale-[0.97] ${pad}`;
+  const cls = `inline-flex items-center border border-[#15300c]/15 bg-white/60 font-medium text-[#15300c] backdrop-blur-sm transition-[transform,border-color] duration-150 hover:border-[#15300c]/30 active:scale-[0.97] ${pad}`;
 
   const inner = (
     <>

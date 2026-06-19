@@ -210,12 +210,12 @@ export function ContractsTab() {
         title="Cancel contract"
       >
         <div className="space-y-4">
-          <p className="text-[14px] text-fg-muted">
+          <p className="text-[14px] text-[#3a5230]">
             {cancelFor ? (
               <>
-                Cancel <span className="font-medium text-fg">{cancelFor.title}</span>? Future
+                Cancel <span className="font-medium text-[#15300c]">{cancelFor.title}</span>? Future
                 pay stops and the unsent{" "}
-                <span className="font-medium text-fg">
+                <span className="font-medium text-[#15300c]">
                   {formatUsd(cancelFor.remainingUsd, { fixed: true })}
                 </span>{" "}
                 is returned to you. You&apos;ll sign once to release the refund.
@@ -285,34 +285,34 @@ function ContractRow({
 
   return (
     <div>
-      <div className="talise-history-row flex items-start gap-3.5 px-4 py-3.5">
+      <div className="flex items-start gap-3.5 px-4 py-3.5 transition-colors hover:bg-[#15300c]/[0.04]">
         {/* Circular icon chip */}
-        <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+        <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
           <HugeiconsIcon icon={UserGroupIcon} size={17} strokeWidth={1.8} />
         </span>
 
         {/* Title + payee + progress */}
         <span className="min-w-0 flex-1 space-y-2">
           <span>
-            <span className="block truncate text-[15px] font-medium text-fg">{c.title}</span>
-            <span className="block truncate font-mono text-[11px] text-fg-dim">
+            <span className="block truncate text-[15px] font-medium text-[#15300c]">{c.title}</span>
+            <span className="block truncate font-mono text-[11px] text-[#3d7a29]">
               {payee} · {formatUsd(c.rateUsd, { fixed: true })}/{c.cadenceLabel}
             </span>
           </span>
 
           {/* Progress bar */}
           <span className="block">
-            <span className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+            <span className="block h-1.5 w-full overflow-hidden rounded-full bg-[#15300c]/10">
               <span
-                className="block h-full rounded-full bg-accent-deep transition-[width] duration-500"
+                className="block h-full rounded-full bg-[#3d7a29] transition-[width] duration-500"
                 style={{ width: `${pct}%` }}
               />
             </span>
             <span className="mt-1 flex items-center justify-between">
-              <span className="font-mono text-[11px] text-fg-dim" style={{ fontVariantNumeric: "tabular-nums" }}>
+              <span className="font-mono text-[11px] text-[#3d7a29]" style={{ fontVariantNumeric: "tabular-nums" }}>
                 {formatUsd(c.paidUsd, { fixed: true })} / {formatUsd(c.totalUsd, { fixed: true })}
               </span>
-              <span className="font-mono text-[10px] text-fg-dim">
+              <span className="font-mono text-[10px] text-[#3d7a29]">
                 {c.periodsPaid}/{c.periods}
               </span>
             </span>
@@ -323,11 +323,11 @@ function ContractRow({
         <span className="flex shrink-0 flex-col items-end gap-2">
           <StatusPill label={stateLabel} tone={stateTone} />
           {next ? (
-            <span className="font-mono text-[11px] text-fg-dim">
+            <span className="font-mono text-[11px] text-[#3d7a29]">
               Next {next.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
             </span>
           ) : (
-            <span className="font-mono text-[11px] text-fg-dim">
+            <span className="font-mono text-[11px] text-[#3d7a29]">
               {formatUsd(c.remainingUsd, { fixed: true })} left
             </span>
           )}
@@ -335,7 +335,7 @@ function ContractRow({
             <button
               type="button"
               onClick={onCancel}
-              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] text-fg-dim transition-colors hover:bg-surface-2 hover:text-[var(--color-danger)]"
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] text-[#3d7a29] transition-colors hover:bg-[#15300c]/10 hover:text-[#c0532f]"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
               Cancel
@@ -344,7 +344,7 @@ function ContractRow({
         </span>
       </div>
 
-      {divider && <div className="mx-4 border-t border-line" />}
+      {divider && <div className="mx-4 border-t border-[#15300c]/10" />}
     </div>
   );
 }
@@ -559,40 +559,40 @@ function CreateContractSheet({
             value={payeeInput}
             onChange={(e) => setPayeeInput(e.target.value)}
             placeholder="@alice or 0x…"
-            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/45"
           />
         </Field>
         {resolving && (
-          <div className="flex items-center gap-2 text-[12px] text-fg-dim">
+          <div className="flex items-center gap-2 text-[12px] text-[#3d7a29]">
             <Spinner size={13} /> Resolving…
           </div>
         )}
         {resolved && (
-          <div className="flex items-center gap-2 rounded-xl bg-accent-soft px-3 py-2 text-[13px] text-accent">
+          <div className="flex items-center gap-2 rounded-xl bg-[#CAFFB8] px-3 py-2 text-[13px] text-[#15300c]">
             Paying {resolved.displayName}
           </div>
         )}
-        {resolveErr && <p className="text-[12px] text-[var(--color-danger)]">{resolveErr}</p>}
+        {resolveErr && <p className="text-[12px] text-[#c0532f]">{resolveErr}</p>}
 
         <Field label="Role / title">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Senior contractor — design"
-            className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            placeholder="Senior contractor, design"
+            className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/45"
           />
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Rate per period">
-            <div className="talise-glass flex items-center rounded-xl px-3.5 py-2.5">
-              <span className="text-[15px] text-fg-dim">$</span>
+            <div className="flex items-center rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 backdrop-blur-sm focus-within:ring-2 focus-within:ring-[#3d7a29]/45">
+              <span className="text-[15px] text-[#3d7a29]">$</span>
               <input
                 value={rate}
                 onChange={(e) => setRate(e.target.value.replace(/[^\d.]/g, ""))}
                 inputMode="decimal"
                 placeholder="500"
-                className="w-full bg-transparent pl-1 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+                className="w-full bg-transparent pl-1 text-[15px] text-[#15300c] outline-none placeholder:text-[#3d7a29]"
                 style={{ fontVariantNumeric: "tabular-nums" }}
               />
             </div>
@@ -603,7 +603,7 @@ function CreateContractSheet({
               onChange={(e) => setPeriods(e.target.value.replace(/[^\d]/g, ""))}
               inputMode="numeric"
               placeholder="4"
-              className="talise-glass w-full rounded-xl px-3.5 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/45"
               style={{ fontVariantNumeric: "tabular-nums" }}
             />
           </Field>
@@ -620,8 +620,8 @@ function CreateContractSheet({
                 onClick={() => setCadence(c.id)}
                 className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors ${
                   cadence === c.id
-                    ? "bg-accent-deep text-white"
-                    : "talise-glass text-fg-muted hover:text-fg"
+                    ? "bg-[#15300c] text-[#f7fcf2]"
+                    : "border border-[#15300c]/15 bg-white/60 text-[#3a5230] backdrop-blur-sm hover:text-[#15300c]"
                 }`}
               >
                 {c.label}
@@ -631,12 +631,12 @@ function CreateContractSheet({
         </div>
 
         {/* Live preview */}
-        <div className="rounded-xl border border-line bg-surface-2 px-4 py-4">
+        <div className="rounded-xl border border-[#15300c]/10 bg-white/60 px-4 py-4 backdrop-blur-sm">
           {total > 0 ? (
             <>
-              <p className="text-[14px] leading-relaxed text-fg">
+              <p className="text-[14px] leading-relaxed text-[#15300c]">
                 Pays{" "}
-                <span className="font-medium text-accent">{previewName}</span>{" "}
+                <span className="font-medium text-[#3d7a29]">{previewName}</span>{" "}
                 {formatUsd(rateNum, { fixed: true })} every {cad.period} for {periodsNum}{" "}
                 {cad.period}
                 {periodsNum === 1 ? "" : "s"}.
@@ -644,19 +644,19 @@ function CreateContractSheet({
               <div className="mt-3 flex items-center justify-between">
                 <MicroLabel>Funded now</MicroLabel>
                 <span
-                  className="text-[22px] font-semibold text-fg"
+                  className="text-[22px] font-semibold text-[#15300c]"
                   style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
                 >
                   {formatUsd(total, { fixed: true })}
                 </span>
               </div>
-              <p className="mt-1.5 text-[12px] text-fg-dim">
-                Funded once — gas is on us. Each {cad.period}&apos;s pay releases
+              <p className="mt-1.5 text-[12px] text-[#3d7a29]">
+                Funded once, gas is on us. Each {cad.period}&apos;s pay releases
                 automatically; cancel anytime to get the unsent balance back.
               </p>
             </>
           ) : (
-            <p className="text-[13px] text-fg-dim">
+            <p className="text-[13px] text-[#3d7a29]">
               Set a rate and number of periods to preview the total.
             </p>
           )}

@@ -24,28 +24,28 @@ export function CurrencyPicker() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-3.5 px-5 py-3.5 text-left transition-colors hover:bg-surface-2"
+        className="flex w-full items-center gap-3.5 px-5 py-3.5 text-left transition-colors hover:bg-[#CAFFB8]/40"
       >
         {/* Circular flag chip — size-10 matches the other icon chips in this card */}
-        <span className="size-10 shrink-0 overflow-hidden rounded-full ring-1 ring-line">
+        <span className="size-10 shrink-0 overflow-hidden rounded-full ring-1 ring-[#15300c]/15">
           <Flag code={currency} size={40} className="block" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-medium text-fg">
+          <span className="block text-[15px] font-medium text-[#15300c]">
             Display currency
           </span>
-          <span className="block truncate text-[13px] text-fg-dim">
-            Changes display only — your wallet settles in USDsui.
+          <span className="block truncate text-[13px] text-[#3d7a29]">
+            Changes display only, your wallet settles in USDsui.
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
-          <span className="rounded-full bg-surface-2 px-3 py-1 text-[13px] font-medium text-fg">
+          <span className="rounded-full border border-[#15300c]/15 bg-white/60 px-3 py-1 text-[13px] font-medium text-[#15300c] backdrop-blur-sm">
             {active.symbol}&nbsp;{active.code}
           </span>
           <HugeiconsIcon
             icon={UnfoldMoreIcon}
             size={16}
-            className="text-fg-dim"
+            className="text-[#3d7a29]"
             strokeWidth={2}
           />
         </span>
@@ -69,17 +69,17 @@ export function CurrencyPicker() {
                   setOpen(false);
                 }}
                 className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left transition-colors ${
-                  selected ? "bg-accent-soft" : "hover:bg-accent-soft"
+                  selected ? "bg-[#CAFFB8]" : "hover:bg-[#CAFFB8]/50"
                 }`}
               >
-                <span className="size-9 shrink-0 overflow-hidden rounded-full ring-1 ring-line">
+                <span className="size-9 shrink-0 overflow-hidden rounded-full ring-1 ring-[#15300c]/15">
                   <Flag code={c.code} size={36} className="block" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[15px] font-medium text-fg">
+                  <span className="block text-[15px] font-medium text-[#15300c]">
                     {c.label}
                   </span>
-                  <span className="block font-mono text-[11px] uppercase tracking-wider text-fg-dim">
+                  <span className="block font-mono text-[11px] uppercase tracking-wider text-[#3d7a29]">
                     {c.symbol} · {c.code}
                   </span>
                 </span>
@@ -87,7 +87,7 @@ export function CurrencyPicker() {
                   <HugeiconsIcon
                     icon={Tick02Icon}
                     size={18}
-                    className="shrink-0 text-accent"
+                    className="shrink-0 text-[#3d7a29]"
                     strokeWidth={2.2}
                   />
                 )}

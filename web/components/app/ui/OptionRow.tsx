@@ -28,27 +28,24 @@ export function OptionRow({
   dimmed = false,
 }: OptionRowProps) {
   const interactive = !!(href || onClick) && !dimmed;
-  const cls = `talise-history-row flex w-full items-center gap-3.5 px-3.5 py-3 text-left ${
-    interactive ? "cursor-pointer hover:-translate-y-px" : ""
+  const cls = `flex w-full items-center gap-3.5 rounded-2xl px-3.5 py-3 text-left transition-[transform,background-color] duration-150 ${
+    interactive ? "cursor-pointer hover:-translate-y-px hover:bg-[#CAFFB8]/40" : ""
   } ${dimmed ? "opacity-55" : ""}`;
 
   const inner = (
     <>
       <span
-        className="flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-        style={{ background: "var(--color-accent-soft)" }}
+        className="flex size-10 shrink-0 items-center justify-center rounded-full text-[#15300c]"
+        style={{ background: "#CAFFB8" }}
       >
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-medium text-fg">{title}</span>
-        {subtitle && <span className="block truncate text-[13px] text-fg-dim">{subtitle}</span>}
+        <span className="block truncate text-[15px] font-medium text-[#15300c]">{title}</span>
+        {subtitle && <span className="block truncate text-[13px] text-[#3d7a29]">{subtitle}</span>}
       </span>
       {badge && (
-        <span
-          className="shrink-0 rounded-full border border-line px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-fg-dim"
-          style={{ background: "var(--color-surface-2)" }}
-        >
+        <span className="shrink-0 rounded-full border border-[#15300c]/15 bg-white/60 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-[#3d7a29] backdrop-blur-sm">
           {badge}
         </span>
       )}
@@ -56,7 +53,7 @@ export function OptionRow({
         <HugeiconsIcon
           icon={ArrowRight01Icon}
           size={18}
-          className="shrink-0 text-fg-dim"
+          className="shrink-0 text-[#3d7a29]"
           strokeWidth={2}
         />
       )}

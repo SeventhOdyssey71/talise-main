@@ -132,10 +132,10 @@ export function HandleClaimCard({ onClaimed }: { onClaimed: () => void }) {
 
   const statusTone =
     state === "available"
-      ? "text-accent"
+      ? "text-[#3d7a29]"
       : state === "rpc"
-        ? "text-fg-muted"
-        : "text-[var(--color-danger)]";
+        ? "text-[#3a5230]"
+        : "text-[#c0532f]";
 
   const statusText =
     state === "checking"
@@ -157,22 +157,22 @@ export function HandleClaimCard({ onClaimed }: { onClaimed: () => void }) {
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        <p className="text-[15px] font-medium text-fg">Claim your name</p>
-        <p className="text-[13px] text-fg-muted">
+        <p className="text-[15px] font-medium text-[#15300c]">Claim your name</p>
+        <p className="text-[13px] text-[#3a5230]">
           People pay you at{" "}
-          <span className="font-mono text-fg">name.talise.sui</span> — far
+          <span className="font-mono text-[#15300c]">name.talise.sui</span>, far
           easier to share than a 0x address. The mint is on us.
         </p>
       </div>
 
       <div
-        className="talise-glass flex items-center gap-1.5 px-4 py-3"
+        className="flex items-center gap-1.5 border border-[#15300c]/15 bg-white/60 px-4 py-3 backdrop-blur-sm"
         style={{ borderRadius: 12 }}
       >
         <HugeiconsIcon
           icon={AtIcon}
           size={18}
-          className="shrink-0 text-fg-dim"
+          className="shrink-0 text-[#3d7a29]"
           strokeWidth={2}
         />
         <input
@@ -187,9 +187,9 @@ export function HandleClaimCard({ onClaimed }: { onClaimed: () => void }) {
           spellCheck={false}
           inputMode="text"
           aria-label="Choose your handle"
-          className="min-w-0 flex-1 bg-transparent text-[17px] font-medium tracking-[-0.01em] text-fg outline-none placeholder:text-fg-dim"
+          className="min-w-0 flex-1 bg-transparent text-[17px] font-medium tracking-[-0.01em] text-[#15300c] outline-none placeholder:text-[#3d7a29]"
         />
-        <span className="shrink-0 font-mono text-[13px] text-fg-muted">
+        <span className="shrink-0 font-mono text-[13px] text-[#3a5230]">
           .talise.sui
         </span>
       </div>
@@ -200,7 +200,7 @@ export function HandleClaimCard({ onClaimed }: { onClaimed: () => void }) {
           <HugeiconsIcon
             icon={CheckmarkCircle02Icon}
             size={14}
-            className="text-accent"
+            className="text-[#3d7a29]"
             strokeWidth={2}
           />
         )}
@@ -208,7 +208,7 @@ export function HandleClaimCard({ onClaimed }: { onClaimed: () => void }) {
           <HugeiconsIcon
             icon={AlertCircleIcon}
             size={14}
-            className="text-[var(--color-danger)]"
+            className="text-[#c0532f]"
             strokeWidth={2}
           />
         )}
@@ -218,7 +218,7 @@ export function HandleClaimCard({ onClaimed }: { onClaimed: () => void }) {
       </div>
 
       {error && (
-        <p className="text-[12px] text-[var(--color-danger)]">{error}</p>
+        <p className="text-[12px] text-[#c0532f]">{error}</p>
       )}
 
       <PrimaryButton
@@ -234,7 +234,7 @@ export function HandleClaimCard({ onClaimed }: { onClaimed: () => void }) {
             : "Claim your handle"}
       </PrimaryButton>
 
-      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-dim">
+      <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-[#3d7a29]">
         One handle per account · minted on SuiNS
       </p>
     </div>

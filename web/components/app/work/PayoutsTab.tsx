@@ -594,22 +594,22 @@ function BatchPayoutSheet({
                 {teams.map((t) => (
                   <span
                     key={t.id}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-1 py-1 pl-3 ring-1 ring-black/[0.04]"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#15300c]/15 bg-white/60 px-1 py-1 pl-3 backdrop-blur-sm"
                   >
                     <button
                       type="button"
                       onClick={() => loadTeam(t)}
-                      className="inline-flex items-center gap-1.5 text-[12px] font-medium text-fg transition-opacity hover:opacity-70"
+                      className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[#15300c] transition-opacity hover:opacity-70"
                     >
-                      <HugeiconsIcon icon={UserGroupIcon} size={13} strokeWidth={1.8} className="text-fg-muted" />
+                      <HugeiconsIcon icon={UserGroupIcon} size={13} strokeWidth={1.8} className="text-[#3a5230]" />
                       {t.name}
-                      <span className="text-fg-dim">· {t.members.length}</span>
+                      <span className="text-[#3d7a29]">· {t.members.length}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => void deleteTeam(t)}
                       aria-label={`Delete ${t.name}`}
-                      className="flex size-5 items-center justify-center rounded-full text-fg-dim transition-colors hover:text-[var(--color-danger)]"
+                      className="flex size-5 items-center justify-center rounded-full text-[#3d7a29] transition-colors hover:text-[#c0532f]"
                     >
                       <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
                     </button>
@@ -631,8 +631,8 @@ function BatchPayoutSheet({
               setDragOver(false);
               void ingestFile(e.dataTransfer.files?.[0]);
             }}
-            className={`rounded-2xl border border-dashed px-4 py-5 text-center transition-colors ${
-              dragOver ? "border-accent bg-accent-soft" : "border-line bg-surface-2"
+            className={`rounded-2xl border border-dashed px-4 py-5 text-center transition-colors backdrop-blur-sm ${
+              dragOver ? "border-[#3d7a29] bg-[#CAFFB8]" : "border-[#15300c]/15 bg-white/60"
             }`}
           >
             <input
@@ -650,13 +650,13 @@ function BatchPayoutSheet({
               onClick={() => fileRef.current?.click()}
               className="inline-flex flex-col items-center gap-1.5"
             >
-              <span className="flex size-10 items-center justify-center rounded-full bg-accent-soft text-accent">
+              <span className="flex size-10 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
                 <HugeiconsIcon icon={CloudUploadIcon} size={20} strokeWidth={1.7} />
               </span>
-              <span className="text-[13px] font-medium text-fg">
+              <span className="text-[13px] font-medium text-[#15300c]">
                 Upload a CSV
               </span>
-              <span className="text-[11.5px] text-fg-dim">
+              <span className="text-[11.5px] text-[#3d7a29]">
                 Drag &amp; drop or tap · columns: handle, amount, label
               </span>
             </button>
@@ -688,30 +688,30 @@ function BatchPayoutSheet({
               type="button"
               onClick={addRow}
               disabled={rows.length >= MAX_RECIPIENTS}
-              className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-line py-2.5 text-[13px] font-medium text-accent transition-colors hover:bg-accent-soft disabled:opacity-40"
+              className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-[#15300c]/15 py-2.5 text-[13px] font-medium text-[#3d7a29] transition-colors hover:bg-[#CAFFB8] disabled:opacity-40"
             >
               <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} />
               Add person
             </button>
             {rows.length >= MAX_RECIPIENTS && (
-              <p className="mt-1.5 text-[12px] text-fg-dim">
+              <p className="mt-1.5 text-[12px] text-[#3d7a29]">
                 Max {MAX_RECIPIENTS} recipients per batch.
               </p>
             )}
           </div>
 
           {/* Paste a list — quieter disclosure */}
-          <div className="rounded-2xl bg-surface-2 ring-1 ring-black/[0.04]">
+          <div className="rounded-2xl border border-[#15300c]/10 bg-white/60 backdrop-blur-sm">
             <button
               type="button"
               onClick={() => setPasteOpen((v) => !v)}
               className="flex w-full items-center justify-between px-4 py-3 text-left"
             >
-              <span className="inline-flex items-center gap-2 text-[13px] font-medium text-fg-muted">
+              <span className="inline-flex items-center gap-2 text-[13px] font-medium text-[#3a5230]">
                 <HugeiconsIcon icon={Csv01Icon} size={15} strokeWidth={1.7} />
                 Or paste a list
               </span>
-              <span className="text-[12px] text-fg-dim">{pasteOpen ? "Hide" : "Show"}</span>
+              <span className="text-[12px] text-[#3d7a29]">{pasteOpen ? "Hide" : "Show"}</span>
             </button>
             {pasteOpen && (
               <div className="space-y-2.5 px-4 pb-4">
@@ -720,16 +720,16 @@ function BatchPayoutSheet({
                   onChange={(e) => setPasteText(e.target.value)}
                   rows={3}
                   placeholder={"@alice,500,Design\nbob.talise.sui,300\n0xabc…,120,Bonus"}
-                  className="talise-glass w-full resize-y rounded-xl px-3.5 py-2.5 font-mono text-[13px] text-fg outline-none placeholder:text-fg-dim"
+                  className="w-full resize-y rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 font-mono text-[13px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/45"
                 />
-                <p className="text-[12px] text-fg-dim">
+                <p className="text-[12px] text-[#3d7a29]">
                   One per line: handle,amount,label — e.g. @alice,500,Design · label optional
                 </p>
                 {pasteText.trim() && (
                   <button
                     type="button"
                     onClick={applyPaste}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3.5 py-1.5 text-[12px] font-medium text-accent transition-opacity hover:opacity-80"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#CAFFB8] px-3.5 py-1.5 text-[12px] font-medium text-[#15300c] transition-opacity hover:opacity-80"
                   >
                     <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={2} />
                     Add pasted recipients
@@ -753,13 +753,13 @@ function BatchPayoutSheet({
                       if (e.key === "Enter") void saveTeam();
                       if (e.key === "Escape") setTeamNameOpen(false);
                     }}
-                    className="talise-glass min-w-0 flex-1 rounded-xl px-3 py-2.5 text-[13px] text-fg outline-none placeholder:text-fg-dim"
+                    className="min-w-0 flex-1 rounded-xl border border-[#15300c]/15 bg-white/60 px-3 py-2.5 text-[13px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/45"
                   />
                   <button
                     type="button"
                     onClick={() => void saveTeam()}
                     disabled={savingTeam || !teamName.trim()}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-accent-soft px-3.5 py-2.5 text-[13px] font-medium text-accent transition-opacity hover:opacity-80 disabled:opacity-40"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#CAFFB8] px-3.5 py-2.5 text-[13px] font-medium text-[#15300c] transition-opacity hover:opacity-80 disabled:opacity-40"
                   >
                     {savingTeam ? <Spinner size={13} /> : <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={2} />}
                     Save
@@ -768,7 +768,7 @@ function BatchPayoutSheet({
                     type="button"
                     onClick={() => setTeamNameOpen(false)}
                     aria-label="Cancel"
-                    className="flex size-9 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:text-fg"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-xl text-[#3d7a29] transition-colors hover:text-[#15300c]"
                   >
                     <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={1.8} />
                   </button>
@@ -777,7 +777,7 @@ function BatchPayoutSheet({
                 <button
                   type="button"
                   onClick={() => setTeamNameOpen(true)}
-                  className="inline-flex items-center gap-1.5 text-[13px] text-fg-muted transition-opacity hover:opacity-70"
+                  className="inline-flex items-center gap-1.5 text-[13px] text-[#3a5230] transition-opacity hover:opacity-70"
                 >
                   <HugeiconsIcon icon={FloppyDiskIcon} size={14} strokeWidth={1.8} />
                   Save as team
@@ -787,12 +787,12 @@ function BatchPayoutSheet({
           )}
 
           {/* Running total */}
-          <div className="flex items-center justify-between rounded-xl border border-line bg-surface-2 px-4 py-3.5">
-            <span className="text-[14px] text-fg-muted">
+          <div className="flex items-center justify-between rounded-xl border border-[#15300c]/10 bg-white/60 px-4 py-3.5 backdrop-blur-sm">
+            <span className="text-[14px] text-[#3a5230]">
               {validLegs.length} ready · total
             </span>
             <span
-              className="text-[22px] font-semibold text-fg"
+              className="text-[22px] font-semibold text-[#15300c]"
               style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
             >
               {formatUsd(total, { fixed: true })}
@@ -809,7 +809,7 @@ function BatchPayoutSheet({
           <button
             type="button"
             onClick={() => setStage("build")}
-            className="text-[13px] text-accent transition-opacity hover:opacity-80"
+            className="text-[13px] text-[#3d7a29] transition-opacity hover:opacity-80"
           >
             ← Edit recipients
           </button>
@@ -818,42 +818,42 @@ function BatchPayoutSheet({
             {validLegs.map((l, i) => (
               <div key={`${l.address}_${i}`}>
                 <div className="flex items-center gap-3.5 px-4 py-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
                     <HugeiconsIcon icon={UserMultipleIcon} size={15} strokeWidth={1.8} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[14px] font-medium text-fg">
+                    <span className="block truncate text-[14px] font-medium text-[#15300c]">
                       {l.displayName}
                     </span>
                     {l.label && (
-                      <span className="block truncate text-[11px] text-fg-dim">
+                      <span className="block truncate text-[11px] text-[#3d7a29]">
                         {l.label}
                       </span>
                     )}
                   </span>
                   <span
-                    className="shrink-0 text-[14px] font-semibold text-fg"
+                    className="shrink-0 text-[14px] font-semibold text-[#15300c]"
                     style={{ fontVariantNumeric: "tabular-nums" }}
                   >
                     {formatUsd(l.amount, { fixed: true })}
                   </span>
                 </div>
-                {i < validLegs.length - 1 && <div className="mx-4 border-t border-line" />}
+                {i < validLegs.length - 1 && <div className="mx-4 border-t border-[#15300c]/10" />}
               </div>
             ))}
           </GlassCard>
 
-          <div className="rounded-xl border border-line bg-surface-2 px-4 py-4">
+          <div className="rounded-xl border border-[#15300c]/10 bg-white/60 px-4 py-4 backdrop-blur-sm">
             <div className="flex items-center justify-between">
               <MicroLabel>Total to {validLegs.length} {validLegs.length === 1 ? "person" : "people"}</MicroLabel>
               <span
-                className="text-[22px] font-semibold text-fg"
+                className="text-[22px] font-semibold text-[#15300c]"
                 style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
               >
                 {formatUsd(total, { fixed: true })}
               </span>
             </div>
-            <p className="mt-1.5 text-[12px] text-fg-dim">
+            <p className="mt-1.5 text-[12px] text-[#3d7a29]">
               One atomic transaction — everyone gets paid, or no one does. Gas is
               sponsored by Talise.
             </p>
@@ -887,9 +887,9 @@ function RecipientCard({
   removable: boolean;
 }) {
   return (
-    <div className="rounded-2xl bg-surface-2 p-3 ring-1 ring-black/[0.04]">
+    <div className="rounded-2xl border border-[#15300c]/10 bg-white/60 p-3 backdrop-blur-sm">
       <div className="mb-2 flex items-center justify-between">
-        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-dim">
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-[#3d7a29]">
           <HugeiconsIcon icon={UserMultipleIcon} size={12} strokeWidth={1.8} />
           Person {index + 1}
         </span>
@@ -898,7 +898,7 @@ function RecipientCard({
           onClick={onRemove}
           disabled={!removable}
           aria-label="Remove person"
-          className="flex size-7 items-center justify-center rounded-lg text-fg-dim transition-colors hover:text-[var(--color-danger)] disabled:opacity-30"
+          className="flex size-7 items-center justify-center rounded-lg text-[#3d7a29] transition-colors hover:text-[#c0532f] disabled:opacity-30"
         >
           <HugeiconsIcon icon={Delete02Icon} size={15} strokeWidth={1.8} />
         </button>
@@ -909,17 +909,17 @@ function RecipientCard({
           value={row.input}
           onChange={(e) => onChange({ input: e.target.value })}
           placeholder="@alice or 0x…"
-          className="talise-glass min-w-0 flex-1 rounded-xl px-3 py-2.5 text-[14px] text-fg outline-none placeholder:text-fg-dim"
+          className="min-w-0 flex-1 rounded-xl border border-[#15300c]/15 bg-white/60 px-3 py-2.5 text-[14px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/45"
         />
-        <div className="talise-glass flex w-28 items-center rounded-xl px-2.5 py-2.5">
-          <span className="text-[13px] text-fg-dim">$</span>
+        <div className="flex w-28 items-center rounded-xl border border-[#15300c]/15 bg-white/60 px-2.5 py-2.5 backdrop-blur-sm focus-within:ring-2 focus-within:ring-[#3d7a29]/45">
+          <span className="text-[13px] text-[#3d7a29]">$</span>
           <input
             value={row.amount}
             onChange={(e) => onChange({ amount: e.target.value.replace(/[^\d.]/g, "") })}
             inputMode="decimal"
             placeholder="0.00"
             aria-label="Amount"
-            className="w-full bg-transparent pl-1 text-right text-[14px] text-fg outline-none placeholder:text-fg-dim"
+            className="w-full bg-transparent pl-1 text-right text-[14px] text-[#15300c] outline-none placeholder:text-[#3d7a29]"
             style={{ fontVariantNumeric: "tabular-nums" }}
           />
         </div>
@@ -931,22 +931,22 @@ function RecipientCard({
           value={row.label}
           onChange={(e) => onChange({ label: e.target.value })}
           placeholder="Label (optional)"
-          className="min-w-0 flex-1 bg-transparent text-[12px] text-fg-muted outline-none placeholder:text-fg-dim"
+          className="min-w-0 flex-1 bg-transparent text-[12px] text-[#3a5230] outline-none placeholder:text-[#3d7a29]"
         />
         <span className="shrink-0 text-[11px]">
           {row.resolve.status === "resolving" && (
-            <span className="inline-flex items-center gap-1 text-fg-dim">
+            <span className="inline-flex items-center gap-1 text-[#3d7a29]">
               <Spinner size={11} /> Resolving…
             </span>
           )}
           {row.resolve.status === "ok" && (
-            <span className="inline-flex items-center gap-1 text-accent">
+            <span className="inline-flex items-center gap-1 text-[#3d7a29]">
               <HugeiconsIcon icon={CheckmarkCircle02Icon} size={12} strokeWidth={2} />
               {row.resolve.displayName}
             </span>
           )}
           {row.resolve.status === "error" && (
-            <span className="text-[var(--color-danger)]">{row.resolve.message}</span>
+            <span className="text-[#c0532f]">{row.resolve.message}</span>
           )}
         </span>
       </div>
@@ -971,12 +971,12 @@ function SuccessState({
 }) {
   return (
     <div className="flex flex-col items-center gap-4 py-6 text-center">
-      <span className="flex size-14 items-center justify-center rounded-full bg-accent-soft text-accent">
+      <span className="flex size-14 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
         <HugeiconsIcon icon={CheckmarkCircle02Icon} size={30} strokeWidth={1.8} />
       </span>
       <div>
-        <h3 className="text-[18px] font-medium text-fg">Team paid</h3>
-        <p className="mt-1 text-[14px] text-fg-muted">
+        <h3 className="text-[18px] font-medium text-[#15300c]">Team paid</h3>
+        <p className="mt-1 text-[14px] text-[#3a5230]">
           {formatUsd(total, { fixed: true })} to {count}{" "}
           {count === 1 ? "person" : "people"} in one transaction.
         </p>

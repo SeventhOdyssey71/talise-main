@@ -74,15 +74,15 @@ export function BalanceHero({ inline = false, me = null }: { inline?: boolean; m
   const balanceFigure = showSkeleton ? (
     <div
       className="animate-pulse rounded-xl"
-      style={{ width: 240, height: numberSize, background: "var(--color-surface-2)" }}
+      style={{ width: 240, height: numberSize, background: "currentColor", opacity: 0.12 }}
       aria-label="Loading balance"
     />
   ) : showError ? (
     <button
       type="button"
       onClick={() => void refreshFresh()}
-      className="font-display font-semibold tabular-nums text-fg-dim"
-      style={{ fontSize: numberSize, lineHeight: 1.02, letterSpacing: "-0.035em" }}
+      className="font-[800] uppercase tabular-nums opacity-70"
+      style={{ fontFamily: "var(--font-display-v2)", fontSize: numberSize, lineHeight: 1.02, letterSpacing: "-0.02em" }}
       aria-label="Couldn't load balance — tap to retry"
     >
       —
@@ -97,8 +97,8 @@ export function BalanceHero({ inline = false, me = null }: { inline?: boolean; m
         aria-pressed={hidden}
       >
         <span
-          className="font-display font-semibold tabular-nums text-fg"
-          style={{ fontSize: numberSize, lineHeight: 1.02, letterSpacing: "-0.035em" }}
+          className="font-[800] uppercase tabular-nums"
+          style={{ fontFamily: "var(--font-display-v2)", fontSize: numberSize, lineHeight: 1.02, letterSpacing: "-0.02em" }}
         >
           {hidden ? maskedBalance : formatLocal(total)}
         </span>
@@ -106,7 +106,7 @@ export function BalanceHero({ inline = false, me = null }: { inline?: boolean; m
           icon={hidden ? ViewOffSlashIcon : ViewIcon}
           size={18}
           strokeWidth={2}
-          className="self-center text-fg-dim transition-colors group-hover:text-fg-muted"
+          className="self-center opacity-65 transition-opacity group-hover:opacity-90"
         />
       </button>
     </div>
@@ -122,34 +122,62 @@ export function BalanceHero({ inline = false, me = null }: { inline?: boolean; m
     <button
       type="button"
       onClick={() => void refreshFresh()}
-      className="mt-3 text-left font-mono text-[11px] text-fg-dim underline-offset-2 hover:text-fg-muted"
+      className="mt-3 text-left font-mono text-[11px] text-[#CAFFB8] underline-offset-2 hover:text-[#f7fcf2]"
     >
-      Couldn&apos;t load balance — tap to retry
+      Couldn&apos;t load balance, tap to retry
     </button>
   ) : (
     <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1">
       {showSkeleton ? (
-        <span className="animate-pulse rounded-full" style={{ width: 96, height: 12, background: "var(--color-surface-2)" }} />
+        <span className="animate-pulse rounded-full" style={{ width: 96, height: 12, background: "rgba(202,255,184,0.25)" }} />
       ) : (
-        <span className="font-mono text-[12px] tabular-nums text-fg-muted">{usdsuiLine}</span>
+        <span className="font-mono text-[12px] tabular-nums text-[#f7fcf2]/80">{usdsuiLine}</span>
       )}
-      <span className="font-mono text-[12px] text-fg-dim">·</span>
+      <span className="font-mono text-[12px] text-[#CAFFB8]/70">·</span>
       <Link
         href="/app/earn"
-        className="font-mono text-[12px] font-medium tracking-[-0.01em] text-accent underline-offset-2 hover:underline"
+        className="font-mono text-[12px] font-medium tracking-[-0.01em] text-[#CAFFB8] underline-offset-2 hover:underline"
       >
         Earn on idle balance
       </Link>
     </div>
   );
 
-  // ── Business dashboard form: balance content inside a GlassCard. ───────────
+  // ── Business dashboard form: balance content inside a light bento card. ────
+  // Same data as the forest Home card, but on the light cream surface so it
+  // pairs with the light IdentityCard on the business dashboard — its meta row
+  // uses the ink/forest tones rather than the forest-card's cream/mint.
+  const metaLight = showError ? (
+    <button
+      type="button"
+      onClick={() => void refreshFresh()}
+      className="mt-3 text-left font-mono text-[11px] text-[#3d7a29] underline-offset-2 hover:text-[#3a5230]"
+    >
+      Couldn&apos;t load balance, tap to retry
+    </button>
+  ) : (
+    <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+      {showSkeleton ? (
+        <span className="animate-pulse rounded-full" style={{ width: 96, height: 12, background: "rgba(21,48,12,0.1)" }} />
+      ) : (
+        <span className="font-mono text-[12px] tabular-nums text-[#3a5230]">{usdsuiLine}</span>
+      )}
+      <span className="font-mono text-[12px] text-[#3d7a29]">·</span>
+      <Link
+        href="/app/earn"
+        className="font-mono text-[12px] font-medium tracking-[-0.01em] text-[#3d7a29] underline-offset-2 hover:underline"
+      >
+        Earn on idle balance
+      </Link>
+    </div>
+  );
+
   if (!inline) {
     return (
-      <GlassCard className="flex h-full flex-col justify-center px-6 py-7 sm:px-8 sm:py-8" radius={14}>
+      <GlassCard className="flex h-full flex-col justify-center p-7 md:p-9 text-[#15300c]">
         <Eyebrow>Total balance</Eyebrow>
         <div className="mt-2">{balanceFigure}</div>
-        {meta}
+        {metaLight}
       </GlassCard>
     );
   }
@@ -202,9 +230,14 @@ function BalanceCard({
   }
 
   return (
-    <div className="flex h-full flex-col rounded-3xl bg-surface p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_28px_-18px_rgba(35,78,20,0.18)] ring-1 ring-line/70 sm:p-7">
+    <div
+      className="flex h-full flex-col rounded-[28px] bg-gradient-to-br from-[#3d7a29] to-[#1c4513] p-7 text-[#f7fcf2] md:p-9"
+      style={{ boxShadow: "10px 10px 0 #15300c" }}
+    >
       <div className="flex items-center justify-between gap-3">
-        <Eyebrow>{eyebrow}</Eyebrow>
+        <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#CAFFB8]">
+          {eyebrow}
+        </span>
         {trailing}
       </div>
       <div className="mt-2">{figure}</div>
@@ -212,15 +245,15 @@ function BalanceCard({
 
       {/* Quiet identity row — @handle + short address with copy. mt-auto pins
           identity+actions to the card's bottom when the grid stretches it. */}
-      <div className="mt-5 flex items-center gap-2 border-t border-line/70 pt-4 text-[12px] lg:mt-auto lg:pt-4">
+      <div className="mt-5 flex items-center gap-2 border-t border-[#CAFFB8]/20 pt-4 text-[12px] lg:mt-auto lg:pt-4">
         {handle ? (
-          <span className="shrink-0 font-medium text-fg">{handle}@talise</span>
+          <span className="shrink-0 font-medium text-[#f7fcf2]">{handle}@talise</span>
         ) : (
-          <Link href="/app/settings#username" className="shrink-0 font-medium text-accent hover:underline">
+          <Link href="/app/settings#username" className="shrink-0 font-medium text-[#CAFFB8] hover:underline">
             Claim your @name
           </Link>
         )}
-        {handle && <span className="text-fg-dim">·</span>}
+        {handle && <span className="text-[#CAFFB8]/70">·</span>}
         <button
           type="button"
           onClick={copyAddress}
@@ -228,29 +261,30 @@ function BalanceCard({
           className="group inline-flex min-w-0 items-center gap-1.5 disabled:opacity-50"
           aria-label="Copy address"
         >
-          <span className="truncate font-mono text-fg-muted">{short}</span>
+          <span className="truncate font-mono text-[#f7fcf2]/80">{short}</span>
           <HugeiconsIcon
             icon={copied ? Tick02Icon : Copy01Icon}
             size={13}
             strokeWidth={2}
-            color={copied ? "var(--color-accent)" : undefined}
-            className={copied ? "" : "text-fg-dim transition-colors group-hover:text-fg-muted"}
+            color={copied ? "#CAFFB8" : undefined}
+            className={copied ? "" : "text-[#CAFFB8]/70 transition-colors group-hover:text-[#f7fcf2]"}
           />
         </button>
       </div>
 
-      {/* Inline primary actions — Send (solid accent) + Request (soft mint). */}
+      {/* Inline primary actions — Send (mint fill) + Request (mint outline). On
+          the forest card the mint pop carries the action; ink text reads on mint. */}
       <div className="mt-4 grid grid-cols-2 gap-2.5">
         <Link
           href="/app/pay"
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-accent-deep px-5 py-2.5 text-[14px] font-medium text-white shadow-[0_6px_18px_-8px_rgba(35,78,20,0.45)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_55%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]"
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-[#CAFFB8] px-5 py-2.5 text-[14px] font-semibold text-[#15300c] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[#CAFFB8]/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1c4513]"
         >
           <HugeiconsIcon icon={SentIcon} size={17} strokeWidth={2} color="currentColor" />
           Send
         </Link>
         <Link
           href="/app/pay/request"
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-accent-soft px-5 py-2.5 text-[14px] font-medium text-accent transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_14%,#ffffff)] active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]"
+          className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-[#CAFFB8] px-5 py-2.5 text-[14px] font-semibold text-[#CAFFB8] transition-colors hover:bg-[#CAFFB8] hover:text-[#15300c] active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[#CAFFB8]/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1c4513]"
         >
           <HugeiconsIcon icon={MoneyReceive02Icon} size={17} strokeWidth={2} color="currentColor" />
           Request
@@ -301,13 +335,13 @@ function CurrencySwitcher({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="Change display currency"
-        className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2 py-0.5 transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_10%,var(--color-surface-2))] outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)]"
+        className="inline-flex items-center gap-1.5 rounded-full border border-[#CAFFB8]/25 bg-white/10 px-2.5 py-1 backdrop-blur-sm transition-colors hover:bg-white/20 outline-none focus-visible:ring-2 focus-visible:ring-[#CAFFB8]/70"
       >
         {flagCode && <Flag code={flagCode} size={16} />}
-        <span className="font-mono text-[11px] font-medium tracking-[0.02em] text-fg-muted">
+        <span className="font-mono text-[11px] font-medium tracking-[0.02em] text-[#f7fcf2]/90">
           {currency}
         </span>
-        <svg width="8" height="5" viewBox="0 0 8 5" aria-hidden className="text-fg-dim">
+        <svg width="8" height="5" viewBox="0 0 8 5" aria-hidden className="text-[#CAFFB8]/80">
           <path d="M1 1l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
         </svg>
       </button>
@@ -316,7 +350,7 @@ function CurrencySwitcher({
         <ul
           role="listbox"
           aria-label="Display currency"
-          className="absolute right-0 z-30 mt-2 max-h-72 w-52 overflow-y-auto rounded-2xl bg-surface p-1.5 shadow-[0_2px_6px_rgba(0,0,0,0.06),0_16px_40px_-16px_rgba(35,78,20,0.3)] ring-1 ring-line/80"
+          className="absolute right-0 z-30 mt-2 max-h-72 w-52 overflow-y-auto rounded-2xl border border-[#15300c]/10 bg-[#f7fcf2] p-1.5 shadow-[0_16px_40px_-16px_rgba(21,48,12,0.35)]"
         >
           {CURRENCIES.map((c) => {
             const cc = CC[c.code] ?? null;
@@ -332,20 +366,20 @@ function CurrencySwitcher({
                     setOpen(false);
                   }}
                   className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors ${
-                    active ? "bg-accent-soft" : "hover:bg-surface-2"
+                    active ? "bg-[#CAFFB8]" : "hover:bg-[#CAFFB8]/40"
                   }`}
                 >
                   {cc ? <Flag code={cc} size={18} /> : <span className="size-[18px]" />}
-                  <span className={`text-[13px] ${active ? "font-medium text-accent" : "text-fg"}`}>
+                  <span className={`text-[13px] ${active ? "font-medium text-[#15300c]" : "text-[#15300c]"}`}>
                     {c.label}
                   </span>
-                  <span className="ml-auto font-mono text-[11px] text-fg-dim">{c.code}</span>
+                  <span className="ml-auto font-mono text-[11px] text-[#3d7a29]">{c.code}</span>
                 </button>
               </li>
             );
           })}
-          <li className="mt-1 border-t border-line/70 px-2.5 py-1.5 font-mono text-[10px] text-fg-dim">
-            Display only — you hold USDsui
+          <li className="mt-1 border-t border-[#15300c]/10 px-2.5 py-1.5 font-mono text-[10px] text-[#3d7a29]">
+            Display only, you hold USDsui
           </li>
         </ul>
       )}

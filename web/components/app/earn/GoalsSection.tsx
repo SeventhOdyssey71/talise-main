@@ -45,7 +45,7 @@ export function GoalsSection() {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-accent"
+          className="inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-[#3d7a29]"
         >
           <HugeiconsIcon icon={PlusSignIcon} size={12} strokeWidth={2.2} />
           New goal
@@ -58,7 +58,7 @@ export function GoalsSection() {
           <GoalSkeleton />
         </div>
       ) : goals.length === 0 ? (
-        <GlassCard radius={14} className="px-2 py-4">
+        <GlassCard radius={28} className="px-2 py-4">
           <EmptyState
             icon={<HugeiconsIcon icon={Target02Icon} size={24} strokeWidth={1.6} />}
             title="No goals yet"
@@ -117,14 +117,14 @@ function GoalCard({
   const pct = goal.targetUsd > 0 ? Math.min(1, goal.currentUsd / goal.targetUsd) : 0;
   const complete = pct >= 1;
   return (
-    <GlassCard radius={14} className="p-4">
+    <GlassCard radius={24} className="p-4">
       <div className="flex items-center gap-3">
         <ProgressRing pct={pct} color={color} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[14px] font-medium tracking-[-0.01em] text-fg">
+          <p className="truncate text-[14px] font-semibold tracking-[-0.01em] text-[#15300c]">
             {goal.name}
           </p>
-          <p className="truncate font-mono text-[11px] text-fg-dim">
+          <p className="truncate font-mono text-[11px] text-[#3d7a29]">
             {formatUsd(goal.currentUsd, { fixed: true })} of{" "}
             {formatUsd(goal.targetUsd, { fixed: true })}
           </p>
@@ -152,7 +152,7 @@ function ProgressRing({ pct, color }: { pct: number; color: string }) {
         cy={size / 2}
         r={r}
         fill="none"
-        stroke="var(--color-line)"
+        stroke="rgba(21,48,12,0.12)"
         strokeWidth={stroke}
       />
       <circle
@@ -170,7 +170,7 @@ function ProgressRing({ pct, color }: { pct: number; color: string }) {
         y="50%"
         dominantBaseline="central"
         textAnchor="middle"
-        className="rotate-90 fill-fg font-mono text-[10px] font-medium"
+        className="rotate-90 fill-[#15300c] font-mono text-[10px] font-medium"
         style={{ transformOrigin: "center" }}
       >
         {Math.round(pct * 100)}%
@@ -181,11 +181,11 @@ function ProgressRing({ pct, color }: { pct: number; color: string }) {
 
 function GoalSkeleton() {
   return (
-    <GlassCard radius={14} className="flex items-center gap-3 p-4 opacity-70">
-      <div className="size-12 shrink-0 rounded-full bg-surface-2" />
+    <GlassCard radius={24} className="flex items-center gap-3 p-4 opacity-70">
+      <div className="size-12 shrink-0 rounded-full bg-[#15300c]/10" />
       <div className="flex-1 space-y-2">
-        <div className="h-2.5 w-24 rounded-full bg-surface-2" />
-        <div className="h-2 w-32 rounded-full bg-surface-2" />
+        <div className="h-2.5 w-24 rounded-full bg-[#15300c]/10" />
+        <div className="h-2 w-32 rounded-full bg-[#15300c]/10" />
       </div>
     </GlassCard>
   );
@@ -242,13 +242,13 @@ function NewGoalSheet({
             onChange={(e) => setName(e.target.value)}
             maxLength={40}
             placeholder="Japan trip"
-            className="w-full rounded-xl border border-line bg-surface-2 px-4 py-3 text-[14px] text-fg outline-none placeholder:text-fg-dim"
+            className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 text-[14px] text-[#15300c] outline-none backdrop-blur-sm transition-colors placeholder:text-[#3d7a29] focus:border-[#3d7a29] focus:ring-2 focus:ring-[#3d7a29]/30"
           />
         </Field>
 
         <Field label={`Target (${currency})`}>
-          <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3">
-            <span className="text-[17px] font-medium text-fg-muted">{symbol}</span>
+          <div className="flex items-center gap-2 rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 backdrop-blur-sm">
+            <span className="text-[17px] font-medium text-[#3a5230]">{symbol}</span>
             <input
               inputMode="decimal"
               value={target}
@@ -257,7 +257,7 @@ function NewGoalSheet({
                 if ((v.match(/\./g) ?? []).length <= 1) setTarget(v);
               }}
               placeholder="0.00"
-              className="w-full bg-transparent text-[17px] font-medium tabular-nums text-fg outline-none placeholder:text-fg-dim"
+              className="w-full bg-transparent text-[17px] font-medium tabular-nums text-[#15300c] outline-none placeholder:text-[#3d7a29]"
             />
           </div>
         </Field>
@@ -274,7 +274,7 @@ function NewGoalSheet({
                 className="size-7 rounded-full transition-transform active:scale-90"
                 style={{
                   background: c,
-                  outline: color === c ? "2px solid var(--color-fg)" : "none",
+                  outline: color === c ? "2px solid #15300c" : "none",
                   outlineOffset: 2,
                 }}
               />
@@ -282,7 +282,7 @@ function NewGoalSheet({
           </div>
         </div>
 
-        {error && <p className="text-[13px] text-danger">{error}</p>}
+        {error && <p className="text-[13px] text-[#c0532f]">{error}</p>}
 
         <PrimaryButton
           full
@@ -343,14 +343,14 @@ function DepositSheet({
     <Sheet open={!!goal} onClose={onClose} title={goal ? goal.name : "Add"} size="sm">
       {goal && (
         <div className="space-y-4 pb-1">
-          <p className="text-[13px] text-fg-muted">
+          <p className="text-[13px] text-[#3a5230]">
             {remaining > 0
               ? `${formatUsd(remaining, { fixed: true })} to go.`
               : "Goal reached — keep adding if you like."}
           </p>
           <Field label={`Amount (${currency})`}>
-            <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3">
-              <span className="text-[20px] font-medium text-fg-muted">{symbol}</span>
+            <div className="flex items-center gap-2 rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 backdrop-blur-sm">
+              <span className="text-[20px] font-medium text-[#3a5230]">{symbol}</span>
               <input
                 inputMode="decimal"
                 value={amount}
@@ -360,11 +360,11 @@ function DepositSheet({
                   setError(null);
                 }}
                 placeholder="0.00"
-                className="w-full bg-transparent text-[20px] font-medium tabular-nums text-fg outline-none placeholder:text-fg-dim"
+                className="w-full bg-transparent text-[20px] font-medium tabular-nums text-[#15300c] outline-none placeholder:text-[#3d7a29]"
               />
             </div>
           </Field>
-          {error && <p className="text-[13px] text-danger">{error}</p>}
+          {error && <p className="text-[13px] text-[#c0532f]">{error}</p>}
           <PrimaryButton full disabled={amountUsd <= 0} loading={busy} onClick={deposit}>
             {amountUsd > 0 ? `Add ${formatUsd(amountUsd, { fixed: true })}` : "Add to goal"}
           </PrimaryButton>

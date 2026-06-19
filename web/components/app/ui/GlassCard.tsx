@@ -3,9 +3,9 @@ import type { CSSProperties, ReactNode } from "react";
 export type GlassCardProps = {
   children: ReactNode;
   className?: string;
-  /** Corner radius in px (continuous-feel rounded). Default 14. */
+  /** Corner radius in px (generously rounded v2 bento). Default 28. */
   radius?: number;
-  /** Optional tint colour layered faintly over the glass fill. */
+  /** Optional solid brand fill (mint/coral/lilac/butter) instead of cream. */
   tint?: string;
   /** Adds hover lift + pressable affordance. */
   interactive?: boolean;
@@ -14,36 +14,39 @@ export type GlassCardProps = {
 };
 
 /**
- * The base liquid-glass surface: white-tint over a blurred backdrop, a 1px
- * hairline with a brighter top edge, soft black shadow, continuous rounded
- * corners. Mirrors the iOS `taliseGlass()` modifier.
+ * The v2 light bento card: a cream `#f7fcf2` surface with a hard offset shadow
+ * (`10px 10px 0 #15300c`), generously rounded corners, ink text. This is the
+ * layout workhorse the whole app composes on top of the mint page gradient.
+ * Optional `tint` fills the card with a brand pop (mint/coral/lilac/butter)
+ * instead of cream.
  */
 export function GlassCard({
   children,
   className = "",
-  radius = 14,
+  radius = 28,
   tint,
   interactive = false,
   onClick,
   as,
 }: GlassCardProps) {
   const Tag = (as ?? (onClick ? "button" : "div")) as "div" | "button";
-  const style: CSSProperties = { borderRadius: radius };
-  if (tint) {
-    // Light-mint tint: a faint wash of the tint colour over a near-white card
-    // (matches the .landing-mint .talise-glass fill), so tinted cards stay
-    // airy and legible rather than turning dark/glassy.
-    style.background = `linear-gradient(to bottom, color-mix(in srgb, ${tint} 12%, #ffffff) 0%, color-mix(in srgb, ${tint} 5%, #f3faea) 100%)`;
-  }
+  // Cream by default; a solid brand fill when tinted (mint #CAFFB8, coral
+  // #FF9E7A, lilac #C9B8FF, butter #FFE59E). The hard offset shadow is the
+  // signature of the v2 bento look.
+  const style: CSSProperties = {
+    borderRadius: radius,
+    background: tint ?? "#f7fcf2",
+    boxShadow: "10px 10px 0 #15300c",
+  };
   const interactiveCls =
     interactive || onClick
-      ? "transition-[transform,border-color,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] active:translate-y-0 active:scale-[0.995] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]"
+      ? "transition-transform duration-200 ease-out hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.995] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#3d7a29]/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7fcf2]"
       : "";
   return (
     <Tag
       onClick={onClick}
       style={style}
-      className={`talise-glass relative ${Tag === "button" ? "block w-full text-left" : ""} ${interactiveCls} ${className}`}
+      className={`relative text-[#15300c] ${Tag === "button" ? "block w-full text-left" : ""} ${interactiveCls} ${className}`}
       {...(Tag === "button" ? { type: "button" as const } : {})}
     >
       {children}

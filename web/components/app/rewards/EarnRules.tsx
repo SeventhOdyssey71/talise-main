@@ -30,20 +30,20 @@ export function EarnRules({ rates }: { rates: PointRates | null }) {
   return (
     <section className="space-y-2.5">
       <MicroLabel>How you earn</MicroLabel>
-      <GlassCard className="overflow-hidden !p-0" radius={14}>
+      <GlassCard className="overflow-hidden !p-0">
         {rules.map((rule, i) => (
           <div key={rule.label}>
-            {i > 0 && <div className="mx-4 h-px bg-line" />}
-            <div className="flex items-center gap-3 px-4 py-3">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+            {i > 0 && <div className="mx-4 h-px bg-[#15300c]/10" />}
+            <div className="flex items-center gap-3 px-5 py-3.5">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
                 <HugeiconsIcon icon={rule.icon} size={15} strokeWidth={1.8} />
               </span>
-              <span className="flex-1 text-[13px] text-fg">{rule.label}</span>
+              <span className="flex-1 text-[13px] text-[#15300c]">{rule.label}</span>
               <span className="flex items-baseline gap-1">
-                <span className="text-[14px] font-medium text-accent tabular-nums">
+                <span className="text-[14px] font-medium text-[#3d7a29] tabular-nums">
                   {rule.rate}
                 </span>
-                <span className="font-mono text-[10px] text-fg-dim">
+                <span className="font-mono text-[10px] text-[#3d7a29]">
                   {rule.rate === 1 ? "pt / $1" : "pts / $1"}
                 </span>
               </span>

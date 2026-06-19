@@ -120,9 +120,9 @@ function FlowStepper({ step }: { step: Step }) {
     // edge under the sheet's close button and read too wide.
     <div className="mx-auto mb-4 w-[88%] sm:mb-5 sm:w-full" aria-label="Send progress">
       {/* Progress bar */}
-      <div className="relative h-0.5 w-full overflow-hidden rounded-full bg-surface-2">
+      <div className="relative h-0.5 w-full overflow-hidden rounded-full bg-[#15300c]/10">
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-accent-deep transition-all duration-300"
+          className="absolute inset-y-0 left-0 rounded-full bg-[#3d7a29] transition-all duration-300"
           style={{ width: `${(filled / (FLOW_STEPS.length - 1)) * 100}%` }}
         />
       </div>
@@ -137,10 +137,10 @@ function FlowStepper({ step }: { step: Step }) {
               key={s.key}
               className={`font-mono tracking-[0.08em] transition-colors ${
                 current
-                  ? "text-[10px] font-medium text-fg"
+                  ? "text-[10px] font-medium text-[#15300c]"
                   : done
-                    ? "text-[9px] text-accent"
-                    : "text-[9px] text-fg-dim/70"
+                    ? "text-[9px] text-[#3d7a29]"
+                    : "text-[9px] text-[#3d7a29]/60"
               }`}
             >
               {s.label}
@@ -459,7 +459,7 @@ export function SendFlow() {
                 else if (step === "review") setStep("recipient");
               }}
               aria-label="Back"
-              className="flex size-9 items-center justify-center rounded-full border border-line bg-surface text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+              className="flex size-9 items-center justify-center rounded-full border border-[#15300c]/15 bg-white/60 text-[#15300c] backdrop-blur-sm transition-colors hover:border-[#15300c]/30"
             >
               <HugeiconsIcon icon={ArrowLeft01Icon} size={18} strokeWidth={2} />
             </button>
@@ -471,7 +471,7 @@ export function SendFlow() {
             type="button"
             onClick={() => router.push("/app")}
             aria-label="Close"
-            className="flex size-9 items-center justify-center rounded-full border border-line bg-surface text-fg-muted transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+            className="flex size-9 items-center justify-center rounded-full border border-[#15300c]/15 bg-white/60 text-[#3a5230] backdrop-blur-sm transition-colors hover:border-[#15300c]/30"
           >
             <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2} />
           </button>
@@ -537,20 +537,20 @@ export function SendFlow() {
           {invoiceId && (
             <div className="mx-auto mt-4 flex max-w-md items-center justify-center gap-2 text-[13px]">
               {invoiceSettle === "paid" ? (
-                <span className="text-accent">✓ Invoice marked paid</span>
+                <span className="text-[#3d7a29]">✓ Invoice marked paid</span>
               ) : invoiceSettle === "pending" ? (
-                <span className="text-fg-dim">Confirming invoice…</span>
+                <span className="text-[#3d7a29]">Confirming invoice…</span>
               ) : invoiceSettle === "unmatched" ? (
-                <span className="text-[var(--color-danger)]">
+                <span className="text-[#c0532f]">
                   Payment sent, but it didn&apos;t match this invoice
                   {unmatchedMsg ? ` (${unmatchedMsg})` : ""}.
                 </span>
               ) : invoiceSettle === "error" ? (
-                <span className="text-fg-dim">Payment sent — invoice will update shortly</span>
+                <span className="text-[#3d7a29]">Payment sent — invoice will update shortly</span>
               ) : null}
               <a
                 href={`/i/${invoiceId}`}
-                className="text-fg-muted underline underline-offset-2 hover:text-fg"
+                className="text-[#3a5230] underline underline-offset-2 hover:text-[#15300c]"
               >
                 View invoice
               </a>
@@ -619,25 +619,25 @@ function AmountStep({
       <div className="flex flex-col items-center py-3 text-center sm:py-6">
         <div className="flex items-baseline justify-center gap-2">
           {/* Currency chip */}
-          <span className="mb-1 self-end rounded-full bg-surface-2 px-2.5 py-1 font-mono text-[13px] font-medium text-fg-muted">
+          <span className="mb-1 self-end rounded-full border border-[#15300c]/15 bg-white/60 px-2.5 py-1 font-mono text-[13px] font-medium text-[#3a5230] backdrop-blur-sm">
             {symbol}
           </span>
           {/* Big ink number */}
           <span
-            className={`font-display font-semibold tabular-nums ${
-              overBalance ? "text-[var(--color-danger)]" : "text-fg"
+            className={`font-[800] tabular-nums ${
+              overBalance ? "text-[#c0532f]" : "text-[#15300c]"
             }`}
-            style={{ fontSize: 48, lineHeight: 1.02, letterSpacing: "-0.04em" }}
+            style={{ fontFamily: "var(--font-display-v2)", fontSize: 48, lineHeight: 1.02, letterSpacing: "-0.04em" }}
           >
             {display}
           </span>
         </div>
 
         {/* USDsui sublabel */}
-        <span className="mt-2 font-mono text-[12px] tabular-nums text-fg-dim">{usdsuiLine}</span>
+        <span className="mt-2 font-mono text-[12px] tabular-nums text-[#3d7a29]">{usdsuiLine}</span>
 
         {overBalance && (
-          <span className="mt-1.5 rounded-full bg-[color-mix(in_srgb,var(--color-danger)_12%,transparent)] px-3 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-danger)]">
+          <span className="mt-1.5 rounded-full bg-[#FF9E7A]/30 px-3 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-[#c0532f]">
             Over available balance
           </span>
         )}
@@ -645,18 +645,18 @@ function AmountStep({
 
       {/* Wallet pill + MAX */}
       <div className="mb-4 flex items-center justify-center gap-2 sm:mb-5">
-        <span className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-1.5">
-          <span className="size-1.5 rounded-full bg-accent" />
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-fg">
+        <span className="inline-flex items-center gap-2 rounded-full border border-[#15300c]/15 bg-white/60 px-3.5 py-1.5 backdrop-blur-sm">
+          <span className="size-1.5 rounded-full bg-[#3d7a29]" />
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#15300c]">
             Main wallet
           </span>
-          <span className="font-mono text-[10px] text-fg-dim">· {availableLabel}</span>
+          <span className="font-mono text-[10px] text-[#3d7a29]">· {availableLabel}</span>
         </span>
         <button
           type="button"
           onClick={onMax}
           disabled={available <= 0}
-          className="rounded-full border border-line bg-surface px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-accent transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))] disabled:opacity-40"
+          className="rounded-full border border-[#15300c]/15 bg-white/60 px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-[#3d7a29] backdrop-blur-sm transition-colors hover:border-[#15300c]/30 disabled:opacity-40"
         >
           Max
         </button>
@@ -664,7 +664,7 @@ function AmountStep({
 
       {/* Numpad — shown on mobile; desktop users can type with the keyboard. */}
       <Numpad onKey={onKey} onBackspace={onBackspace} className="lg:hidden" />
-      <p className="mt-1 hidden text-center text-[12px] text-fg-dim lg:block">
+      <p className="mt-1 hidden text-center text-[12px] text-[#3d7a29] lg:block">
         Type an amount, then press Enter to continue.
       </p>
 
@@ -718,7 +718,7 @@ function RecipientStep({
   return (
     <div>
       {/* Input */}
-      <GlassCard radius={14} className="px-4 py-3.5">
+      <GlassCard radius={28} className="px-4 py-3.5">
         <Eyebrow className="mb-1.5 block">To</Eyebrow>
         <div className="flex items-center gap-2">
           <input
@@ -733,14 +733,14 @@ function RecipientStep({
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
-            className="w-full bg-transparent text-[16px] text-fg outline-none placeholder:text-fg-dim"
+            className="w-full bg-transparent text-[16px] text-[#15300c] outline-none placeholder:text-[#3d7a29]"
           />
           {value && (
             <button
               type="button"
               onClick={onClear}
               aria-label="Clear"
-              className="flex size-6 shrink-0 items-center justify-center rounded-full text-fg-dim transition-colors hover:bg-accent-soft hover:text-fg"
+              className="flex size-6 shrink-0 items-center justify-center rounded-full text-[#3d7a29] transition-colors hover:bg-[#CAFFB8] hover:text-[#15300c]"
             >
               <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
             </button>
@@ -751,7 +751,7 @@ function RecipientStep({
       {/* Resolve status */}
       <div className="mt-3 min-h-[20px] px-1">
         {resolving ? (
-          <span className="inline-flex items-center gap-2 text-fg-dim">
+          <span className="inline-flex items-center gap-2 text-[#3d7a29]">
             <Spinner size={13} />
             <MicroLabel>Resolving…</MicroLabel>
           </span>
@@ -760,11 +760,11 @@ function RecipientStep({
             <HugeiconsIcon
               icon={CheckmarkCircle02Icon}
               size={14}
-              color="var(--color-accent)"
+              color="#3d7a29"
               strokeWidth={2}
             />
-            <span className="font-mono text-[11px] text-accent">{resolved.displayName}</span>
-            <span className="font-mono text-[10px] text-fg-dim">
+            <span className="font-mono text-[11px] text-[#3d7a29]">{resolved.displayName}</span>
+            <span className="font-mono text-[10px] text-[#3d7a29]">
               {resolved.address.slice(0, 8)}…{resolved.address.slice(-6)}
             </span>
           </span>
@@ -773,10 +773,10 @@ function RecipientStep({
             <HugeiconsIcon
               icon={Alert02Icon}
               size={14}
-              color="var(--color-danger)"
+              color="#c0532f"
               strokeWidth={2}
             />
-            <span className="font-mono text-[11px] text-[var(--color-danger)]">
+            <span className="font-mono text-[11px] text-[#c0532f]">
               No match for &ldquo;{value.trim()}&rdquo;
             </span>
           </span>
@@ -787,33 +787,33 @@ function RecipientStep({
       <div className="mt-6">
         <Eyebrow className="mb-3 block">Recent</Eyebrow>
         {contacts.length === 0 ? (
-          <p className="text-[13px] text-fg-dim">
+          <p className="text-[13px] text-[#3d7a29]">
             No recent recipients yet — your first send will appear here.
           </p>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-line bg-surface">
+          <div className="overflow-hidden rounded-[28px] border border-[#15300c]/15 bg-white/60 backdrop-blur-sm">
             {contacts.map((c, i) => (
               <button
                 key={c.address}
                 type="button"
                 onClick={() => onPickContact(c)}
-                className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent-soft ${
-                  i < contacts.length - 1 ? "border-b border-line" : ""
+                className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[#CAFFB8]/50 ${
+                  i < contacts.length - 1 ? "border-b border-[#15300c]/10" : ""
                 }`}
               >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-[12px] font-semibold text-fg">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[12px] font-[800] text-[#15300c]" style={{ fontFamily: "var(--font-display-v2)" }}>
                   {contactInitials(c)}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-medium text-fg">
+                  <span className="block truncate text-[14px] font-medium text-[#15300c]">
                     {c.name ?? `${c.address.slice(0, 8)}…${c.address.slice(-6)}`}
                   </span>
-                  <span className="block truncate font-mono text-[11px] text-fg-dim">
+                  <span className="block truncate font-mono text-[11px] text-[#3d7a29]">
                     {c.address.slice(0, 10)}…{c.address.slice(-6)}
                   </span>
                 </span>
                 {c.sentCount > 0 && (
-                  <span className="shrink-0 font-mono text-[10px] text-fg-dim">
+                  <span className="shrink-0 font-mono text-[10px] text-[#3d7a29]">
                     {c.sentCount}×
                   </span>
                 )}
@@ -853,18 +853,18 @@ function ReviewRow({
   return (
     <div
       className={`flex items-center gap-3.5 px-5 py-4 ${
-        !last ? "border-b border-line" : ""
+        !last ? "border-b border-[#15300c]/10" : ""
       }`}
     >
       {chip}
       <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-medium text-fg">{title}</span>
-        <span className="block truncate font-mono text-[11px] text-fg-dim">{sub}</span>
+        <span className="block text-[13px] font-medium text-[#15300c]">{title}</span>
+        <span className="block truncate font-mono text-[11px] text-[#3d7a29]">{sub}</span>
       </span>
       <span className="flex shrink-0 flex-col items-end">
-        <span className="text-[14px] font-semibold tabular-nums text-fg">{value}</span>
+        <span className="text-[14px] font-semibold tabular-nums text-[#15300c]">{value}</span>
         {valueSub && (
-          <span className="mt-0.5 font-mono text-[10px] text-fg-dim">{valueSub}</span>
+          <span className="mt-0.5 font-mono text-[10px] text-[#3d7a29]">{valueSub}</span>
         )}
       </span>
     </div>
@@ -874,9 +874,10 @@ function ReviewRow({
 function ReviewChip({ letter, accent = false }: { letter: string; accent?: boolean }) {
   return (
     <span
-      className={`flex size-10 shrink-0 items-center justify-center rounded-full font-display text-[13px] font-semibold ${
-        accent ? "bg-accent-soft text-accent" : "bg-surface-2 text-fg"
+      className={`flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-[800] ${
+        accent ? "bg-[#CAFFB8] text-[#15300c]" : "bg-white/60 text-[#15300c] border border-[#15300c]/15"
       }`}
+      style={{ fontFamily: "var(--font-display-v2)" }}
     >
       {letter}
     </span>
@@ -912,16 +913,16 @@ function ReviewStep({
       {/* Big amount summary */}
       <div className="py-2 text-center">
         <div
-          className="font-display font-semibold tabular-nums text-fg"
-          style={{ fontSize: 40, letterSpacing: "-0.04em", lineHeight: 1.02 }}
+          className="font-[800] tabular-nums text-[#15300c]"
+          style={{ fontFamily: "var(--font-display-v2)", fontSize: 40, letterSpacing: "-0.04em", lineHeight: 1.02 }}
         >
           {formatUsd(amountUsd)}
         </div>
-        <div className="mt-1.5 font-mono text-[12px] text-fg-dim">{usdsuiLine}</div>
+        <div className="mt-1.5 font-mono text-[12px] text-[#3d7a29]">{usdsuiLine}</div>
       </div>
 
       {/* Detail rows — Wise-style list card */}
-      <GlassCard radius={14} className="overflow-hidden p-0">
+      <GlassCard radius={28} className="overflow-hidden p-0">
         <ReviewRow
           chip={<ReviewChip letter="F" />}
           title="From"
@@ -938,11 +939,11 @@ function ReviewStep({
         />
         <ReviewRow
           chip={
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface-2">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-[#15300c]/15 bg-white/60 backdrop-blur-sm">
               <HugeiconsIcon
                 icon={CheckmarkBadge01Icon}
                 size={18}
-                color="var(--color-accent)"
+                color="#3d7a29"
                 strokeWidth={2}
               />
             </span>
@@ -954,11 +955,11 @@ function ReviewStep({
         />
         <ReviewRow
           chip={
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface-2">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-[#15300c]/15 bg-white/60 backdrop-blur-sm">
               <HugeiconsIcon
                 icon={CheckmarkCircle02Icon}
                 size={18}
-                color="var(--color-fg-muted)"
+                color="#3a5230"
                 strokeWidth={2}
               />
             </span>
@@ -1028,17 +1029,17 @@ function SuccessStep({
 
       <Eyebrow className="mt-1">Sent</Eyebrow>
       <div
-        className="mt-3 font-display font-semibold tabular-nums text-fg"
-        style={{ fontSize: 44, letterSpacing: "-0.04em" }}
+        className="mt-3 font-[800] tabular-nums text-[#15300c]"
+        style={{ fontFamily: "var(--font-display-v2)", fontSize: 44, letterSpacing: "-0.04em" }}
       >
         {formatUsd(amountUsd)}
       </div>
       {to && (
-        <p className="mt-2 text-[14px] text-fg-muted">
-          to <span className="text-fg">{to.displayName}</span>
+        <p className="mt-2 text-[14px] text-[#3a5230]">
+          to <span className="text-[#15300c]">{to.displayName}</span>
         </p>
       )}
-      <p className="mt-1 font-mono text-[11px] text-accent">Arrives in &lt;1s</p>
+      <p className="mt-1 font-mono text-[11px] text-[#3d7a29]">Arrives in &lt;1s</p>
 
       {/* What happened in one transaction — the atomic PTB made visible. */}
       <div className="mt-6 w-full">
@@ -1052,7 +1053,7 @@ function SuccessStep({
 
       {/* A4: surface the auto-routed rail. Factual — $0.00 to the user either
           way; only the gasless rail is validator-sponsored at zero network fee. */}
-      <p className="mt-3 font-mono text-[11px] text-fg-dim">
+      <p className="mt-3 font-mono text-[11px] text-[#3d7a29]">
         {isGasless
           ? "Gasless · network fee $0.00 — gas sponsored by Talise"
           : "Network fee $0.00 — gas sponsored by Talise"}
@@ -1063,7 +1064,7 @@ function SuccessStep({
           href={explorerUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface px-6 py-3 text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-full border-2 border-[#15300c] px-6 py-3 text-[14px] font-medium text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
         >
           View on Suiscan
           <HugeiconsIcon icon={ArrowUpRight01Icon} size={15} strokeWidth={2} />
@@ -1071,7 +1072,7 @@ function SuccessStep({
         <button
           type="button"
           onClick={copyReceipt}
-          className="text-[13px] font-medium text-fg-dim transition-colors hover:text-fg"
+          className="text-[13px] font-medium text-[#3d7a29] transition-colors hover:text-[#15300c]"
         >
           Copy receipt link
         </button>
@@ -1105,25 +1106,25 @@ function FailureStep({
     <div className="flex flex-col items-center pt-6 text-center">
       <span
         className="mb-5 flex size-16 items-center justify-center rounded-full"
-        style={{ background: "color-mix(in srgb, var(--color-danger) 14%, transparent)" }}
+        style={{ background: "color-mix(in srgb, #c0532f 14%, transparent)" }}
       >
         <HugeiconsIcon
           icon={Alert02Icon}
           size={36}
-          color="var(--color-danger)"
+          color="#c0532f"
           strokeWidth={2}
         />
       </span>
 
       <h2
-        className="font-display text-[26px] font-medium text-fg"
-        style={{ letterSpacing: "-0.03em" }}
+        className="text-[26px] font-[800] uppercase text-[#15300c]"
+        style={{ fontFamily: "var(--font-display-v2)", letterSpacing: "-0.02em" }}
       >
         Send failed
       </h2>
-      <p className="mt-1.5 text-[14px] text-fg-muted">No funds moved.</p>
+      <p className="mt-1.5 text-[14px] text-[#3a5230]">No funds moved.</p>
       {message && (
-        <p className="mt-2 max-w-xs text-[13px] text-fg-dim">{message}</p>
+        <p className="mt-2 max-w-xs text-[13px] text-[#3d7a29]">{message}</p>
       )}
 
       <div className="mt-8 flex w-full flex-col gap-2.5">

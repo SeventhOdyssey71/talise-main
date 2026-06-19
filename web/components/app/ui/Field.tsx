@@ -9,7 +9,7 @@ export function Field({ label, children, hint }: FieldProps) {
     <label className="block">
       <Eyebrow className="mb-2 block">{label}</Eyebrow>
       {children}
-      {hint && <span className="mt-1.5 block text-[12px] text-fg-dim">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-[12px] text-[#3d7a29]">{hint}</span>}
     </label>
   );
 }

@@ -23,7 +23,7 @@ const BANKS: { code: string; name: string }[] = LINQ_BANKS.map((b) => ({
 }));
 
 const inputCls =
-  "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[15px] text-fg outline-none transition-colors focus:border-[color-mix(in_srgb,var(--color-accent-deep)_45%,var(--color-line))] focus:ring-0";
+  "w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] placeholder:text-[#3d7a29] outline-none backdrop-blur-sm transition-colors focus:border-[#3d7a29] focus:ring-1 focus:ring-[#3d7a29]";
 
 export function RequestCashoutSheet({
   open,
@@ -77,7 +77,7 @@ export function RequestCashoutSheet({
       if (!res.ok) setErr(data.error || "Could not submit your request.");
       else setDone(data.message || "Cash-out request received.");
     } catch {
-      setErr("Network error — please try again.");
+      setErr("Network error. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -88,10 +88,10 @@ export function RequestCashoutSheet({
       {done ? (
         /* Success state */
         <div className="flex flex-col items-center gap-4 py-4 text-center">
-          <span className="flex size-12 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <span className="flex size-12 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
             <HugeiconsIcon icon={CheckmarkCircle02Icon} size={26} strokeWidth={2} />
           </span>
-          <p className="text-[15px] leading-relaxed text-fg">{done}</p>
+          <p className="text-[15px] leading-relaxed text-[#15300c]">{done}</p>
           <PrimaryButton full onClick={close}>
             Done
           </PrimaryButton>
@@ -143,13 +143,13 @@ export function RequestCashoutSheet({
             />
           </Field>
 
-          {err && <p className="text-[13px] text-[var(--color-danger)]">{err}</p>}
+          {err && <p className="text-[13px] text-[#c0532f]">{err}</p>}
 
           <PrimaryButton full onClick={submit} loading={busy} disabled={!valid}>
             Request cash-out
           </PrimaryButton>
 
-          <p className="text-[12px] leading-relaxed text-fg-dim">
+          <p className="text-[12px] leading-relaxed text-[#3d7a29]">
             During the beta, cash-outs are processed by hand within a few hours
             at the live rate. We&apos;ll confirm once your naira is on the way.
           </p>

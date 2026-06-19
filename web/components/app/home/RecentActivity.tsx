@@ -63,25 +63,28 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
     const chip =
       offrampState(o.status) === "done" ? null : offrampChipLabel(o.status);
     return (
-      <div className="talise-history-row flex items-center gap-3.5 px-3.5 py-3" data-direction="sent">
+      <div
+        className="flex items-center gap-3.5 rounded-[16px] border border-[#15300c]/10 bg-white/60 px-3.5 py-3 backdrop-blur-sm transition-colors hover:border-[#15300c]/20"
+        data-direction="sent"
+      >
         <span
           className="flex size-9 shrink-0 items-center justify-center rounded-full"
-          style={{ background: "color-mix(in srgb, #c95a4a 16%, #ffffff)" }}
+          style={{ background: "color-mix(in srgb, #c0532f 16%, #f7fcf2)" }}
         >
-          <HugeiconsIcon icon={BankIcon} size={17} strokeWidth={2} color="#b3473b" />
+          <HugeiconsIcon icon={BankIcon} size={17} strokeWidth={2} color="#c0532f" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-medium text-fg">
+          <span className="block truncate text-[14px] font-medium text-[#15300c]">
             {bank ? `Cash out → ${bank}` : "Cash out"}
           </span>
-          <span className="block truncate text-[12px] text-fg-dim">
+          <span className="block truncate text-[12px] text-[#3d7a29]">
             {offrampBankLine(o)}
           </span>
         </span>
         <span className="flex shrink-0 flex-col items-end gap-0.5">
           <span
             className="text-[14px] font-semibold tabular-nums"
-            style={{ color: "var(--color-danger)" }}
+            style={{ color: "#c0532f" }}
           >
             −{hidden ? MASK_AMOUNT : formatNgn(o.amountNgn)}
           </span>
@@ -91,16 +94,16 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
               style={
                 offrampState(o.status) === "failed"
                   ? {
-                      color: "var(--color-danger)",
-                      background: "color-mix(in srgb, var(--color-danger) 12%, transparent)",
+                      color: "#c0532f",
+                      background: "color-mix(in srgb, #c0532f 12%, transparent)",
                     }
-                  : { color: "var(--color-fg-muted)", background: "var(--color-surface-2)" }
+                  : { color: "#3a5230", background: "rgba(21,48,12,0.06)" }
               }
             >
               {chip}
             </span>
           ) : (
-            <span className="mt-0.5 font-mono text-[10px] text-fg-dim">
+            <span className="mt-0.5 font-mono text-[10px] text-[#3d7a29]">
               {relativeTime(entry.timestampMs)}
             </span>
           )}
@@ -115,32 +118,32 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
 
   return (
     <div
-      className="talise-history-row flex items-center gap-3.5 px-3.5 py-3"
+      className="flex items-center gap-3.5 rounded-[16px] border border-[#15300c]/10 bg-white/60 px-3.5 py-3 backdrop-blur-sm transition-colors hover:border-[#15300c]/20"
       data-direction={entry.direction}
     >
       <span
         className="flex size-9 shrink-0 items-center justify-center rounded-full"
-        style={{ background: "color-mix(in srgb, var(--row-tint, #ffffff) 14%, transparent)" }}
+        style={{ background: received ? "#CAFFB8" : "rgba(21,48,12,0.06)" }}
       >
         <HugeiconsIcon
           icon={received ? ArrowDownLeft01Icon : ArrowUpRight01Icon}
           size={17}
           strokeWidth={2}
-          color="var(--row-tint, var(--color-fg))"
+          color={received ? "#3d7a29" : "#15300c"}
         />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[14px] font-medium text-fg">{titleFor(entry)}</span>
-        <span className="block truncate text-[12px] text-fg-dim">{counterpartyLabel(entry)}</span>
+        <span className="block truncate text-[14px] font-medium text-[#15300c]">{titleFor(entry)}</span>
+        <span className="block truncate text-[12px] text-[#3d7a29]">{counterpartyLabel(entry)}</span>
       </span>
       <span className="flex shrink-0 flex-col items-end">
         <span
           className="text-[14px] font-semibold tabular-nums"
-          style={{ color: received ? "var(--row-tint, var(--color-fg))" : "var(--color-fg)" }}
+          style={{ color: received ? "#3d7a29" : "#15300c" }}
         >
           {signed}
         </span>
-        <span className="mt-0.5 font-mono text-[10px] text-fg-dim">
+        <span className="mt-0.5 font-mono text-[10px] text-[#3d7a29]">
           {relativeTime(entry.timestampMs)}
         </span>
       </span>
@@ -150,13 +153,13 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
 
 function RowSkeleton() {
   return (
-    <div className="talise-history-row flex items-center gap-3.5 px-3.5 py-3">
-      <span className="size-9 shrink-0 animate-pulse rounded-full bg-surface-2" />
+    <div className="flex items-center gap-3.5 rounded-[16px] border border-[#15300c]/10 bg-white/60 px-3.5 py-3 backdrop-blur-sm">
+      <span className="size-9 shrink-0 animate-pulse rounded-full bg-[#15300c]/10" />
       <span className="min-w-0 flex-1 space-y-2">
-        <span className="block h-2.5 w-24 animate-pulse rounded-full bg-surface-2" />
-        <span className="block h-2 w-16 animate-pulse rounded-full bg-[color-mix(in_srgb,var(--color-surface-2)_70%,transparent)]" />
+        <span className="block h-2.5 w-24 animate-pulse rounded-full bg-[#15300c]/10" />
+        <span className="block h-2 w-16 animate-pulse rounded-full bg-[#15300c]/[0.07]" />
       </span>
-      <span className="h-3 w-14 animate-pulse rounded-full bg-surface-2" />
+      <span className="h-3 w-14 animate-pulse rounded-full bg-[#15300c]/10" />
     </div>
   );
 }
@@ -183,7 +186,7 @@ export function RecentActivity() {
         {top.length > 0 && (
           <Link
             href="/app/activity"
-            className="inline-flex items-center gap-1 text-[12px] text-fg-muted transition-colors hover:text-fg"
+            className="inline-flex items-center gap-1 text-[12px] text-[#3a5230] transition-colors hover:text-[#15300c]"
           >
             View all
             <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={2.2} />
@@ -198,25 +201,25 @@ export function RecentActivity() {
           <RowSkeleton />
         </div>
       ) : error && top.length === 0 ? (
-        <GlassCard className="flex items-center justify-between gap-3 px-4 py-4" radius={14}>
-          <span className="text-[13px] text-fg-muted">Couldn&apos;t load activity.</span>
+        <GlassCard className="flex items-center justify-between gap-3 px-6 py-5">
+          <span className="text-[13px] text-[#3a5230]">Couldn&apos;t load activity.</span>
           <button
             type="button"
             onClick={() => void refresh()}
-            className="rounded-full border border-line px-3 py-1.5 text-[12px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+            className="rounded-full border-2 border-[#15300c] px-3 py-1.5 text-[12px] font-semibold text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
           >
             Retry
           </button>
         </GlassCard>
       ) : top.length === 0 ? (
-        <GlassCard className="py-2" radius={14}>
+        <GlassCard className="px-6 py-4">
           <EmptyState
             icon={
               <HugeiconsIcon
                 icon={Invoice01Icon}
                 size={24}
                 strokeWidth={1.8}
-                color="var(--color-accent)"
+                color="#3d7a29"
               />
             }
             title="Nothing yet"

@@ -39,7 +39,7 @@ export function PaySubNav() {
     // (lg:hidden). On mobile the sidebar is hidden and the bottom-nav doesn't
     // expand Pay, so this is the only sub-nav.
     <nav className="mb-4 flex w-full justify-center sm:justify-start lg:hidden">
-      <div className="talise-glass flex items-center gap-1 rounded-full px-1.5 py-1.5">
+      <div className="flex items-center gap-1 rounded-full border border-[#15300c]/10 bg-white/85 px-1.5 py-1.5 shadow-[0_10px_40px_-12px_rgba(21,48,12,0.35)] backdrop-blur-md">
         {ITEMS.map((item) => {
           const active = isActive(pathname, item);
           return (
@@ -48,7 +48,7 @@ export function PaySubNav() {
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
-                active ? "bg-accent-soft text-accent" : "text-fg-muted hover:bg-accent-soft"
+                active ? "bg-[#CAFFB8] text-[#15300c]" : "text-[#3a5230] hover:bg-[#CAFFB8]/50"
               }`}
             >
               {item.label}

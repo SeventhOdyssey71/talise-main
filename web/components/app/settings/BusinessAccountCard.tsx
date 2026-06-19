@@ -69,13 +69,13 @@ export function BusinessAccountCard() {
   return (
     <section className="space-y-3">
       <Eyebrow>Business</Eyebrow>
-      <GlassCard className="divide-y divide-line overflow-hidden p-0" radius={14}>
+      <GlassCard className="divide-y divide-[#15300c]/10 overflow-hidden p-0">
 
         {/* Info row */}
         <div className="flex items-start gap-3.5 px-5 py-4">
           <span
-            className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full text-accent"
-            style={{ background: "var(--color-accent-soft)" }}
+            className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full text-[#3d7a29]"
+            style={{ background: "#CAFFB8" }}
           >
             <HugeiconsIcon
               icon={isBusiness ? UserIcon : Building06Icon}
@@ -84,12 +84,12 @@ export function BusinessAccountCard() {
             />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-[15px] font-medium text-fg">
+            <p className="text-[15px] font-medium text-[#15300c]">
               {isBusiness ? "Business workspace" : "Business account"}
             </p>
-            <p className="mt-1 text-[13px] leading-relaxed text-fg-muted">
+            <p className="mt-1 text-[13px] leading-relaxed text-[#3a5230]">
               {isBusiness
-                ? "You're in the business workspace — invoices, team payroll, and cash-out. Switch back to your personal wallet any time."
+                ? "You're in the business workspace: invoices, team payroll, and cash-out. Switch back to your personal wallet any time."
                 : "Invoice clients and pay your whole team from a dedicated workspace, on the same balance."}
             </p>
           </div>
@@ -99,18 +99,18 @@ export function BusinessAccountCard() {
         {!isBusiness && setupOpen && (
           <div className="space-y-3 px-5 py-4">
             <label className="block">
-              <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.18em] text-fg-dim">
+              <span className="mb-1.5 block font-mono text-[11px] font-medium uppercase tracking-[0.28em] text-[#3d7a29]">
                 Business name
               </span>
               <input
                 value={bizName}
                 onChange={(e) => setBizName(e.target.value.slice(0, 64))}
                 placeholder="Acme Inc."
-                className="w-full rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-[15px] text-fg outline-none placeholder:text-fg-dim focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors"
+                className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:border-[#3d7a29] focus:ring-1 focus:ring-[#3d7a29]/30 transition-colors"
               />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.18em] text-fg-dim">
+              <span className="mb-1.5 block font-mono text-[11px] font-medium uppercase tracking-[0.28em] text-[#3d7a29]">
                 Business handle
               </span>
               <input
@@ -124,9 +124,9 @@ export function BusinessAccountCard() {
                   )
                 }
                 placeholder="acme"
-                className="w-full rounded-xl border border-line bg-surface-2 px-4 py-2.5 font-mono text-[15px] text-fg outline-none placeholder:text-fg-dim focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors"
+                className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-2.5 font-mono text-[15px] text-[#15300c] outline-none backdrop-blur-sm placeholder:text-[#3d7a29] focus:border-[#3d7a29] focus:ring-1 focus:ring-[#3d7a29]/30 transition-colors"
               />
-              <span className="mt-1.5 block text-[12px] text-fg-dim">
+              <span className="mt-1.5 block text-[12px] text-[#3d7a29]">
                 Clients pay you at @{bizHandle.trim() || "yourbusiness"}.talise.sui
               </span>
             </label>
@@ -136,7 +136,7 @@ export function BusinessAccountCard() {
         {/* Error message */}
         {error && (
           <div className="px-5 py-3">
-            <p className="text-[13px]" style={{ color: "var(--color-danger)" }}>
+            <p className="text-[13px]" style={{ color: "#c0532f" }}>
               {error}
             </p>
           </div>

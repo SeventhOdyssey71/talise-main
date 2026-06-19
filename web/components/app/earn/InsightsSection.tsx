@@ -29,7 +29,7 @@ export function InsightsSection() {
     <section className="space-y-3">
       <div className="flex items-center gap-2">
         <Eyebrow>Insights</Eyebrow>
-        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-dim">
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#3d7a29]">
           · {monthLabel}
         </span>
       </div>
@@ -48,23 +48,23 @@ export function InsightsSection() {
 
       {/* Top counterparties — Wise-style list rows */}
       {data && data.topCounterparties.length > 0 && (
-        <GlassCard radius={14} className="overflow-hidden !p-0">
+        <GlassCard radius={20} className="overflow-hidden !p-0">
           {data.topCounterparties.slice(0, 4).map((c, i) => (
             <div key={c.address}>
-              {i > 0 && <div className="mx-4 h-px bg-line" />}
+              {i > 0 && <div className="mx-4 h-px bg-[#15300c]/10" />}
               <div className="flex items-center gap-3 px-4 py-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft font-mono text-[11px] font-medium text-accent">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] font-mono text-[11px] font-medium text-[#15300c]">
                   {initials(c.name, c.address)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-fg">
+                  <span className="block truncate text-[13px] font-medium text-[#15300c]">
                     {c.name ?? shortAddr(c.address)}
                   </span>
-                  <span className="block font-mono text-[11px] text-fg-dim">
+                  <span className="block font-mono text-[11px] text-[#3d7a29]">
                     {c.count} {c.count === 1 ? "payment" : "payments"}
                   </span>
                 </div>
-                <span className="text-[13px] font-medium tabular-nums text-fg">
+                <span className="text-[13px] font-medium tabular-nums text-[#15300c]">
                   {formatUsd(c.totalUsd, { fixed: true })}
                 </span>
               </div>
@@ -76,11 +76,11 @@ export function InsightsSection() {
       {/* Empty state only when the data is trustworthy — a partial read's
           empty list doesn't mean the user hasn't sent anything. */}
       {trusted && data.topCounterparties.length === 0 && !loading && (
-        <GlassCard radius={14} className="flex items-center gap-3 px-4 py-3.5">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+        <GlassCard radius={20} className="flex items-center gap-3 px-4 py-3.5">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
             <HugeiconsIcon icon={Analytics02Icon} size={17} strokeWidth={1.6} />
           </span>
-          <p className="text-[12px] text-fg-muted">
+          <p className="text-[12px] text-[#3a5230]">
             Your spending breakdown shows up here once you start sending.
           </p>
         </GlassCard>
@@ -105,16 +105,16 @@ function Tile({
     // their content, which let long formatted amounts push this 3-up row wider
     // than the phone viewport (horizontal page scroll). min-w-0 lets the tile
     // shrink so the truncate below actually engages.
-    <GlassCard radius={12} className="min-w-0 px-3 py-3">
-      <span className="block truncate font-mono text-[10px] uppercase tracking-[0.16em] text-fg-dim">
+    <GlassCard radius={18} className="min-w-0 px-3 py-3">
+      <span className="block truncate font-mono text-[10px] uppercase tracking-[0.16em] text-[#3d7a29]">
         {label}
       </span>
       {loading ? (
-        <span className="mt-2 block h-4 w-10 rounded-full bg-surface-2" />
+        <span className="mt-2 block h-4 w-10 rounded-full bg-[#15300c]/10" />
       ) : (
         <span
           className={`mt-1 block truncate text-[15px] font-medium tracking-[-0.02em] tabular-nums ${
-            accent ? "text-accent" : "text-fg"
+            accent ? "text-[#3d7a29]" : "text-[#15300c]"
           }`}
         >
           {value}

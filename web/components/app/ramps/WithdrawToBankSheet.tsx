@@ -230,7 +230,7 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
               placeholder="0.00"
-              className="w-full rounded-xl bg-surface px-4 py-3 text-[18px] text-fg outline-none ring-1 ring-line focus:ring-accent"
+              className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 text-[18px] text-[#15300c] placeholder:text-[#3d7a29] outline-none backdrop-blur-sm focus:border-[#3d7a29] focus:ring-1 focus:ring-[#3d7a29]"
             />
           </Field>
           <Field label="Bank">
@@ -242,25 +242,25 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
               value={account}
               onChange={(e) => setAccount(e.target.value.replace(/[^\d]/g, "").slice(0, 10))}
               placeholder="0123456789"
-              className="w-full rounded-xl bg-surface px-4 py-3 text-[16px] tracking-wide text-fg outline-none ring-1 ring-line focus:ring-accent"
+              className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 text-[16px] tracking-wide text-[#15300c] placeholder:text-[#3d7a29] outline-none backdrop-blur-sm focus:border-[#3d7a29] focus:ring-1 focus:ring-[#3d7a29]"
             />
           </Field>
 
           {/* Auto-detected account holder — replaces manual name entry. */}
           {resolving && (
-            <p className="-mt-2 text-[13px] text-fg-dim">Checking account…</p>
+            <p className="-mt-2 text-[13px] text-[#3d7a29]">Checking account…</p>
           )}
           {resolvedName && !resolving && (
-            <p className="-mt-2 flex items-center gap-1.5 text-[13px] font-medium text-accent">
+            <p className="-mt-2 flex items-center gap-1.5 text-[13px] font-medium text-[#3d7a29]">
               <HugeiconsIcon icon={CheckmarkCircle02Icon} size={15} strokeWidth={2} />
               {resolvedName}
             </p>
           )}
           {resolveErr && !resolving && (
-            <p className="-mt-2 text-[13px] text-red-500">{resolveErr}</p>
+            <p className="-mt-2 text-[13px] text-[#c0532f]">{resolveErr}</p>
           )}
 
-          {error && <p className="text-[13px] text-red-500">{error}</p>}
+          {error && <p className="text-[13px] text-[#c0532f]">{error}</p>}
           <PrimaryButton full onClick={getQuote} disabled={!formValid || busy} loading={busy}>
             {busy ? "Getting quote…" : "Continue"}
           </PrimaryButton>
@@ -270,12 +270,12 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
       {step === "review" && quote && (
         <div className="space-y-5">
           {/* Quote summary card */}
-          <div className="rounded-xl border border-line bg-surface p-5">
+          <div className="rounded-[28px] bg-[#f7fcf2] p-5" style={{ boxShadow: "10px 10px 0 #15300c" }}>
             <Eyebrow>They receive</Eyebrow>
-            <div className="mt-1 text-[28px] font-semibold tabular-nums tracking-[-0.03em] text-fg">
+            <div className="mt-1 text-[28px] font-semibold tabular-nums tracking-[-0.03em] text-[#3d7a29]">
               {ngn(quote.amountNgn)}
             </div>
-            <div className="mt-4 divide-y divide-line text-[13px]">
+            <div className="mt-4 divide-y divide-[#15300c]/10 text-[13px]">
               <Row k="To" v={quote.accountName} />
               <Row k="Bank" v={bankName} />
               <Row k="Account" v={`••••${account.slice(-4)}`} />
@@ -284,11 +284,11 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
             </div>
           </div>
 
-          <p className="text-center text-[12px] text-fg-dim">
-            Rate locks when you confirm — slide to withdraw.
+          <p className="text-center text-[12px] text-[#3d7a29]">
+            Rate locks when you confirm. Slide to withdraw.
           </p>
 
-          {error && <p className="text-center text-[13px] text-red-500">{error}</p>}
+          {error && <p className="text-center text-[13px] text-[#c0532f]">{error}</p>}
 
           <SlideToConfirm
             label="Slide to withdraw"
@@ -299,7 +299,7 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
           <button
             type="button"
             onClick={() => { setStep("form"); setError(null); }}
-            className="mx-auto block text-[13px] text-fg-muted underline-offset-2 hover:underline"
+            className="mx-auto block text-[13px] text-[#3a5230] underline-offset-2 hover:underline"
           >
             Edit details
           </button>
@@ -310,12 +310,12 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
         <div className="flex flex-col items-center gap-4 py-4 text-center">
           {finalStatus === "failed" ? (
             <>
-              <span className="flex size-12 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--color-danger)_14%,white)] text-[var(--color-danger)]">
+              <span className="flex size-12 items-center justify-center rounded-full bg-[#FF9E7A] text-[#c0532f]">
                 <HugeiconsIcon icon={Alert02Icon} size={24} strokeWidth={2} />
               </span>
               <div>
-                <h3 className="text-[18px] font-medium tracking-[-0.02em] text-fg">Payout failed</h3>
-                <p className="mt-1 text-[14px] leading-relaxed text-fg-muted">
+                <h3 className="text-[18px] font-medium tracking-[-0.02em] text-[#15300c]">Payout failed</h3>
+                <p className="mt-1 text-[14px] leading-relaxed text-[#3a5230]">
                   {error ?? "The payout could not be completed."}
                 </p>
               </div>
@@ -324,10 +324,8 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
           ) : (
             <>
               <span
-                className={`flex size-12 items-center justify-center rounded-full ${
-                  finalStatus === "settled"
-                    ? "bg-accent-soft text-accent"
-                    : "bg-[color-mix(in_srgb,var(--color-accent-soft)_60%,white)] text-accent"
+                className={`flex size-12 items-center justify-center rounded-full text-[#15300c] ${
+                  finalStatus === "settled" ? "bg-[#CAFFB8]" : "bg-[#FFE59E]"
                 }`}
               >
                 <HugeiconsIcon
@@ -337,14 +335,14 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
                 />
               </span>
               <div>
-                <h3 className="text-[18px] font-medium tracking-[-0.02em] text-fg">
+                <h3 className="text-[18px] font-medium tracking-[-0.02em] text-[#15300c]">
                   {finalStatus === "settled" ? "Paid out" : "On its way"}
                 </h3>
-                <p className="mt-1 text-[14px] leading-relaxed text-fg-muted">
+                <p className="mt-1 text-[14px] leading-relaxed text-[#3a5230]">
                   {quote ? ngn(quote.amountNgn) : ""} to {quote?.accountName ?? "your bank"}
                   {finalStatus === "settled"
                     ? " has landed."
-                    : " — banks usually settle in seconds."}
+                    : ". Banks usually settle in seconds."}
                 </p>
               </div>
               <PrimaryButton full onClick={close}>Done</PrimaryButton>
@@ -359,8 +357,8 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
 function Row({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex items-center justify-between gap-3 py-2">
-      <span className="text-fg-dim">{k}</span>
-      <span className="text-right font-medium text-fg">{v}</span>
+      <span className="text-[#3d7a29]">{k}</span>
+      <span className="text-right font-medium text-[#15300c]">{v}</span>
     </div>
   );
 }

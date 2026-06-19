@@ -103,10 +103,10 @@ export function Redemptions({
     return (
       <section className="space-y-2.5">
         <MicroLabel>Redeem your points</MicroLabel>
-        <GlassCard className="px-5 py-7 text-center" radius={14}>
-          <p className="text-[13px] text-fg-muted">New perks are on the way.</p>
-          <p className="mt-1 text-[12px] text-fg-dim">
-            Keep earning — your points are banked and ready.
+        <GlassCard className="px-5 py-7 text-center">
+          <p className="text-[13px] text-[#3a5230]">New perks are on the way.</p>
+          <p className="mt-1 text-[12px] text-[#3d7a29]">
+            Keep earning, your points are banked and ready.
           </p>
         </GlassCard>
       </section>
@@ -142,39 +142,39 @@ export function Redemptions({
           <div className="space-y-4 pt-1">
             {/* Perk summary row */}
             <div className="flex items-center gap-3.5">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#CAFFB8] text-[#15300c]">
                 <HugeiconsIcon icon={iconFor(active)} size={22} strokeWidth={1.8} />
               </span>
               <div className="min-w-0">
-                <p className="text-[15px] font-medium text-fg">{active.label}</p>
-                <p className="text-[12px] text-fg-dim">{active.description}</p>
+                <p className="text-[15px] font-medium text-[#15300c]">{active.label}</p>
+                <p className="text-[12px] text-[#3d7a29]">{active.description}</p>
               </div>
             </div>
 
             {/* Cost + balance-after rows */}
-            <GlassCard className="overflow-hidden !p-0" radius={12}>
+            <GlassCard className="overflow-hidden !p-0" radius={20}>
               <div className="flex items-center justify-between px-4 py-3">
-                <span className="text-[13px] text-fg-muted">Cost</span>
-                <span className="text-[14px] font-medium text-accent tabular-nums">
+                <span className="text-[13px] text-[#3a5230]">Cost</span>
+                <span className="text-[14px] font-medium text-[#3d7a29] tabular-nums">
                   {active.pointsCost.toLocaleString()} pts
                 </span>
               </div>
-              <div className="mx-4 h-px bg-line" />
+              <div className="mx-4 h-px bg-[#15300c]/10" />
               <div className="flex items-center justify-between px-4 py-3">
-                <span className="font-mono text-[11px] text-fg-dim">Balance after</span>
-                <span className="font-mono text-[11px] tabular-nums text-fg-dim">
+                <span className="font-mono text-[11px] text-[#3d7a29]">Balance after</span>
+                <span className="font-mono text-[11px] tabular-nums text-[#3d7a29]">
                   {Math.max(0, pointsTotal - active.pointsCost).toLocaleString()} pts
                 </span>
               </div>
             </GlassCard>
 
             {active.kind === "pending" && (
-              <p className="text-[12px] text-fg-dim">
+              <p className="text-[12px] text-[#3d7a29]">
                 We&apos;ll fulfill this within 24 hours and notify you when it&apos;s done.
               </p>
             )}
 
-            {error && <p className="text-[13px] text-[var(--color-danger)]">{error}</p>}
+            {error && <p className="text-[13px] text-[#c0532f]">{error}</p>}
 
             <div className="flex gap-3">
               <PrimaryButton variant="ghost" onClick={() => setActive(null)} disabled={busy}>
@@ -203,26 +203,26 @@ function PerkCard({
   // Shown only when !canAfford — the gap between cost and the user's balance.
   const shortfall = Math.max(0, item.pointsCost - pointsTotal);
   return (
-    <GlassCard className="flex flex-col gap-3.5 p-4" radius={14}>
+    <GlassCard className="flex flex-col gap-3.5 p-5">
       <div className="flex items-start justify-between gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#CAFFB8] text-[#15300c]">
           <HugeiconsIcon icon={iconFor(item)} size={20} strokeWidth={1.8} />
         </span>
-        <span className="flex items-baseline gap-1 font-mono text-accent">
+        <span className="flex items-baseline gap-1 font-mono text-[#3d7a29]">
           <span className="text-[14px] font-medium tabular-nums">
             {item.pointsCost.toLocaleString()}
           </span>
-          <span className="text-[10px] text-fg-dim">pts</span>
+          <span className="text-[10px] text-[#3d7a29]">pts</span>
         </span>
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="text-[14px] font-medium text-fg">{item.label}</p>
-        <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">{item.description}</p>
+        <p className="text-[14px] font-medium text-[#15300c]">{item.label}</p>
+        <p className="mt-0.5 text-[12px] leading-snug text-[#3d7a29]">{item.description}</p>
       </div>
 
       {item.minTier ? (
-        <div className="flex items-center gap-1.5 font-mono text-[11px] text-fg-dim">
+        <div className="flex items-center gap-1.5 font-mono text-[11px] text-[#3d7a29]">
           <HugeiconsIcon icon={CheckmarkCircle02Icon} size={12} strokeWidth={1.8} />
           Unlocks at {TIER_LABEL[item.minTier] ?? item.minTier}
         </div>

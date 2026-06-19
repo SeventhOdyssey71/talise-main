@@ -65,18 +65,18 @@ export function EarningHistory({ events }: { events: ReferralEvent[] }) {
   return (
     <section className="space-y-2.5">
       <MicroLabel>Earning history</MicroLabel>
-      <GlassCard className="overflow-hidden !p-0" radius={14}>
+      <GlassCard className="overflow-hidden !p-0">
         {shown.map((ev, i) => (
           <div key={ev.id}>
-            {i > 0 && <div className="mx-4 h-px bg-line" />}
-            <div className="flex items-center gap-3 px-4 py-3">
+            {i > 0 && <div className="mx-4 h-px bg-[#15300c]/10" />}
+            <div className="flex items-center gap-3 px-5 py-3.5">
               <div className="min-w-0 flex-1">
-                <p className="text-[14px] text-fg">{eventTitle(ev.kind)}</p>
-                <p className="mt-0.5 font-mono text-[10px] text-fg-dim">
+                <p className="text-[14px] text-[#15300c]">{eventTitle(ev.kind)}</p>
+                <p className="mt-0.5 font-mono text-[10px] text-[#3d7a29]">
                   {eventDate(ev.createdAt)}
                 </p>
               </div>
-              <span className="shrink-0 text-[14px] font-medium text-accent tabular-nums">
+              <span className="shrink-0 text-[14px] font-medium text-[#3d7a29] tabular-nums">
                 +{ev.points.toLocaleString()}
               </span>
             </div>
@@ -86,17 +86,17 @@ export function EarningHistory({ events }: { events: ReferralEvent[] }) {
         {/* "See all" — only when there's more than the fold. */}
         {!showAll && events.length > FOLD && (
           <>
-            <div className="mx-4 h-px bg-line" />
+            <div className="mx-4 h-px bg-[#15300c]/10" />
             <button
               type="button"
               onClick={() => setShowAll(true)}
-              className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-surface-2"
+              className="flex w-full items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-[#CAFFB8]/40"
             >
-              <span className="text-[13px] font-medium text-accent">See all</span>
+              <span className="text-[13px] font-medium text-[#3d7a29]">See all</span>
               <HugeiconsIcon
                 icon={ArrowDown01Icon}
                 size={14}
-                className="text-fg-dim"
+                className="text-[#3d7a29]"
                 strokeWidth={2}
               />
             </button>

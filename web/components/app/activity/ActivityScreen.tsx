@@ -53,8 +53,8 @@ export function ActivityScreen() {
       <header className="space-y-1">
         <Eyebrow>Activity</Eyebrow>
         <h1
-          className="text-[26px] font-medium text-fg lg:text-[28px]"
-          style={{ letterSpacing: "-0.03em" }}
+          className="text-[26px] font-[800] uppercase tracking-[-0.02em] text-[#15300c] lg:text-[28px]"
+          style={{ fontFamily: "var(--font-display-v2)" }}
         >
           All activity
         </h1>
@@ -72,8 +72,8 @@ export function ActivityScreen() {
               aria-pressed={active}
               className={
                 active
-                  ? "shrink-0 rounded-full bg-accent-soft px-4 py-1.5 text-[13px] font-medium text-accent transition-colors"
-                  : "shrink-0 rounded-full bg-surface-2 px-4 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-accent-soft hover:text-fg"
+                  ? "shrink-0 rounded-full bg-[#CAFFB8] px-4 py-1.5 text-[13px] font-medium text-[#15300c] transition-colors"
+                  : "shrink-0 rounded-full border border-[#15300c]/15 bg-white/60 px-4 py-1.5 text-[13px] font-medium text-[#3a5230] backdrop-blur-sm transition-colors hover:bg-[#CAFFB8] hover:text-[#15300c]"
               }
             >
               {f.label}
@@ -92,15 +92,14 @@ export function ActivityScreen() {
       ) : error && entries.length === 0 ? (
         <GlassCard
           className="flex items-center justify-between gap-3 px-4 py-4"
-          radius={14}
         >
-          <span className="text-[14px] text-fg-muted">
+          <span className="text-[14px] text-[#3a5230]">
             Couldn&apos;t load your activity.
           </span>
           <button
             type="button"
             onClick={() => void refresh()}
-            className="rounded-full border border-line px-3.5 py-1.5 text-[13px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+            className="rounded-full border-2 border-[#15300c] px-3.5 py-1.5 text-[13px] font-medium text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
           >
             Retry
           </button>
@@ -155,12 +154,12 @@ function rowKey(row: ActivityRow): string {
 function SkeletonRow() {
   return (
     <div className="flex w-full items-center gap-3 px-3 py-3">
-      <span className="size-9 shrink-0 animate-pulse rounded-full bg-surface-2" />
+      <span className="size-9 shrink-0 animate-pulse rounded-full bg-[#15300c]/10" />
       <span className="flex min-w-0 flex-1 flex-col gap-2">
-        <span className="h-3 w-28 animate-pulse rounded-full bg-surface-2" />
-        <span className="h-2.5 w-20 animate-pulse rounded-full bg-[color-mix(in_srgb,var(--color-surface-2)_70%,transparent)]" />
+        <span className="h-3 w-28 animate-pulse rounded-full bg-[#15300c]/10" />
+        <span className="h-2.5 w-20 animate-pulse rounded-full bg-[#15300c]/[0.07]" />
       </span>
-      <span className="h-3.5 w-16 animate-pulse rounded-full bg-surface-2" />
+      <span className="h-3.5 w-16 animate-pulse rounded-full bg-[#15300c]/10" />
     </div>
   );
 }

@@ -48,15 +48,15 @@ export function RoundupCard() {
   }
 
   return (
-    <GlassCard className="space-y-4 p-5" radius={14}>
+    <GlassCard className="space-y-4 p-5" radius={28}>
       {/* Header row: icon + title + toggle */}
       <div className="flex items-center gap-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
           <HugeiconsIcon icon={PiggyBankIcon} size={17} strokeWidth={1.8} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-medium tracking-[-0.01em] text-fg">Round-up &amp; Save</p>
-          <p className="text-[12px] text-fg-muted">
+          <p className="text-[14px] font-semibold tracking-[-0.01em] text-[#15300c]">Round-up &amp; Save</p>
+          <p className="text-[12px] text-[#3a5230]">
             Set aside a slice of every payment, automatically.
           </p>
         </div>
@@ -67,7 +67,7 @@ export function RoundupCard() {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Eyebrow>Save per payment</Eyebrow>
-            <span className="text-[14px] font-medium tabular-nums text-accent">
+            <span className="text-[14px] font-medium tabular-nums text-[#3d7a29]">
               {percentage}%
             </span>
           </div>
@@ -81,20 +81,20 @@ export function RoundupCard() {
             onChange={(e) => setPercentage(Number(e.target.value))}
             className="h-1.5 w-full cursor-pointer appearance-none rounded-full disabled:opacity-50"
             style={{
-              accentColor: "var(--color-accent-deep)",
-              background: `linear-gradient(to right, var(--color-accent-deep) ${((percentage - 1) / 9) * 100}%, var(--color-surface-2) ${((percentage - 1) / 9) * 100}%)`,
+              accentColor: "#3d7a29",
+              background: `linear-gradient(to right, #3d7a29 ${((percentage - 1) / 9) * 100}%, rgba(21,48,12,0.10) ${((percentage - 1) / 9) * 100}%)`,
             }}
             aria-label="Round-up percentage"
           />
         </div>
       )}
 
-      {/* Saved tally — accent-soft chip */}
-      <div className="flex items-center justify-between rounded-xl bg-accent-soft px-3.5 py-2.5">
-        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-dim">
+      {/* Saved tally — mint chip */}
+      <div className="flex items-center justify-between rounded-xl bg-[#CAFFB8] px-3.5 py-2.5">
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#3d7a29]">
           Saved via round-up
         </span>
-        <span className="text-[16px] font-medium tracking-[-0.02em] tabular-nums text-accent">
+        <span className="text-[16px] font-medium tracking-[-0.02em] tabular-nums text-[#15300c]">
           {formatUsd(savedUsd, { fixed: true })}
         </span>
       </div>
@@ -120,17 +120,15 @@ function Switch({
       onClick={onClick}
       className="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 disabled:opacity-50"
       style={{
-        background: on
-          ? "var(--color-accent-deep)"
-          : "var(--color-surface-2)",
-        boxShadow: on ? "none" : "inset 0 0 0 1px var(--color-line)",
+        background: on ? "#3d7a29" : "rgba(255,255,255,0.6)",
+        boxShadow: on ? "none" : "inset 0 0 0 1px rgba(21,48,12,0.15)",
       }}
     >
       <span
         className="inline-block size-5 transform rounded-full bg-white transition-transform duration-200"
         style={{
           transform: on ? "translateX(22px)" : "translateX(2px)",
-          boxShadow: "0 2px 6px -2px rgba(35,78,20,0.45)",
+          boxShadow: "0 2px 6px -2px rgba(21,48,12,0.45)",
         }}
       />
     </button>

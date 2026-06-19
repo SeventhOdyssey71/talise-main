@@ -14,7 +14,7 @@ import { Spinner } from "./Spinner";
 export type SlideToConfirmProps = {
   label: string;
   onConfirm: () => Promise<void> | void;
-  /** Accent fill behind the track + knob. Default forest green. */
+  /** Accent fill behind the track + knob. Default forest green (#3d7a29). */
   tint?: string;
   disabled?: boolean;
   /** Bump this number to force the slider back to its rest position. */
@@ -33,7 +33,7 @@ const THRESHOLD = 0.8;
 export function SlideToConfirm({
   label,
   onConfirm,
-  tint = "var(--color-accent-deep)",
+  tint = "#3d7a29",
   disabled = false,
   resetSignal = 0,
 }: SlideToConfirmProps) {
@@ -125,7 +125,7 @@ export function SlideToConfirm({
   return (
     <div
       ref={trackRef}
-      className="talise-glass talise-noselect relative w-full overflow-hidden"
+      className="talise-noselect relative w-full overflow-hidden border border-[#15300c]/15 bg-white/60 backdrop-blur-sm"
       style={{
         height: TRACK_HEIGHT,
         borderRadius: 999,
@@ -146,7 +146,7 @@ export function SlideToConfirm({
       />
       {/* Label */}
       <span
-        className="pointer-events-none absolute inset-0 flex items-center justify-center text-[15px] font-semibold text-fg-muted"
+        className="pointer-events-none absolute inset-0 flex items-center justify-center text-[15px] font-semibold text-[#3a5230]"
         style={{ opacity: 1 - progress * 0.9, letterSpacing: "-0.01em" }}
       >
         {done ? "Confirmed" : pending ? "Sending…" : label}
@@ -177,18 +177,18 @@ export function SlideToConfirm({
           height: knob,
           transform: `translate(${x}px, -50%)`,
           background: tint,
-          color: "#fff",
-          boxShadow: "0 6px 18px -6px rgba(35,78,20,0.55)",
+          color: "#f7fcf2",
+          boxShadow: "0 6px 18px -6px rgba(21,48,12,0.55)",
           transition: dragging ? "none" : "transform 320ms cubic-bezier(0.22,1,0.36,1)",
           touchAction: "none",
         }}
       >
         {done ? (
-          <HugeiconsIcon icon={Tick02Icon} size={22} color="#fff" strokeWidth={2.5} />
+          <HugeiconsIcon icon={Tick02Icon} size={22} color="#f7fcf2" strokeWidth={2.5} />
         ) : pending ? (
           <Spinner size={20} />
         ) : (
-          <HugeiconsIcon icon={ArrowRight01Icon} size={22} color="#fff" strokeWidth={2.5} />
+          <HugeiconsIcon icon={ArrowRight01Icon} size={22} color="#f7fcf2" strokeWidth={2.5} />
         )}
       </div>
     </div>

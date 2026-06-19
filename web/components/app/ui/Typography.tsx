@@ -2,12 +2,12 @@ import type { ReactNode } from "react";
 
 export type EyebrowProps = { children: ReactNode; className?: string };
 
-/** Mono 10px uppercase eyebrow, wide tracking, dim colour. */
+/** Mono uppercase eyebrow, wide tracking, forest colour (v2 micro-label). */
 export function Eyebrow({ children, className = "" }: EyebrowProps) {
   return (
     <span
-      className={`font-mono text-[10px] font-medium uppercase text-fg-dim ${className}`}
-      style={{ letterSpacing: "0.22em" }}
+      className={`font-mono text-[11px] font-medium uppercase text-[#3d7a29] ${className}`}
+      style={{ letterSpacing: "0.28em" }}
     >
       {children}
     </span>
@@ -20,7 +20,7 @@ export type MicroLabelProps = { children: ReactNode; className?: string };
 export function MicroLabel({ children, className = "" }: MicroLabelProps) {
   return (
     <span
-      className={`font-mono text-[11px] text-fg-muted ${className}`}
+      className={`font-mono text-[11px] text-[#3a5230] ${className}`}
       style={{ letterSpacing: "0.01em" }}
     >
       {children}

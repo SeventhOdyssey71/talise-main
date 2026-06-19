@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { Sheet } from "@/components/app/ui/Sheet";
+import { PrimaryButton } from "@/components/app/ui/PrimaryButton";
 import type { SessionResult } from "@/lib/onramp/types";
 
 /**
@@ -86,11 +87,11 @@ export function AddMoneyModal({ open, onClose }: AddMoneyModalProps) {
         {!session ? (
           <>
             <div>
-              <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.18em] text-fg-dim">
+              <label className="mb-1.5 block font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
                 Amount (USD)
               </label>
-              <div className="talise-glass flex items-center gap-2 rounded-xl px-4 py-3">
-                <span className="font-display text-[18px] text-fg-muted">$</span>
+              <div className="flex items-center gap-2 rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 backdrop-blur-sm">
+                <span className="text-[18px] text-[#3a5230]" style={{ fontFamily: "var(--font-display-v2)" }}>$</span>
                 <input
                   inputMode="decimal"
                   value={amount}
@@ -98,30 +99,30 @@ export function AddMoneyModal({ open, onClose }: AddMoneyModalProps) {
                     setAmount(e.target.value.replace(/[^0-9.]/g, ""))
                   }
                   placeholder="0.00"
-                  className="w-full bg-transparent text-[18px] tabular-nums text-fg outline-none placeholder:text-fg-dim"
+                  className="w-full bg-transparent text-[18px] tabular-nums text-[#15300c] outline-none placeholder:text-[#3d7a29]"
                 />
               </div>
             </div>
 
-            <p className="text-[13px] leading-relaxed text-fg-dim">
+            <p className="text-[13px] leading-relaxed text-[#3d7a29]">
               You&apos;ll verify your identity and pay by card or bank with our
               partner. Funds arrive as USDsui in your wallet, usually within a
               few minutes.
             </p>
 
-            <button
-              type="button"
+            <PrimaryButton
+              full
+              loading={loading}
               disabled={loading || amountCents <= 0}
               onClick={start}
-              className="inline-flex w-full items-center justify-center rounded-full bg-accent-deep px-5 py-3 text-[14px] font-semibold text-white shadow-[0_6px_18px_-8px_rgba(35,78,20,0.45)] transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               {loading ? "Starting…" : "Continue to secure checkout"}
-            </button>
+            </PrimaryButton>
           </>
         ) : (
           /* Session started — widget opened in a new tab. */
           <div className="space-y-4 text-center">
-            <p className="text-[15px] leading-relaxed text-fg">
+            <p className="text-[15px] leading-relaxed text-[#15300c]">
               Complete your purchase in the checkout tab. Once it clears, your
               balance updates automatically.
             </p>
@@ -130,27 +131,27 @@ export function AddMoneyModal({ open, onClose }: AddMoneyModalProps) {
                 href={session.widgetUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex w-full items-center justify-center rounded-full bg-accent-deep px-5 py-3 text-[14px] font-semibold text-white transition-opacity hover:opacity-90"
+                className="relative inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#15300c] px-6 py-3 text-[15px] font-semibold text-[#f7fcf2] outline-none transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-[#3d7a29]/55 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7fcf2]"
               >
                 Open secure checkout
               </a>
             )}
             {session.requiresSwapToUsdsui && (
-              <p className="text-[12px] leading-relaxed text-fg-dim">
+              <p className="text-[12px] leading-relaxed text-[#3d7a29]">
                 Funds arrive as USDC on Sui and are converted to USDsui for you.
               </p>
             )}
             <button
               type="button"
               onClick={close}
-              className="text-[13px] text-fg-muted underline-offset-2 hover:underline"
+              className="text-[13px] text-[#3a5230] underline-offset-2 hover:underline"
             >
               Done
             </button>
           </div>
         )}
 
-        {error && <p className="text-[12px] text-[var(--color-danger)]">{error}</p>}
+        {error && <p className="text-[12px] text-[#c0532f]">{error}</p>}
       </div>
     </Sheet>
   );

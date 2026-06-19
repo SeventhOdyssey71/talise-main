@@ -123,15 +123,15 @@ export function RequestPanel() {
       <div>
         <Eyebrow>Receive</Eyebrow>
         <h1
-          className="mt-1 font-display text-[26px] font-medium text-fg"
-          style={{ letterSpacing: "-0.03em" }}
+          className="mt-1 text-[26px] font-[800] uppercase tracking-[-0.02em] text-[#15300c]"
+          style={{ fontFamily: "var(--font-display-v2)" }}
         >
           Get paid
         </h1>
       </div>
 
       {/* Mode segmented control */}
-      <div className="flex gap-1 rounded-full border border-line bg-surface p-1">
+      <div className="flex gap-1 rounded-full border border-[#15300c]/15 bg-white/60 p-1 backdrop-blur-sm">
         <SegButton active={mode === "receive"} onClick={() => setMode("receive")} icon={QrCode01Icon}>
           Receive
         </SegButton>
@@ -142,15 +142,15 @@ export function RequestPanel() {
 
       {/* Request inputs */}
       {mode === "request" && (
-        <GlassCard className="divide-y divide-line p-0" radius={14}>
+        <GlassCard className="divide-y divide-[#15300c]/10 p-0" radius={28}>
           {/* Amount */}
           <div className="px-5 py-4">
-            <label className="block font-mono text-[10px] font-medium uppercase text-fg-dim" style={{ letterSpacing: "0.2em" }}>
+            <label className="block font-mono text-[10px] font-medium uppercase text-[#3d7a29]" style={{ letterSpacing: "0.2em" }}>
               Amount (optional)
             </label>
-            <p className="mt-0.5 font-mono text-[10px] text-fg-dim">Leave blank for an open request.</p>
+            <p className="mt-0.5 font-mono text-[10px] text-[#3d7a29]">Leave blank for an open request.</p>
             <div className="mt-2 flex items-center gap-1.5">
-              <span className="font-display text-[22px] text-fg-muted">$</span>
+              <span className="text-[22px] text-[#3a5230]" style={{ fontFamily: "var(--font-display-v2)" }}>$</span>
               <input
                 value={amount}
                 onChange={(e) => {
@@ -159,15 +159,15 @@ export function RequestPanel() {
                 }}
                 inputMode="decimal"
                 placeholder="0.00"
-                className="w-full bg-transparent font-display text-[28px] font-semibold text-fg tabular-nums outline-none placeholder:text-fg-dim"
-                style={{ letterSpacing: "-0.03em" }}
+                className="w-full bg-transparent text-[28px] font-[800] text-[#15300c] tabular-nums outline-none placeholder:text-[#3d7a29]"
+                style={{ fontFamily: "var(--font-display-v2)", letterSpacing: "-0.03em" }}
               />
               {amount && (
                 <button
                   type="button"
                   onClick={() => setAmount("")}
                   aria-label="Clear amount"
-                  className="flex size-7 items-center justify-center rounded-full bg-surface-2 text-fg-dim hover:text-fg"
+                  className="flex size-7 items-center justify-center rounded-full border border-[#15300c]/15 bg-white/60 text-[#3d7a29] backdrop-blur-sm hover:text-[#15300c]"
                 >
                   <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} />
                 </button>
@@ -177,30 +177,30 @@ export function RequestPanel() {
 
           {/* Memo */}
           <div className="px-5 py-4">
-            <label className="block font-mono text-[10px] font-medium uppercase text-fg-dim" style={{ letterSpacing: "0.2em" }}>
+            <label className="block font-mono text-[10px] font-medium uppercase text-[#3d7a29]" style={{ letterSpacing: "0.2em" }}>
               Memo (optional)
             </label>
             <input
               value={memo}
               onChange={(e) => setMemo(e.target.value.slice(0, 80))}
               placeholder="What's it for?"
-              className="mt-2 w-full bg-transparent text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="mt-2 w-full bg-transparent text-[15px] text-[#15300c] outline-none placeholder:text-[#3d7a29]"
             />
           </div>
         </GlassCard>
       )}
 
       {/* QR card */}
-      <GlassCard radius={14} className="flex flex-col items-center px-6 py-6 text-center">
+      <GlassCard radius={28} className="flex flex-col items-center px-6 py-6 text-center">
         <span
-          className="font-display text-[17px] font-semibold text-fg"
-          style={{ letterSpacing: "-0.02em" }}
+          className="text-[17px] font-[800] text-[#15300c]"
+          style={{ fontFamily: "var(--font-display-v2)", letterSpacing: "-0.02em" }}
         >
           {loading ? "—" : identity}
         </span>
 
         {mode === "request" && amountUsd != null && (
-          <span className="mt-2 font-display text-[15px] font-semibold tabular-nums text-accent" style={{ letterSpacing: "-0.02em" }}>
+          <span className="mt-2 text-[15px] font-[800] tabular-nums text-[#3d7a29]" style={{ fontFamily: "var(--font-display-v2)", letterSpacing: "-0.02em" }}>
             Requesting {symbol}
             {toLocal(amountUsd).toLocaleString("en-US", {
               minimumFractionDigits: 2,
@@ -209,7 +209,7 @@ export function RequestPanel() {
           </span>
         )}
         {mode === "request" && memo.trim() && (
-          <span className="mt-1 max-w-[16rem] truncate text-[13px] text-fg-dim">
+          <span className="mt-1 max-w-[16rem] truncate text-[13px] text-[#3d7a29]">
             &ldquo;{memo.trim()}&rdquo;
           </span>
         )}
@@ -218,7 +218,7 @@ export function RequestPanel() {
           {qrValue ? (
             <QrImage value={qrValue} size={200} />
           ) : (
-            <div className="size-[200px] animate-pulse rounded-xl bg-surface-2" />
+            <div className="size-[200px] animate-pulse rounded-2xl bg-[#CAFFB8]/40" />
           )}
         </div>
 
@@ -232,28 +232,28 @@ export function RequestPanel() {
           onClick={() =>
             mode === "receive" ? copy(address, "addr") : copy(paymentLink, "link")
           }
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-line bg-surface px-5 py-3 text-[14px] font-medium text-fg transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-[#15300c] px-5 py-3 text-[14px] font-medium text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
         >
           <HugeiconsIcon
             icon={copied ? Tick02Icon : Copy01Icon}
             size={16}
             strokeWidth={2}
-            color={copied ? "var(--color-accent)" : undefined}
+            color={copied ? "#3d7a29" : undefined}
           />
           {copied ? "Copied" : mode === "receive" ? "Copy address" : "Copy link"}
         </button>
         <div className="flex-1">
           <PrimaryButton full onClick={share}>
-            <HugeiconsIcon icon={Share08Icon} size={15} strokeWidth={2} color="#fff" />
+            <HugeiconsIcon icon={Share08Icon} size={15} strokeWidth={2} color="#f7fcf2" />
             {mode === "receive" ? "Share" : "Share request"}
           </PrimaryButton>
         </div>
       </div>
 
       {!handle && mode === "request" && (
-        <p className="text-center text-[12px] text-fg-dim">
+        <p className="text-center text-[12px] text-[#3d7a29]">
           Claim a Talise handle in Settings for a cleaner link like{" "}
-          <span className="text-fg-muted">talise.io/pay/you</span>.
+          <span className="text-[#3a5230]">talise.io/pay/you</span>.
         </p>
       )}
     </div>
@@ -279,14 +279,14 @@ function SegButton({
       onClick={onClick}
       aria-pressed={active}
       className={`flex flex-1 items-center justify-center gap-2 rounded-full py-2 text-[13px] font-medium transition-colors ${
-        active ? "bg-accent-soft text-accent" : "text-fg-dim hover:text-fg-muted"
+        active ? "bg-[#CAFFB8] text-[#15300c]" : "text-[#3d7a29] hover:text-[#3a5230]"
       }`}
     >
       <HugeiconsIcon
         icon={icon}
         size={16}
         strokeWidth={1.9}
-        color={active ? "var(--color-accent)" : undefined}
+        color={active ? "#15300c" : "#3d7a29"}
       />
       {children}
     </button>

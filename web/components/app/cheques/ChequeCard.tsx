@@ -12,13 +12,14 @@ export type ChequeCardProps = {
   stamp?: string;
 };
 
-const INK = "#2a2a2a";
-const INK_SOFT = "#6b6357";
-const RULE = "#9c9486";
-const FOREST = "#3f7330"; // a touch deeper than the app forest, for ink on cream
+const INK = "#15300c";
+const INK_SOFT = "#3a5230";
+const RULE = "#3d7a29";
+const FOREST = "#3d7a29"; // brand forest, for ink on cream
+const STAMP = "#c0532f"; // muted coral for the status stamp
 
 /**
- * A skeuomorphic paper-cheque card. Cream stock on the dark app surface:
+ * A skeuomorphic paper-cheque card. Cream stock on the v2 mint page:
  * engraved TALISE header, "pay to the order of" line, a boxed figure, the
  * amount in words, memo + authorised-signature lines, and an optional diagonal
  * status stamp. Read-only; the write screen passes live field values so the
@@ -42,11 +43,10 @@ export function ChequeCard({
       className="relative w-full select-none overflow-hidden"
       style={{
         aspectRatio: "16 / 8.6",
-        borderRadius: 12,
+        borderRadius: 28,
         background:
-          "linear-gradient(135deg, #f7f3e8 0%, #ede6d5 100%)",
-        boxShadow:
-          "0 16px 38px -16px rgba(35,78,20,0.28), inset 0 1px 0 rgba(255,255,255,0.5)",
+          "linear-gradient(135deg, #f7fcf2 0%, #eef8e4 100%)",
+        boxShadow: "10px 10px 0 #15300c",
         color: INK,
         fontFamily: "var(--font-serif), Georgia, serif",
       }}
@@ -196,8 +196,8 @@ export function ChequeCard({
           <span
             style={{
               transform: "rotate(-14deg)",
-              color: "rgba(162,59,46,0.85)",
-              border: "3px solid rgba(162,59,46,0.85)",
+              color: STAMP,
+              border: `3px solid ${STAMP}`,
               borderRadius: 6,
               padding: "4px 14px",
               fontFamily:
