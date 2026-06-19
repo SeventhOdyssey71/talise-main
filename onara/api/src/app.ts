@@ -17,6 +17,7 @@ import receiveAndDepositApp from './receiveAndDeposit'
 import receiveFromAccumulatorApp from './receiveFromAccumulator'
 import receiveFromAccumulatorToOwnerApp from './receiveFromAccumulatorToOwner'
 import walletSweepApp from './walletSweep'
+import selfFundApp from './selfFund'
 import sponsorPoliciesConfig, { resolveSponsorPolicies } from '../policies'
 
 interface AnalyticsEngineDataset {
@@ -219,6 +220,12 @@ app.route('/receive-from-accumulator-to-owner', receiveFromAccumulatorToOwnerApp
 // owner signs (zkLogin), Onara provides gas via /sponsor. See
 // walletSweep.ts for the per-leg Cetus aggregator integration.
 app.route('/wallet-sweep', walletSweepApp)
+
+// Admin self-fund: sponsor sweeps its OWN plain Coin<SUI> into its OWN address-
+// balance accumulator (coin::send_funds), turning `pending` into `active` gas.
+// Fixes "funded but 0 active" when SUI was sent as a plain transfer. Guarded by
+// the ADMIN_TOKEN secret (x-admin-token header). See selfFund.ts.
+app.route('/admin/self-fund', selfFundApp)
 
 // ─── Transaction status lookup ────────────────────────────────────────────────
 
