@@ -21,7 +21,7 @@
 /// then redeems from the venue first. That integration is intentionally NOT in
 /// this module so the custody core stays small and auditable; see
 /// docs/goals-vault.md for the staged plan.
-module talise::goal_vault;
+module talise_goals::goal_vault;
 
 use sui::{balance::{Self, Balance}, clock::Clock, coin::{Self, Coin}, event, dynamic_object_field as dof};
 use std::{string::{Self, String}, type_name, ascii};

@@ -9,11 +9,11 @@
 ///
 /// Dummy coin type `T = SUI` via `coin::mint_for_testing`.
 #[test_only]
-module talise::goal_vault_tests;
+module talise_goals::goal_vault_tests;
 
 use std::unit_test::assert_eq;
 use sui::{clock, coin, sui::SUI, test_scenario as ts};
-use talise::goal_vault::{Self, GoalVault};
+use talise_goals::goal_vault::{Self, GoalVault};
 
 const OWNER: address = @0xA;
 const RANDO: address = @0xB;
