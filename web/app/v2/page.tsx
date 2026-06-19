@@ -1,5 +1,8 @@
 import HeroV2 from "./HeroV2";
 import FeaturesBento from "./FeaturesBento";
+import CrossBorder from "./CrossBorder";
+import WhySui from "./WhySui";
+import Faq from "./Faq";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +29,9 @@ export default function LandingV2() {
 
       <HeroV2 />
       <FeaturesBento />
+      <CrossBorder />
+      <WhySui />
+      <Faq />
 
       {/* closing CTA + giant wordmark */}
       <section className="px-6 pb-10 text-center md:px-10">

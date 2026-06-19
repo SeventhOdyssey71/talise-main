@@ -1,16 +1,17 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
-type Card = { tag: string; title: string; body: string; bg: string; glyph: string; tilt: string };
+type Card = { tag: string; title: string; body: string; bg: string; img: string; tilt: string };
 
 const CARDS: Card[] = [
-  { tag: "Hold", title: "Hold real dollars.", body: "Genuine US dollars on Sui — yours to hold, spend, or send, any time.", bg: "#CAFFB8", glyph: "💵", tilt: "-1.5deg" },
-  { tag: "Send", title: "Send to a name.", body: "Type sele@talise, hit send — it arrives in seconds. Stablecoin transactions on Sui cost nothing.", bg: "#FF9E7A", glyph: "🪁", tilt: "1.5deg" },
-  { tag: "Earn", title: "Idle money grows.", body: "Sitting still? Talise quietly puts it to work, auto-routed — and always yours to move.", bg: "#C9B8FF", glyph: "🌱", tilt: "1.2deg" },
-  { tag: "Cash out", title: "Cash out at home.", body: "Turn dollars into your local currency, or wire USD to your bank. Enter an amount, withdraw.", bg: "#FFE59E", glyph: "🏦", tilt: "-1.2deg" },
+  { tag: "Hold", title: "Hold real dollars.", body: "Genuine US dollars on Sui — yours to hold, spend, or send, any time.", bg: "#CAFFB8", img: "/v2/coin.png", tilt: "-1.5deg" },
+  { tag: "Send", title: "Send to a name.", body: "Type sele@talise, hit send — it arrives in seconds. Stablecoin transactions on Sui cost nothing.", bg: "#FF9E7A", img: "/v2/plane.png", tilt: "1.5deg" },
+  { tag: "Earn", title: "Idle money grows.", body: "Sitting still? Talise quietly puts it to work, auto-routed — and always yours to move.", bg: "#C9B8FF", img: "/v2/sprout.png", tilt: "1.2deg" },
+  { tag: "Cash out", title: "Cash out at home.", body: "Turn dollars into your local currency, or wire USD to your bank. Enter an amount, withdraw.", bg: "#FFE59E", img: "/v2/phone.png", tilt: "-1.2deg" },
 ];
 
 export default function FeaturesBento() {
@@ -53,7 +54,13 @@ export default function FeaturesBento() {
           >
             <div className="flex items-start justify-between">
               <div className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#15300c]/70">{c.tag}</div>
-              <div className="text-[40px] leading-none">{c.glyph}</div>
+              <Image
+                src={c.img}
+                alt=""
+                width={140}
+                height={140}
+                className="-mr-3 -mt-3 h-[104px] w-[104px] object-contain drop-shadow-[0_10px_12px_rgba(21,48,12,0.22)]"
+              />
             </div>
             <h3 className="mt-6 text-[clamp(24px,3vw,34px)] font-[800] leading-[1.02] tracking-[-0.02em] text-[#15300c]" style={{ fontFamily: "var(--font-display-v2)" }}>
               {c.title}
