@@ -18,6 +18,12 @@ use talise::goal_vault::{Self, GoalVault};
 const OWNER: address = @0xA;
 const RANDO: address = @0xB;
 
+const VENUE_NAVI: u8 = 1;
+
+/// Stand-in for a venue lending receipt (NAVI account/obligation). key+store
+/// is all `park_receipt`/`take_receipt` require of `R`.
+public struct FakeReceipt has key, store { id: UID }
+
 #[test]
 fun create_deposit_withdraw_close() {
     let mut sc = ts::begin(OWNER);
@@ -89,6 +95,53 @@ fun zero_target_never_complete() {
     assert_eq!(goal_vault::is_complete(&v), false);
     assert_eq!(goal_vault::progress_bps(&v), 0);
     let rest = goal_vault::close(v, ts::ctx(&mut sc));
+    coin::burn_for_testing(rest);
+    clock::destroy_for_testing(clk);
+    ts::end(sc);
+}
+
+#[test]
+fun park_and_take_receipt() {
+    let mut sc = ts::begin(OWNER);
+    let clk = clock::create_for_testing(ts::ctx(&mut sc));
+    goal_vault::create<SUI>(b"Yielding goal", 1000, &clk, ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, OWNER);
+    let mut v = ts::take_from_sender<GoalVault<SUI>>(&sc);
+
+    // Owner parks a venue receipt (after an SDK supply PTB) → venue/basis set.
+    let receipt = FakeReceipt { id: object::new(ts::ctx(&mut sc)) };
+    goal_vault::park_receipt(&mut v, receipt, VENUE_NAVI, 800, ts::ctx(&mut sc));
+    assert_eq!(goal_vault::venue(&v), VENUE_NAVI);
+    assert_eq!(goal_vault::basis(&v), 800);
+    assert_eq!(goal_vault::has_receipt(&v), true);
+
+    // Owner pulls it back out to run a redeem PTB → tracking cleared.
+    let back: FakeReceipt = goal_vault::take_receipt(&mut v, ts::ctx(&mut sc));
+    assert_eq!(goal_vault::venue(&v), 0);
+    assert_eq!(goal_vault::basis(&v), 0);
+    assert_eq!(goal_vault::has_receipt(&v), false);
+    let FakeReceipt { id } = back;
+    id.delete();
+
+    let rest = goal_vault::close(v, ts::ctx(&mut sc));
+    coin::burn_for_testing(rest);
+    clock::destroy_for_testing(clk);
+    ts::end(sc);
+}
+
+#[test, expected_failure(abort_code = goal_vault::EReceiptParked)]
+fun cannot_close_with_parked_receipt() {
+    let mut sc = ts::begin(OWNER);
+    let clk = clock::create_for_testing(ts::ctx(&mut sc));
+    goal_vault::create<SUI>(b"Yielding goal", 0, &clk, ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, OWNER);
+    let mut v = ts::take_from_sender<GoalVault<SUI>>(&sc);
+    let receipt = FakeReceipt { id: object::new(ts::ctx(&mut sc)) };
+    goal_vault::park_receipt(&mut v, receipt, VENUE_NAVI, 100, ts::ctx(&mut sc));
+
+    // Closing while a receipt is parked must abort (funds would be orphaned).
+    let rest = goal_vault::close(v, ts::ctx(&mut sc));
+
     coin::burn_for_testing(rest);
     clock::destroy_for_testing(clk);
     ts::end(sc);

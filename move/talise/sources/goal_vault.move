@@ -23,7 +23,7 @@
 /// docs/goals-vault.md for the staged plan.
 module talise::goal_vault;
 
-use sui::{balance::{Self, Balance}, clock::Clock, coin::{Self, Coin}, event};
+use sui::{balance::{Self, Balance}, clock::Clock, coin::{Self, Coin}, event, dynamic_object_field as dof};
 use std::string::{Self, String};
 
 // ───────────────────────────────────────────────────────────────────
@@ -33,8 +33,15 @@ const ENotOwner: u64 = 300;
 const EInsufficientBalance: u64 = 301;
 const EZeroAmount: u64 = 302;
 const ENameTooLong: u64 = 303;
+const EVenueNotAllowed: u64 = 304;
+const EReceiptParked: u64 = 305;
+const ENoReceipt: u64 = 306;
 
 const MAX_NAME_LEN: u64 = 64;
+
+/// Dynamic-object-field key under which the (single) venue yield receipt is
+/// parked on a vault. One yield position per goal keeps custody trivial.
+const RECEIPT_KEY: u8 = 0;
 
 // ───────────────────────────────────────────────────────────────────
 // Object
@@ -49,8 +56,18 @@ public struct GoalVault<phantom T> has key, store {
     name: String,
     /// Target amount in T's smallest unit (e.g. USDsui micro-units). 0 = none.
     target: u64,
-    /// The segregated funds this goal holds.
+    /// The segregated IDLE funds this goal holds (not currently supplied to a
+    /// yield venue). Supplied funds live as a venue receipt parked under
+    /// RECEIPT_KEY (dynamic object field), with `basis` tracking their size.
     principal: Balance<T>,
+    /// Venue the parked receipt belongs to (0 = none, 1 = NAVI). The receipt
+    /// object itself is held as a dynamic object field, not inline, because
+    /// its type varies by venue.
+    venue: u8,
+    /// Principal (in T's smallest unit) currently supplied to `venue`. The
+    /// goal's total value is `balance(principal) + basis` (+ accrued yield,
+    /// realised on redeem).
+    basis: u64,
     created_at_ms: u64,
     /// Monotonic lifetime totals for telemetry / the activity feed.
     deposits_total: u64,
@@ -65,6 +82,8 @@ public struct GoalDeposited has copy, drop { vault_id: ID, owner: address, amoun
 public struct GoalWithdrawn has copy, drop { vault_id: ID, owner: address, amount: u64, balance: u64 }
 public struct GoalClosed has copy, drop { vault_id: ID, owner: address, returned: u64 }
 public struct GoalUpdated has copy, drop { vault_id: ID, owner: address, target: u64 }
+public struct GoalSupplied has copy, drop { vault_id: ID, owner: address, venue: u8, basis: u64 }
+public struct GoalRedeemed has copy, drop { vault_id: ID, owner: address, venue: u8 }
 
 // ───────────────────────────────────────────────────────────────────
 // Lifecycle
@@ -104,6 +123,8 @@ fun new_vault<T>(
         name: string::utf8(name),
         target,
         principal,
+        venue: 0,
+        basis: 0,
         created_at_ms: clock.timestamp_ms(),
         deposits_total: initial,
         withdrawals_total: 0,
@@ -151,12 +172,18 @@ public fun withdraw<T>(vault: &mut GoalVault<T>, amount: u64, ctx: &mut TxContex
 /// abandoned). Returns the full remaining balance as a Coin.
 public fun close<T>(vault: GoalVault<T>, ctx: &mut TxContext): Coin<T> {
     assert!(ctx.sender() == vault.owner, ENotOwner);
+    // A parked venue receipt is a dynamic object field on `id`; the UID can't
+    // be deleted while it holds one. Force the owner to redeem first so funds
+    // supplied to a venue are never orphaned.
+    assert!(vault.venue == 0, EReceiptParked);
     let GoalVault {
         id,
         owner,
         name: _,
         target: _,
         principal,
+        venue: _,
+        basis: _,
         created_at_ms: _,
         deposits_total: _,
         withdrawals_total: _,
@@ -165,6 +192,46 @@ public fun close<T>(vault: GoalVault<T>, ctx: &mut TxContext): Coin<T> {
     event::emit(GoalClosed { vault_id: id.to_inner(), owner, returned });
     id.delete();
     coin::from_balance(principal, ctx)
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Yield — park a venue lending receipt on the vault (owner-gated).
+//
+// We do NOT call the venue (NAVI) from Move — it has no Move package here and
+// is driven by its SDK at the PTB level. Instead the owner runs a single
+// signed PTB that (a) `withdraw`s idle principal from this vault, (b) supplies
+// it to the venue via the SDK, obtaining a receipt `R`, then (c) `park_receipt`
+// stores that receipt on the vault. Exiting is the mirror: `take_receipt` →
+// SDK redeem → `deposit` the coin back. `R: key + store` is the venue receipt
+// type (e.g. NAVI account/obligation). One receipt per goal (RECEIPT_KEY).
+
+public fun park_receipt<T, R: key + store>(
+    vault: &mut GoalVault<T>,
+    receipt: R,
+    venue: u8,
+    basis: u64,
+    ctx: &TxContext,
+) {
+    assert!(ctx.sender() == vault.owner, ENotOwner);
+    assert!(venue != 0, EVenueNotAllowed);
+    assert!(vault.venue == 0 && !dof::exists(&vault.id, RECEIPT_KEY), EReceiptParked);
+    dof::add(&mut vault.id, RECEIPT_KEY, receipt);
+    vault.venue = venue;
+    vault.basis = basis;
+    event::emit(GoalSupplied { vault_id: object::id(vault), owner: vault.owner, venue, basis });
+}
+
+/// Pull the parked receipt back out (to run a venue-redeem PTB). Clears the
+/// venue/basis tracking; the owner re-`deposit`s the redeemed coin.
+public fun take_receipt<T, R: key + store>(vault: &mut GoalVault<T>, ctx: &TxContext): R {
+    assert!(ctx.sender() == vault.owner, ENotOwner);
+    assert!(dof::exists_with_type<u8, R>(&vault.id, RECEIPT_KEY), ENoReceipt);
+    let receipt: R = dof::remove(&mut vault.id, RECEIPT_KEY);
+    let venue = vault.venue;
+    vault.venue = 0;
+    vault.basis = 0;
+    event::emit(GoalRedeemed { vault_id: object::id(vault), owner: vault.owner, venue });
+    receipt
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -191,6 +258,13 @@ public fun owner<T>(vault: &GoalVault<T>): address { vault.owner }
 public fun name<T>(vault: &GoalVault<T>): String { vault.name }
 public fun deposits_total<T>(vault: &GoalVault<T>): u64 { vault.deposits_total }
 public fun withdrawals_total<T>(vault: &GoalVault<T>): u64 { vault.withdrawals_total }
+
+/// Venue the parked receipt belongs to (0 = none / idle-only).
+public fun venue<T>(vault: &GoalVault<T>): u8 { vault.venue }
+/// Principal currently supplied to the venue (the parked receipt's basis).
+public fun basis<T>(vault: &GoalVault<T>): u64 { vault.basis }
+/// Whether the vault currently holds a parked venue receipt.
+public fun has_receipt<T>(vault: &GoalVault<T>): bool { vault.venue != 0 }
 
 /// Has the goal reached its target? (A 0 target is never "complete".)
 public fun is_complete<T>(vault: &GoalVault<T>): bool {
