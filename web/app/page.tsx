@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Reveal } from "@/components/Reveal";
 import HeroDark from "./_premium/HeroDark";
 import RenaissanceStory from "./_premium/RenaissanceStory";
+import GlassBand from "./_premium/GlassBand";
 import SmoothScroll from "./_premium/SmoothScroll";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -48,9 +49,7 @@ export default async function Landing({
       <main className="relative z-10 mx-auto w-full max-w-[1440px] px-6 pb-32 md:px-12 lg:px-16">
         <HeroDark err={params.err} />
         <RenaissanceStory />
-        <HowItComposes />
-        <FeatureGrid />
-        <WhoItsFor />
+        <GlassBand />
         <SecuritySection />
         <ByTheNumbers />
         <FinalCta />
