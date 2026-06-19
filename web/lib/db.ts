@@ -405,6 +405,10 @@ async function doEnsureSchema(): Promise<void> {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_sent_usd DOUBLE PRECISION DEFAULT 0`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS lifetime_saved_usd DOUBLE PRECISION DEFAULT 0`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS roundup_saved_usd DOUBLE PRECISION DEFAULT 0`,
+    // Goal vaults (Phase 4): links a savings goal to its on-chain GoalVault<USDsui>
+    // object id. NULL = legacy DB tracking-envelope goal (funds in the user's
+    // balance); set = funds segregated in an owner-owned on-chain vault.
+    `ALTER TABLE savings_goals ADD COLUMN IF NOT EXISTS vault_object_id TEXT`,
     // AUDIT_PENDING (2026-05-29): the autoswap system was archived to
     // `web/_archive/autoswap-2026-05-29/`. The columns below are
     // dormant — no active code path writes them — but we keep them in

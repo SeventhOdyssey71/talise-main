@@ -34,6 +34,9 @@ export type SavingsGoal = {
   /** Derived: the goal has reached (or passed) its target. Drives the iOS
    *  "Completed" section — completed goals leave the active list. */
   completed: boolean;
+  /** On-chain GoalVault<USDsui> object id once the goal is vault-backed; null
+   *  for legacy DB tracking-envelope goals (funds in the user's balance). */
+  vaultObjectId: string | null;
 };
 
 type GoalRow = {
@@ -46,6 +49,7 @@ type GoalRow = {
   color: string | null;
   created_at: number;
   archived: number;
+  vault_object_id: string | null;
 };
 
 function rowToGoal(row: GoalRow): SavingsGoal {
@@ -65,7 +69,22 @@ function rowToGoal(row: GoalRow): SavingsGoal {
     createdAt: Number(row.created_at),
     archived: Number(row.archived) === 1,
     completed: targetUsd > 0 && currentUsd >= targetUsd,
+    vaultObjectId: row.vault_object_id ?? null,
   };
+}
+
+/** Link a goal to its on-chain vault object id (set after the create PTB
+ *  confirms). Mirrors the other goal mutators — user-scoped. */
+export async function setGoalVaultObjectId(
+  userId: number,
+  goalId: number,
+  vaultObjectId: string
+): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: "UPDATE savings_goals SET vault_object_id = ? WHERE id = ? AND user_id = ?",
+    args: [vaultObjectId, goalId, userId],
+  });
 }
 
 /** List the user's goals, newest first. Excludes archived by default. */
