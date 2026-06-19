@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
 import { Reveal } from "@/components/Reveal";
-import PremiumHero from "./_premium/PremiumHero";
+import HeroDark from "./_premium/HeroDark";
 import SmoothScroll from "./_premium/SmoothScroll";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -45,7 +45,7 @@ export default async function Landing({
       <TopBar />
 
       <main className="relative z-10 mx-auto w-full max-w-[1440px] px-6 pb-32 md:px-12 lg:px-16">
-        <PremiumHero err={params.err} />
+        <HeroDark err={params.err} />
         <HeroCollage />
         <HowItComposes />
         <FeatureGrid />
