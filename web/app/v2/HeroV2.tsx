@@ -81,19 +81,19 @@ export default function HeroV2() {
             phrase, no gas to think about, money that finally makes sense.
           </p>
 
-          <div className="mt-9 flex w-full max-w-[420px] items-stretch gap-3">
+          <div className="mt-9 grid w-full max-w-[420px] grid-cols-2 gap-3">
             <a
               href={TESTFLIGHT_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="v2-cta inline-flex h-[52px] flex-1 items-center justify-center gap-2 rounded-full bg-[#15300c] px-6 text-[15px] font-semibold text-[#f7fcf2] transition-transform hover:-translate-y-0.5"
+              className="v2-cta flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-[#15300c] px-4 text-[15px] font-semibold text-[#f7fcf2] transition-transform hover:-translate-y-0.5"
             >
               Get the app
               <span aria-hidden>↗</span>
             </a>
             <a
               href="/waitlist"
-              className="v2-cta inline-flex h-[52px] flex-1 items-center justify-center rounded-full border-2 border-[#15300c] px-6 text-[15px] font-semibold text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
+              className="v2-cta flex h-[52px] w-full items-center justify-center rounded-full border-2 border-[#15300c] px-4 text-[15px] font-semibold text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
             >
               How it works
             </a>
