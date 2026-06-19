@@ -58,6 +58,11 @@ export const runtime = "nodejs";
 const SUPPORTED_ASSETS = new Set(["USDsui", "SUI"]);
 const ADDRESS_RE = /^0x[a-f0-9]{64}$/i;
 
+// Fixed gas budget for the sponsored rail (0.06 SUI). Generous cap so the SDK
+// selects gas coins totaling >= this (pulling in the sponsor's main coin past
+// any dust); the sponsor pays only the actual gas used. See the build step.
+const SPONSOR_GAS_BUDGET_MIST = 60_000_000n;
+
 export async function POST(req: Request) {
   const onaraUrl = process.env.ONARA_URL;
   if (!onaraUrl) {
@@ -796,6 +801,18 @@ export async function POST(req: Request) {
     // Pre-set gas price so `tx.build()` skips its own
     // `getReferenceGasPrice` RPC.
     tx.setGasPrice(BigInt(gasPrice));
+
+    // Explicit gas budget — load-bearing. Without it, tx.build() auto-selects
+    // the sponsor's gas coins AND auto-estimates the budget. When the sponsor
+    // holds a tiny "dust" Coin<SUI> alongside its main coin, the auto-selection
+    // can pick ONLY the dust coin and then bake a budget that the dust can't
+    // cover, so Onara's simulate rejects the signed tx with "Insufficient gas"
+    // (a real send-killer observed in prod 2026-06-19). Setting a generous
+    // fixed budget makes the SDK's gas-coin selection accumulate coins until
+    // they total >= the budget — which pulls in the sponsor's main coin — so
+    // gas is always sufficient regardless of dust. The sponsor is only charged
+    // the ACTUAL gas used (~0.003–0.01 SUI); this is just the cap.
+    tx.setGasBudget(SPONSOR_GAS_BUDGET_MIST);
 
     const bytes = await tx.build({ client: client as never });
     const tBuild = Date.now();

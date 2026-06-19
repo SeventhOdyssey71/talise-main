@@ -96,6 +96,12 @@ export async function POST(req: Request) {
     // RPC. Sponsor's gas coin lookup still happens — Onara doesn't expose
     // its coin objectRefs, so we can't skip that part.
     tx.setGasPrice(BigInt(gasPrice));
+    // Explicit gas budget — see web/app/api/send/sponsor-prepare/route.ts for
+    // the full rationale. Without it the SDK can auto-select only the sponsor's
+    // dust Coin<SUI> and bake a budget it can't cover → Onara simulate rejects
+    // with "Insufficient gas". A generous fixed cap forces selection to pull in
+    // the main coin; the sponsor is charged only the actual gas used.
+    tx.setGasBudget(60_000_000n);
 
     const bytes = await tx.build({ client: client as never });
     const tBuild = Date.now();
