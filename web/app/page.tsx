@@ -3,6 +3,7 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 import { Reveal } from "@/components/Reveal";
 import HeroDark from "./_premium/HeroDark";
+import RenaissanceStory from "./_premium/RenaissanceStory";
 import SmoothScroll from "./_premium/SmoothScroll";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -38,7 +39,7 @@ export default async function Landing({
   const params = await searchParams;
 
   return (
-    <div className="landing-mint relative min-h-screen overflow-hidden text-[var(--color-fg)]">
+    <div className="relative min-h-screen overflow-hidden text-[var(--color-fg)]">
       <div className="talise-top-glow" aria-hidden />
 
       <SmoothScroll />
@@ -46,7 +47,7 @@ export default async function Landing({
 
       <main className="relative z-10 mx-auto w-full max-w-[1440px] px-6 pb-32 md:px-12 lg:px-16">
         <HeroDark err={params.err} />
-        <HeroCollage />
+        <RenaissanceStory />
         <HowItComposes />
         <FeatureGrid />
         <WhoItsFor />
