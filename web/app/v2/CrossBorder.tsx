@@ -32,9 +32,9 @@ export default function CrossBorder() {
     const stage = stageRef.current;
     if (!sizer || !stage) return;
     const fit = () => {
-      const s = Math.min(1, sizer.clientWidth / 400);
+      const s = Math.min(1, sizer.clientWidth / 480);
       stage.style.transform = `scale(${s})`;
-      sizer.style.height = `${400 * s}px`;
+      sizer.style.height = `${480 * s}px`;
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -91,8 +91,8 @@ export default function CrossBorder() {
 
       {/* playful globe + ring of name@talise pills, authored at a fixed 400x400
           and scaled to fit its column (see the resize effect above). */}
-      <div ref={sizerRef} className="relative mx-auto w-full min-w-0 max-w-[400px] overflow-hidden">
-        <div ref={stageRef} className="relative h-[400px] w-[400px] origin-top-left">
+      <div ref={sizerRef} className="relative mx-auto w-full min-w-0 max-w-[480px] overflow-hidden">
+        <div ref={stageRef} className="relative h-[480px] w-[480px] origin-top-left">
           {/* slowly-rotating orbit ring the pills sit on */}
           <div className="cb-orbit absolute inset-0">
             <svg viewBox="0 0 100 100" className="h-full w-full" aria-hidden="true">
@@ -115,7 +115,7 @@ export default function CrossBorder() {
           {HANDLES.map((h, i) => {
             // place pills evenly around the circle, starting at the top
             const angle = (i / HANDLES.length) * Math.PI * 2 - Math.PI / 2;
-            const radius = 44; // % of the 400px stage
+            const radius = 36; // % of the 480px stage (keeps pills inside the box)
             const left = 50 + Math.cos(angle) * radius;
             const top = 50 + Math.sin(angle) * radius;
             return (

@@ -185,7 +185,7 @@ export default function HeroLoop() {
             </div>
           </div>
 
-          <div className="s0-recv absolute bottom-4 right-0 w-[236px] rounded-[24px] bg-[#f7fcf2] p-5" style={{ boxShadow: "10px 10px 0 #15300c", border: "1.5px solid #15300c", opacity: 0 }}>
+          <div className="s0-recv absolute bottom-4 right-[14px] w-[236px] rounded-[24px] bg-[#f7fcf2] p-5" style={{ boxShadow: "10px 10px 0 #15300c", border: "1.5px solid #15300c", opacity: 0 }}>
             <div className="flex items-center gap-3">
               <span className="s0-check flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#3d7a29]" style={{ transform: "scale(0)" }}>
                 <Check />
@@ -244,7 +244,7 @@ export default function HeroLoop() {
           </div>
 
           {/* recipient claim */}
-          <div className="s2-claim absolute bottom-5 right-0 w-[232px] rounded-[24px] bg-[#f7fcf2] p-5" style={{ boxShadow: "10px 10px 0 #15300c", border: "1.5px solid #15300c", opacity: 0 }}>
+          <div className="s2-claim absolute bottom-5 right-[14px] w-[232px] rounded-[24px] bg-[#f7fcf2] p-5" style={{ boxShadow: "10px 10px 0 #15300c", border: "1.5px solid #15300c", opacity: 0 }}>
             <div className="flex items-center gap-3">
               <span className="s2-check flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#3d7a29]" style={{ transform: "scale(0)" }}>
                 <Check />
