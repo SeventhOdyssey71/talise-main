@@ -9,13 +9,13 @@ type Item = { q: string; a: string; bg: string; tilt: string };
 const ITEMS: Item[] = [
   {
     q: "Do I need a crypto wallet?",
-    a: "Sign in with Google — that's your wallet. No seed phrase, nothing to install.",
+    a: "Sign in with Google, that's your wallet. No seed phrase, nothing to install.",
     bg: "#CAFFB8",
     tilt: "-1.2deg",
   },
   {
     q: "Is it real dollars?",
-    a: "Yes — genuine US dollars on Sui (USDsui), 1:1.",
+    a: "Yes, genuine US dollars on Sui (USDsui), 1:1.",
     bg: "#FFE59E",
     tilt: "1.2deg",
   },
@@ -27,20 +27,20 @@ const ITEMS: Item[] = [
   },
   {
     q: "How do I cash out?",
-    a: "To your local currency, or wire USD to your bank — enter an amount and withdraw.",
+    a: "To your local currency, or wire USD to your bank, enter an amount and withdraw.",
     bg: "#C9B8FF",
     tilt: "1.4deg",
   },
   {
     q: "Is it safe / private?",
-    a: "Non-custodial: you control your funds. Private — never anonymous.",
+    a: "Non-custodial: you control your funds. Private, never anonymous.",
     bg: "#d8f5c6",
     tilt: "-1.4deg",
   },
 ];
 
 /**
- * v2 FAQ — playful Bricolage headline with a mint highlighter swipe, then five
+ * v2 FAQ, playful Bricolage headline with a mint highlighter swipe, then five
  * bento-card accordion rows (each a complementary gradient, hard offset shadow,
  * slight tilt). GSAP ScrollTrigger reveals the headline word-by-word, swipes the
  * highlighter, and pops the cards in with stagger. Respects reduced-motion.
@@ -65,11 +65,11 @@ export default function Faq() {
   }, []);
 
   return (
-    <section ref={root} className="mx-auto max-w-[820px] px-6 pt-20 pb-28 md:px-10 md:pt-28">
+    <section ref={root} className="mx-auto max-w-[900px] px-6 pt-20 pb-28 md:px-12 md:pt-28">
       <div className="faq-head mb-12 text-center">
         <div className="mb-4 font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">The honest answers</div>
         <h2
-          className="text-[clamp(36px,6vw,72px)] font-[800] leading-[0.98] tracking-[-0.03em]"
+          className="text-[clamp(36px,6vw,72px)] font-[800] uppercase leading-[0.98] tracking-[-0.02em]"
           style={{ fontFamily: "var(--font-display-v2)" }}
         >
           <span className="inline-block overflow-hidden pb-[0.06em] align-bottom">

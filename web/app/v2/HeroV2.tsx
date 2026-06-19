@@ -8,7 +8,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 const TESTFLIGHT_URL = "https://testflight.apple.com/join/BFNEPYtM";
 
 /**
- * v2 hero — bold, playful, type-driven (Wero-inspired) in Talise mint brand.
+ * v2 hero, bold, playful, type-driven (Wero-inspired) in Talise mint brand.
  * Giant Bricolage headline that clip-reveals word-by-word, a mint highlighter
  * swipe on the key phrase, a hero bento card, and the floating pill nav.
  * Initialises Lenis smooth scroll for the whole v2 page.
@@ -22,7 +22,7 @@ export default function HeroV2() {
     let lenis: Lenis | null = null;
     if (!reduce) {
       gsap.registerPlugin(ScrollTrigger);
-      lenis = new Lenis({ lerp: 0.1, smoothWheel: true });
+      lenis = new Lenis({ lerp: 0.1, smoothWheel: true, anchors: true });
       lenis.on("scroll", ScrollTrigger.update);
       const onRaf = (t: number) => lenis!.raf(t * 1000);
       gsap.ticker.add(onRaf);
@@ -57,7 +57,7 @@ export default function HeroV2() {
 
   return (
     <div ref={root}>
-      <section className="mx-auto grid max-w-[1280px] items-center gap-12 px-6 pt-24 pb-16 md:px-10 lg:grid-cols-[1.15fr_1fr] lg:pt-28">
+      <section className="mx-auto grid max-w-[1500px] items-center gap-12 px-6 pt-24 pb-16 md:px-12 lg:grid-cols-[1.15fr_1fr] lg:pt-28">
         {/* copy */}
         <div>
           <div className="v2-eyebrow mb-6 inline-flex items-center gap-2 rounded-full border border-[#15300c]/15 bg-white/60 px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.22em] text-[#3d7a29] backdrop-blur-sm">
@@ -65,7 +65,7 @@ export default function HeroV2() {
           </div>
 
           <h1
-            className="text-[clamp(44px,7vw,96px)] font-[800] leading-[0.95] tracking-[-0.035em]"
+            className="text-[clamp(46px,7.4vw,104px)] font-[800] uppercase leading-[0.92] tracking-[-0.02em]"
             style={{ fontFamily: "var(--font-display-v2)" }}
           >
             <Line>Money that</Line>
@@ -78,7 +78,7 @@ export default function HeroV2() {
 
           <p className="v2-sub mt-7 max-w-[460px] text-[17px] leading-[1.55] text-[#3a5230]">
             Hold real dollars, send them to a name, cash out at home. No seed
-            phrase, no gas to think about — money that finally makes sense.
+            phrase, no gas to think about, money that finally makes sense.
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-3">
@@ -133,9 +133,14 @@ export default function HeroV2() {
 
       {/* floating pill nav */}
       <nav className="v2-nav pointer-events-auto fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[#15300c]/10 bg-white/85 px-2 py-2 shadow-[0_10px_40px_-12px_rgba(21,48,12,0.35)] backdrop-blur-md">
-        {["What it is", "How", "Earn", "FAQ"].map((l) => (
-          <a key={l} href="#" className="rounded-full px-4 py-2 text-[14px] font-medium text-[#15300c] transition-colors hover:bg-[#15300c]/[0.06]">
-            {l}
+        {[
+          { l: "Features", href: "#features" },
+          { l: "Global", href: "#how" },
+          { l: "Why Sui", href: "#why" },
+          { l: "FAQ", href: "#faq" },
+        ].map((n) => (
+          <a key={n.l} href={n.href} className="rounded-full px-4 py-2 text-[14px] font-medium text-[#15300c] transition-colors hover:bg-[#15300c]/[0.06]">
+            {n.l}
           </a>
         ))}
         <a href={TESTFLIGHT_URL} target="_blank" rel="noopener noreferrer" className="ml-1 rounded-full bg-[#15300c] px-5 py-2 text-[14px] font-semibold text-[#f7fcf2]">

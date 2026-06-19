@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { Bricolage_Grotesque, DM_Sans } from "next/font/google";
+import { Hanken_Grotesk, DM_Sans } from "next/font/google";
 
-// Heavy characterful display + clean body — the Wero-ish bold, friendly feel.
-const display = Bricolage_Grotesque({
+// Clean, heavy grotesque that reads great in ALL-CAPS display (the bold,
+// confident Wero-style headline treatment).
+const display = Hanken_Grotesk({
   subsets: ["latin"],
   weight: ["700", "800"],
   variable: "--font-display-v2",

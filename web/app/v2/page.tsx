@@ -7,7 +7,7 @@ import Faq from "./Faq";
 export const dynamic = "force-dynamic";
 
 /**
- * Talise landing — v2 PREVIEW (Wero-inspired, brand-mint). Lives at /v2 so the
+ * Talise landing, v2 PREVIEW (Wero-inspired, brand-mint). Lives at /v2 so the
  * production landing (app/page.tsx) stays untouched until this is approved.
  * Style spec: app/v2/STYLE-SPEC.md.
  */
@@ -15,7 +15,7 @@ export default function LandingV2() {
   return (
     <main className="relative">
       {/* top brand mark */}
-      <div className="mx-auto flex max-w-[1280px] items-center justify-between px-6 pt-7 md:px-10">
+      <div className="mx-auto flex max-w-[1500px] items-center justify-between px-6 pt-7 md:px-12">
         <div className="flex items-center gap-2.5">
           <svg width="26" height="26" viewBox="0 0 583 533" aria-hidden>
             <path d="M375.231 85.2803C375.232 120.604 403.867 149.24 439.191 149.24H582.036V195.141C582.036 275.133 517.696 340.098 437.943 341.108L435.271 341.125C402.04 341.546 375.232 368.614 375.231 401.944V533H345.384C260.606 533 191.88 464.274 191.88 379.496V341.12H0V303.18C8.18875e-05 219.067 67.6907 150.62 151.798 149.686L191.875 149.24V341.119H427.871C396.135 332.728 367.039 316.441 343.293 293.774L191.876 149.24H191.88V63.96C191.88 28.6358 220.516 0 255.84 0H375.231V85.2803Z" fill="#15300c" />
@@ -28,15 +28,15 @@ export default function LandingV2() {
       </div>
 
       <HeroV2 />
-      <FeaturesBento />
-      <CrossBorder />
-      <WhySui />
-      <Faq />
+      <div id="features" className="scroll-mt-8"><FeaturesBento /></div>
+      <div id="how" className="scroll-mt-8"><CrossBorder /></div>
+      <div id="why" className="scroll-mt-8"><WhySui /></div>
+      <div id="faq" className="scroll-mt-8"><Faq /></div>
 
       {/* closing CTA + giant wordmark */}
       <section className="px-6 pb-10 text-center md:px-10">
         <div className="mx-auto max-w-[760px]">
-          <h2 className="text-[clamp(30px,4.6vw,52px)] font-[800] leading-[1.0] tracking-[-0.03em]" style={{ fontFamily: "var(--font-display-v2)" }}>
+          <h2 className="text-[clamp(32px,4.8vw,56px)] font-[800] uppercase leading-[1.0] tracking-[-0.02em]" style={{ fontFamily: "var(--font-display-v2)" }}>
             Money that makes sense.
           </h2>
           <p className="mx-auto mt-4 max-w-[440px] text-[16px] text-[#3a5230]">

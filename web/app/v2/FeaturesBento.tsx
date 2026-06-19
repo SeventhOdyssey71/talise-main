@@ -8,9 +8,9 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 type Card = { tag: string; title: string; body: string; bg: string; img: string; tilt: string };
 
 const CARDS: Card[] = [
-  { tag: "Hold", title: "Hold real dollars.", body: "Genuine US dollars on Sui — yours to hold, spend, or send, any time.", bg: "#CAFFB8", img: "/v2/coin.png", tilt: "-1.5deg" },
-  { tag: "Send", title: "Send to a name.", body: "Type sele@talise, hit send — it arrives in seconds. Stablecoin transactions on Sui cost nothing.", bg: "#FF9E7A", img: "/v2/plane.png", tilt: "1.5deg" },
-  { tag: "Earn", title: "Idle money grows.", body: "Sitting still? Talise quietly puts it to work, auto-routed — and always yours to move.", bg: "#C9B8FF", img: "/v2/sprout.png", tilt: "1.2deg" },
+  { tag: "Hold", title: "Hold real dollars.", body: "Genuine US dollars on Sui, yours to hold, spend, or send, any time.", bg: "#CAFFB8", img: "/v2/coin.png", tilt: "-1.5deg" },
+  { tag: "Send", title: "Send to a name.", body: "Type sele@talise, hit send, it arrives in seconds. Stablecoin transactions on Sui cost nothing.", bg: "#FF9E7A", img: "/v2/plane.png", tilt: "1.5deg" },
+  { tag: "Earn", title: "Idle money grows.", body: "Sitting still? Talise quietly puts it to work, auto-routed, and always yours to move.", bg: "#C9B8FF", img: "/v2/sprout.png", tilt: "1.2deg" },
   { tag: "Cash out", title: "Cash out at home.", body: "Turn dollars into your local currency, or wire USD to your bank. Enter an amount, withdraw.", bg: "#FFE59E", img: "/v2/phone.png", tilt: "-1.2deg" },
 ];
 
@@ -33,10 +33,10 @@ export default function FeaturesBento() {
   }, []);
 
   return (
-    <section ref={root} className="mx-auto max-w-[1180px] px-6 pt-20 pb-28 md:px-10 md:pt-28">
+    <section ref={root} className="mx-auto max-w-[1400px] px-6 pt-20 pb-28 md:px-12 md:pt-28">
       <div className="fb-head mb-14 text-center">
         <div className="mb-4 font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">What you get</div>
-        <h2 className="text-[clamp(32px,5vw,60px)] font-[800] leading-[0.98] tracking-[-0.03em]" style={{ fontFamily: "var(--font-display-v2)" }}>
+        <h2 className="text-[clamp(32px,5vw,60px)] font-[800] uppercase leading-[0.98] tracking-[-0.02em]" style={{ fontFamily: "var(--font-display-v2)" }}>
           <span className="block overflow-hidden pb-[0.06em]"><span className="v2-word inline-block">Everything money</span></span>
           <span className="relative inline-block">
             <span className="fb-hl absolute inset-x-[-8px] inset-y-[6px] -z-0 -rotate-[1.2deg] rounded-[12px] bg-[#CAFFB8]" />
