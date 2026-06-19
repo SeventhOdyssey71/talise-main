@@ -3,7 +3,7 @@ import FeaturesBento from "./FeaturesBento";
 import CrossBorder from "./CrossBorder";
 import WhySui from "./WhySui";
 import Faq from "./Faq";
-import { HowItWorks, MoreWays, Earn, Trust } from "./MoreSections";
+import { HowItWorks, MoreWays, Earn, Trust, AppShowcase } from "./MoreSections";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +31,7 @@ export default function LandingV2() {
       <HeroV2 />
       <div id="start" className="scroll-mt-8"><HowItWorks /></div>
       <div id="features" className="scroll-mt-8"><FeaturesBento /></div>
+      <div id="app" className="scroll-mt-8"><AppShowcase /></div>
       <div id="ways" className="scroll-mt-8"><MoreWays /></div>
       <div id="how" className="scroll-mt-8"><CrossBorder /></div>
       <div id="earn" className="scroll-mt-8"><Earn /></div>

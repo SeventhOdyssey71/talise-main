@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -156,12 +157,77 @@ export function MoreWays() {
 }
 
 /* ============ 3 - EARN ============ */
+/** Live earning card: the growth line draws on, the balance counts up, then
+ *  keeps ticking by the cent to show yield accruing. EARNING badge pulses. */
+function EarnCard() {
+  const ref = useRef<HTMLDivElement>(null);
+  const balRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const fmt = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const ctx = gsap.context((self) => {
+      gsap.registerPlugin(ScrollTrigger);
+      const q = self.selector!;
+      const bal = balRef.current;
+      const obj = { n: 1240 };
+
+      if (reduce) {
+        gsap.set(q(".earn-line"), { strokeDashoffset: 0 });
+        gsap.set(q(".earn-area, .earn-dot"), { opacity: 1 });
+        if (bal) bal.textContent = fmt(1240);
+        return;
+      }
+
+      gsap.set(q(".earn-line"), { strokeDashoffset: 100 });
+      gsap.set(q(".earn-area, .earn-dot"), { opacity: 0 });
+      obj.n = 1198;
+      if (bal) bal.textContent = fmt(obj.n);
+
+      const tl = gsap.timeline({ scrollTrigger: { trigger: ref.current, start: "top 82%" } });
+      tl.to(q(".earn-line"), { strokeDashoffset: 0, duration: 1.4, ease: "power2.out" })
+        .to(q(".earn-area"), { opacity: 1, duration: 0.7 }, "<0.3")
+        .to(obj, { n: 1240, duration: 1.4, ease: "power2.out", onUpdate: () => { if (bal) bal.textContent = fmt(obj.n); } }, "<")
+        .to(q(".earn-dot"), { opacity: 1, duration: 0.3 }, "-=0.2")
+        // live yield: keep ticking by the cent (accumulates, never resets)
+        .add(() => {
+          gsap.timeline({ repeat: -1 }).to({}, { duration: 1.6 }).call(() => {
+            obj.n += 0.01;
+            if (bal) bal.textContent = fmt(obj.n);
+          });
+        });
+
+      gsap.to(q(".earn-badge-dot"), { opacity: 0.35, duration: 1, ease: "sine.inOut", yoyo: true, repeat: -1 });
+      gsap.to(q(".earn-dot"), { y: -3, duration: 1.5, ease: "sine.inOut", yoyo: true, repeat: -1 });
+    }, ref);
+    return () => ctx.revert();
+  }, []);
+
+  return (
+    <div ref={ref} className="reveal relative mx-auto w-full max-w-[420px] rounded-[28px] bg-gradient-to-br from-[#3d7a29] to-[#1c4513] p-8 text-[#f7fcf2]" style={{ boxShadow: "12px 12px 0 #15300c" }}>
+      <div className="flex items-center justify-between">
+        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#CAFFB8]">Your balance</div>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#CAFFB8] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-[#15300c]">
+          <span className="earn-badge-dot inline-block h-1.5 w-1.5 rounded-full bg-[#15300c]" /> Earning yield
+        </span>
+      </div>
+      <div ref={balRef} className="mt-2 text-[44px] font-[800] leading-none tabular-nums" style={DISPLAY}>$1,240.00</div>
+      <div className="mt-1 font-mono text-[12px] text-[#cfe9c2]">USDsui · auto-routed to Sui protocols</div>
+      <svg viewBox="0 0 320 92" className="mt-7 h-[92px] w-full" aria-hidden>
+        <path className="earn-area" d="M0 80 C 60 72, 90 60, 140 52 S 230 30, 312 12 L 312 92 L 0 92 Z" fill="#CAFFB8" fillOpacity="0.14" />
+        <path className="earn-line" d="M0 80 C 60 72, 90 60, 140 52 S 230 30, 312 12" fill="none" stroke="#CAFFB8" strokeWidth="3" strokeLinecap="round" pathLength={100} strokeDasharray={100} strokeDashoffset={100} />
+        <circle className="earn-dot" cx="312" cy="12" r="5" fill="#CAFFB8" />
+      </svg>
+      <div className="mt-2 font-mono text-[11px] text-[#9fc78c]">working quietly, always withdrawable</div>
+    </div>
+  );
+}
+
 export function Earn() {
   const root = useReveal();
   return (
     <section ref={root} className="mx-auto grid grid-cols-1 max-w-[1400px] items-center gap-12 px-6 pt-20 pb-12 md:px-12 md:pt-24 lg:grid-cols-[1fr_1fr] lg:gap-16">
       <div>
-        <Eyebrow>Idle money grows</Eyebrow>
+        <Eyebrow>Put dollars to work</Eyebrow>
         <h2 className="reveal text-[clamp(25px,5.6vw,60px)] font-[800] uppercase leading-[0.98] tracking-[-0.02em] text-[#15300c]" style={DISPLAY}>
           Your money works{" "}
           <span className="relative inline-block">
@@ -170,10 +236,10 @@ export function Earn() {
           </span>
         </h2>
         <p className="reveal mt-6 max-w-[460px] text-[17px] leading-[1.55] text-[#3a5230]">
-          Leave dollars in Talise and they quietly earn, auto-routed to vetted Sui protocols. Always liquid, always yours, withdraw any time.
+          Put your dollars to work and they earn yield automatically, auto-routed to vetted Sui protocols. Always liquid, always yours, withdraw any time.
         </p>
         <ul className="reveal mt-7 flex flex-col gap-3">
-          {["Auto-routed, nothing to manage", "Stays fully withdrawable", "Pause or move it whenever"].map((x) => (
+          {["Earns yield, fully automatic", "Stays fully withdrawable", "Pause or move it whenever"].map((x) => (
             <li key={x} className="flex items-center gap-3 text-[15px] text-[#15300c]/80">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#3d7a29]">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f7fcf2" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 6.5" /></svg>
@@ -184,21 +250,7 @@ export function Earn() {
         </ul>
       </div>
 
-      {/* earning card */}
-      <div className="reveal relative mx-auto w-full max-w-[420px] rounded-[28px] bg-gradient-to-br from-[#3d7a29] to-[#1c4513] p-8 text-[#f7fcf2]" style={{ boxShadow: "12px 12px 0 #15300c" }}>
-        <div className="flex items-center justify-between">
-          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#CAFFB8]">Your balance</div>
-          <span className="rounded-full bg-[#CAFFB8] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-[#15300c]">Earning</span>
-        </div>
-        <div className="mt-2 text-[44px] font-[800] leading-none" style={DISPLAY}>$1,240.00</div>
-        <div className="mt-1 font-mono text-[12px] text-[#cfe9c2]">1,240.00 USDsui</div>
-        {/* gentle growth sparkline */}
-        <svg viewBox="0 0 320 90" className="mt-7 h-[90px] w-full" aria-hidden>
-          <path d="M0 78 C 60 70, 90 58, 140 50 S 230 28, 320 10" fill="none" stroke="#CAFFB8" strokeWidth="3" strokeLinecap="round" />
-          <path d="M0 78 C 60 70, 90 58, 140 50 S 230 28, 320 10 L 320 90 L 0 90 Z" fill="#CAFFB8" fillOpacity="0.12" />
-        </svg>
-        <div className="mt-2 font-mono text-[11px] text-[#9fc78c]">working quietly, always withdrawable</div>
-      </div>
+      <EarnCard />
     </section>
   );
 }
@@ -258,6 +310,51 @@ export function Trust() {
             <p className="mt-3 text-[15px] leading-[1.5] text-[#15300c]/75">{c.b}</p>
           </article>
         ))}
+      </div>
+    </section>
+  );
+}
+
+/* ============ APP SHOWCASE ============ */
+export function AppShowcase() {
+  const root = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const ctx = gsap.context((self) => {
+      gsap.registerPlugin(ScrollTrigger);
+      const q = self.selector!;
+      if (!reduce) {
+        gsap.from(q(".reveal"), { opacity: 0, y: 20, duration: 0.7, stagger: 0.08, ease: "power2.out", scrollTrigger: { trigger: root.current, start: "top 80%" } });
+        // gentle float on the phones
+        gsap.to(q(".app-collage"), { y: -12, duration: 3.4, ease: "sine.inOut", yoyo: true, repeat: -1 });
+      }
+    }, root);
+    return () => ctx.revert();
+  }, []);
+
+  return (
+    <section ref={root} className="mx-auto max-w-[1200px] px-6 pt-20 pb-12 text-center md:px-12 md:pt-24">
+      <div className="reveal mb-4 font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">On TestFlight now</div>
+      <h2 className="reveal mx-auto max-w-[820px] text-[clamp(25px,5.6vw,60px)] font-[800] uppercase leading-[0.98] tracking-[-0.02em] text-[#15300c]" style={DISPLAY}>
+        Save, send,{" "}
+        <span className="relative inline-block">
+          <span className="absolute inset-x-[-6px] inset-y-[5px] -z-0 -rotate-[1.5deg] rounded-[10px] bg-[#CAFFB8]" />
+          <span className="relative z-10">done.</span>
+        </span>
+      </h2>
+      <p className="reveal mx-auto mt-4 max-w-[440px] text-[16px] leading-[1.55] text-[#3a5230]">
+        The whole flow, in a few taps. Put dollars to work, send to a name, and watch it land in under a second.
+      </p>
+      <div className="reveal relative mt-12">
+        <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[68%] w-[78%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#CAFFB8]/45 blur-3xl" />
+        <Image
+          src="/talise-app-collage.png"
+          alt="Talise app: a savings screen, reviewing a send to talise.sui, and a successful transfer"
+          width={1200}
+          height={639}
+          priority
+          className="app-collage mx-auto h-auto w-full max-w-[1000px] object-contain drop-shadow-[0_30px_50px_rgba(21,48,12,0.18)]"
+        />
       </div>
     </section>
   );
