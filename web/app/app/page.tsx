@@ -31,7 +31,7 @@ export default function HomePage() {
         {/* Greeting — quiet, personal, hugging the balance card (it used to
             float a full space-y-8 above it, stranded under the header). */}
         {first ? (
-          <p className="text-[13px] text-fg-dim">Welcome back, {first}.</p>
+          <p className="text-[13px] text-[#3d7a29]">Welcome back, {first}.</p>
         ) : null}
 
         {/* The lead: one calm balance card (eyebrow → balance → identity row →

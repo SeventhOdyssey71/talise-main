@@ -19,7 +19,6 @@ import {
   ArrowDown01Icon,
 } from "@hugeicons/core-free-icons";
 import Link from "next/link";
-import { GlassCard } from "@/components/app";
 import { SupplyCard } from "@/components/app/earn/SupplyCard";
 import { RoundupCard } from "@/components/app/earn/RoundupCard";
 import { GoalsSection } from "@/components/app/earn/GoalsSection";
@@ -60,7 +59,7 @@ export default function EarnPage() {
             <button
               type="button"
               onClick={() => setMoreOpen(true)}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl border border-line bg-surface px-4 py-3 text-[14px] font-medium text-fg-muted transition-colors hover:text-fg lg:hidden"
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl border border-[#15300c]/15 bg-white/60 px-4 py-3 text-[14px] font-medium text-[#3a5230] backdrop-blur-sm transition-colors hover:border-[#15300c]/30 hover:text-[#15300c] lg:hidden"
             >
               Goals &amp; insights
               <HugeiconsIcon icon={ArrowDown01Icon} size={16} strokeWidth={2} />
@@ -75,31 +74,28 @@ export default function EarnPage() {
 /** Tappable banner linking to the Rewards & Referrals surface. */
 function RewardsLink() {
   return (
-    <GlassCard as="div" interactive radius={14} className="!p-0">
-      <Link
-        href="/app/rewards"
-        className="group flex items-center gap-3.5 px-4 py-3.5"
-      >
-        <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent"
-        >
-          <HugeiconsIcon icon={GiftCardIcon} size={17} strokeWidth={1.8} />
+    <Link
+      href="/app/rewards"
+      className="group flex items-center gap-3.5 rounded-[28px] bg-[#f7fcf2] px-5 py-4 transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
+      style={{ boxShadow: "10px 10px 0 #15300c" }}
+    >
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
+        <HugeiconsIcon icon={GiftCardIcon} size={18} strokeWidth={1.8} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-semibold tracking-[-0.01em] text-[#15300c]">
+          Rewards &amp; Referrals
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[14px] font-medium tracking-[-0.01em] text-fg">
-            Rewards &amp; Referrals
-          </span>
-          <span className="block truncate text-[12px] text-fg-muted">
-            Earn points on every payment — redeem perks, invite friends.
-          </span>
+        <span className="block truncate text-[13px] text-[#3a5230]">
+          Earn points on every payment, redeem perks, invite friends.
         </span>
-        <HugeiconsIcon
-          icon={ArrowRight02Icon}
-          size={16}
-          className="shrink-0 text-fg-dim transition-transform group-hover:translate-x-0.5"
-          strokeWidth={2}
-        />
-      </Link>
-    </GlassCard>
+      </span>
+      <HugeiconsIcon
+        icon={ArrowRight02Icon}
+        size={16}
+        className="shrink-0 text-[#3d7a29] transition-transform group-hover:translate-x-0.5"
+        strokeWidth={2}
+      />
+    </Link>
   );
 }

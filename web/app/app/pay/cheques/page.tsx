@@ -14,8 +14,6 @@ import {
   Cancel01Icon,
 } from "@hugeicons/core-free-icons";
 import {
-  Eyebrow,
-  GlassCard,
   PrimaryButton,
   SlideToConfirm,
   Field,
@@ -106,15 +104,17 @@ export default function ChequesPage() {
           mobile users who tapped into Cheques lost the way back to
           Send/Request/Stream. */}
       <PaySubNav />
-      <header className="space-y-1.5">
-        <Eyebrow>Cheques</Eyebrow>
+      <header className="space-y-2">
+        <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
+          Cheques
+        </span>
         <h1
-          className="font-display text-[26px] font-medium text-fg sm:text-[30px]"
-          style={{ letterSpacing: "-0.03em" }}
+          className="text-[clamp(26px,5vw,34px)] font-[800] uppercase leading-[1.02] tracking-[-0.02em] text-[#15300c]"
+          style={{ fontFamily: "var(--font-display-v2)" }}
         >
           Money in a link
         </h1>
-        <p className="text-[14px] text-fg-muted">
+        <p className="text-[14px] leading-[1.5] text-[#3a5230]">
           {/* Short on phones; the fuller line reads on wider screens. */}
           <span className="sm:hidden">A link anyone can claim as real money.</span>
           <span className="hidden sm:inline">
@@ -126,7 +126,7 @@ export default function ChequesPage() {
 
       {/* Segmented control */}
       <div
-        className="flex w-full gap-1 rounded-full border border-line bg-surface p-1"
+        className="flex w-full gap-1 rounded-full border border-[#15300c]/15 bg-white/60 p-1 backdrop-blur-sm"
         role="tablist"
       >
         {tabs.map((t) => {
@@ -137,10 +137,10 @@ export default function ChequesPage() {
               role="tab"
               aria-selected={active}
               onClick={() => setTab(t.id)}
-              className={`flex-1 rounded-full px-4 py-2 text-[14px] font-medium transition-colors ${
+              className={`flex-1 rounded-full px-4 py-2 text-[14px] transition-colors ${
                 active
-                  ? "bg-accent-soft text-accent font-semibold"
-                  : "text-fg-muted hover:text-fg"
+                  ? "bg-[#CAFFB8] font-semibold text-[#15300c]"
+                  : "text-[#3a5230] hover:text-[#15300c]"
               }`}
             >
               {t.label}
@@ -271,28 +271,36 @@ function WriteTab({ onIssued }: { onIssued: () => void }) {
       />
 
       {/* Form fields */}
-      <GlassCard className="divide-y divide-line p-0" radius={14}>
+      <div
+        className="divide-y divide-[#15300c]/10 overflow-hidden rounded-[28px] bg-[#f7fcf2]"
+        style={{ boxShadow: "10px 10px 0 #15300c" }}
+      >
         {/* Amount */}
         <div className="px-5 py-4">
-          <label className="block font-mono text-[10px] font-medium uppercase text-fg-dim" style={{ letterSpacing: "0.2em" }}>
+          <label className="block font-mono text-[11px] font-medium uppercase tracking-[0.28em] text-[#3d7a29]">
             Amount (USDsui)
           </label>
           <div className="mt-2 flex items-center gap-1.5">
-            <span className="font-display text-[22px] text-fg-muted">$</span>
+            <span
+              className="text-[22px] text-[#3a5230]"
+              style={{ fontFamily: "var(--font-display-v2)" }}
+            >
+              $
+            </span>
             <input
               inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
               placeholder="0.00"
-              className="w-full bg-transparent font-display text-[28px] font-semibold text-fg tabular-nums outline-none placeholder:text-fg-dim"
-              style={{ letterSpacing: "-0.03em" }}
+              className="w-full bg-transparent text-[28px] font-[800] tracking-[-0.02em] text-[#15300c] tabular-nums outline-none placeholder:text-[#3d7a29]/60"
+              style={{ fontFamily: "var(--font-display-v2)" }}
             />
           </div>
         </div>
 
         {/* Pay to */}
         <div className="px-5 py-4">
-          <label className="block font-mono text-[10px] font-medium uppercase text-fg-dim" style={{ letterSpacing: "0.2em" }}>
+          <label className="block font-mono text-[11px] font-medium uppercase tracking-[0.28em] text-[#3d7a29]">
             Pay to
           </label>
           <input
@@ -300,13 +308,13 @@ function WriteTab({ onIssued }: { onIssued: () => void }) {
             onChange={(e) => setPayee(e.target.value)}
             maxLength={80}
             placeholder="Name on the cheque"
-            className="mt-2 w-full bg-transparent text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            className="mt-2 w-full bg-transparent text-[15px] text-[#15300c] outline-none placeholder:text-[#3d7a29]/60"
           />
         </div>
 
         {/* Memo */}
         <div className="px-5 py-4">
-          <label className="block font-mono text-[10px] font-medium uppercase text-fg-dim" style={{ letterSpacing: "0.2em" }}>
+          <label className="block font-mono text-[11px] font-medium uppercase tracking-[0.28em] text-[#3d7a29]">
             Memo (optional)
           </label>
           <input
@@ -314,7 +322,7 @@ function WriteTab({ onIssued }: { onIssued: () => void }) {
             onChange={(e) => setMemo(e.target.value)}
             maxLength={140}
             placeholder="What's it for?"
-            className="mt-2 w-full bg-transparent text-[15px] text-fg outline-none placeholder:text-fg-dim"
+            className="mt-2 w-full bg-transparent text-[15px] text-[#15300c] outline-none placeholder:text-[#3d7a29]/60"
           />
         </div>
 
@@ -326,17 +334,15 @@ function WriteTab({ onIssued }: { onIssued: () => void }) {
             className="flex w-full items-center justify-between gap-3 text-left"
           >
             <span className="flex flex-col">
-              <span className="text-[14px] font-medium text-fg">Restrict by country</span>
-              <span className="font-mono text-[10px] text-fg-dim">
+              <span className="text-[14px] font-medium text-[#15300c]">Restrict by country</span>
+              <span className="font-mono text-[10px] text-[#3d7a29]">
                 Only claimable from one country (IP-checked)
               </span>
             </span>
             <span
               className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
               style={{
-                background: gateCountry
-                  ? "var(--color-accent-deep)"
-                  : "var(--color-surface-2)",
+                background: gateCountry ? "#3d7a29" : "rgba(21,48,12,0.12)",
               }}
             >
               <span
@@ -355,7 +361,7 @@ function WriteTab({ onIssued }: { onIssued: () => void }) {
                     setCountry(e.target.value.replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 2))
                   }
                   placeholder="NG"
-                  className="w-full border-b border-line bg-transparent pb-2 font-mono text-[15px] uppercase text-fg outline-none placeholder:text-fg-dim"
+                  className="w-full border-b border-[#15300c]/15 bg-transparent pb-2 font-mono text-[15px] uppercase text-[#15300c] outline-none placeholder:text-[#3d7a29]/60"
                 />
               </Field>
             </div>
@@ -364,12 +370,12 @@ function WriteTab({ onIssued }: { onIssued: () => void }) {
 
         {/* Security notice */}
         <div className="flex items-center gap-2 px-5 py-3">
-          <HugeiconsIcon icon={SecurityCheckIcon} size={13} className="text-accent" />
-          <span className="font-mono text-[10px] text-fg-dim">
+          <HugeiconsIcon icon={SecurityCheckIcon} size={13} className="text-[#3d7a29]" />
+          <span className="font-mono text-[10px] text-[#3d7a29]">
             Always protected: captcha + no-VPN on claim
           </span>
         </div>
-      </GlassCard>
+      </div>
 
       {error && <InlineError>{error}</InlineError>}
 
@@ -414,7 +420,7 @@ function IssuedView({
       copyToast("Cheque link copied");
       setTimeout(() => setCopied(false), 1800);
     } catch {
-      copyToast("Couldn't copy — long-press the link to copy it.");
+      copyToast("Couldn't copy, long-press the link to copy it.");
     }
   }, [resp.claimUrl, copyToast]);
 
@@ -464,8 +470,8 @@ function IssuedView({
   return (
     <div className="space-y-6 text-center">
       <h2
-        className="font-display text-[22px] font-medium text-fg"
-        style={{ letterSpacing: "-0.02em" }}
+        className="text-[22px] font-[800] uppercase tracking-[-0.02em] text-[#15300c]"
+        style={{ fontFamily: "var(--font-display-v2)" }}
       >
         {reclaimed ? "Cheque reclaimed" : "Cheque issued"}
       </h2>
@@ -479,7 +485,7 @@ function IssuedView({
         stamp={reclaimed ? "RECLAIMED" : "ISSUED"}
       />
 
-      <p className="mx-auto max-w-sm text-[14px] text-fg-muted">
+      <p className="mx-auto max-w-sm text-[14px] text-[#3a5230]">
         {reclaimed
           ? "The money is back in your Talise balance."
           : "Send this link in any DM. They claim it as money."}
@@ -495,17 +501,17 @@ function IssuedView({
           <button
             type="button"
             onClick={copy}
-            className="mx-auto flex w-full max-w-md items-center gap-2 rounded-xl border border-line bg-surface px-4 py-3 text-left transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+            className="mx-auto flex w-full max-w-md items-center gap-2 rounded-2xl border border-[#15300c]/15 bg-white/60 px-4 py-3 text-left backdrop-blur-sm transition-colors hover:border-[#15300c]/30"
           >
             <HugeiconsIcon
               icon={copied ? Tick02Icon : Copy01Icon}
               size={16}
-              className={copied ? "text-accent" : "text-fg-muted"}
+              className={copied ? "text-[#3d7a29]" : "text-[#3a5230]"}
             />
-            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-muted">
+            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[#3a5230]">
               {resp.claimUrl}
             </span>
-            <span className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-fg-dim">
+            <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.28em] text-[#3d7a29]">
               {copied ? "Copied" : "Copy"}
             </span>
           </button>
@@ -533,7 +539,7 @@ function IssuedView({
               type="button"
               onClick={onDone}
               disabled={reclaiming}
-              className="py-2 text-[14px] text-fg-dim transition-colors hover:text-fg disabled:opacity-50"
+              className="py-2 text-[14px] text-[#3d7a29] transition-colors hover:text-[#15300c] disabled:opacity-50"
             >
               Done
             </button>
@@ -604,9 +610,9 @@ function CashTab() {
       setPreview(pv);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 503 || /disabled|not configured/i.test(e.message))) {
-        setError("Cheques are rolling out — check back soon.");
+        setError("Cheques are rolling out, check back soon.");
       } else {
-        setError("Couldn't open this cheque — it may be invalid or already claimed.");
+        setError("Couldn't open this cheque, it may be invalid or already claimed.");
       }
     } finally {
       setLoading(false);
@@ -645,12 +651,12 @@ function CashTab() {
   if (cashed != null) {
     return (
       <div className="flex flex-col items-center gap-5 py-10 text-center">
-        <span className="flex size-16 items-center justify-center rounded-full bg-accent-soft">
-          <HugeiconsIcon icon={CheckmarkBadge01Icon} size={32} className="text-accent" />
+        <span className="flex size-16 items-center justify-center rounded-full bg-[#CAFFB8]">
+          <HugeiconsIcon icon={CheckmarkBadge01Icon} size={32} className="text-[#15300c]" />
         </span>
         <div>
           <AmountDisplay usd={cashed} size={34} />
-          <p className="mt-2 text-[14px] text-fg-muted">It&apos;s in your Talise balance.</p>
+          <p className="mt-2 text-[14px] text-[#3a5230]">It&apos;s in your Talise balance.</p>
         </div>
         <PrimaryButton
           onClick={() => {
@@ -670,7 +676,7 @@ function CashTab() {
   if (preview && parsed) {
     return (
       <div className="space-y-5 text-center">
-        <p className="text-[13px] text-fg-muted">From {preview.creatorDisplay}</p>
+        <p className="text-[13px] text-[#3a5230]">From {preview.creatorDisplay}</p>
         <ChequeCard
           amountUsd={preview.amountUsd}
           payee={preview.payeeLabel ?? "You"}
@@ -681,7 +687,7 @@ function CashTab() {
         />
 
         {preview.allowedCountries.length > 0 && (
-          <div className="flex items-center justify-center gap-1.5 font-mono text-[11px] text-fg-dim">
+          <div className="flex items-center justify-center gap-1.5 font-mono text-[11px] text-[#3d7a29]">
             <HugeiconsIcon icon={GlobalIcon} size={13} />
             Claimable only from {preview.allowedCountries.join(", ")}
           </div>
@@ -698,14 +704,14 @@ function CashTab() {
             <SlideToConfirm
               label={claiming ? "Cashing…" : "Slide to cash this cheque"}
               onConfirm={claim}
-              tint="var(--color-accent)"
+              tint="#3d7a29"
               disabled={claiming}
               resetSignal={resetSignal}
             />
           </>
         ) : (
           <div className="space-y-4">
-            <p className="text-[14px] text-fg-muted">This cheque is {preview.status}.</p>
+            <p className="text-[14px] text-[#3a5230]">This cheque is {preview.status}.</p>
             <PrimaryButton
               variant="ghost"
               onClick={() => {
@@ -724,24 +730,27 @@ function CashTab() {
 
   return (
     <div className="space-y-4">
-      <GlassCard className="space-y-4 p-5" radius={14}>
+      <div
+        className="space-y-4 rounded-[28px] bg-[#f7fcf2] p-5"
+        style={{ boxShadow: "10px 10px 0 #15300c" }}
+      >
         <div>
-          <label className="block font-mono text-[10px] font-medium uppercase text-fg-dim" style={{ letterSpacing: "0.2em" }}>
+          <label className="block font-mono text-[11px] font-medium uppercase tracking-[0.28em] text-[#3d7a29]">
             Paste a cheque link
           </label>
-          <p className="mt-0.5 font-mono text-[10px] text-fg-dim">Looks like talise.io/c/…</p>
+          <p className="mt-0.5 font-mono text-[10px] text-[#3d7a29]">Looks like talise.io/c/…</p>
           <textarea
             value={link}
             onChange={(e) => setLink(e.target.value)}
             rows={2}
             placeholder="https://talise.io/c/…"
-            className="mt-3 w-full resize-none rounded-xl border border-line bg-surface-2 p-3.5 font-mono text-[13px] text-fg outline-none placeholder:text-fg-dim focus:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+            className="mt-3 w-full resize-none rounded-2xl border border-[#15300c]/15 bg-white/60 p-3.5 font-mono text-[13px] text-[#15300c] outline-none backdrop-blur-sm transition-colors placeholder:text-[#3d7a29]/60 focus:border-[#15300c]/30"
           />
         </div>
         <PrimaryButton onClick={open} loading={loading} disabled={!link.trim()} full>
           {loading ? "Loading…" : "Open cheque"}
         </PrimaryButton>
-      </GlassCard>
+      </div>
       {error && <InlineError>{error}</InlineError>}
     </div>
   );
@@ -849,7 +858,7 @@ function MineTab({
   if (error) {
     return (
       <div className="flex flex-col items-center gap-4 py-12 text-center">
-        <p className="max-w-xs text-[14px] text-fg-muted">{error}</p>
+        <p className="max-w-xs text-[14px] text-[#3a5230]">{error}</p>
         <PrimaryButton variant="ghost" onClick={load}>
           Try again
         </PrimaryButton>
@@ -873,7 +882,11 @@ function MineTab({
   return (
     <div className="space-y-3">
       {rows.map((row) => (
-        <GlassCard key={row.id} className="p-5" radius={14}>
+        <div
+          key={row.id}
+          className="rounded-[28px] bg-[#f7fcf2] p-5"
+          style={{ boxShadow: "10px 10px 0 #15300c" }}
+        >
           {/* Amount + status header */}
           <div className="flex items-start justify-between gap-3">
             <AmountDisplay usd={row.amountUsd} size={22} subAsset />
@@ -882,11 +895,11 @@ function MineTab({
 
           {/* Memo / payee sublabel */}
           {subtitleFor(row) && (
-            <p className="mt-2 text-[13px] text-fg-muted">{subtitleFor(row)}</p>
+            <p className="mt-2 text-[13px] text-[#3a5230]">{subtitleFor(row)}</p>
           )}
 
           {/* Date */}
-          <p className="mt-1 font-mono text-[10px] text-fg-dim">{dateText(row.createdAt)}</p>
+          <p className="mt-1 font-mono text-[10px] text-[#3d7a29]">{dateText(row.createdAt)}</p>
 
           {/* Reclaim action */}
           {row.reclaimable && (
@@ -904,7 +917,7 @@ function MineTab({
               </PrimaryButton>
             </div>
           )}
-        </GlassCard>
+        </div>
       ))}
     </div>
   );
@@ -914,13 +927,7 @@ function MineTab({
 
 function InlineError({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className="flex items-start gap-2 rounded-xl px-4 py-3 text-[13px]"
-      style={{
-        background: "color-mix(in srgb, var(--color-danger) 12%, transparent)",
-        color: "var(--color-danger)",
-      }}
-    >
+    <div className="flex items-start gap-2 rounded-2xl border border-[#15300c]/10 bg-[#FF9E7A]/25 px-4 py-3 text-[13px] text-[#7a2e15]">
       <HugeiconsIcon icon={Cancel01Icon} size={15} className="mt-0.5 shrink-0" />
       <span>{children}</span>
     </div>
@@ -962,12 +969,12 @@ function dateText(ms: number): string {
 function reclaimError(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === "NOT_SIGNED_IN" || e.status === 401) {
-      return "Your session expired — refresh and sign in to reclaim.";
+      return "Your session expired, refresh and sign in to reclaim.";
     }
     if (e.status === 409) {
       // Server returns { error: "not_reclaimable", status } once it's been
       // claimed/voided/reclaimed already.
-      return "This cheque can no longer be reclaimed — it may already be claimed or reclaimed.";
+      return "This cheque can no longer be reclaimed, it may already be claimed or reclaimed.";
     }
   }
   return friendlyError(e, "Couldn't claim this cheque back right now.", "Cheques");
@@ -977,11 +984,11 @@ function reclaimError(e: unknown): string {
 function gateError(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === "NOT_SIGNED_IN" || e.status === 401) {
-      return "Your session expired — refresh and sign in to cash this cheque.";
+      return "Your session expired, refresh and sign in to cash this cheque.";
     }
     if (e.code === "GATE_FAILED" || e.status === 403) {
       // The server already returns reason-specific copy in `message`.
-      return e.message || "Claim blocked — turn off any VPN and try again.";
+      return e.message || "Claim blocked, turn off any VPN and try again.";
     }
     if (e.status === 409) {
       return "This cheque has already been claimed or expired.";

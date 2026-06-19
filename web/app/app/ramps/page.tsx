@@ -22,7 +22,7 @@ import {
   Tick02Icon,
   Notification01Icon,
 } from "@hugeicons/core-free-icons";
-import { Eyebrow, StatusPill, useToast } from "@/components/app";
+import { StatusPill, useToast } from "@/components/app";
 import { Flag } from "@/components/app/ui/Flag";
 import { WithdrawToBankSheet } from "@/components/app/ramps/WithdrawToBankSheet";
 import { AddMoneyModal } from "@/components/app/AddMoneyModal";
@@ -36,9 +36,6 @@ const COMING_SOON_CORRIDORS: { cc: string; country: string }[] = [
   { cc: "gh", country: "Ghana" },
 ];
 
-const CARD_SHADOW =
-  "shadow-[0_1px_2px_rgba(16,40,8,0.04),0_16px_40px_-20px_rgba(35,78,20,0.18)]";
-
 export default function RampsPage() {
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -47,16 +44,21 @@ export default function RampsPage() {
     <div className="mx-auto w-full max-w-2xl space-y-7 pb-10 pt-1">
       {/* Hero */}
       <header className="space-y-3">
-        <Eyebrow>Ramps</Eyebrow>
-        <h1 className="max-w-xl font-display text-[26px] font-medium leading-[1.15] tracking-[-0.03em] text-fg">
-          Money in, money out — at the real rate.
+        <div className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
+          Ramps
+        </div>
+        <h1
+          className="max-w-xl text-[clamp(26px,5vw,40px)] font-[800] uppercase leading-[1.02] tracking-[-0.02em] text-[#15300c]"
+          style={{ fontFamily: "var(--font-display-v2)" }}
+        >
+          Money in, money out, at the real rate.
         </h1>
-        <p className="max-w-md text-[15px] leading-relaxed text-fg-muted">
+        <p className="max-w-md text-[15px] leading-relaxed text-[#3a5230]">
           {/* Short on phones; the fuller line reads on wider screens. */}
-          <span className="sm:hidden">Cash out to your bank, settled in seconds.</span>
+          <span className="sm:hidden">Cash out to your bank, settled in under a second.</span>
           <span className="hidden sm:inline">
-            Cash out straight to your bank via Linq — a live rate, one clear
-            fee, settled in seconds.
+            Cash out straight to your bank via Linq, a live rate, one clear
+            fee, settled in under a second.
           </span>
         </p>
       </header>
@@ -67,38 +69,38 @@ export default function RampsPage() {
 
       {/* CASH-OUT (off-ramp) — the live action. */}
       <div
-        className={`relative flex flex-col overflow-hidden rounded-3xl bg-surface p-7 ring-1 ring-black/[0.04] sm:p-9 ${CARD_SHADOW}`}
+        className="relative flex flex-col overflow-hidden rounded-[28px] bg-[#f7fcf2] p-7 sm:p-9"
+        style={{ boxShadow: "10px 10px 0 #15300c" }}
       >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-accent-soft/35 to-transparent"
-        />
         <div className="relative flex items-start justify-between gap-3">
           <div className="flex items-center gap-3.5">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#CAFFB8] text-[#15300c]">
               <HugeiconsIcon icon={BankIcon} size={20} strokeWidth={1.8} />
             </span>
             <div className="space-y-1">
-              <span className="block text-[11px] font-medium uppercase tracking-[0.18em] text-fg-dim">
+              <span className="block font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
                 Off-ramp
               </span>
-              <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-fg">
+              <h2
+                className="text-[20px] font-[800] uppercase tracking-[-0.02em] text-[#15300c]"
+                style={{ fontFamily: "var(--font-display-v2)" }}
+              >
                 Cash out to your bank
               </h2>
             </div>
           </div>
         </div>
 
-        <ul className="relative mt-6 divide-y divide-black/[0.05]">
+        <ul className="relative mt-6 divide-y divide-[#15300c]/10">
           {/* The one live corridor gets a full row. */}
           <li className="flex items-center justify-between gap-3 py-3.5 first:pt-0">
             <span className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/[0.06]">
+              <span className="flex size-7 items-center justify-center overflow-hidden rounded-full ring-1 ring-[#15300c]/10">
                 <Flag code="ng" size={28} />
               </span>
               <span className="flex items-baseline gap-1.5">
-                <span className="text-[14px] font-medium text-fg">Nigeria</span>
-                <span className="text-[13px] text-fg-dim">NGN</span>
+                <span className="text-[14px] font-medium text-[#15300c]">Nigeria</span>
+                <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">NGN</span>
               </span>
             </span>
             <StatusPill label="Live" tone="success" />
@@ -111,13 +113,13 @@ export default function RampsPage() {
                 {COMING_SOON_CORRIDORS.map((c) => (
                   <span
                     key={c.cc}
-                    className="flex size-7 items-center justify-center overflow-hidden rounded-full opacity-60 ring-2 ring-surface grayscale"
+                    className="flex size-7 items-center justify-center overflow-hidden rounded-full opacity-60 ring-2 ring-[#f7fcf2] grayscale"
                   >
                     <Flag code={c.cc} size={28} />
                   </span>
                 ))}
               </span>
-              <span className="text-[13px] text-fg-dim">
+              <span className="text-[13px] text-[#3d7a29]">
                 {COMING_SOON_CORRIDORS.map((c) => c.country).join(", ")} &amp; more
               </span>
             </span>
@@ -129,15 +131,15 @@ export default function RampsPage() {
           <button
             type="button"
             onClick={() => setWithdrawOpen(true)}
-            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-accent-deep px-6 text-[15px] font-semibold text-white shadow-[0_8px_22px_-8px_rgba(35,78,20,0.5)] transition-[transform,background,box-shadow] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_90%,white)] hover:shadow-[0_10px_26px_-8px_rgba(35,78,20,0.55)] active:scale-[0.985] outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_55%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]"
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#15300c] px-6 text-[15px] font-semibold text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[#15300c]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7fcf2]"
           >
             Cash out to your bank
           </button>
         </div>
       </div>
 
-      <p className="text-center text-[12px] leading-relaxed text-fg-dim">
-        Balances are always 1:1 with the US dollar — send and receive anytime.
+      <p className="text-center text-[12px] leading-relaxed text-[#3d7a29]">
+        Balances are always 1:1 with the US dollar, send and receive anytime.
       </p>
 
       <WithdrawToBankSheet open={withdrawOpen} onClose={() => setWithdrawOpen(false)} />
@@ -178,23 +180,27 @@ function AddMoneyCard({ onBuy }: { onBuy: () => void }) {
   if (ONRAMP_ENABLED) {
     return (
       <div
-        className={`relative flex items-center gap-3.5 overflow-hidden rounded-3xl bg-surface px-7 py-5 ring-1 ring-black/[0.04] ${CARD_SHADOW}`}
+        className="relative flex items-center gap-3.5 overflow-hidden rounded-[28px] bg-[#f7fcf2] px-7 py-5"
+        style={{ boxShadow: "10px 10px 0 #15300c" }}
       >
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#CAFFB8] text-[#15300c]">
           <HugeiconsIcon icon={CreditCardIcon} size={20} strokeWidth={1.8} />
         </span>
         <div className="min-w-0 flex-1 space-y-0.5">
-          <span className="block text-[11px] font-medium uppercase tracking-[0.18em] text-fg-dim">
+          <span className="block font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
             On-ramp
           </span>
-          <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-fg">
+          <h2
+            className="text-[18px] font-[800] uppercase tracking-[-0.02em] text-[#15300c]"
+            style={{ fontFamily: "var(--font-display-v2)" }}
+          >
             Add money with a card
           </h2>
         </div>
         <button
           type="button"
           onClick={onBuy}
-          className="inline-flex h-10 shrink-0 items-center justify-center rounded-full bg-accent-deep px-5 text-[14px] font-semibold text-white transition-transform duration-150 active:scale-[0.97]"
+          className="inline-flex h-10 shrink-0 items-center justify-center rounded-full bg-[#15300c] px-5 text-[14px] font-semibold text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
         >
           Buy USDsui
         </button>
@@ -202,26 +208,29 @@ function AddMoneyCard({ onBuy }: { onBuy: () => void }) {
     );
   }
 
-  // Unavailable: grey frame, grey washes, no green anywhere.
+  // Unavailable: muted frame, no brand fill, clearly "not yet".
   return (
-    <div className="relative flex flex-col overflow-hidden rounded-3xl bg-black/[0.015] p-7 ring-1 ring-black/[0.08] sm:p-9">
+    <div className="relative flex flex-col overflow-hidden rounded-[28px] border border-dashed border-[#15300c]/20 bg-[#f7fcf2]/60 p-7 sm:p-9">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3.5">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-black/[0.04] text-fg-dim">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#15300c]/[0.06] text-[#3d7a29]">
             <HugeiconsIcon icon={CreditCardIcon} size={20} strokeWidth={1.8} />
           </span>
           <div className="space-y-1">
-            <span className="block text-[11px] font-medium uppercase tracking-[0.18em] text-fg-dim">
+            <span className="block font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
               On-ramp
             </span>
-            <h2 className="flex items-center gap-2 text-[17px] font-semibold tracking-[-0.01em] text-fg-muted">
+            <h2
+              className="flex items-center gap-2 text-[20px] font-[800] uppercase tracking-[-0.02em] text-[#3a5230]"
+              style={{ fontFamily: "var(--font-display-v2)" }}
+            >
               Add money with a card
               <StatusPill label="Soon" tone="neutral" />
             </h2>
           </div>
         </div>
       </div>
-      <p className="mt-3 max-w-md text-[13.5px] leading-relaxed text-fg-dim">
+      <p className="mt-3 max-w-md text-[13.5px] leading-relaxed text-[#3d7a29]">
         Top up your balance with a card or bank transfer.
       </p>
       <div className="mt-6">
@@ -229,7 +238,7 @@ function AddMoneyCard({ onBuy }: { onBuy: () => void }) {
           type="button"
           onClick={notifyMe}
           disabled={notified}
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-transparent px-6 text-[14px] font-semibold text-fg-muted ring-1 ring-black/[0.1] transition-colors duration-150 hover:bg-black/[0.03] hover:text-fg disabled:text-fg-dim disabled:ring-black/[0.06] disabled:hover:bg-transparent"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border-2 border-[#15300c] bg-transparent px-6 text-[14px] font-semibold text-[#15300c] transition-colors duration-150 hover:bg-[#15300c] hover:text-[#f7fcf2] disabled:border-[#15300c]/20 disabled:text-[#3d7a29] disabled:hover:bg-transparent disabled:hover:text-[#3d7a29]"
         >
           <HugeiconsIcon
             icon={notified ? Tick02Icon : Notification01Icon}

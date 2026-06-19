@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Invoice01Icon, UserGroupIcon, UserMultipleIcon } from "@hugeicons/core-free-icons";
-import { Eyebrow } from "@/components/app";
 import { InvoicesTab } from "@/components/app/work/InvoicesTab";
 import { ContractsTab } from "@/components/app/work/ContractsTab";
 import { PayoutsTab } from "@/components/app/work/PayoutsTab";
@@ -20,23 +19,28 @@ export default function WorkPage() {
   return (
     <div className="space-y-6">
       <header>
-        <Eyebrow>Work</Eyebrow>
-        <h1 className="mt-1 text-[26px] font-medium tracking-tight text-fg">
+        <div className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
+          Work
+        </div>
+        <h1
+          className="mt-2 text-[clamp(24px,4vw,34px)] font-[800] uppercase tracking-[-0.02em] text-[#15300c]"
+          style={{ fontFamily: "var(--font-display-v2)" }}
+        >
           Get paid. Pay your team.
         </h1>
-        <p className="mt-1.5 max-w-xl text-[14px] text-fg-muted">
+        <p className="mt-2 max-w-xl text-[14px] leading-[1.5] text-[#3a5230]">
           {/* Short on phones; the full pitch reads on wider screens. */}
           <span className="sm:hidden">Invoice clients. Pay your team.</span>
           <span className="hidden sm:inline">
             Send a clean invoice that anyone can pay with a tap, or set up recurring
-            pay for contractors — funded once, released automatically.
+            pay for contractors, funded once, released automatically.
           </span>
         </p>
       </header>
 
       {/* Tab switch */}
       <div
-        className="inline-flex gap-1 rounded-full border border-line bg-surface p-1"
+        className="inline-flex gap-1 rounded-full border border-[#15300c]/15 bg-white/60 p-1 backdrop-blur-sm"
         role="tablist"
         aria-label="Work sections"
       >
@@ -89,7 +93,9 @@ function TabButton({
       aria-selected={active}
       onClick={onClick}
       className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors ${
-        active ? "bg-accent-deep text-white" : "text-fg-muted hover:text-fg"
+        active
+          ? "bg-[#15300c] text-[#f7fcf2]"
+          : "text-[#3a5230] hover:text-[#15300c]"
       }`}
     >
       {icon}

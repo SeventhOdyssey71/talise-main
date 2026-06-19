@@ -163,13 +163,16 @@ function Logo({ compact = false, homeHref = "/app" }: { compact?: boolean; homeH
     <Link href={homeHref} className="inline-flex items-center gap-2">
       <Diamond />
       {!compact && (
-        <span className="font-display text-[18px] font-semibold lowercase tracking-[-0.02em] text-fg">
+        <span
+          className="text-[19px] font-[800] lowercase tracking-[-0.03em] text-[#15300c]"
+          style={{ fontFamily: "var(--font-display-v2)" }}
+        >
           talise
         </span>
       )}
-      {/* Private-beta marker — a small square chip so testers always know
+      {/* Private-beta marker — a small chip so testers always know
           they're on the beta surface. */}
-      <span className="rounded-[6px] bg-accent-soft px-1.5 py-[3px] font-mono text-[9px] font-semibold uppercase leading-none tracking-[0.12em] text-accent ring-1 ring-inset ring-[color-mix(in_srgb,var(--color-accent)_22%,transparent)]">
+      <span className="rounded-[6px] bg-[#CAFFB8] px-1.5 py-[3px] font-mono text-[9px] font-semibold uppercase leading-none tracking-[0.18em] text-[#15300c]">
         Beta
       </span>
     </Link>
@@ -184,10 +187,10 @@ function BalanceChip({ homeHref = "/app" }: { homeHref?: string }) {
   return (
     <Link
       href={homeHref}
-      className="talise-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+      className="inline-flex items-center gap-2 rounded-full border border-[#15300c]/15 bg-white/60 px-3 py-1.5 backdrop-blur-sm transition-colors hover:border-[#15300c]/30"
     >
-      <span className="size-1.5 rounded-full" style={{ background: "var(--color-accent-deep)" }} />
-      <span className="text-[13px] font-semibold tabular-nums text-fg" style={{ letterSpacing: "-0.01em" }}>
+      <span className="size-1.5 rounded-full" style={{ background: "#3d7a29" }} />
+      <span className="text-[13px] font-semibold tabular-nums text-[#15300c]" style={{ letterSpacing: "-0.01em" }}>
         {!data && (loading || error) ? "—" : formatUsd(data?.totalUsd ?? 0)}
       </span>
     </Link>
@@ -202,11 +205,11 @@ function CurrencySelect() {
     <Select value={currency} onValueChange={setCurrency}>
       <SelectTrigger
         aria-label="Display currency"
-        className="h-auto w-fit max-w-full self-start rounded-full border-line bg-surface px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-wider text-fg-muted shadow-none"
+        className="h-auto w-fit max-w-full self-start rounded-full border border-[#15300c]/15 bg-white/60 px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-[#3d7a29] shadow-none backdrop-blur-sm"
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent className="talise-glass max-h-72 rounded-xl">
+      <SelectContent className="max-h-72 rounded-2xl border border-[#15300c]/10 bg-[#f7fcf2] text-[#15300c]">
         {currencies.map((c) => (
           <SelectItem
             key={c.code}
@@ -245,8 +248,8 @@ function Avatar({ me, size = 28 }: { me: Me; size?: number }) {
   }
   return (
     <span
-      className="flex items-center justify-center rounded-full text-[12px] font-semibold text-white"
-      style={{ width: size, height: size, background: "var(--color-accent-deep)" }}
+      className="flex items-center justify-center rounded-full text-[12px] font-semibold text-[#f7fcf2]"
+      style={{ width: size, height: size, background: "#3d7a29" }}
     >
       {initial}
     </span>
@@ -267,21 +270,20 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
         icon={item.icon}
         size={19}
         strokeWidth={active ? 2.2 : 1.8}
-        color={active ? "var(--color-accent)" : undefined}
-        className={active ? "" : "text-fg-muted"}
+        color={active ? "#15300c" : "#3a5230"}
       />
-      <span className={`flex-1 text-[14px] font-medium ${active ? "text-accent" : "text-fg-muted"}`}>
+      <span className={`flex-1 text-[14px] font-medium ${active ? "font-semibold text-[#15300c]" : "text-[#3a5230]"}`}>
         {item.label}
       </span>
       {badge && (
-        <span className="rounded-full border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-fg-dim">
+        <span className="rounded-full border border-[#15300c]/15 bg-white/70 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-[#3d7a29]">
           {badge}
         </span>
       )}
     </>
   );
-  const cls = `flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors ${
-    active ? "bg-accent-soft" : "hover:bg-accent-soft"
+  const cls = `flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors ${
+    active ? "bg-[#CAFFB8]" : "hover:bg-[#CAFFB8]/50"
   } ${dimmed ? "opacity-55" : ""}`;
   if (dimmed) {
     return (
@@ -301,23 +303,29 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
 
 function SignInScreen({ returnTo = "/app" }: { returnTo?: string }) {
   return (
-    <div className="app-clean talise-appshell relative min-h-screen overflow-hidden text-fg">
-      <div className="talise-top-glow" />
-      <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6">
-        <div className="talise-glass w-full max-w-sm rounded-xl px-7 py-9 text-center">
-          <div className="mx-auto mb-6 flex scale-[1.4] justify-center">
-            <Logo compact />
-          </div>
-          <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-fg">Talise</h1>
-          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.22em] text-accent">Beta</p>
-          <p className="mx-auto mt-4 max-w-[16rem] text-[14px] leading-relaxed text-fg-muted">
-            A gasless dollar wallet on Sui. Sign in to send, save, and get paid — no gas, no seed phrase.
-          </p>
-          <button
-            type="button"
-            onClick={() => triggerOauthSignIn({ returnTo })}
-            className="mt-7 inline-flex w-full items-center justify-center gap-3 rounded-full bg-accent-deep px-5 py-3 text-[15px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(35,78,20,0.45)] transition-[transform,background] duration-150 hover:bg-[color-mix(in_srgb,var(--color-accent-deep)_88%,white)] active:scale-[0.98]"
-          >
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6">
+      <div
+        className="w-full max-w-sm rounded-[28px] bg-[#f7fcf2] p-8 text-center"
+        style={{ boxShadow: "10px 10px 0 #15300c" }}
+      >
+        <div className="mx-auto mb-6 flex scale-[1.4] justify-center">
+          <Logo compact />
+        </div>
+        <h1
+          className="text-[26px] font-[800] uppercase tracking-[-0.02em] text-[#15300c]"
+          style={{ fontFamily: "var(--font-display-v2)" }}
+        >
+          Talise
+        </h1>
+        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">Beta</p>
+        <p className="mx-auto mt-4 max-w-[16rem] text-[14px] leading-relaxed text-[#3a5230]">
+          A gasless dollar wallet on Sui. Sign in to send, save, and get paid, no gas, no seed phrase.
+        </p>
+        <button
+          type="button"
+          onClick={() => triggerOauthSignIn({ returnTo })}
+          className="mt-7 inline-flex w-full items-center justify-center gap-3 rounded-full bg-[#15300c] px-5 py-3 text-[15px] font-semibold text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
+        >
             {/* Real Google "G" (official brand colors) on a white disc so the
                 multicolor mark reads on the green button. */}
             <span className="flex size-6 items-center justify-center rounded-full bg-white">
@@ -340,11 +348,12 @@ function SignInScreen({ returnTo = "/app" }: { returnTo?: string }) {
                 />
               </svg>
             </span>
-            Continue with Google
-          </button>
-        </div>
-        <p className="mt-6 text-center text-[12px] text-fg-dim">Invite-only beta · by Talise</p>
+          Continue with Google
+        </button>
       </div>
+      <p className="mt-6 text-center font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
+        Invite-only beta · by Talise
+      </p>
     </div>
   );
 }
@@ -366,16 +375,16 @@ function AccountMenu({
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="Account menu"
-        className="rounded-full outline-none ring-1 ring-line transition-transform active:scale-95 focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-accent-deep)_45%,transparent)]"
+        className="rounded-full outline-none ring-1 ring-[#15300c]/15 transition-transform active:scale-95 focus-visible:ring-2 focus-visible:ring-[#3d7a29]/45"
       >
         <Avatar me={me} size={size} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={8} className="talise-glass w-56 rounded-xl">
+      <DropdownMenuContent align="end" sideOffset={8} className="w-56 rounded-2xl border border-[#15300c]/10 bg-[#f7fcf2] text-[#15300c]">
         <DropdownMenuLabel className="flex items-center gap-3 px-2 py-1.5">
           <Avatar me={me} size={34} />
           <div className="min-w-0">
-            <div className="truncate text-[14px] font-medium text-fg">{accountLabel(me)}</div>
-            <div className="truncate text-[12px] font-normal text-fg-dim">{me.email}</div>
+            <div className="truncate text-[14px] font-medium text-[#15300c]">{accountLabel(me)}</div>
+            <div className="truncate text-[12px] font-normal text-[#3d7a29]">{me.email}</div>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -412,11 +421,9 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
   const [scanOpen, setScanOpen] = useState(false);
 
   return (
-    <div className="app-clean talise-appshell relative min-h-screen text-fg">
-      <div className="talise-top-glow" />
-
+    <div className="relative min-h-screen text-[#15300c]">
       {/* ── Desktop sidebar (lg+) ── */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-line px-4 py-5 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-[#15300c]/10 px-4 py-5 lg:flex">
         <div className="px-2">
           <Logo homeHref={nav.brandHref} />
         </div>
@@ -430,7 +437,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
                     only while this section is active, so the sidebar stays
                     calm elsewhere but those routes are reachable here. */}
                 {item.children && active && (
-                  <div className="mb-1.5 ml-[26px] mt-1 flex flex-col gap-0.5 border-l border-line/70 pl-2">
+                  <div className="mb-1.5 ml-[26px] mt-1 flex flex-col gap-0.5 border-l border-[#15300c]/15 pl-2">
                     {item.children.map((child) => {
                       const childActive =
                         child.href === item.href
@@ -442,10 +449,10 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
                           key={child.href}
                           href={child.href}
                           aria-current={childActive ? "page" : undefined}
-                          className={`rounded-lg px-2.5 py-1.5 text-[13px] transition-colors ${
+                          className={`rounded-xl px-2.5 py-1.5 text-[13px] transition-colors ${
                             childActive
-                              ? "bg-accent-soft font-semibold text-accent"
-                              : "font-medium text-fg-muted hover:bg-accent-soft/60 hover:text-fg"
+                              ? "bg-[#CAFFB8] font-semibold text-[#15300c]"
+                              : "font-medium text-[#3a5230] hover:bg-[#CAFFB8]/50 hover:text-[#15300c]"
                           }`}
                         >
                           {child.label}
@@ -457,7 +464,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
               </div>
             );
           })}
-          <div className="my-3 h-px bg-line" />
+          <div className="my-3 h-px bg-[#15300c]/10" />
           <SidebarItem
             item={{ label: "Ramps", href: nav.rampsHref, icon: CreditCardIcon as IconSvgElement }}
             active={isActive(pathname, nav.rampsHref, nav.brandHref)}
@@ -471,12 +478,12 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
           <CurrencySelect />
           <Link
             href={nav.settingsHref}
-            className="talise-glass flex items-center gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:border-[color-mix(in_srgb,var(--color-accent-deep)_40%,var(--color-line))]"
+            className="flex items-center gap-2.5 rounded-2xl border border-[#15300c]/15 bg-white/60 px-3 py-2.5 backdrop-blur-sm transition-colors hover:border-[#15300c]/30"
           >
             <Avatar me={me} size={30} />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-medium text-fg">{accountLabel(me)}</div>
-              <div className="truncate font-mono text-[10px] text-fg-dim">
+              <div className="truncate text-[13px] font-medium text-[#15300c]">{accountLabel(me)}</div>
+              <div className="truncate font-mono text-[10px] text-[#3d7a29]">
                 {me.suiAddress.slice(0, 6)}…{me.suiAddress.slice(-4)}
               </div>
             </div>
@@ -503,7 +510,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
               type="button"
               onClick={() => setScanOpen(true)}
               aria-label="Scan to pay"
-              className="flex size-9 items-center justify-center rounded-full bg-surface text-fg ring-1 ring-black/[0.06]"
+              className="flex size-9 items-center justify-center rounded-full border border-[#15300c]/15 bg-white/60 text-[#15300c] backdrop-blur-sm"
             >
               <HugeiconsIcon icon={BarcodeScanIcon} size={17} strokeWidth={1.9} />
             </button>
@@ -534,7 +541,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
           tab slot here; Activity moves into the avatar dropdown (AccountMenu).
           The desktop sidebar keeps Activity in the primary list. */}
       <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4 lg:hidden">
-        <div className="talise-glass flex items-center gap-1 rounded-full px-2 py-2" style={{ borderRadius: 999 }}>
+        <div className="flex items-center gap-1 rounded-full border border-[#15300c]/10 bg-white/85 px-2 py-2 shadow-[0_10px_40px_-12px_rgba(21,48,12,0.35)] backdrop-blur-md" style={{ borderRadius: 999 }}>
           {nav.primary
             .map((item) =>
               item.label === "Activity"
@@ -550,17 +557,16 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
                 aria-label={item.label}
                 aria-current={active ? "page" : undefined}
                 className={`flex flex-col items-center gap-0.5 rounded-full px-3.5 py-1.5 transition-colors ${
-                  active ? "bg-accent-soft" : ""
+                  active ? "bg-[#CAFFB8]" : ""
                 }`}
               >
                 <HugeiconsIcon
                   icon={item.icon}
                   size={20}
                   strokeWidth={active ? 2.2 : 1.8}
-                  color={active ? "var(--color-accent)" : undefined}
-                  className={active ? "" : "text-fg-muted"}
+                  color={active ? "#15300c" : "#3a5230"}
                 />
-                <span className={`text-[10px] font-medium ${active ? "text-accent" : "text-fg-dim"}`}>
+                <span className={`text-[10px] font-medium ${active ? "font-semibold text-[#15300c]" : "text-[#3a5230]"}`}>
                   {item.label}
                 </span>
               </Link>

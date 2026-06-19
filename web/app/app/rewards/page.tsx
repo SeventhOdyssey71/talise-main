@@ -4,9 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Coins01Icon } from "@hugeicons/core-free-icons";
 import {
-  Eyebrow,
   EmptyState,
-  GlassCard,
   PrimaryButton,
   api,
   ApiError,
@@ -76,30 +74,35 @@ export default function RewardsPage() {
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6">
       {/* Page header */}
-      <header className="space-y-1.5">
-        <Eyebrow>Rewards</Eyebrow>
+      <header className="space-y-2">
+        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
+          Rewards
+        </p>
         <h1
-          className="font-display text-[26px] font-medium text-fg sm:text-[30px]"
-          style={{ letterSpacing: "-0.03em" }}
+          className="text-[clamp(26px,5vw,32px)] font-[800] uppercase leading-[1.0] tracking-[-0.02em] text-[#15300c]"
+          style={{ fontFamily: "var(--font-display-v2)" }}
         >
           Points &amp; perks
         </h1>
-        <p className="text-[14px] text-fg-muted">
-          Earn points on every payment — invite friends, redeem perks.
+        <p className="text-[14px] leading-[1.55] text-[#3a5230]">
+          Earn points on every payment, invite friends, redeem perks.
         </p>
       </header>
 
       {loading ? (
         <RewardsSkeleton />
       ) : error ? (
-        <GlassCard className="p-2" radius={14}>
+        <div
+          className="rounded-[28px] bg-[#f7fcf2] p-2"
+          style={{ boxShadow: "10px 10px 0 #15300c" }}
+        >
           <EmptyState
             icon={<HugeiconsIcon icon={Coins01Icon} size={24} strokeWidth={1.6} />}
             title="Rewards are taking a break"
             subtitle={error}
             action={<PrimaryButton onClick={refresh}>Try again</PrimaryButton>}
           />
-        </GlassCard>
+        </div>
       ) : summary ? (
         <>
           {/* 1. Points balance + tier progress */}
@@ -125,32 +128,35 @@ export default function RewardsPage() {
 
 /** Flat placeholders matching the loaded layout, so the page doesn't jump. */
 function RewardsSkeleton() {
+  const card = "rounded-[28px] bg-[#f7fcf2]";
+  const shadow = { boxShadow: "10px 10px 0 #15300c" } as const;
+  const bar = "animate-pulse rounded-full bg-[#15300c]/10";
   return (
     <div className="space-y-6">
       {/* TierCard skeleton */}
-      <GlassCard className="p-5" radius={14}>
-        <div className="h-2.5 w-16 animate-pulse rounded-full bg-surface-2" />
-        <div className="mt-3 h-10 w-36 animate-pulse rounded-lg bg-surface-2" />
-        <div className="mt-5 h-1.5 w-full animate-pulse rounded-full bg-surface-2" />
-      </GlassCard>
+      <div className={`${card} p-7`} style={shadow}>
+        <div className={`h-2.5 w-16 ${bar}`} />
+        <div className={`mt-3 h-10 w-36 rounded-lg ${bar}`} />
+        <div className={`mt-5 h-1.5 w-full ${bar}`} />
+      </div>
       {/* ReferralCard skeleton */}
-      <GlassCard className="space-y-4 p-5" radius={14}>
-        <div className="h-2.5 w-24 animate-pulse rounded-full bg-surface-2" />
-        <div className="h-11 w-full animate-pulse rounded-xl bg-surface-2" />
-        <div className="h-10 w-full animate-pulse rounded-xl bg-surface-2" />
-      </GlassCard>
+      <div className={`${card} space-y-4 p-7`} style={shadow}>
+        <div className={`h-2.5 w-24 ${bar}`} />
+        <div className={`h-11 w-full rounded-xl ${bar}`} />
+        <div className={`h-10 w-full rounded-xl ${bar}`} />
+      </div>
       {/* History skeleton */}
-      <GlassCard className="overflow-hidden !p-0" radius={14}>
+      <div className={`${card} overflow-hidden`} style={shadow}>
         {[0, 1, 2].map((i) => (
           <div key={i}>
-            {i > 0 && <div className="mx-4 h-px bg-line" />}
+            {i > 0 && <div className="mx-4 h-px bg-[#15300c]/10" />}
             <div className="flex items-center gap-3 px-4 py-3">
-              <div className="h-3 w-28 flex-1 animate-pulse rounded-full bg-surface-2" />
-              <div className="h-3 w-10 animate-pulse rounded-full bg-surface-2" />
+              <div className={`h-3 w-28 flex-1 ${bar}`} />
+              <div className={`h-3 w-10 ${bar}`} />
             </div>
           </div>
         ))}
-      </GlassCard>
+      </div>
     </div>
   );
 }

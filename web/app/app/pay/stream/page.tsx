@@ -11,14 +11,11 @@ import {
   RadioIcon,
 } from "@hugeicons/core-free-icons";
 import {
-  Eyebrow,
-  GlassCard,
   PrimaryButton,
   SlideToConfirm,
   Spinner,
   EmptyState,
   StatusPill,
-  Field,
   useSignAndSend,
   resolveRecipient,
   api,
@@ -95,23 +92,25 @@ export default function StreamPage() {
           mobile users who tapped into Stream lost the way back to
           Send/Request/Cheques. */}
       <PaySubNav />
-      <header className="space-y-1.5">
-        <Eyebrow>Streaming</Eyebrow>
+      <header className="space-y-2">
+        <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
+          Streaming
+        </span>
         <h1
-          className="font-display text-[26px] font-medium text-fg sm:text-[30px]"
-          style={{ letterSpacing: "-0.03em" }}
+          className="text-[clamp(26px,5vw,32px)] font-[800] uppercase tracking-[-0.02em] text-[#15300c]"
+          style={{ fontFamily: "var(--font-display-v2)" }}
         >
           Money over time
         </h1>
-        <p className="text-[14px] text-fg-muted">
-          Drip a salary, an allowance, or a payout — fund once, it settles in
-          seconds, on schedule.
+        <p className="text-[14px] text-[#3a5230]">
+          Drip a salary, an allowance, or a payout, fund once, it settles in
+          under a second, on schedule.
         </p>
       </header>
 
       {/* Segmented tab control */}
       <div
-        className="flex w-full gap-1 rounded-full border border-line bg-surface p-1"
+        className="flex w-full gap-1 rounded-full border border-[#15300c]/15 bg-white/60 p-1 backdrop-blur-sm"
         role="tablist"
       >
         {([
@@ -127,8 +126,8 @@ export default function StreamPage() {
               onClick={() => setTab(t.id)}
               className={`flex-1 rounded-full px-4 py-2 text-[14px] font-medium transition-colors ${
                 active
-                  ? "bg-accent-soft text-accent font-semibold"
-                  : "text-fg-muted hover:text-fg"
+                  ? "bg-[#CAFFB8] font-semibold text-[#15300c]"
+                  : "text-[#3a5230] hover:text-[#15300c]"
               }`}
             >
               {t.label}
@@ -303,10 +302,13 @@ function SetupTab({ onStarted }: { onStarted: () => void }) {
   return (
     <div className="space-y-5">
       {/* Recipient + amount grouped in one card */}
-      <GlassCard className="divide-y divide-line p-0" radius={14}>
+      <div
+        className="divide-y divide-[#15300c]/10 overflow-hidden rounded-[28px] bg-[#f7fcf2]"
+        style={{ boxShadow: "10px 10px 0 #15300c" }}
+      >
         {/* Recipient */}
         <div className="px-5 py-4">
-          <label className="block font-mono text-[10px] font-medium uppercase text-fg-dim" style={{ letterSpacing: "0.2em" }}>
+          <label className="block font-mono text-[11px] font-medium uppercase tracking-[0.28em] text-[#3d7a29]">
             To
           </label>
           <div className="mt-2 flex items-center gap-2">
@@ -317,12 +319,12 @@ function SetupTab({ onStarted }: { onStarted: () => void }) {
               autoCorrect="off"
               spellCheck={false}
               placeholder="@handle or 0x address"
-              className="w-full bg-transparent text-[15px] text-fg outline-none placeholder:text-fg-dim"
+              className="w-full bg-transparent text-[15px] text-[#15300c] outline-none placeholder:text-[#3d7a29]"
             />
             {resolving ? (
               <Spinner size={16} />
             ) : resolved ? (
-              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} className="text-accent" />
+              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} className="text-[#3d7a29]" />
             ) : resolveFailed ? (
               <HugeiconsIcon icon={Cancel01Icon} size={18} style={{ color: "var(--color-danger)" }} />
             ) : null}
@@ -330,9 +332,9 @@ function SetupTab({ onStarted }: { onStarted: () => void }) {
           {/* Resolve feedback */}
           <div className="mt-1.5 min-h-[14px] font-mono text-[10px]">
             {resolving ? (
-              <span className="text-fg-dim">Looking up recipient…</span>
+              <span className="text-[#3d7a29]">Looking up recipient…</span>
             ) : resolved ? (
-              <span className="text-accent">Resolved: {resolved.displayName}</span>
+              <span className="text-[#3d7a29]">Resolved: {resolved.displayName}</span>
             ) : resolveFailed ? (
               <span style={{ color: "var(--color-danger)" }}>
                 Couldn&apos;t find that recipient. Check the @handle or address.
@@ -343,53 +345,55 @@ function SetupTab({ onStarted }: { onStarted: () => void }) {
 
         {/* Amount */}
         <div className="px-5 py-4">
-          <label className="block font-mono text-[10px] font-medium uppercase text-fg-dim" style={{ letterSpacing: "0.2em" }}>
+          <label className="block font-mono text-[11px] font-medium uppercase tracking-[0.28em] text-[#3d7a29]">
             Total (USDsui)
           </label>
           <div className="mt-2 flex items-center gap-1.5">
-            <span className="font-display text-[22px] text-fg-muted">$</span>
+            <span className="text-[22px] text-[#3a5230]" style={{ fontFamily: "var(--font-display-v2)" }}>$</span>
             <input
               inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
               placeholder="0.00"
-              className="w-full bg-transparent font-display text-[28px] font-semibold text-fg tabular-nums outline-none placeholder:text-fg-dim"
-              style={{ letterSpacing: "-0.03em" }}
+              className="w-full bg-transparent text-[28px] font-[800] tracking-[-0.02em] text-[#15300c] tabular-nums outline-none placeholder:text-[#3d7a29]"
+              style={{ fontFamily: "var(--font-display-v2)" }}
             />
           </div>
         </div>
-      </GlassCard>
+      </div>
 
       {/* Schedule */}
-      <GlassCard className="space-y-5 p-5" radius={14}>
+      <div
+        className="space-y-5 rounded-[28px] bg-[#f7fcf2] p-5"
+        style={{ boxShadow: "10px 10px 0 #15300c" }}
+      >
         <ChipRow label="Over" options={DURATIONS} value={durationMin} onChange={setDurationMin} />
         <ChipRow label="Every" options={INTERVALS} value={intervalMin} onChange={setIntervalMin} />
-      </GlassCard>
+      </div>
 
       {/* Live preview / status */}
       {validSchedule ? (
-        <GlassCard
-          className="space-y-1.5 p-5"
-          radius={14}
-          tint="var(--color-accent)"
+        <div
+          className="space-y-1.5 rounded-[28px] bg-[#CAFFB8] p-5"
+          style={{ boxShadow: "10px 10px 0 #15300c" }}
         >
           <div className="flex items-center gap-2">
-            <HugeiconsIcon icon={FlashIcon} size={15} className="text-accent" />
-            <span className="text-[15px] font-semibold text-fg">
+            <HugeiconsIcon icon={FlashIcon} size={15} className="text-[#15300c]" />
+            <span className="text-[15px] font-semibold text-[#15300c]">
               {numTranches} payments of ${trancheUsd.toFixed(2)}
             </span>
           </div>
-          <p className="text-[13px] text-fg-muted">
+          <p className="text-[13px] text-[#15300c]/75">
             One every {intervalLabel}, finishing in {durationLabel}. First payment fires now.
           </p>
-          <p className="font-mono text-[10px] text-accent">
-            ${totalUsd.toFixed(2)} total · settles in seconds.
+          <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
+            ${totalUsd.toFixed(2)} total · settles in under a second.
           </p>
-        </GlassCard>
+        </div>
       ) : (
-        <div className="flex items-start gap-2.5 rounded-xl border border-line bg-surface p-4">
-          <HugeiconsIcon icon={InformationCircleIcon} size={15} className="mt-0.5 shrink-0 text-fg-dim" />
-          <span className="text-[13px] text-fg-muted">{statusMessage}</span>
+        <div className="flex items-start gap-2.5 rounded-2xl border border-[#15300c]/15 bg-white/60 p-4 backdrop-blur-sm">
+          <HugeiconsIcon icon={InformationCircleIcon} size={15} className="mt-0.5 shrink-0 text-[#3d7a29]" />
+          <span className="text-[13px] text-[#3a5230]">{statusMessage}</span>
         </div>
       )}
 
@@ -418,7 +422,9 @@ function ChipRow({
 }) {
   return (
     <div className="space-y-2.5">
-      <Eyebrow>{label}</Eyebrow>
+      <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
+        {label}
+      </span>
       <div className="flex flex-wrap gap-2">
         {options.map((o) => {
           const on = value === o.min;
@@ -429,8 +435,8 @@ function ChipRow({
               onClick={() => onChange(o.min)}
               className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors ${
                 on
-                  ? "bg-accent-soft text-accent"
-                  : "border border-line bg-surface text-fg-muted hover:text-fg"
+                  ? "bg-[#CAFFB8] text-[#15300c]"
+                  : "border border-[#15300c]/15 bg-white/60 text-[#3a5230] backdrop-blur-sm hover:border-[#15300c]/30 hover:text-[#15300c]"
               }`}
             >
               {o.label}
@@ -537,7 +543,7 @@ function ListTab({ reloadSignal, onNew }: { reloadSignal: number; onNew: () => v
   if (error) {
     return (
       <div className="flex flex-col items-center gap-4 py-12 text-center">
-        <p className="max-w-xs text-[14px] text-fg-muted">{error}</p>
+        <p className="max-w-xs text-[14px] text-[#3a5230]">{error}</p>
         <PrimaryButton variant="ghost" onClick={load}>
           Try again
         </PrimaryButton>
@@ -565,14 +571,18 @@ function ListTab({ reloadSignal, onNew }: { reloadSignal: number; onNew: () => v
         const canCancel = s.role !== "recipient" && (s.state === "active" || s.state === "paused");
         const canClaim = s.role === "recipient" && s.state === "active" && s.releasedUsd < s.totalUsd;
         return (
-          <GlassCard key={s.id} className="space-y-4 p-5" radius={14}>
+          <div
+            key={s.id}
+            className="space-y-4 rounded-[28px] bg-[#f7fcf2] p-5"
+            style={{ boxShadow: "10px 10px 0 #15300c" }}
+          >
             {/* Header row */}
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <span className="block font-mono text-[10px] uppercase tracking-widest text-fg-dim">
+                <span className="block font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
                   {s.role === "recipient" ? "Streaming in" : "Streaming out"}
                 </span>
-                <span className="mt-0.5 block truncate text-[15px] font-medium text-fg">
+                <span className="mt-0.5 block truncate text-[15px] font-medium text-[#15300c]">
                   {s.recipientHandle || shortAddr(s.recipientAddress)}
                 </span>
               </div>
@@ -582,23 +592,23 @@ function ListTab({ reloadSignal, onNew }: { reloadSignal: number; onNew: () => v
             {/* Big number + sublabel */}
             <div>
               <span
-                className="block font-display font-semibold tabular-nums text-fg"
-                style={{ fontSize: 26, letterSpacing: "-0.03em", lineHeight: 1 }}
+                className="block font-[800] tabular-nums text-[#15300c]"
+                style={{ fontFamily: "var(--font-display-v2)", fontSize: 26, letterSpacing: "-0.02em", lineHeight: 1 }}
               >
                 ${s.releasedUsd.toFixed(2)}
               </span>
-              <span className="mt-0.5 block font-mono text-[11px] text-fg-dim tabular-nums">
+              <span className="mt-0.5 block font-mono text-[11px] tabular-nums text-[#3d7a29]">
                 of ${s.totalUsd.toFixed(2)} · {s.tranchesDone}/{s.numTranches} payments
               </span>
             </div>
 
             {/* Progress bar */}
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#15300c]/10">
               <div
                 className="h-full rounded-full"
                 style={{
                   width: `${progress * 100}%`,
-                  background: "var(--color-accent-deep)",
+                  background: "#3d7a29",
                   transition: "width 400ms ease-out",
                 }}
               />
@@ -627,7 +637,7 @@ function ListTab({ reloadSignal, onNew }: { reloadSignal: number; onNew: () => v
                 {cancelling === s.id ? "Cancelling…" : "Cancel & refund remainder"}
               </PrimaryButton>
             )}
-          </GlassCard>
+          </div>
         );
       })}
     </div>
