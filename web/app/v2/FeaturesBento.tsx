@@ -24,10 +24,10 @@ export default function FeaturesBento() {
       const q = self.selector!;
       gsap.set(q(".fb-hl"), { scaleX: 0, transformOrigin: "left center" });
       gsap
-        .timeline({ scrollTrigger: { trigger: root.current, start: "top 75%" } })
-        .from(q(".fb-head .v2-word"), { yPercent: 115, duration: 0.7, stagger: 0.06, ease: "power4.out" })
-        .to(q(".fb-hl"), { scaleX: 1, duration: 0.5, ease: "power2.inOut" }, "-=0.2")
-        .from(q(".fb-card"), { opacity: 0, y: 48, scale: 0.94, duration: 0.7, stagger: 0.1, ease: "back.out(1.5)" }, "-=0.2");
+        .timeline({ scrollTrigger: { trigger: root.current, start: "top 78%" } })
+        .from(q(".fb-head .v2-word"), { opacity: 0, y: 20, duration: 0.7, stagger: 0.07, ease: "power2.out" })
+        .to(q(".fb-hl"), { scaleX: 1, duration: 0.5, ease: "power2.out" }, "-=0.25")
+        .from(q(".fb-card"), { opacity: 0, y: 22, duration: 0.7, stagger: 0.09, ease: "power2.out" }, "-=0.2");
     }, root);
     return () => ctx.revert();
   }, []);
@@ -36,7 +36,7 @@ export default function FeaturesBento() {
     <section ref={root} className="mx-auto max-w-[1400px] px-6 pt-20 pb-28 md:px-12 md:pt-28">
       <div className="fb-head mb-14 text-center">
         <div className="mb-4 font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">What you get</div>
-        <h2 className="text-[clamp(32px,5vw,60px)] font-[800] uppercase leading-[0.98] tracking-[-0.02em]" style={{ fontFamily: "var(--font-display-v2)" }}>
+        <h2 className="text-[clamp(25px,5.6vw,60px)] font-[800] uppercase leading-[0.98] tracking-[-0.02em]" style={{ fontFamily: "var(--font-display-v2)" }}>
           <span className="block overflow-hidden pb-[0.06em]"><span className="v2-word inline-block">Everything money</span></span>
           <span className="relative inline-block">
             <span className="fb-hl absolute inset-x-[-8px] inset-y-[6px] -z-0 -rotate-[1.2deg] rounded-[12px] bg-[#CAFFB8]" />
@@ -45,7 +45,7 @@ export default function FeaturesBento() {
         </h2>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         {CARDS.map((c) => (
           <article
             key={c.tag}

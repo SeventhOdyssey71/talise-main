@@ -46,7 +46,27 @@ function QrCode() {
 
 export default function HeroLoop() {
   const root = useRef<HTMLDivElement>(null);
+  const sizerRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const [scene, setScene] = useState(0);
+
+  // The stage is authored at a fixed 440x470 design size; scale it to fit
+  // whatever width it lands in (so the fixed-coordinate art never overflows on
+  // mobile) and reserve the scaled height.
+  useEffect(() => {
+    const sizer = sizerRef.current;
+    const stage = stageRef.current;
+    if (!sizer || !stage) return;
+    const fit = () => {
+      const s = Math.min(1, sizer.clientWidth / 440);
+      stage.style.transform = `scale(${s})`;
+      sizer.style.height = `${470 * s}px`;
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(sizer);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -95,7 +115,7 @@ export default function HeroLoop() {
       tl.call(() => setScene(0))
         .to(q(".sc-send"), { opacity: 1, scale: 1, duration: 0.4 })
         .to(q(".s0-card"), { y: -6, duration: 0.5, ease: "power2.out" })
-        .to(q(".s0-coin"), { opacity: 1, scale: 1, y: -42, rotation: 10, duration: 0.7, ease: "back.out(1.8)" }, "<")
+        .to(q(".s0-coin"), { opacity: 1, scale: 1, y: -42, rotation: 10, duration: 0.7, ease: "back.out(1.4)" }, "<")
         .to(q(".s0-coin"), { y: -34, duration: 0.35, ease: "sine.inOut" })
         .to(q(".s0-caret"), { opacity: 1, duration: 0.1 })
         .to(q(".s0-typed"), { clipPath: "inset(0 0% 0 0)", duration: 0.9, ease: "steps(11)" })
@@ -106,7 +126,7 @@ export default function HeroLoop() {
         .to(q(".s0-coin"), { keyframes: [{ x: 55, y: -76 }, { x: 120, y: -4 }, { x: 158, y: 116, scale: 0.55, opacity: 0 }], duration: 1.0, ease: "power1.inOut" }, "<")
         .to(q(".s0-plane"), { opacity: 0, scale: 0.8, duration: 0.25 })
         .to(q(".s0-recv"), { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.5)" })
-        .to(q(".s0-check"), { scale: 1, duration: 0.5, ease: "back.out(2.4)" }, "-=0.25")
+        .to(q(".s0-check"), { scale: 1, duration: 0.5, ease: "back.out(1.6)" }, "-=0.25")
         .to(q(".sc-send"), { opacity: 0, scale: 0.98, duration: 0.45 }, "+=1.0");
 
       // ============ SCENE 2 - SCAN TO PAY ============
@@ -121,7 +141,7 @@ export default function HeroLoop() {
         .to(q(".s1-line"), { opacity: 0, duration: 0.15 }, "-=0.1")
         .to(q(".s1-qr"), { scale: 1.05, duration: 0.18, yoyo: true, repeat: 1 })
         .to(q(".s1-paid"), { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.6)" })
-        .to(q(".s1-check"), { scale: 1, duration: 0.45, ease: "back.out(2.4)" }, "-=0.25")
+        .to(q(".s1-check"), { scale: 1, duration: 0.45, ease: "back.out(1.6)" }, "-=0.25")
         .to(q(".sc-scan"), { opacity: 0, scale: 0.98, duration: 0.45 }, "+=1.0");
 
       // ============ SCENE 3 - SEND A CHEQUE ============
@@ -134,7 +154,7 @@ export default function HeroLoop() {
         .to(q(".s2-link"), { keyframes: [{ x: 44, y: -12, rotation: -6 }, { x: 120, y: 36, rotation: 4 }, { x: 168, y: 96, rotation: 10 }], duration: 0.95, ease: "power1.inOut" }, "<")
         .to(q(".s2-link"), { opacity: 0, scale: 0.8, duration: 0.2 })
         .to(q(".s2-claim"), { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.5)" })
-        .to(q(".s2-check"), { scale: 1, duration: 0.45, ease: "back.out(2.4)" }, "-=0.25")
+        .to(q(".s2-check"), { scale: 1, duration: 0.45, ease: "back.out(1.6)" }, "-=0.25")
         .to(q(".sc-cheque"), { opacity: 0, scale: 0.98, duration: 0.45 }, "+=1.1");
     }, root);
 
@@ -142,8 +162,9 @@ export default function HeroLoop() {
   }, []);
 
   return (
-    <div ref={root} className="v2-card relative mx-auto w-full max-w-[440px]">
-      <div className="relative h-[470px] w-full">
+    <div ref={root} className="v2-card relative mx-auto w-full min-w-0 max-w-[440px]">
+      <div ref={sizerRef} className="relative w-full overflow-hidden">
+      <div ref={stageRef} className="relative h-[470px] w-[440px] origin-top-left">
         {/* ============ SCENE 1 - SEND ============ */}
         <div className="sc-send absolute inset-0">
           <svg viewBox="0 0 440 470" className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
@@ -245,9 +266,10 @@ export default function HeroLoop() {
           </div>
         </div>
       </div>
+      </div>
 
       {/* feature tabs */}
-      <div className="mt-3 flex items-center justify-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5">
         {FEATURES.map((f, i) => (
           <div key={f} className="flex items-center gap-1.5">
             <span className="inline-block h-2 w-2 rounded-full transition-all duration-300" style={{ background: scene === i ? "#15300c" : "rgba(21,48,12,0.2)", transform: scene === i ? "scale(1.35)" : "scale(1)" }} />

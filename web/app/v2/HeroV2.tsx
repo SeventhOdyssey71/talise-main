@@ -39,14 +39,14 @@ export default function HeroV2() {
         return;
       }
       gsap.set(q(".v2-hl"), { scaleX: 0, transformOrigin: "left center" });
-      const tl = gsap.timeline({ defaults: { ease: "power4.out" } });
-      tl.from(q(".v2-eyebrow"), { opacity: 0, y: 14, duration: 0.5 })
-        .from(q(".v2-word"), { yPercent: 115, duration: 0.85, stagger: 0.07 }, "-=0.1")
-        .to(q(".v2-hl"), { scaleX: 1, duration: 0.55, ease: "power2.inOut" }, "-=0.25")
-        .from(q(".v2-sub"), { opacity: 0, y: 16, duration: 0.6 }, "-=0.4")
-        .from(q(".v2-cta"), { opacity: 0, y: 16, duration: 0.5, stagger: 0.08 }, "-=0.4")
-        .from(q(".v2-card"), { opacity: 0, y: 40, duration: 0.9, ease: "back.out(1.6)" }, "-=0.6")
-        .from(q(".v2-nav"), { opacity: 0, y: 24, duration: 0.6 }, "-=0.5");
+      const tl = gsap.timeline({ defaults: { ease: "power2.out" } });
+      tl.from(q(".v2-eyebrow"), { opacity: 0, y: 10, duration: 0.5 })
+        .from(q(".v2-word"), { opacity: 0, y: 20, duration: 0.7, stagger: 0.08 }, "-=0.15")
+        .to(q(".v2-hl"), { scaleX: 1, duration: 0.5, ease: "power2.out" }, "-=0.3")
+        .from(q(".v2-sub"), { opacity: 0, y: 12, duration: 0.6 }, "-=0.45")
+        .from(q(".v2-cta"), { opacity: 0, y: 12, duration: 0.5, stagger: 0.08 }, "-=0.4")
+        .from(q(".v2-card"), { opacity: 0, y: 24, duration: 0.8, ease: "power2.out" }, "-=0.55")
+        .from(q(".v2-nav"), { opacity: 0, y: 16, duration: 0.6 }, "-=0.5");
     }, root);
 
     return () => {
@@ -57,7 +57,7 @@ export default function HeroV2() {
 
   return (
     <div ref={root}>
-      <section className="mx-auto grid max-w-[1500px] items-center gap-12 px-6 pt-24 pb-16 md:px-12 lg:grid-cols-[1.15fr_1fr] lg:pt-28">
+      <section className="mx-auto grid grid-cols-1 max-w-[1500px] items-center gap-12 px-6 pt-24 pb-16 md:px-12 lg:grid-cols-[1.15fr_1fr] lg:pt-28">
         {/* copy */}
         <div>
           <div className="v2-eyebrow mb-6 inline-flex items-center gap-2 rounded-full border border-[#15300c]/15 bg-white/60 px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.22em] text-[#3d7a29] backdrop-blur-sm">
@@ -65,7 +65,7 @@ export default function HeroV2() {
           </div>
 
           <h1
-            className="text-[clamp(46px,7.4vw,104px)] font-[800] uppercase leading-[0.92] tracking-[-0.02em]"
+            className="text-[clamp(33px,7.8vw,104px)] font-[800] uppercase leading-[0.92] tracking-[-0.02em]"
             style={{ fontFamily: "var(--font-display-v2)" }}
           >
             <Line>Money that</Line>
@@ -81,19 +81,19 @@ export default function HeroV2() {
             phrase, no gas to think about, money that finally makes sense.
           </p>
 
-          <div className="mt-9 flex flex-wrap items-center gap-3">
+          <div className="mt-9 flex w-full max-w-[420px] items-stretch gap-3">
             <a
               href={TESTFLIGHT_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="v2-cta inline-flex h-[52px] min-w-[176px] items-center justify-center gap-2 rounded-full bg-[#15300c] px-7 text-[15px] font-semibold text-[#f7fcf2] transition-transform hover:-translate-y-0.5"
+              className="v2-cta inline-flex h-[52px] flex-1 items-center justify-center gap-2 rounded-full bg-[#15300c] px-6 text-[15px] font-semibold text-[#f7fcf2] transition-transform hover:-translate-y-0.5"
             >
               Get the app
               <span aria-hidden>↗</span>
             </a>
             <a
               href="/waitlist"
-              className="v2-cta inline-flex h-[52px] min-w-[176px] items-center justify-center rounded-full border-2 border-[#15300c] px-7 text-[15px] font-semibold text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
+              className="v2-cta inline-flex h-[52px] flex-1 items-center justify-center rounded-full border-2 border-[#15300c] px-6 text-[15px] font-semibold text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
             >
               How it works
             </a>
@@ -105,18 +105,21 @@ export default function HeroV2() {
       </section>
 
       {/* floating pill nav */}
-      <nav className="v2-nav pointer-events-auto fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[#15300c]/10 bg-white/85 px-2 py-2 shadow-[0_10px_40px_-12px_rgba(21,48,12,0.35)] backdrop-blur-md">
-        {[
-          { l: "Features", href: "#features" },
-          { l: "Global", href: "#how" },
-          { l: "Why Sui", href: "#why" },
-          { l: "FAQ", href: "#faq" },
-        ].map((n) => (
-          <a key={n.l} href={n.href} className="rounded-full px-4 py-2 text-[14px] font-medium text-[#15300c] transition-colors hover:bg-[#15300c]/[0.06]">
-            {n.l}
-          </a>
-        ))}
-        <a href={TESTFLIGHT_URL} target="_blank" rel="noopener noreferrer" className="ml-1 rounded-full bg-[#15300c] px-5 py-2 text-[14px] font-semibold text-[#f7fcf2]">
+      <nav className="v2-nav pointer-events-auto fixed bottom-5 left-1/2 z-50 flex max-w-[calc(100vw-24px)] -translate-x-1/2 items-center gap-1 rounded-full border border-[#15300c]/10 bg-white/85 px-2 py-2 shadow-[0_10px_40px_-12px_rgba(21,48,12,0.35)] backdrop-blur-md">
+        <div className="hidden items-center gap-1 sm:flex">
+          {[
+            { l: "How it works", href: "#start" },
+            { l: "Features", href: "#features" },
+            { l: "Global", href: "#how" },
+            { l: "Earn", href: "#earn" },
+            { l: "FAQ", href: "#faq" },
+          ].map((n) => (
+            <a key={n.l} href={n.href} className="rounded-full px-3.5 py-2 text-[14px] font-medium text-[#15300c] transition-colors hover:bg-[#15300c]/[0.06]">
+              {n.l}
+            </a>
+          ))}
+        </div>
+        <a href={TESTFLIGHT_URL} target="_blank" rel="noopener noreferrer" className="rounded-full bg-[#15300c] px-5 py-2 text-[14px] font-semibold text-[#f7fcf2] sm:ml-1">
           Get the app
         </a>
       </nav>

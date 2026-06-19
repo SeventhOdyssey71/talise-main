@@ -50,10 +50,10 @@ export default function Faq() {
       const q = self.selector!;
       gsap.set(q(".faq-hl"), { scaleX: 0, transformOrigin: "left center" });
       gsap
-        .timeline({ scrollTrigger: { trigger: root.current, start: "top 75%" } })
-        .from(q(".faq-head .v2-word"), { yPercent: 115, duration: 0.7, stagger: 0.06, ease: "power4.out" })
-        .to(q(".faq-hl"), { scaleX: 1, duration: 0.5, ease: "power2.inOut" }, "-=0.2")
-        .from(q(".faq-card"), { opacity: 0, y: 44, scale: 0.94, duration: 0.65, stagger: 0.09, ease: "back.out(1.5)" }, "-=0.2");
+        .timeline({ scrollTrigger: { trigger: root.current, start: "top 78%" } })
+        .from(q(".faq-head .v2-word"), { opacity: 0, y: 20, duration: 0.7, stagger: 0.07, ease: "power2.out" })
+        .to(q(".faq-hl"), { scaleX: 1, duration: 0.5, ease: "power2.out" }, "-=0.25")
+        .from(q(".faq-card"), { opacity: 0, y: 20, duration: 0.65, stagger: 0.08, ease: "power2.out" }, "-=0.2");
     }, root);
     return () => ctx.revert();
   }, []);
@@ -63,7 +63,7 @@ export default function Faq() {
       <div className="faq-head mb-12 text-center">
         <div className="mb-4 font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">The honest answers</div>
         <h2
-          className="text-[clamp(36px,6vw,72px)] font-[800] uppercase leading-[0.98] tracking-[-0.02em]"
+          className="text-[clamp(28px,6.4vw,72px)] font-[800] uppercase leading-[0.98] tracking-[-0.02em]"
           style={{ fontFamily: "var(--font-display-v2)" }}
         >
           <span className="inline-block overflow-hidden pb-[0.06em] align-bottom">
