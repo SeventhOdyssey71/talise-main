@@ -31,12 +31,6 @@ const ITEMS: Item[] = [
     bg: "#C9B8FF",
     tilt: "1.4deg",
   },
-  {
-    q: "Is it safe / private?",
-    a: "Non-custodial: you control your funds. Private, never anonymous.",
-    bg: "#d8f5c6",
-    tilt: "-1.4deg",
-  },
 ];
 
 /**

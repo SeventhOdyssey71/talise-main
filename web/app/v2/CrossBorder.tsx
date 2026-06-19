@@ -5,12 +5,11 @@ import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
-/** 3D country flag coin-badges that ring the globe, one per corridor. */
-const FLAGS: { src: string; label: string; tilt: string }[] = [
-  { src: "/v2/flag-us.png", label: "United States", tilt: "-7deg" },
-  { src: "/v2/flag-gb.png", label: "United Kingdom", tilt: "6deg" },
-  { src: "/v2/flag-eu.png", label: "Europe", tilt: "-5deg" },
-  { src: "/v2/flag-ng.png", label: "Nigeria", tilt: "7deg" },
+/** 3D flag coin-badges that ring the globe, one per Talise corridor, with a name label. */
+const FLAGS: { src: string; label: string; tilt: string; bg: string }[] = [
+  { src: "/v2/flag-ng.png", label: "Nigeria", tilt: "-6deg", bg: "#CAFFB8" },
+  { src: "/v2/flag-ae.png", label: "Middle East", tilt: "6deg", bg: "#FFE59E" },
+  { src: "/v2/flag-ph.png", label: "South East Asia", tilt: "-5deg", bg: "#C9B8FF" },
 ];
 
 /**
@@ -97,17 +96,17 @@ export default function CrossBorder() {
           />
         </div>
 
-        {/* 3D country flag coins ringing the globe */}
+        {/* 3D flag coins + corridor name labels ringing the globe */}
         {FLAGS.map((f, i) => {
           // place coins evenly around the circle, starting at the top
           const angle = (i / FLAGS.length) * Math.PI * 2 - Math.PI / 2;
-          const radius = 50; // % of container
+          const radius = 52; // % of container
           const left = 50 + Math.cos(angle) * radius;
           const top = 50 + Math.sin(angle) * radius;
           return (
             <div
               key={f.label}
-              className="cb-flag absolute z-20"
+              className="cb-flag absolute z-20 flex flex-col items-center gap-2"
               style={{ left: `${left}%`, top: `${top}%`, transform: "translate(-50%, -50%)" }}
             >
               <Image
@@ -115,9 +114,15 @@ export default function CrossBorder() {
                 alt={f.label}
                 width={88}
                 height={88}
-                className="h-[76px] w-[76px] object-contain drop-shadow-[6px_8px_10px_rgba(21,48,12,0.28)]"
+                className="h-[78px] w-[78px] object-contain drop-shadow-[6px_8px_10px_rgba(21,48,12,0.28)]"
                 style={{ transform: `rotate(${f.tilt})` }}
               />
+              <span
+                className="whitespace-nowrap rounded-full px-3 py-1 font-mono text-[11px] font-medium text-[#15300c]"
+                style={{ background: f.bg, boxShadow: "3px 3px 0 #15300c" }}
+              >
+                {f.label}
+              </span>
             </div>
           );
         })}

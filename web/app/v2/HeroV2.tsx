@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import Lenis from "lenis";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import HeroLoop from "./HeroLoop";
 
 const TESTFLIGHT_URL = "https://testflight.apple.com/join/BFNEPYtM";
 
@@ -34,7 +35,7 @@ export default function HeroV2() {
       if (reduce) {
         gsap.set(q(".v2-word, .v2-anim"), { opacity: 1, y: 0, yPercent: 0 });
         gsap.set(q(".v2-hl"), { scaleX: 1 });
-        gsap.set(q(".v2-card"), { opacity: 1, y: 0, rotate: -2 });
+        gsap.set(q(".v2-card"), { opacity: 1, y: 0 });
         return;
       }
       gsap.set(q(".v2-hl"), { scaleX: 0, transformOrigin: "left center" });
@@ -44,9 +45,8 @@ export default function HeroV2() {
         .to(q(".v2-hl"), { scaleX: 1, duration: 0.55, ease: "power2.inOut" }, "-=0.25")
         .from(q(".v2-sub"), { opacity: 0, y: 16, duration: 0.6 }, "-=0.4")
         .from(q(".v2-cta"), { opacity: 0, y: 16, duration: 0.5, stagger: 0.08 }, "-=0.4")
-        .from(q(".v2-card"), { opacity: 0, y: 40, rotate: 4, duration: 0.9, ease: "back.out(1.6)" }, "-=0.6")
+        .from(q(".v2-card"), { opacity: 0, y: 40, duration: 0.9, ease: "back.out(1.6)" }, "-=0.6")
         .from(q(".v2-nav"), { opacity: 0, y: 24, duration: 0.6 }, "-=0.5");
-      gsap.to(q(".v2-coin"), { y: -14, rotate: 6, duration: 3, ease: "sine.inOut", yoyo: true, repeat: -1 });
     }, root);
 
     return () => {
@@ -86,49 +86,22 @@ export default function HeroV2() {
               href={TESTFLIGHT_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="v2-cta inline-flex h-12 items-center gap-2 rounded-full bg-[#15300c] px-7 text-[15px] font-semibold text-[#f7fcf2] transition-transform hover:-translate-y-0.5"
+              className="v2-cta inline-flex h-[52px] min-w-[176px] items-center justify-center gap-2 rounded-full bg-[#15300c] px-7 text-[15px] font-semibold text-[#f7fcf2] transition-transform hover:-translate-y-0.5"
             >
               Get the app
               <span aria-hidden>↗</span>
             </a>
             <a
               href="/waitlist"
-              className="v2-cta inline-flex h-12 items-center rounded-full border-2 border-[#15300c] px-7 text-[15px] font-semibold text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
+              className="v2-cta inline-flex h-[52px] min-w-[176px] items-center justify-center rounded-full border-2 border-[#15300c] px-7 text-[15px] font-semibold text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
             >
               How it works
             </a>
           </div>
         </div>
 
-        {/* hero card */}
-        <div className="v2-card relative mx-auto w-full max-w-[420px] -rotate-2">
-          <div
-            className="relative overflow-hidden rounded-[32px] bg-gradient-to-br from-[#3d7a29] to-[#1c4513] p-8 text-[#f7fcf2]"
-            style={{ boxShadow: "14px 14px 0 #15300c" }}
-          >
-            <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#CAFFB8]">Your balance</div>
-            <div className="mt-2 text-[44px] font-[800] leading-none" style={{ fontFamily: "var(--font-display-v2)" }}>
-              $1,240.00
-            </div>
-            <div className="mt-1 font-mono text-[12px] text-[#cfe9c2]">1,240.00 USDsui · earning</div>
-
-            <div className="mt-7 rounded-2xl bg-[#0e2a08]/60 p-4">
-              <div className="font-mono text-[11px] text-[#9fc78c]">SEND TO</div>
-              <div className="mt-1 text-[20px] font-semibold">sele@talise</div>
-              <div className="mt-3 flex items-center justify-between">
-                <span className="font-mono text-[12px] text-[#cfe9c2]">arrives in seconds</span>
-                <span className="rounded-full bg-[#CAFFB8] px-4 py-1.5 text-[13px] font-bold text-[#15300c]">Send →</span>
-              </div>
-            </div>
-          </div>
-          {/* floating coin accent */}
-          <div
-            className="v2-coin absolute -right-5 -top-6 flex h-20 w-20 items-center justify-center rounded-full bg-[#FFE59E] text-[30px] font-[800] text-[#15300c]"
-            style={{ boxShadow: "6px 6px 0 #15300c", fontFamily: "var(--font-display-v2)" }}
-          >
-            $
-          </div>
-        </div>
+        {/* animated 4-step money-movement loop */}
+        <HeroLoop />
       </section>
 
       {/* floating pill nav */}
