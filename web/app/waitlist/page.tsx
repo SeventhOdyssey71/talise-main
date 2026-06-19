@@ -14,7 +14,7 @@ export const metadata: Metadata = {
  * handle minting / sponsored txns happen later at activation. Flip to true to
  * show the "waitlist is full" state and pause new sign-ups.
  */
-const WAITLIST_FULL = false;
+const WAITLIST_FULL = true;
 
 const DISPLAY = { fontFamily: "var(--font-display-v2)" } as const;
 
