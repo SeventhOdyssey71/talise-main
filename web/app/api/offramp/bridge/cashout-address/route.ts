@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
+import { usdWithdrawalAllowed, USD_WITHDRAWAL_CLOSED_MESSAGE } from "@/lib/offramp-access";
 import { getOnrampKyc } from "@/lib/onramp/kyc-store";
 import { bridgeConfigured } from "@/lib/bridge/client";
 import {
@@ -55,6 +56,13 @@ export async function POST(req: Request) {
   if (!userId) return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   const user = await userById(userId);
   if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });
+  // USD withdrawal is gated to an allowlist during pilot (rolandojude18 only).
+  if (!usdWithdrawalAllowed(user)) {
+    return NextResponse.json(
+      { error: USD_WITHDRAWAL_CLOSED_MESSAGE, code: "USD_WITHDRAWAL_CLOSED" },
+      { status: 403 }
+    );
+  }
 
   // The Bridge customer is shared with the on-ramp; off-ramp requires it.
   const kyc = await getOnrampKyc(userId);
