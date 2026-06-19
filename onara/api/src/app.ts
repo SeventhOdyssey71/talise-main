@@ -108,6 +108,26 @@ const getSponsorAddress = (mnemonic: string): string => {
   return _sponsorAddress
 }
 
+/**
+ * Extract a human-readable reason from a gRPC FailedTransaction. The reason
+ * lives at effects.status.error (newer) or status.error (older), and can be a
+ * plain string OR a structured object (MoveAbort, InsufficientGas, etc.) — the
+ * structured case is what was surfacing to clients as "[object Object]". Prefer
+ * description/message, else JSON-stringify so the real cause is never hidden.
+ */
+function describeSimError(failed: unknown): string {
+  const f = failed as { effects?: { status?: unknown }; status?: unknown }
+  const status = (f?.effects?.status ?? f?.status) as
+    | { error?: unknown }
+    | string
+    | undefined
+  const err = status && typeof status === 'object' ? status.error : status
+  if (err == null) return 'unknown error'
+  if (typeof err === 'string') return err
+  const e = err as { description?: string; message?: string }
+  return e.description ?? e.message ?? JSON.stringify(err)
+}
+
 const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/
 const base64Field = z
   .string()
@@ -357,7 +377,9 @@ app.post('/sponsor', async (c) => {
       )
       endTime(c, 'simulate')
       if (simulation.$kind === 'FailedTransaction') {
-        return c.json({ error: `Simulation failed: ${simulation.FailedTransaction.status.error ?? 'unknown error'}` }, 400)
+        const reason = describeSimError(simulation.FailedTransaction)
+        console.error(JSON.stringify({ message: 'Simulation failed', sender: parsed.data.sender, policy: matchedPolicyName, reason, raw: simulation.FailedTransaction }))
+        return c.json({ error: `Simulation failed: ${reason}` }, 400)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Simulation failed.'
@@ -525,7 +547,9 @@ app.get(
               { retries: 1 },
             )
             if (simulation.$kind === 'FailedTransaction') {
-              send({ status: 'error', error: `Simulation failed: ${simulation.FailedTransaction.status.error ?? 'unknown error'}` })
+              const reason = describeSimError(simulation.FailedTransaction)
+              console.error(JSON.stringify({ message: 'Simulation failed (ws)', reason, raw: simulation.FailedTransaction }))
+              send({ status: 'error', error: `Simulation failed: ${reason}` })
               ws.close(1008)
               return
             }
