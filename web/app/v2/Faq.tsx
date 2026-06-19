@@ -21,7 +21,7 @@ const ITEMS: Item[] = [
   },
   {
     q: "How fast are transfers?",
-    a: "They arrive in seconds. Stablecoin transactions on Sui cost nothing.",
+    a: "They land in under a second, Sui finalizes that fast. Stablecoin transactions on Sui cost nothing.",
     bg: "#FF9E7A",
     tilt: "-1deg",
   },

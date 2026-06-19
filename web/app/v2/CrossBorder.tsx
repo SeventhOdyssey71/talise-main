@@ -5,19 +5,20 @@ import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
-/** 3D flag coin-badges that ring the globe, one per Talise corridor, with a name label. */
-const FLAGS: { src: string; label: string; tilt: string; bg: string }[] = [
-  { src: "/v2/flag-ng.png", label: "Nigeria", tilt: "-6deg", bg: "#CAFFB8" },
-  { src: "/v2/flag-ae.png", label: "Middle East", tilt: "6deg", bg: "#FFE59E" },
-  { src: "/v2/flag-ph.png", label: "South East Asia", tilt: "-5deg", bg: "#C9B8FF" },
+/** Handles that ring the globe, playful, on-brand `name@talise` pills. */
+const HANDLES: { handle: string; bg: string; tilt: string }[] = [
+  { handle: "ada@talise", bg: "#CAFFB8", tilt: "-3deg" },
+  { handle: "kofi@talise", bg: "#FF9E7A", tilt: "2.5deg" },
+  { handle: "mei@talise", bg: "#C9B8FF", tilt: "-2deg" },
+  { handle: "diego@talise", bg: "#FFE59E", tilt: "3deg" },
+  { handle: "noor@talise", bg: "#d8f5c6", tilt: "-2.5deg" },
 ];
 
 /**
  * v2 cross-border beat, "pay people around the world".
  * Big display headline with a mint highlighter swipe, short subline, and a
- * floating 3D globe ringed by 3D country flag coin-badges (US, GB, EU, NG),
- * each bobbing on its own rhythm. GSAP scroll-reveal, with a
- * prefers-reduced-motion early return.
+ * floating 3D globe ringed by playful `name@talise` pills on a slow orbit.
+ * GSAP scroll-reveal, with a prefers-reduced-motion early return.
  */
 export default function CrossBorder() {
   const root = useRef<HTMLDivElement>(null);
@@ -34,15 +35,11 @@ export default function CrossBorder() {
         .to(q(".cb-hl"), { scaleX: 1, duration: 0.5, ease: "power2.inOut" }, "-=0.2")
         .from(q(".cb-sub"), { opacity: 0, y: 16, duration: 0.6, ease: "power3.out" }, "-=0.3")
         .from(q(".cb-globe"), { opacity: 0, y: 40, scale: 0.92, duration: 0.85, ease: "back.out(1.5)" }, "-=0.45")
-        .from(q(".cb-flag"), { opacity: 0, scale: 0.5, duration: 0.6, stagger: 0.1, ease: "back.out(2)" }, "-=0.5");
+        .from(q(".cb-pill"), { opacity: 0, scale: 0.6, duration: 0.55, stagger: 0.08, ease: "back.out(2)" }, "-=0.5");
 
       // gentle float on the globe + a slow spin on the orbit ring
       gsap.to(q(".cb-globe"), { y: -12, duration: 3.2, ease: "sine.inOut", yoyo: true, repeat: -1 });
       gsap.to(q(".cb-orbit"), { rotate: 360, duration: 60, ease: "none", repeat: -1, transformOrigin: "50% 50%" });
-      // each flag coin bobs on its own gentle rhythm
-      q(".cb-flag").forEach((el, i) => {
-        gsap.to(el, { y: -9, duration: 2.4 + i * 0.35, ease: "sine.inOut", yoyo: true, repeat: -1, delay: i * 0.2 });
-      });
     }, root);
     return () => ctx.revert();
   }, []);
@@ -63,13 +60,13 @@ export default function CrossBorder() {
           <span className="block overflow-hidden pb-[0.06em]"><span className="v2-word inline-block">across the world.</span></span>
           <span className="relative mt-1 inline-block overflow-visible">
             <span className="cb-hl absolute inset-x-[-8px] inset-y-[6px] -z-0 -rotate-[1.5deg] rounded-[14px] bg-[#CAFFB8]" />
-            <span className="v2-word relative z-10 inline-block">In seconds.</span>
+            <span className="v2-word relative z-10 inline-block">Under a second.</span>
           </span>
         </h2>
 
         <p className="cb-sub mt-7 max-w-[440px] text-[17px] leading-[1.55] text-[#3a5230]">
           Send to a name like <span className="font-mono text-[15px] text-[#15300c]">ada@talise</span>, across
-          borders, and it arrives in seconds. Stablecoin transactions on Sui cost nothing.
+          borders, and it lands in under a second. Stablecoin transactions on Sui cost nothing.
         </p>
       </div>
 
@@ -96,34 +93,27 @@ export default function CrossBorder() {
           />
         </div>
 
-        {/* 3D flag coins + corridor name labels ringing the globe */}
-        {FLAGS.map((f, i) => {
-          // place coins evenly around the circle, starting at the top
-          const angle = (i / FLAGS.length) * Math.PI * 2 - Math.PI / 2;
-          const radius = 52; // % of container
+        {/* name@talise pills ringing the globe */}
+        {HANDLES.map((h, i) => {
+          // place pills evenly around the circle, starting at the top
+          const angle = (i / HANDLES.length) * Math.PI * 2 - Math.PI / 2;
+          const radius = 47; // % of container
           const left = 50 + Math.cos(angle) * radius;
           const top = 50 + Math.sin(angle) * radius;
           return (
-            <div
-              key={f.label}
-              className="cb-flag absolute z-20 flex flex-col items-center gap-2"
-              style={{ left: `${left}%`, top: `${top}%`, transform: "translate(-50%, -50%)" }}
+            <span
+              key={h.handle}
+              className="cb-pill absolute z-20 whitespace-nowrap rounded-full px-3.5 py-1.5 font-mono text-[12px] font-medium text-[#15300c]"
+              style={{
+                left: `${left}%`,
+                top: `${top}%`,
+                transform: `translate(-50%, -50%) rotate(${h.tilt})`,
+                background: h.bg,
+                boxShadow: "4px 4px 0 #15300c",
+              }}
             >
-              <Image
-                src={f.src}
-                alt={f.label}
-                width={88}
-                height={88}
-                className="h-[78px] w-[78px] object-contain drop-shadow-[6px_8px_10px_rgba(21,48,12,0.28)]"
-                style={{ transform: `rotate(${f.tilt})` }}
-              />
-              <span
-                className="whitespace-nowrap rounded-full px-3 py-1 font-mono text-[11px] font-medium text-[#15300c]"
-                style={{ background: f.bg, boxShadow: "3px 3px 0 #15300c" }}
-              >
-                {f.label}
-              </span>
-            </div>
+              {h.handle}
+            </span>
           );
         })}
       </div>

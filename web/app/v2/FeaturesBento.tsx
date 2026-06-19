@@ -9,7 +9,7 @@ type Card = { tag: string; title: string; body: string; bg: string; img: string;
 
 const CARDS: Card[] = [
   { tag: "Hold", title: "Hold real dollars.", body: "Genuine US dollars on Sui, yours to hold, spend, or send, any time.", bg: "#CAFFB8", img: "/v2/coin.png", tilt: "-1.5deg" },
-  { tag: "Send", title: "Send to a name.", body: "Type sele@talise, hit send, it arrives in seconds. Stablecoin transactions on Sui cost nothing.", bg: "#FF9E7A", img: "/v2/plane.png", tilt: "1.5deg" },
+  { tag: "Send", title: "Send to a name.", body: "Type sele@talise, hit send, it lands in under a second. Stablecoin transactions on Sui cost nothing.", bg: "#FF9E7A", img: "/v2/plane.png", tilt: "1.5deg" },
   { tag: "Earn", title: "Idle money grows.", body: "Sitting still? Talise quietly puts it to work, auto-routed, and always yours to move.", bg: "#C9B8FF", img: "/v2/sprout.png", tilt: "1.2deg" },
   { tag: "Cash out", title: "Cash out at home.", body: "Turn dollars into your local currency, or wire USD to your bank. Enter an amount, withdraw.", bg: "#FFE59E", img: "/v2/phone.png", tilt: "-1.2deg" },
 ];

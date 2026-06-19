@@ -8,8 +8,8 @@ reads as one piece.
 ## Voice
 Confident, warm, a little playful ("going global, finally"). Short punchy lines.
 Obeys the hard copy rules: no "free" except "stablecoin transactions on Sui cost
-nothing"; no APY numbers; handles as `name@talise`; sends "arrive in seconds";
-"private" ok, "anonymous" not.
+nothing"; no APY numbers; handles as `name@talise`; sends land "in under a
+second" (Sui finalizes that fast), never "in seconds"; "private" ok, "anonymous" not.
 
 ## Type
 - **Display (headlines, the big stuff): `Bricolage Grotesque`, weight 800** — heavy,
@@ -29,7 +29,7 @@ Tokens (use these exact hexes):
 
 ## Signature components
 1. **Highlighter** — a key phrase sits in a rounded mint `#CAFFB8` block (like a marker
-   swipe), slight rotation (-1.5°), ink text. e.g. `<span class="hl">in seconds</span>`.
+   swipe), slight rotation (-1.5°), ink text. e.g. `<span class="hl">under a second</span>`.
 2. **Bento cards** — generously rounded (`rounded-[28px]`), each a different gradient
    (mint, coral, lilac, butter) with a **hard offset shadow** (`box-shadow: 10px 10px 0 #15300c`
    or a softer `0 18px 0 -4px`), a bold card headline, and a playful 3D-ish illustration.

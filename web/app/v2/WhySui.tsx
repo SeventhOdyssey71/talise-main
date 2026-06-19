@@ -11,7 +11,7 @@ const CARDS: Card[] = [
   {
     tag: "Instant",
     title: "Settles in a blink.",
-    body: "Transfers clear on Sui the moment you tap send, so your money arrives in seconds, not days.",
+    body: "Transfers clear on Sui the moment you tap send, so your money lands in under a second, not days.",
     bg: "#FF9E7A",
     icon: "bolt",
     tilt: "-1.5deg",
