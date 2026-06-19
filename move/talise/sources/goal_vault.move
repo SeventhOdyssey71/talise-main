@@ -1,0 +1,208 @@
+/// Per-goal savings vault — owner-owned, withdraw-anytime, yield-ready.
+///
+/// A `GoalVault<T>` is an OWNED object (transferred to its creator), so it is
+/// only usable in a transaction signed by the owner. That gives the core
+/// product guarantee for free: a goal is a vault ONLY the creator controls.
+/// Funds are held as a segregated `Balance<T>` (one vault per goal), the owner
+/// can `deposit` and `withdraw` ANY time, and `close` drains + deletes it.
+///
+/// Custody invariants:
+///   • The object is owner-owned — no shared access, no worker access. Only a
+///     tx the owner signs can touch it.
+///   • `withdraw` / `close` additionally assert `sender == owner` (defence in
+///     depth, in case the object is ever wrapped/shared by mistake).
+///   • Funds in are `Balance<T>` joined into `principal`; funds out are split
+///     from `principal`. The object never custodies more than it was given.
+///
+/// Yield seam (next sub-phase): the vault holds raw `principal: Balance<T>`
+/// today. To earn yield, principal is supplied to NAVI and the lending receipt
+/// is parked on this object via a dynamic object field (the same pattern as
+/// `talise_yield::yield_router::YieldPosition`), keyed by venue. `withdraw`
+/// then redeems from the venue first. That integration is intentionally NOT in
+/// this module so the custody core stays small and auditable; see
+/// docs/goals-vault.md for the staged plan.
+module talise::goal_vault;
+
+use sui::{balance::{Self, Balance}, clock::Clock, coin::{Self, Coin}, event};
+use std::string::{Self, String};
+
+// ───────────────────────────────────────────────────────────────────
+// Errors
+
+const ENotOwner: u64 = 300;
+const EInsufficientBalance: u64 = 301;
+const EZeroAmount: u64 = 302;
+const ENameTooLong: u64 = 303;
+
+const MAX_NAME_LEN: u64 = 64;
+
+// ───────────────────────────────────────────────────────────────────
+// Object
+
+/// One vault per savings goal. Owned by `owner` (the creator). `store` so it
+/// can be held in collections / future wrappers; it is never shared.
+public struct GoalVault<phantom T> has key, store {
+    id: UID,
+    /// The only address that may withdraw or close. Set at creation, immutable.
+    owner: address,
+    /// Display name ("Singapore Trip"). Capped at MAX_NAME_LEN bytes.
+    name: String,
+    /// Target amount in T's smallest unit (e.g. USDsui micro-units). 0 = none.
+    target: u64,
+    /// The segregated funds this goal holds.
+    principal: Balance<T>,
+    created_at_ms: u64,
+    /// Monotonic lifetime totals for telemetry / the activity feed.
+    deposits_total: u64,
+    withdrawals_total: u64,
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Events
+
+public struct GoalCreated has copy, drop { vault_id: ID, owner: address, target: u64 }
+public struct GoalDeposited has copy, drop { vault_id: ID, owner: address, amount: u64, balance: u64 }
+public struct GoalWithdrawn has copy, drop { vault_id: ID, owner: address, amount: u64, balance: u64 }
+public struct GoalClosed has copy, drop { vault_id: ID, owner: address, returned: u64 }
+public struct GoalUpdated has copy, drop { vault_id: ID, owner: address, target: u64 }
+
+// ───────────────────────────────────────────────────────────────────
+// Lifecycle
+
+/// Create an empty goal vault and hand it to the creator. Owner-owned from
+/// birth — only the creator can ever touch it.
+public fun create<T>(name: vector<u8>, target: u64, clock: &Clock, ctx: &mut TxContext) {
+    transfer::public_transfer(new_vault<T>(name, target, balance::zero<T>(), clock, ctx), ctx.sender());
+}
+
+/// Create a goal vault AND fund it from `coin` in one transaction.
+public fun create_with<T>(
+    name: vector<u8>,
+    target: u64,
+    coin: Coin<T>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    transfer::public_transfer(
+        new_vault<T>(name, target, coin::into_balance(coin), clock, ctx),
+        ctx.sender(),
+    );
+}
+
+fun new_vault<T>(
+    name: vector<u8>,
+    target: u64,
+    principal: Balance<T>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): GoalVault<T> {
+    assert!(name.length() <= MAX_NAME_LEN, ENameTooLong);
+    let initial = balance::value(&principal);
+    let vault = GoalVault<T> {
+        id: object::new(ctx),
+        owner: ctx.sender(),
+        name: string::utf8(name),
+        target,
+        principal,
+        created_at_ms: clock.timestamp_ms(),
+        deposits_total: initial,
+        withdrawals_total: 0,
+    };
+    event::emit(GoalCreated { vault_id: object::id(&vault), owner: vault.owner, target });
+    vault
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Money in / out
+
+/// Add funds to the goal. Implicitly owner-only (owned object), so anyone
+/// holding the vault in a tx is the owner.
+public fun deposit<T>(vault: &mut GoalVault<T>, coin: Coin<T>) {
+    let amount = coin::value(&coin);
+    assert!(amount > 0, EZeroAmount);
+    balance::join(&mut vault.principal, coin::into_balance(coin));
+    vault.deposits_total = vault.deposits_total + amount;
+    event::emit(GoalDeposited {
+        vault_id: object::id(vault),
+        owner: vault.owner,
+        amount,
+        balance: balance::value(&vault.principal),
+    });
+}
+
+/// Withdraw `amount` from the goal back to the owner — ANY time, no lockup.
+/// Returns the Coin so the caller's PTB can transfer/spend it.
+public fun withdraw<T>(vault: &mut GoalVault<T>, amount: u64, ctx: &mut TxContext): Coin<T> {
+    assert!(ctx.sender() == vault.owner, ENotOwner);
+    assert!(amount > 0, EZeroAmount);
+    assert!(balance::value(&vault.principal) >= amount, EInsufficientBalance);
+    vault.withdrawals_total = vault.withdrawals_total + amount;
+    let out = balance::split(&mut vault.principal, amount);
+    event::emit(GoalWithdrawn {
+        vault_id: object::id(vault),
+        owner: vault.owner,
+        amount,
+        balance: balance::value(&vault.principal),
+    });
+    coin::from_balance(out, ctx)
+}
+
+/// Withdraw everything and DELETE the vault (use when a goal is finished or
+/// abandoned). Returns the full remaining balance as a Coin.
+public fun close<T>(vault: GoalVault<T>, ctx: &mut TxContext): Coin<T> {
+    assert!(ctx.sender() == vault.owner, ENotOwner);
+    let GoalVault {
+        id,
+        owner,
+        name: _,
+        target: _,
+        principal,
+        created_at_ms: _,
+        deposits_total: _,
+        withdrawals_total: _,
+    } = vault;
+    let returned = balance::value(&principal);
+    event::emit(GoalClosed { vault_id: id.to_inner(), owner, returned });
+    id.delete();
+    coin::from_balance(principal, ctx)
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Metadata mutators (owner-gated)
+
+public fun set_target<T>(vault: &mut GoalVault<T>, target: u64, ctx: &TxContext) {
+    assert!(ctx.sender() == vault.owner, ENotOwner);
+    vault.target = target;
+    event::emit(GoalUpdated { vault_id: object::id(vault), owner: vault.owner, target });
+}
+
+public fun rename<T>(vault: &mut GoalVault<T>, name: vector<u8>, ctx: &TxContext) {
+    assert!(ctx.sender() == vault.owner, ENotOwner);
+    assert!(name.length() <= MAX_NAME_LEN, ENameTooLong);
+    vault.name = string::utf8(name);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Views
+
+public fun balance<T>(vault: &GoalVault<T>): u64 { balance::value(&vault.principal) }
+public fun target<T>(vault: &GoalVault<T>): u64 { vault.target }
+public fun owner<T>(vault: &GoalVault<T>): address { vault.owner }
+public fun name<T>(vault: &GoalVault<T>): String { vault.name }
+public fun deposits_total<T>(vault: &GoalVault<T>): u64 { vault.deposits_total }
+public fun withdrawals_total<T>(vault: &GoalVault<T>): u64 { vault.withdrawals_total }
+
+/// Has the goal reached its target? (A 0 target is never "complete".)
+public fun is_complete<T>(vault: &GoalVault<T>): bool {
+    vault.target > 0 && balance::value(&vault.principal) >= vault.target
+}
+
+/// Progress toward target in basis points (0..=10000), capped. 0 target → 0.
+public fun progress_bps<T>(vault: &GoalVault<T>): u64 {
+    if (vault.target == 0) return 0;
+    let bal = balance::value(&vault.principal);
+    if (bal >= vault.target) return 10000;
+    // bal < target <= u64::MAX, and bal * 10000 can overflow only for
+    // balances > ~1.8e15; USDsui micro-units stay far below that.
+    ((bal as u128) * 10000 / (vault.target as u128)) as u64
+}
