@@ -6,6 +6,7 @@ import { rateLimitAsync } from "@/lib/rate-limit";
 import {
   archiveGoal,
   depositToGoal,
+  withdrawFromGoal,
   getGoal,
   updateGoal,
   GOAL_DEPOSIT_MAX_USD,
@@ -25,6 +26,7 @@ function toWire(g: SavingsGoal) {
     color: g.color,
     createdAtMs: g.createdAt,
     archived: g.archived,
+    completed: g.completed,
   };
 }
 
@@ -104,30 +106,22 @@ export async function PATCH(req: Request, ctx: Ctx) {
 }
 
 /**
- * POST /api/rewards/goals/[id] — tracking deposit.
- * Body: { amountUsd: number }. Bumps `current_usd`, mints a `goal_deposit`
- * rewards_event (4 pts/$1), returns the post-deposit goal + the points
- * awarded so the iOS sheet can show a "+12 pts" toast.
+ * POST /api/rewards/goals/[id] — tracking deposit OR withdrawal.
+ * Body: { amountUsd: number, action?: "deposit" | "withdraw" }.
+ *  - deposit (default): bumps `current_usd`, writes a `goal_deposit` event.
+ *  - withdraw: reduces `current_usd` back toward 0 (the dollars were always
+ *    liquid in the user's own yield-earning balance), writes `goal_withdraw`.
+ * Returns the post-action goal.
  */
 export async function POST(req: Request, ctx: Ctx) {
   const userId = await auth(req);
   if (!userId) return NextResponse.json({ error: "not authenticated" }, { status: 401 });
-  // Private-beta guardrail: only allowlisted accounts may mint points. Same
-  // gate the money APIs use — keeps non-approved sessions out of the ledger.
+  // Private-beta guardrail: only allowlisted accounts may touch the ledger.
   const denied = await denyUnlessAppApproved(userId);
   if (denied) return denied;
-  // Bound abuse: a goal deposit is an UNVERIFIED self-report that mints
-  // points, so throttle it hard per account.
-  const rl = await rateLimitAsync({ key: `goal-deposit:user:${userId}`, limit: 12, windowSec: 60 });
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: "Too many deposits. Try again shortly." },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } }
-    );
-  }
   const id = await resolveId(ctx);
   if (!id) return NextResponse.json({ error: "bad id" }, { status: 400 });
-  let body: { amountUsd?: unknown };
+  let body: { amountUsd?: unknown; action?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -140,19 +134,39 @@ export async function POST(req: Request, ctx: Ctx) {
       { status: 400 }
     );
   }
-  // Reject absurd amounts outright (depositToGoal also clamps as a backstop).
-  if (amountUsd > GOAL_DEPOSIT_MAX_USD) {
+  const isWithdraw = body.action === "withdraw";
+
+  // Throttle per account+action (deposits mint nothing now, but both are
+  // self-report writes — keep the anti-abuse cap).
+  const rl = await rateLimitAsync({
+    key: `goal-${isWithdraw ? "withdraw" : "deposit"}:user:${userId}`,
+    limit: 12,
+    windowSec: 60,
+  });
+  if (!rl.ok) {
     return NextResponse.json(
-      { error: `amountUsd exceeds the $${GOAL_DEPOSIT_MAX_USD.toLocaleString()} per-deposit limit` },
-      { status: 400 }
+      { error: "Too many requests. Try again shortly." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } }
     );
   }
+
   try {
-    const { goal, points } = await depositToGoal({
-      userId,
-      goalId: id,
-      amountUsd,
-    });
+    if (isWithdraw) {
+      const { goal, withdrawnUsd } = await withdrawFromGoal({
+        userId,
+        goalId: id,
+        amountUsd,
+      });
+      return NextResponse.json({ goal: toWire(goal), withdrawnUsd });
+    }
+    // Reject absurd amounts outright (depositToGoal also clamps as a backstop).
+    if (amountUsd > GOAL_DEPOSIT_MAX_USD) {
+      return NextResponse.json(
+        { error: `amountUsd exceeds the $${GOAL_DEPOSIT_MAX_USD.toLocaleString()} per-deposit limit` },
+        { status: 400 }
+      );
+    }
+    const { goal, points } = await depositToGoal({ userId, goalId: id, amountUsd });
     return NextResponse.json({ goal: toWire(goal), pointsAwarded: points });
   } catch (err) {
     const msg = (err as Error).message;

@@ -31,6 +31,9 @@ export type SavingsGoal = {
   color: string | null;
   createdAt: number;
   archived: boolean;
+  /** Derived: the goal has reached (or passed) its target. Drives the iOS
+   *  "Completed" section — completed goals leave the active list. */
+  completed: boolean;
 };
 
 type GoalRow = {
@@ -46,12 +49,14 @@ type GoalRow = {
 };
 
 function rowToGoal(row: GoalRow): SavingsGoal {
+  const targetUsd = Number(row.target_usd) || 0;
+  const currentUsd = Number(row.current_usd) || 0;
   return {
     id: Number(row.id),
     userId: Number(row.user_id),
     name: String(row.name),
-    targetUsd: Number(row.target_usd) || 0,
-    currentUsd: Number(row.current_usd) || 0,
+    targetUsd,
+    currentUsd,
     deadlineMs:
       row.deadline_ms === null || row.deadline_ms === undefined
         ? null
@@ -59,6 +64,7 @@ function rowToGoal(row: GoalRow): SavingsGoal {
     color: row.color ?? null,
     createdAt: Number(row.created_at),
     archived: Number(row.archived) === 1,
+    completed: targetUsd > 0 && currentUsd >= targetUsd,
   };
 }
 
@@ -237,6 +243,60 @@ export async function depositToGoal(input: {
 
   const refreshed = (await getGoal(input.userId, input.goalId))!;
   return { goal: refreshed, points };
+}
+
+/**
+ * Withdraw (un-track) from a goal. In the current tracking model the funds
+ * never left the user's own yield-earning balance, so a withdrawal simply
+ * reduces the goal's `current_usd` envelope back toward zero — the dollars are
+ * already liquid and spendable in the main balance. Floors at 0 (can't withdraw
+ * more than the goal holds) and writes a 0-point `goal_withdraw` event for the
+ * activity feed. No points are involved (deposits mint none either).
+ *
+ * NOTE: when goals become real on-chain vaults, this is the seam where the
+ * withdrawal becomes an actual owner-signed vault->wallet transfer.
+ */
+export async function withdrawFromGoal(input: {
+  userId: number;
+  goalId: number;
+  amountUsd: number;
+}): Promise<{ goal: SavingsGoal; withdrawnUsd: number }> {
+  await ensureSchema();
+  const raw = Number(input.amountUsd);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    throw new Error("amountUsd must be positive");
+  }
+  const existing = await getGoal(input.userId, input.goalId);
+  if (!existing) throw new Error("goal not found");
+  if (existing.archived) throw new Error("goal is archived");
+
+  // Can't withdraw more than the goal currently tracks.
+  const withdrawnUsd = Math.min(raw, existing.currentUsd);
+  if (withdrawnUsd <= 0) {
+    return { goal: existing, withdrawnUsd: 0 };
+  }
+  const metaJson = JSON.stringify({ amountUsd: withdrawnUsd, goalId: input.goalId });
+  await db().batch(
+    [
+      {
+        // MAX(0, …) guard so a concurrent withdraw can't drive it negative.
+        sql: `UPDATE savings_goals
+              SET current_usd = MAX(0, COALESCE(current_usd, 0) - ?)
+              WHERE id = ? AND user_id = ?`,
+        args: [withdrawnUsd, input.goalId, input.userId],
+      },
+      {
+        sql: `INSERT INTO rewards_events
+              (user_id, kind, points, metadata, created_at)
+              VALUES (?, 'goal_withdraw', 0, ?, ?)`,
+        args: [input.userId, metaJson, Date.now()],
+      },
+    ],
+    "write"
+  );
+
+  const refreshed = (await getGoal(input.userId, input.goalId))!;
+  return { goal: refreshed, withdrawnUsd };
 }
 
 /** Soft-delete: flip `archived = 1`. Goal still readable via `includeArchived`. */
