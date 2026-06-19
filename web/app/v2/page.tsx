@@ -64,8 +64,21 @@ export default function LandingV2() {
         >
           talise.
         </div>
-        <div className="pb-32 pt-6 font-mono text-[11px] uppercase tracking-[0.2em] text-[#3d7a29]">
-          talise.io · Built on Sui
+        <div className="flex flex-col items-center gap-4 pb-32 pt-6">
+          <a
+            href="https://x.com/taliseio"
+            target="_blank"
+            rel="noreferrer noopener"
+            aria-label="Talise on X"
+            className="grid h-10 w-10 place-items-center rounded-full border border-[#15300c]/20 text-[#15300c] transition-colors hover:bg-[#15300c] hover:text-[#f7fcf2]"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+            </svg>
+          </a>
+          <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#3d7a29]">
+            talise.io · Built on Sui
+          </div>
         </div>
       </section>
     </main>

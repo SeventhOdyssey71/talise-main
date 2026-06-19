@@ -119,7 +119,11 @@ export default function Faq() {
       </div>
 
       <p className="mt-12 text-center font-mono text-[12px] tracking-[0.04em] text-[#3a5230]">
-        Still curious? Reach us at <span className="text-[#15300c]">hello@talise</span>.
+        Still curious? Find us on{" "}
+        <a href="https://x.com/taliseio" target="_blank" rel="noreferrer noopener" className="text-[#15300c] underline-offset-2 hover:underline">
+          X @taliseio
+        </a>
+        .
       </p>
     </section>
   );
