@@ -233,8 +233,6 @@ private struct GoalActionSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var depositText: String = ""
-    @State private var editName: String
-    @State private var editTargetText: String
     @State private var busy = false
     @State private var error: String?
     @State private var lastPointsAwarded: Int?
@@ -242,13 +240,9 @@ private struct GoalActionSheet: View {
     /// cover (and, by replacing the form, prevents an accidental re-tap that
     /// would stack a second deposit). Holds the pre-formatted amount added.
     @State private var depositDone: String?
-
-    init(goal: SavingsGoal, onChanged: @escaping () -> Void) {
-        self.goal = goal
-        self.onChanged = onChanged
-        _editName = State(initialValue: goal.name)
-        _editTargetText = State(initialValue: String(format: "%.2f", goal.targetUsd))
-    }
+    /// Add vs Withdraw, chosen by the segmented toggle.
+    @State private var mode: Mode = .add
+    private enum Mode { case add, withdraw }
 
     var body: some View {
         NavigationStack {
@@ -256,7 +250,6 @@ private struct GoalActionSheet: View {
                 VStack(alignment: .leading, spacing: 28) {
                     summary
                     deposit
-                    edit
                     archive
                     if let error {
                         Text(error)
@@ -315,8 +308,19 @@ private struct GoalActionSheet: View {
 
     private var deposit: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader("Add to goal")
+            SectionHeader(mode == .add ? "Add to goal" : "Withdraw from goal")
             VStack(alignment: .leading, spacing: 14) {
+                // Add / Withdraw segmented toggle — pick the action, one field below.
+                HStack(spacing: 4) {
+                    modeTab("Add money", .add)
+                    modeTab("Withdraw", .withdraw)
+                }
+                .padding(4)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(TaliseColor.fg.opacity(0.06))
+                )
+
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(CurrencySettings.shared.current.symbol)
                         .font(TaliseFont.heading(28, weight: .medium))
@@ -332,74 +336,46 @@ private struct GoalActionSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .earnFieldGlass()
 
-                Text("Tracking only — funds stay in your earning balance and keep earning points + yield.")
+                Text(mode == .add
+                     ? "Tracking only — funds stay in your earning balance and keep earning points + yield."
+                     : "Moves tracked savings back to your spendable balance.")
                     .font(TaliseFont.body(13, weight: .light))
                     .foregroundStyle(TaliseColor.fgMuted)
 
                 LiquidGlassButton(
-                    title: busy ? "Adding…" : "Add to goal",
+                    title: actionTitle,
                     tint: TaliseColor.accent,
                     size: .lg,
                     loading: busy
                 ) {
-                    Task { await runDeposit() }
+                    Task { mode == .add ? await runDeposit() : await runWithdraw() }
                 }
                 .disabled(busy || !canDeposit)
-
-                // Withdraw the typed amount back out of the goal (un-track) —
-                // the funds were always liquid in the earning balance.
-                if goal.currentUsd > 0 {
-                    Button {
-                        Task { await runWithdraw() }
-                    } label: {
-                        Text(busy ? "Withdrawing…" : "Withdraw from goal")
-                            .font(TaliseFont.body(14, weight: .medium))
-                            .foregroundStyle(TaliseColor.fgMuted)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                    }
-                    .disabled(busy || !canDeposit)
-                }
             }
             .padding(20)
             .earnHeroGlass(cornerRadius: 20)
         }
     }
 
-    private var edit: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader("Edit goal")
-            VStack(alignment: .leading, spacing: 14) {
-                TextField("Name", text: $editName)
-                    .font(TaliseFont.body(14, weight: .light))
-                    .kerning(-0.48)
-                    .tint(TaliseColor.accent)
-                    .foregroundStyle(TaliseColor.fg)
-                    .padding(14)
-                    .earnFieldGlass()
-                TextField("Target", text: $editTargetText)
-                    .keyboardType(.decimalPad)
-                    .font(TaliseFont.body(14, weight: .light))
-                    .kerning(-0.48)
-                    .tint(TaliseColor.accent)
-                    .foregroundStyle(TaliseColor.fg)
-                    .padding(14)
-                    .earnFieldGlass()
-                Button {
-                    Task { await runEdit() }
-                } label: {
-                    Text(busy ? "Saving…" : "Save changes")
-                        .font(TaliseFont.body(13, weight: .light))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.plain)
-                .disabled(busy)
-            }
-            .padding(20)
-            .earnHeroGlass(cornerRadius: 20)
+    private var actionTitle: String {
+        if busy { return mode == .add ? "Adding…" : "Withdrawing…" }
+        return mode == .add ? "Add to goal" : "Withdraw"
+    }
+
+    @ViewBuilder
+    private func modeTab(_ title: String, _ m: Mode) -> some View {
+        Button { mode = m } label: {
+            Text(title)
+                .font(TaliseFont.body(15, weight: .medium))
+                .foregroundStyle(mode == m ? Color.black.opacity(0.85) : TaliseColor.fgMuted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(mode == m ? TaliseColor.accent : Color.clear)
+                )
         }
+        .buttonStyle(.plain)
     }
 
     private var archive: some View {
@@ -470,27 +446,6 @@ private struct GoalActionSheet: View {
         }
     }
 
-    private func runEdit() async {
-        busy = true
-        defer { busy = false }
-        let cleaned = editTargetText.replacingOccurrences(of: ",", with: ".")
-        let target = Double(cleaned)
-        do {
-            _ = try await GoalsAPI.patch(
-                id: goal.id,
-                body: SavingsGoalUpdateRequest(
-                    name: editName.isEmpty ? nil : editName,
-                    targetUsd: target,
-                    deadlineMs: nil,
-                    color: nil,
-                    archive: nil
-                )
-            )
-            onChanged()
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
 
     private func runArchive() async {
         busy = true
