@@ -21,6 +21,7 @@ function toWire(g: SavingsGoal) {
     color: g.color,
     createdAtMs: g.createdAt,
     archived: g.archived,
+    completed: g.completed,
   };
 }
 
