@@ -432,7 +432,8 @@ private struct GoalActionSheet: View {
             onChanged()
             dismiss()
         } catch ZkLoginCoordinator.CoordinatorError.structured(_, let code, _)
-            where code == "GOAL_YIELD_DISABLED" {
+            where code == "GOAL_YIELD_DISABLED" || code == "GOAL_VAULT_DISABLED"
+               || code == "HTTP_404" || code == "HTTP_503" {
             self.error = "Earning is rolling out — check back soon."
         } catch {
             self.error = error.localizedDescription
@@ -488,8 +489,9 @@ private struct GoalActionSheet: View {
                     )
                 )
             } catch ZkLoginCoordinator.CoordinatorError.structured(_, let code, _)
-                where code == "GOAL_VAULT_DISABLED" {
-                // Vault rail not enabled in this environment → DB tracking model.
+                where code == "GOAL_VAULT_DISABLED" || code == "HTTP_404" {
+                // Vault rail unavailable here (disabled, or the endpoint isn't
+                // deployed to this API) → DB tracking model.
                 let resp: SavingsGoalMutationResponse = try await APIClient.shared.post(
                     "/api/rewards/goals/\(goal.id)",
                     body: GoalDepositRequest(amountUsd: amountUsd)
@@ -530,8 +532,10 @@ private struct GoalActionSheet: View {
                     )
                 )
             } catch ZkLoginCoordinator.CoordinatorError.structured(_, let code, _)
-                where code == "GOAL_VAULT_DISABLED" || code == "GOAL_NOT_ON_CHAIN" {
-                // Vault off, or goal predates on-chain backing → tracking model.
+                where code == "GOAL_VAULT_DISABLED" || code == "GOAL_NOT_ON_CHAIN"
+                   || code == "HTTP_404" {
+                // Vault off, endpoint not deployed here, or goal predates
+                // on-chain backing → tracking model.
                 let _: SavingsGoalMutationResponse = try await APIClient.shared.post(
                     "/api/rewards/goals/\(goal.id)",
                     body: GoalDepositRequest(amountUsd: amountUsd, action: "withdraw")

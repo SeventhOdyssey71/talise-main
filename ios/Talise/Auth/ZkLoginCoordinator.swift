@@ -1248,25 +1248,19 @@ final class ZkLoginCoordinator {
             // is present (defense in depth, never blank).
             let parsed = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
             let friendly = (parsed["error"] as? String) ?? ""
-            let msg: String
-            if !friendly.isEmpty {
-                msg = friendly
-            } else {
-                msg = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
-            }
-            // If the server tagged the failure with a structured `code`
-            // (e.g. ACCUMULATOR_UNDERFUNDED with canConsolidate +
-            // coinBalance hints), surface that to the caller so the UI
-            // can branch on it. The caller falls back to `.sponsorFailed`
-            // for any 4xx/5xx without a code.
-            if let code = parsed["code"] as? String, !code.isEmpty {
-                throw CoordinatorError.structured(
-                    message: msg,
-                    code: code,
-                    hints: parsed
-                )
-            }
-            throw CoordinatorError.sponsorFailed(msg)
+            // NEVER surface a raw non-JSON body as the error — a 404/500 returns
+            // the app's HTML page, which previously dumped the entire HTML
+            // document into the UI. Use the server's `error` field, else a clean
+            // status line.
+            let msg = friendly.isEmpty ? "HTTP \(http.statusCode)" : friendly
+            // Always carry a code so callers can branch on the failure: prefer
+            // the server's structured code (e.g. ACCUMULATOR_UNDERFUNDED), else
+            // synthesize one from the status (e.g. HTTP_404) so a missing /
+            // not-yet-deployed endpoint can be handled gracefully rather than
+            // shown as a hard error.
+            let code = (parsed["code"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? "HTTP_\(http.statusCode)"
+            throw CoordinatorError.structured(message: msg, code: code, hints: parsed)
         }
         guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CoordinatorError.sponsorFailed("malformed JSON")
