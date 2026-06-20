@@ -9,11 +9,24 @@ import SwiftUI
 /// The hero is a target/crosshair — the goal motif — in the brand green.
 /// `amountText` is pre-formatted in the user's display currency by the caller.
 struct GoalSuccessView: View {
-    /// Pre-formatted, currency-aware amount added, e.g. "₦1,000.00".
+    enum Kind { case deposit, withdraw }
+    /// Which flow this confirms — drives the headline + sub-line copy. Both
+    /// share the same target hero + motion so the two feel identical.
+    var kind: Kind = .deposit
+    /// Pre-formatted, currency-aware amount, e.g. "₦1,000.00".
     let amountText: String
     /// The goal's name, for the sub-line.
     let goalName: String
     let onDismiss: () -> Void
+
+    private var headline: String {
+        kind == .deposit ? "Getting closer to your target" : "Back in your balance"
+    }
+    private var subline: String {
+        kind == .deposit
+            ? "\(amountText) added to \(goalName)."
+            : "\(amountText) withdrawn from \(goalName)."
+    }
 
     var body: some View {
         ZStack {
@@ -32,7 +45,7 @@ struct GoalSuccessView: View {
 
                 Spacer().frame(height: 30)
 
-                Text("Getting closer to your target")
+                Text(headline)
                     .font(TaliseFont.display(38, weight: .regular))
                     .kerning(-0.8)
                     .foregroundStyle(TaliseColor.fg)
@@ -42,7 +55,7 @@ struct GoalSuccessView: View {
                     .padding(.horizontal, 24)
                     .scrapbookFadeUp(delay: 0.22)
 
-                Text("\(amountText) added to \(goalName).")
+                Text(subline)
                     .font(TaliseFont.mono(13, weight: .regular))
                     .kerning(-0.26)
                     .foregroundStyle(TaliseColor.fgMuted)

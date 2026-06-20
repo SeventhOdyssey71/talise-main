@@ -240,6 +240,9 @@ private struct GoalActionSheet: View {
     /// cover (and, by replacing the form, prevents an accidental re-tap that
     /// would stack a second deposit). Holds the pre-formatted amount added.
     @State private var depositDone: String?
+    /// Non-nil after a successful withdrawal → shows the same target success
+    /// cover with the "withdrawn" copy. Holds the pre-formatted amount.
+    @State private var withdrawDone: String?
     /// Add vs Withdraw, chosen by the segmented toggle.
     @State private var mode: Mode = .add
     private enum Mode { case add, withdraw }
@@ -282,6 +285,17 @@ private struct GoalActionSheet: View {
                     // Back to Invest: clear the cover, then close the sheet so
                     // the user lands back on the Invest screen.
                     onDismiss: { depositDone = nil; dismiss() }
+                )
+            }
+            .fullScreenCover(isPresented: Binding(
+                get: { withdrawDone != nil },
+                set: { if !$0 { withdrawDone = nil } }
+            )) {
+                GoalSuccessView(
+                    kind: .withdraw,
+                    amountText: withdrawDone ?? "",
+                    goalName: goal.name,
+                    onDismiss: { withdrawDone = nil; dismiss() }
                 )
             }
         }
@@ -436,7 +450,7 @@ private struct GoalActionSheet: View {
                || code == "HTTP_404" || code == "HTTP_503" {
             self.error = "Earning is rolling out — check back soon."
         } catch {
-            self.error = error.localizedDescription
+            self.error = friendlyGoalError(error)
         }
     }
 
@@ -504,7 +518,7 @@ private struct GoalActionSheet: View {
             // which was stacking duplicate deposits). Amount in the display ccy.
             depositDone = TaliseFormat.local2(amountUsd)
         } catch {
-            self.error = error.localizedDescription
+            self.error = friendlyGoalError(error)
         }
     }
 
@@ -543,10 +557,25 @@ private struct GoalActionSheet: View {
             }
             depositText = ""
             onChanged()
-            dismiss()
+            // Show the target success cover with the "withdrawn" copy (same
+            // design as a deposit), instead of silently dismissing.
+            withdrawDone = TaliseFormat.local2(amountUsd)
         } catch {
-            self.error = error.localizedDescription
+            self.error = friendlyGoalError(error)
         }
+    }
+
+    /// Clean, user-facing copy for a goal action failure — never the raw
+    /// "Couldn't read response: {…}" / decode dump. Real server messages
+    /// (e.g. a limit or balance error) still pass through.
+    private func friendlyGoalError(_ error: Error) -> String {
+        let raw = error.localizedDescription
+        if raw.localizedCaseInsensitiveContains("couldn't read")
+            || raw.localizedCaseInsensitiveContains("decode")
+            || raw.contains("{") {
+            return "Couldn't complete that just now — please try again."
+        }
+        return raw
     }
 
 
@@ -567,7 +596,7 @@ private struct GoalActionSheet: View {
             onChanged()
             dismiss()
         } catch {
-            self.error = error.localizedDescription
+            self.error = friendlyGoalError(error)
         }
     }
 }
