@@ -1,7 +1,7 @@
 import "server-only";
 
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { Transaction } from "@mysten/sui/transactions";
+import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { db, ensureSchema, schemaVersionGate } from "@/lib/db";
 import { sui } from "@/lib/sui";
@@ -405,11 +405,44 @@ export async function buildStreamCreateSponsored(input: {
   const tx = new Transaction();
   tx.setSender(input.senderAddress);
 
-  // The Balance<USDSUI> argument — withdrawn from the user's accumulator.
-  // This is the SAME accumulator-withdrawal primitive the gasless branch of
-  // /api/send/sponsor-prepare passes to 0x2::balance::send_funds; here we pass
-  // it straight as the `funds` arg of the create moveCall.
-  const funds = tx.balance({ type: USDSUI_TYPE, balance: input.totalMicros });
+  // stream::create wants a Balance<USDSUI>. Source it from WHEREVER the user's
+  // USDsui actually lives:
+  //   • Coin<USDSUI> objects (the common case — received funds, on-ramp, swaps)
+  //     → coinWithBalance({useGasCoin:false}) auto-merges/splits owned coins,
+  //       then coin::into_balance converts Coin → Balance. Same primitive every
+  //       other Talise contract-funding flow uses (goal vault, sponsored send).
+  //   • Address-Balance accumulator → tx.balance (the gasless-send rail).
+  // Using ONLY the accumulator (the old behaviour) aborted on execution for any
+  // user whose funds were in coins — which is most of them — hence "couldn't
+  // start the stream". Pick by summing the user's coin objects.
+  let coinTotal = 0n;
+  try {
+    const res = await (client as unknown as {
+      listCoins: (a: { owner: string; coinType: string }) => Promise<{
+        objects?: Array<{ balance?: string }>;
+      }>;
+    }).listCoins({ owner: input.senderAddress, coinType: USDSUI_TYPE });
+    for (const o of res.objects ?? []) coinTotal += BigInt(o.balance ?? "0");
+  } catch {
+    // listCoins read failed — fall through to the accumulator path.
+  }
+
+  const funds =
+    coinTotal >= input.totalMicros
+      ? tx.moveCall({
+          target: "0x2::coin::into_balance",
+          typeArguments: [USDSUI_TYPE],
+          arguments: [
+            tx.add(
+              coinWithBalance({
+                type: USDSUI_TYPE,
+                balance: input.totalMicros,
+                useGasCoin: false,
+              })
+            ),
+          ],
+        })
+      : tx.balance({ type: USDSUI_TYPE, balance: input.totalMicros });
 
   tx.moveCall({
     target: `${pkg}::stream::create`,
@@ -429,6 +462,11 @@ export async function buildStreamCreateSponsored(input: {
   // SPONSORED: Onara owns the gas. The user signs the sender slot.
   tx.setGasOwner(sponsor);
   tx.setGasPrice(BigInt(gasPrice));
+  // Explicit budget (0.06 SUI) — without it the built bytes carry no gas
+  // budget and execution fails with InsufficientGas. Same fixed budget the
+  // goal-vault + send sponsored builders use; only the gas actually consumed
+  // is charged to the sponsor.
+  tx.setGasBudget(60_000_000n);
 
   const bytes = await tx.build({ client: client as never });
   return { bytes: toBase64(bytes), sponsor };
