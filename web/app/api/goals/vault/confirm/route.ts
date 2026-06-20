@@ -4,6 +4,7 @@ import { userById } from "@/lib/db";
 import { denyUnlessAppApproved } from "@/lib/app-access";
 import { getNormalizedTransaction } from "@/lib/sui-shapes";
 import { goalVaultEnabled, goalVaultPackageId } from "@/lib/goal-vault-ptb";
+import { goalToWire } from "@/lib/rewards/goals";
 import {
   getGoal,
   setGoalVaultObjectId,
@@ -121,7 +122,7 @@ export async function POST(req: Request) {
       } else {
         updated = (await getGoal(userId, goalId)) ?? goal;
       }
-      return NextResponse.json({ goal: updated, vaultObjectId: vaultId });
+      return NextResponse.json({ goal: goalToWire(updated), vaultObjectId: vaultId });
     }
 
     // All remaining ops require an existing vault.
@@ -141,7 +142,7 @@ export async function POST(req: Request) {
         op === "yield-withdraw" ? amountUsd < goal.currentUsd - 1e-9 : true;
       await setGoalYieldOn(userId, goalId, stillEarning);
       const updated = (await getGoal(userId, goalId)) ?? goal;
-      return NextResponse.json({ goal: updated });
+      return NextResponse.json({ goal: goalToWire(updated) });
     }
 
     // deposit / withdraw (wallet ↔ vault principal).

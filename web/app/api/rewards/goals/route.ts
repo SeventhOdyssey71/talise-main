@@ -22,6 +22,8 @@ function toWire(g: SavingsGoal) {
     createdAtMs: g.createdAt,
     archived: g.archived,
     completed: g.completed,
+    vaultObjectId: g.vaultObjectId,
+    yieldOn: g.yieldOn,
   };
 }
 

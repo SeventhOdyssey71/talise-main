@@ -78,6 +78,29 @@ function rowToGoal(row: GoalRow): SavingsGoal {
   };
 }
 
+/**
+ * Canonical wire shape for a goal — the ONLY serialization iOS decodes
+ * (APIModels.swift `SavingsGoal`). EVERY goal-returning route MUST use this so
+ * the shape is consistent: note `createdAtMs` (the iOS key, not `createdAt`) and
+ * the on-chain fields. Returning a raw SavingsGoal (with `createdAt`, and no
+ * vaultObjectId/yieldOn) makes iOS fail to decode ("Couldn't read response").
+ */
+export function goalToWire(g: SavingsGoal) {
+  return {
+    id: String(g.id),
+    name: g.name,
+    targetUsd: g.targetUsd,
+    currentUsd: g.currentUsd,
+    deadlineMs: g.deadlineMs,
+    color: g.color,
+    createdAtMs: g.createdAt,
+    archived: g.archived,
+    completed: g.completed,
+    vaultObjectId: g.vaultObjectId,
+    yieldOn: g.yieldOn,
+  };
+}
+
 /** Flip a goal's "earning" flag (set after a yield-start/redeem PTB confirms). */
 export async function setGoalYieldOn(
   userId: number,
