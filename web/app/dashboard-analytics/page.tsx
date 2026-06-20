@@ -21,8 +21,8 @@ export default async function DashboardAnalyticsPage() {
           Talise network analytics
         </h1>
         <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-[#3a5230]">
-          On-chain activity across every Talise subname — stablecoin volume,
-          swaps, and transaction frequency, indexed per user.
+          Every Talise account and transaction — total users, stablecoin volume
+          moved, and a live feed of recent transactions.
         </p>
       </header>
 

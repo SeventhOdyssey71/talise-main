@@ -1,34 +1,30 @@
 /**
  * Shared types for the Talise internal analytics dashboard (/dashboard-analytics).
  *
- * This module is the single source of truth for the analytics data shapes used
- * across the store, indexer, API routes, and UI. All other analytics modules
- * import these types from "@/lib/analytics/types" — do not redefine them locally.
+ * The dashboard reads LIVE from the app's own ledger: the `users` table (every
+ * Talise account) and `tx_history` (every on-chain-confirmed transaction the
+ * app recorded). No separate index/cache step — these are direct, indexed DB
+ * aggregates, so the numbers are always current.
  */
 
-export type DailyPoint = { date: string; volumeUsd: number; txCount: number }; // date = "YYYY-MM-DD"
-
-export type UserStat = {
-  userId: number;
-  handle: string;            // talise_username, no "@" and no ".talise.sui"
-  address: string;           // sui_address (0x…)
-  txCount: number;           // total transactions indexed (frequency)
-  volumeUsd: number;         // total USDsui volume moved (in + out), USD
-  swapCount: number;         // number of swap transactions
-  lastActiveAt: number | null; // epoch ms of most recent tx, null if none
-  joinedAt: number;          // user created_at (epoch ms)
-  indexedAt: number;         // epoch ms when these stats were computed
+/** One recent transaction row, joined to the user who made it. */
+export type RecentTx = {
+  id: number;
+  createdAt: number; // epoch ms
+  kind: string; // 'send' | 'send-cross-asset' | … (tx_history.kind)
+  amount: number | null; // human amount (e.g. 12.5), null if unrecorded
+  asset: string | null; // 'USDsui' | 'USDC' | 'USDsui→SUI' | …
+  recipient: string | null; // recipient address / handle, if any
+  digest: string; // on-chain tx digest
+  handle: string | null; // sender's talise_username (no @)
+  address: string | null; // sender's sui_address
 };
 
 export type AnalyticsSummary = {
   totals: {
-    users: number;
-    activeUsers: number;       // users with txCount > 0
-    transactions: number;      // sum of txCount
-    stablecoinVolumeUsd: number; // sum of volumeUsd
-    swaps: number;             // sum of swapCount
+    users: number; // total Talise accounts (excludes deleted)
+    stablecoinVolumeUsd: number; // sum of USDsui+USDC amounts moved, USD
+    transactions: number; // total recorded transactions
   };
-  volumeByDay: DailyPoint[];   // ascending by date, last 30 days
-  users: UserStat[];           // sorted by volumeUsd desc
-  indexedAt: number | null;    // most recent index run (epoch ms), null if never
+  recent: RecentTx[]; // most recent transactions, newest first
 };
