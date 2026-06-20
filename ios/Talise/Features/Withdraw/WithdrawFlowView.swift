@@ -72,12 +72,16 @@ struct WithdrawFlowView: View {
                             .buttonStyle(TilePress())
 
                             // Private transactions — shielded USDsui (Talise's
-                            // own ZK privacy layer). LOCKED ("coming soon") until
-                            // the trustless setup + end-to-end send are finished.
-                            // The native flow (PrivateSendFlowView) is built and
-                            // ready behind this lock; non-interactive while locked.
-                            ActionTile(icon: "hi.lock", title: "Send private tx", caption: "Shielded · coming soon", locked: true)
-                                .allowsHitTesting(false)
+                            // own ZK privacy layer). Opens the native
+                            // PrivateSendFlowView (amount ≤ $10 → recipient →
+                            // review → hidden in-app prover/relayer). The prover
+                            // harness fails CLEANLY (SendFailureView) if the
+                            // web prover route isn't reachable — never a crash,
+                            // never a faked success, never moves funds.
+                            Button { showPrivateSoon = true } label: {
+                                ActionTile(icon: "hi.lock", title: "Send private tx", caption: "Shielded · USDsui")
+                            }
+                            .buttonStyle(TilePress())
                         }
                         .zIndex(3)
 

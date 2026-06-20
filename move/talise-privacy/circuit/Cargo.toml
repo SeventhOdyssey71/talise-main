@@ -50,6 +50,14 @@ path = "src/bin/keygen.rs"
 name = "prove_deposit"
 path = "src/bin/prove_deposit.rs"
 
+[[bin]]
+name = "prove_withdraw_harness"
+path = "src/bin/prove_withdraw_harness.rs"
+
+[[bin]]
+name = "prove_lifecycle"
+path = "src/bin/prove_lifecycle.rs"
+
 [profile.release]
 opt-level = 3
 lto = true
