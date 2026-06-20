@@ -245,7 +245,7 @@ function BalanceCard({
 
       {/* Quiet identity row — @handle + short address with copy. mt-auto pins
           identity+actions to the card's bottom when the grid stretches it. */}
-      <div className="mt-5 flex items-center gap-2 border-t border-[#CAFFB8]/20 pt-4 text-[12px] lg:mt-auto lg:pt-4">
+      <div className="mt-5 flex items-center gap-2 pt-4 text-[12px] lg:mt-auto lg:pt-4">
         {handle ? (
           <span className="shrink-0 font-medium text-[#f7fcf2]">{handle}@talise</span>
         ) : (

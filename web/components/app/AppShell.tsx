@@ -270,9 +270,9 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
         icon={item.icon}
         size={19}
         strokeWidth={active ? 2.2 : 1.8}
-        color={active ? "#15300c" : "#3a5230"}
+        color={active ? "#f7fcf2" : "#3a5230"}
       />
-      <span className={`flex-1 text-[14px] font-medium ${active ? "font-semibold text-[#15300c]" : "text-[#3a5230]"}`}>
+      <span className={`flex-1 text-[14px] font-medium ${active ? "font-semibold text-[#f7fcf2]" : "text-[#3a5230]"}`}>
         {item.label}
       </span>
       {badge && (
@@ -283,7 +283,7 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
     </>
   );
   const cls = `flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors ${
-    active ? "bg-[#CAFFB8]" : "hover:bg-[#CAFFB8]/50"
+    active ? "bg-[#3d7a29] shadow-[0_6px_18px_-8px_rgba(21,48,12,0.5)]" : "hover:bg-[#CAFFB8]/60"
   } ${dimmed ? "opacity-55" : ""}`;
   if (dimmed) {
     return (

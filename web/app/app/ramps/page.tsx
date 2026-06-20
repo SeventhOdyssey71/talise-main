@@ -28,7 +28,12 @@ import { WithdrawToBankSheet } from "@/components/app/ramps/WithdrawToBankSheet"
 import { AddMoneyModal } from "@/components/app/AddMoneyModal";
 
 const NOTIFY_KEY = "talise:ramp-notify:onramp";
-const ONRAMP_ENABLED = process.env.NEXT_PUBLIC_ONRAMP_ENABLED === "true";
+// Hard lock on BOTH ramps in the web app for now (on-ramp + off-ramp). Flip to
+// false to restore: on-ramp falls back to NEXT_PUBLIC_ONRAMP_ENABLED, off-ramp
+// goes live again.
+const RAMPS_LOCKED = true;
+const ONRAMP_ENABLED =
+  !RAMPS_LOCKED && process.env.NEXT_PUBLIC_ONRAMP_ENABLED === "true";
 
 /** Queued off-ramp corridors — rendered as one overlapped grey flag stack. */
 const COMING_SOON_CORRIDORS: { cc: string; country: string }[] = [
@@ -103,7 +108,7 @@ export default function RampsPage() {
                 <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">NGN</span>
               </span>
             </span>
-            <StatusPill label="Live" tone="success" />
+            <StatusPill label={RAMPS_LOCKED ? "Coming soon" : "Live"} tone={RAMPS_LOCKED ? "neutral" : "success"} />
           </li>
           {/* Queued corridors: one overlapped, greyscaled flag stack — not a
               dead full row per country. */}
@@ -130,10 +135,11 @@ export default function RampsPage() {
         <div className="relative mt-8">
           <button
             type="button"
-            onClick={() => setWithdrawOpen(true)}
-            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#15300c] px-6 text-[15px] font-semibold text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[#15300c]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7fcf2]"
+            onClick={() => { if (!RAMPS_LOCKED) setWithdrawOpen(true); }}
+            disabled={RAMPS_LOCKED}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#15300c] px-6 text-[15px] font-semibold text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[#15300c]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7fcf2] disabled:cursor-not-allowed disabled:bg-[#15300c]/30 disabled:hover:translate-y-0"
           >
-            Cash out to your bank
+            {RAMPS_LOCKED ? "Cash-out coming soon" : "Cash out to your bank"}
           </button>
         </div>
       </div>
