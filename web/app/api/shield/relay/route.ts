@@ -132,8 +132,12 @@ export async function POST(req: Request) {
   }
 
   // ── THE security control — command allowlist ──────────────────────────────
+  // Thread the already-screened exit address so the single allowed
+  // TransferObjects (which delivers the transact RETURN coin) is pinned to it.
+  // For deposit / internal-transfer legs there is no exit and the validator
+  // requires the (zero) return coin to go to our own relayer address.
   try {
-    validateTransactCommands(txBytes);
+    validateTransactCommands(txBytes, { exitAddress: exitAddress || null });
   } catch (e) {
     if (e instanceof ShieldValidationError) {
       console.warn(`[shield/relay] REJECTED user=${userId}: ${e.message}`);

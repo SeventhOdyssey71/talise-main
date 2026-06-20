@@ -84,28 +84,47 @@ async function queryEventsPage(
   ]);
 }
 
-/** Fetch the on-chain pool's `next_index` from the MerkleTree, if readable. */
+/**
+ * Fetch the on-chain pool's `next_index` from the MerkleTree, if readable.
+ *
+ * The `MerkleTree` is NOT an inline field of the pool — `shielded_pool.move`
+ * stores it as a DYNAMIC OBJECT FIELD keyed by the empty struct
+ * `MerkleTreeKey()` (see `MerkleTreeKey` + the `dof` idiom in the Move source).
+ * So we resolve that dynamic field on the pool object and read `next_index`
+ * from the MerkleTree's own content fields. Best-effort: any read failure
+ * returns null and the consistency check is simply skipped (report-only — it
+ * never throws and never blocks ingestion).
+ */
 async function onchainNextIndex(): Promise<number | null> {
-  if (!SHIELD.poolUsdsui) return null;
+  if (!SHIELD.poolUsdsui || !SHIELD.packageId) return null;
   try {
     const obj = await rpc<{
       data?: { content?: { fields?: Record<string, unknown> } };
-    }>("sui_getObject", [
+    }>("suix_getDynamicFieldObject", [
       SHIELD.poolUsdsui,
-      { showContent: true },
+      {
+        // `MerkleTreeKey()` is an empty positional struct — on the wire it is
+        // represented as `{ dummy_field: bool }` (Sui's synthetic field for
+        // fieldless structs). Verified live on the mainnet fullnode: with this
+        // key the dynamic OBJECT field resolves to the MerkleTree object whose
+        // top-level content fields are [id, next_index, root_history,
+        // root_index, subtrees].
+        type: `${SHIELD.packageId}::shielded_pool::MerkleTreeKey`,
+        value: { dummy_field: false },
+      },
     ]);
     const fields = obj.data?.content?.fields as Record<string, unknown> | undefined;
     if (!fields) return null;
-    // The pool wraps a `merkle_tree` field whose `next_index` we want. Shape
-    // is best-effort — the pool's exact field layout is finalized on deploy;
-    // we probe the common nestings and bail (null) if absent rather than throw.
-    const tree =
-      (fields.merkle_tree as { fields?: Record<string, unknown> } | undefined)?.fields ??
-      (fields.tree as { fields?: Record<string, unknown> } | undefined)?.fields ??
+    // For a dynamic OBJECT field the resolved object IS the MerkleTree, so
+    // `next_index` sits directly on `content.fields`. (A dynamic VALUE field
+    // would instead wrap the value under `.value.fields`.) Probe both shapes.
+    const inner =
+      (fields.value as { fields?: Record<string, unknown> } | undefined)?.fields ??
       fields;
-    const raw = (tree as Record<string, unknown>)?.next_index;
+    const raw = (inner as Record<string, unknown>)?.next_index;
     if (raw === undefined || raw === null) return null;
-    return Number(raw);
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
   } catch {
     return null;
   }

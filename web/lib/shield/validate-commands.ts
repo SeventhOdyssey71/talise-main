@@ -32,6 +32,20 @@ import "server-only";
  * EXACTLY ONE call to `shielded_pool::transact[_with_account]`. Any MoveCall
  * to a different package/module/function is rejected. This is the seam where
  * the ExtData arguments are read (see `extractExtData`).
+ *
+ * NOTE on `TransferObjects`: the on-chain `transact` RETURNS a `Coin<CoinType>`
+ * by value that MUST be consumed in the same PTB. There is no Move call on the
+ * allowlist that consumes it, so the PTB delivers it with exactly ONE trailing
+ * `TransferObjects`. We allow that single command under a tight constraint:
+ *   • its sole object operand is the `transact` Result (NestedResult/Result of
+ *     the one transact MoveCall) — never a free input/object, so it can only
+ *     route the proof-bound, ≤$10-capped return coin (NOT the deposit coin);
+ *   • its recipient resolves to the relay route's already-screened
+ *     `exitAddress` (threaded in by the caller). If no exit was screened
+ *     (deposit / internal-transfer legs, whose return coin is a zero coin),
+ *     the recipient MUST be our own relayer address.
+ * This is additive: it loosens nothing about the proof, caps, or the pinned
+ * transact shape — it only lets the mandatory return-coin delivery through.
  */
 
 import { Transaction } from "@mysten/sui/transactions";
@@ -84,6 +98,18 @@ export type ValidatedTransact = {
   relayer: string | null;
 };
 
+/**
+ * Options for {@link validateTransactCommands}.
+ *
+ * `exitAddress` is the already-screened withdraw destination from the relay
+ * route. When present, the single allowed `TransferObjects` MUST send the
+ * transact return coin there. When absent (deposit / internal-transfer legs),
+ * the return coin is a zero coin and MUST go to our own relayer address.
+ */
+export type ValidateOptions = {
+  exitAddress?: string | null;
+};
+
 type TxData = ReturnType<Transaction["getData"]>;
 type Command = TxData["commands"][number];
 type Input = TxData["inputs"][number];
@@ -96,18 +122,38 @@ type Input = TxData["inputs"][number];
  * `txBytes` is the base64 BCS-serialized TransactionKind/Transaction the client
  * built (same `toBase64(tx.build(...))` shape the send routes produce).
  */
-export function validateTransactCommands(txBytesB64: string): ValidatedTransact {
+export function validateTransactCommands(
+  txBytesB64: string,
+  opts: ValidateOptions = {}
+): ValidatedTransact {
   const pkg = shieldPackageId();
   const relayer = shieldRelayerAddress();
   if (!pkg || !relayer) {
     // Fail-closed: with no pinned package / relayer we cannot enforce anything.
     throw new ShieldValidationError("shield relayer not configured");
   }
+  // The screened exit address (if any) the return coin is allowed to go to.
+  // Normalized for an exact, case-insensitive compare against the PTB recipient.
+  const allowedExit = opts.exitAddress
+    ? (() => {
+        try {
+          return normalizeSuiAddress(opts.exitAddress!.trim());
+        } catch {
+          return null;
+        }
+      })()
+    : null;
 
   let data: TxData;
   try {
-    const bytes = fromBase64(txBytesB64);
-    data = Transaction.from(bytes).getData();
+    // `Transaction.from` auto-detects the serialized form. The SDK sends the
+    // full serialized transaction as a JSON string (`await tx.toJSON()`, see
+    // flow.ts), which is exactly what the relay route's executor also feeds to
+    // `Transaction.from(txBytes)`. Parse the SAME input here — do NOT base64-
+    // decode first (that corrupts a JSON string → "Invalid character" and would
+    // reject every real PTB). A base64 BCS string is still accepted by
+    // `Transaction.from` directly, so this is strictly more compatible.
+    data = Transaction.from(txBytesB64).getData();
   } catch (e) {
     throw new ShieldValidationError(
       `unparseable transaction bytes: ${(e as Error).message}`
@@ -128,8 +174,12 @@ export function validateTransactCommands(txBytesB64: string): ValidatedTransact 
 
   let transactCount = 0;
   let transactCmd: Command | null = null;
+  /** Command index of the one transact MoveCall (for the TransferObjects bind). */
+  let transactIdx = -1;
+  let transferCount = 0;
+  let transferCmd: Command | null = null;
 
-  for (const cmd of commands) {
+  commands.forEach((cmd, idx) => {
     const kind = cmd.$kind;
 
     if (kind === "MoveCall") {
@@ -146,30 +196,57 @@ export function validateTransactCommands(txBytesB64: string): ValidatedTransact 
       if (mc.module === SHIELD_MODULE && TRANSACT_FNS.has(mc.function)) {
         transactCount += 1;
         transactCmd = cmd;
-        continue;
+        transactIdx = idx;
+        return;
       }
       if (CONSTRUCTOR_TARGETS.has(modFn)) {
         // proof::new / ext_data::new — allowed assembly calls.
-        continue;
+        return;
       }
       throw new ShieldValidationError(
         `disallowed MoveCall ${cmdPkg}::${modFn}`
       );
     }
 
+    // EXACTLY ONE TransferObjects is allowed (delivers the transact return
+    // coin). Capture it here; bind its operand + recipient after the loop, once
+    // the transact result index is known.
+    if (kind === "TransferObjects") {
+      transferCount += 1;
+      transferCmd = cmd;
+      return;
+    }
+
     // Non-MoveCall command — must be on the coin/vector-glue allowlist.
     if (!ALLOWED_NON_MOVECALL_KINDS.has(kind)) {
       throw new ShieldValidationError(`disallowed command kind ${kind}`);
     }
-  }
+  });
 
-  if (transactCount !== 1 || !transactCmd) {
+  // `transactCmd` / `transferCmd` are assigned inside the forEach closure, so TS
+  // does not flow-narrow them here — read through explicitly-typed locals.
+  const finalTransact = transactCmd as Command | null;
+  if (transactCount !== 1 || !finalTransact || finalTransact.$kind !== "MoveCall") {
     throw new ShieldValidationError(
       `expected exactly one shielded_pool::transact[_with_account], found ${transactCount}`
     );
   }
 
-  const mc = transactCmd.MoveCall;
+  // ── The single TransferObjects that delivers the transact return coin ──────
+  const finalTransfer = transferCmd as Command | null;
+  if (transferCount > 1) {
+    throw new ShieldValidationError(
+      `at most one TransferObjects allowed, found ${transferCount}`
+    );
+  }
+  if (transferCount === 1 && finalTransfer) {
+    assertReturnCoinTransfer(finalTransfer, transactIdx, data.inputs, {
+      relayer,
+      allowedExit,
+    });
+  }
+
+  const mc = finalTransact.MoveCall;
 
   // ── ExtData relayer + fee assertions ────────────────────────────────────
   // The `transact` signature is:
@@ -199,6 +276,82 @@ export function validateTransactCommands(txBytesB64: string): ValidatedTransact 
   }
 
   return { fn: mc.function, relayer: ext.relayer, relayerFee: ext.relayerFee };
+}
+
+// ── Return-coin TransferObjects binding ─────────────────────────────────────
+
+/**
+ * Assert the single `TransferObjects` command does nothing but route the
+ * `transact` RETURN coin to an approved recipient:
+ *   • its sole `objects` operand is the Result of the one transact MoveCall
+ *     (command index {@link transactIdx}) — NOT a free input/object, so it
+ *     cannot exfiltrate the deposit coin or any other object;
+ *   • its recipient resolves to a Pure address that equals either the screened
+ *     `exitAddress` (withdraw) or our own relayer address (deposit / internal
+ *     transfer, where the return coin is a zero coin).
+ *
+ * Any deviation throws `ShieldValidationError`. This keeps the relayer from
+ * being used to move arbitrary objects while still allowing the mandatory
+ * return-coin delivery.
+ */
+function assertReturnCoinTransfer(
+  cmd: Command,
+  transactIdx: number,
+  inputs: Input[],
+  approved: { relayer: string; allowedExit: string | null }
+): void {
+  if (cmd.$kind !== "TransferObjects") {
+    throw new ShieldValidationError("expected TransferObjects command");
+  }
+  const t = cmd.TransferObjects;
+
+  // 1. Exactly ONE object operand, and it is the transact Result.
+  const objs = t.objects ?? [];
+  if (objs.length !== 1) {
+    throw new ShieldValidationError(
+      `TransferObjects must move exactly one object (the transact return coin), found ${objs.length}`
+    );
+  }
+  const obj = objs[0];
+  const isTransactResult =
+    (obj.$kind === "Result" && obj.Result === transactIdx) ||
+    (obj.$kind === "NestedResult" && obj.NestedResult[0] === transactIdx);
+  if (!isTransactResult) {
+    throw new ShieldValidationError(
+      "TransferObjects operand is not the transact return coin"
+    );
+  }
+
+  // 2. Recipient is a Pure address that matches an approved destination.
+  if (t.address.$kind !== "Input") {
+    throw new ShieldValidationError(
+      "TransferObjects recipient must be a pure address input"
+    );
+  }
+  const recipient = decodeAddressInput(t.address, inputs);
+  if (!recipient) {
+    throw new ShieldValidationError(
+      "could not statically resolve TransferObjects recipient"
+    );
+  }
+  const recipientNorm = (() => {
+    try {
+      return normalizeSuiAddress(recipient);
+    } catch {
+      return recipient;
+    }
+  })();
+
+  // Withdraw: must equal the screened exit. Deposit / internal transfer (no
+  // screened exit): the return coin is a zero coin and must go to the relayer.
+  const target = approved.allowedExit ?? approved.relayer;
+  if (recipientNorm !== target) {
+    throw new ShieldValidationError(
+      approved.allowedExit
+        ? `TransferObjects recipient ${recipientNorm} != screened exit ${target}`
+        : `TransferObjects recipient ${recipientNorm} != relayer ${target} (no screened exit for this leg)`
+    );
+  }
 }
 
 // ── ExtData extraction ─────────────────────────────────────────────────────
@@ -241,10 +394,19 @@ function extractExtData(
 
 type MoveCallCommand = Extract<Command, { $kind: "MoveCall" }>;
 type Arg = MoveCallCommand["MoveCall"]["arguments"][number];
+/**
+ * The minimal structural shape we read off an argument / recipient ref: both a
+ * MoveCall {@link Arg} and a `TransferObjects.address` are an `{ $kind, Input }`
+ * union at runtime, so we widen to this for the shared pure-bytes decoder.
+ */
+type InputRefLike = { $kind: string; Input?: number };
 
 /** Resolve a MoveCall argument back to its Pure input bytes, if it is one. */
-function pureBytes(arg: Arg | undefined, inputs: Input[]): Uint8Array | null {
-  if (!arg || arg.$kind !== "Input") return null;
+function pureBytes(
+  arg: Arg | InputRefLike | undefined,
+  inputs: Input[]
+): Uint8Array | null {
+  if (!arg || arg.$kind !== "Input" || typeof arg.Input !== "number") return null;
   const input = inputs[arg.Input];
   if (!input) return null;
   if (input.$kind === "Pure") {
@@ -258,7 +420,10 @@ function pureBytes(arg: Arg | undefined, inputs: Input[]): Uint8Array | null {
   return null;
 }
 
-function decodeAddressInput(arg: Arg | undefined, inputs: Input[]): string | null {
+function decodeAddressInput(
+  arg: Arg | InputRefLike | undefined,
+  inputs: Input[]
+): string | null {
   const b = pureBytes(arg, inputs);
   if (!b) return null;
   try {
