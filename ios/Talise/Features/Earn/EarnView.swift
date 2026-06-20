@@ -163,7 +163,13 @@ struct EarnView: View {
                         .font(TaliseFont.heading(22, weight: .medium))
                         .kerning(-0.8)
                         .foregroundStyle(live ? TaliseColor.accent : TaliseColor.fgDim)
+                        // Keep "6.96%" on one line — the trailing slot is
+                        // width-constrained, which was wrapping the "%" onto a
+                        // second line.
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
+                .layoutPriority(1)
             }
             .contentShape(Rectangle())
         }
@@ -251,7 +257,10 @@ struct EarnView: View {
                         .font(TaliseFont.heading(22, weight: .medium))
                         .kerning(-0.8)
                         .foregroundStyle(live ? TaliseColor.accent : TaliseColor.fgDim)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
+                .layoutPriority(1)
             }
             .contentShape(Rectangle())
         }
