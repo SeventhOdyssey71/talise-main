@@ -177,6 +177,11 @@ struct TxReceiptView: View {
         }
         let isInflow = entry.isReceived || entry.isWithdraw
         let prefix = isInflow ? "+\u{202F}" : "-\u{202F}"
+        // Non-USDsui/non-SUI movement (WAL, USDC, USDT, …) — show the actual
+        // token amount + symbol rather than a "—" the row already avoids.
+        if let other = entry.otherCoin {
+            return "\(prefix)\(other.displayAmount) \(other.symbol)"
+        }
         if let usd = entry.amountUsdsui {
             return prefix + TaliseFormat.local2(Swift.abs(usd))
         }
@@ -268,6 +273,13 @@ struct TxReceiptView: View {
                     label: "Venue",
                     value: entry.venue.map(displayVenueName) ?? "—"
                 )
+            }
+            // Round-up save leg — only on sends that bundled an auto-save.
+            // Shows the concrete portion that went to the user's savings so
+            // the receipt explains the "+ saved" the row title advertised.
+            if let save = entry.roundupUsdsui, save > 0 {
+                divider
+                row(label: "Saved", value: "+\(TaliseFormat.local2(save))")
             }
             divider
             row(label: "Date", value: dateFormatter.string(from: timestamp))
@@ -436,6 +448,10 @@ struct TxReceiptView: View {
             rows.append(ReceiptRowData(label: "Venue", value: entry.venue.map(displayVenueName) ?? "—", mono: false))
         case .sent, .cashout:
             rows.append(ReceiptRowData(label: "To", value: counterpartyOrAddress, mono: !hasCounterpartyName))
+        }
+        // Round-up save leg — mirrors the on-screen card so the two never drift.
+        if let save = entry.roundupUsdsui, save > 0 {
+            rows.append(ReceiptRowData(label: "Saved", value: "+\(TaliseFormat.local2(save))", mono: false))
         }
         rows.append(ReceiptRowData(label: "Date", value: dateFormatter.string(from: timestamp), mono: false))
         rows.append(ReceiptRowData(label: "Network", value: "Sui Mainnet", mono: false))

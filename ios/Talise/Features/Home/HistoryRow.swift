@@ -249,6 +249,18 @@ struct HistoryRow: View {
         return ("Pending", Color(hex: 0xD9A441))
     }
 
+    /// Named counterparty for the row title — the resolved @handle/name when
+    /// the server gave us one, else a shortened 0x address, else nil (so the
+    /// title falls back to a bare verb). Mirrors the receipt's resolution.
+    private var counterpartyLabel: String? {
+        if let name = entry.counterpartyName, !name.isEmpty { return name }
+        if let addr = entry.counterparty, !addr.isEmpty {
+            guard addr.count > 14 else { return addr }
+            return String(addr.prefix(6)) + "\u{2026}" + String(addr.suffix(4))
+        }
+        return nil
+    }
+
     private var title: String {
         // Fiat cash-out takes priority over every other classification.
         if let off = entry.offramp {
@@ -265,11 +277,20 @@ struct HistoryRow: View {
                 : "Sent \(other.symbol)"
         }
         switch category {
-        case .sent:     return "Sent"
+        case .sent:
+            // Prefer a named/short-address counterparty so the row reads
+            // "Sent to ruru@talise" instead of an anonymous "Sent". When the
+            // send bundled a round-up save leg, the verb carries it inline.
+            if let who = counterpartyLabel {
+                return entry.hasRoundup ? "Sent to \(who) + saved" : "Sent to \(who)"
+            }
+            return entry.hasRoundup ? "Sent + saved" : "Sent"
         // Unreachable — the offramp guard above returns first — but the
         // switch must stay exhaustive.
         case .cashout:  return "Cash out"
-        case .received: return "Received"
+        case .received:
+            if let who = counterpartyLabel { return "Received from \(who)" }
+            return "Received"
         case .invest:
             if let v = entry.venue, !v.isEmpty {
                 return "Invested in \(displayVenueName(v))"
@@ -315,7 +336,14 @@ struct HistoryRow: View {
         let date = Date(timeIntervalSince1970: entry.timestampMs / 1000)
         let fmt = RelativeDateTimeFormatter()
         fmt.unitsStyle = .abbreviated
-        return fmt.localizedString(for: date, relativeTo: Date())
+        let relative = fmt.localizedString(for: date, relativeTo: Date())
+        // Round-up sends surface the auto-saved portion alongside the
+        // timestamp ("Saved $0.40 · 2h ago") so the "+ saved" in the title
+        // is backed by a concrete amount.
+        if let save = entry.roundupUsdsui, save > 0 {
+            return "Saved \(TaliseFormat.local2(save)) \u{2022} \(relative)"
+        }
+        return relative
     }
 
     /// Amount color — money IN reads green (matches the design ref where a

@@ -30,8 +30,17 @@ function normCoinType(t: string | undefined | null): string {
 }
 import { findTaliseSubnameForOwner } from "./suins-lookup";
 import { formatHandle } from "./handle";
-import { escrowAddress as chequeEscrowAddress, chequesEnabled } from "./cheques";
-import { streamEscrowAddress, streamEscrowEnabled } from "./streams";
+import {
+  escrowAddress as chequeEscrowAddress,
+  chequesEnabled,
+  chequePackageId,
+} from "./cheques";
+import {
+  streamEscrowAddress,
+  streamEscrowEnabled,
+  streamPackageId,
+} from "./streams";
+import { goalVaultPackageId } from "./goal-vault-ptb";
 import { db } from "./db";
 import { globalRegistryId, namespaceObjectId } from "./payment-kit";
 import { parsePaymentKitNonce, type ParsedTaliseMemo } from "./intents/wrap-payment-kit";
@@ -258,6 +267,136 @@ function classifyVenue(tx: RawTx): { venue: string; kind: "invest" | "withdraw" 
     if (!hit) continue;
     const isWithdraw = WITHDRAW_FN_HINTS.some((h) => fn.includes(h));
     return { venue: hit.venue, kind: isWithdraw ? "withdraw" : "invest" };
+  }
+  return null;
+}
+
+/**
+ * Talise-OWNED Move modules (goal_vault, cheque, stream) we classify by
+ * package id + module + function — a SECOND heuristic alongside
+ * `classifyVenue` (NAVI/DeepBook). These rails don't always carry a PK
+ * PaymentRecord (goal-vault deposit/withdraw is a direct `goal_vault::*`
+ * MoveCall; cheque create/claim and stream create/claim are sponsored PTBs
+ * with no `process_registry_payment` leg), so without this they fall through
+ * to the plain send/received branch and render as an anonymous transfer to a
+ * 0x escrow / vault id.
+ *
+ * FAIL-OPEN: each package id is read from env (`GOAL_VAULT_PACKAGE_ID`,
+ * `CHEQUE_PACKAGE_ID`, `STREAM_PACKAGE_ID`). When an id is unset the
+ * corresponding rail simply isn't matched — the feed still renders the row
+ * via the downstream plain/heuristic path. Memoized per-process; the env is
+ * fixed for a process lifetime.
+ *
+ * The mapping targets the fields iOS ALREADY renders (`direction` + `venue`)
+ * — there is no new wire field. iOS shows `direction: "invest"` with a
+ * `venue` string as "Invested in <Venue>" / "+ from <Venue>" (withdraw), and
+ * a `venue` marker like "@handle" is special-cased in HistoryRow. We reuse
+ * that contract: goal/cheque/stream get a stable, human venue code.
+ */
+let _taliseModulePkgs:
+  | { goal: string | null; cheque: string | null; stream: string | null }
+  | null = null;
+function taliseModulePackages(): {
+  goal: string | null;
+  cheque: string | null;
+  stream: string | null;
+} {
+  if (_taliseModulePkgs) return _taliseModulePkgs;
+  let goal: string | null = null;
+  let cheque: string | null = null;
+  let stream: string | null = null;
+  try {
+    goal = goalVaultPackageId()?.toLowerCase() ?? null;
+  } catch {
+    goal = null;
+  }
+  try {
+    cheque = chequePackageId()?.toLowerCase() ?? null;
+  } catch {
+    cheque = null;
+  }
+  try {
+    stream = streamPackageId()?.toLowerCase() ?? null;
+  } catch {
+    stream = null;
+  }
+  _taliseModulePkgs = { goal, cheque, stream };
+  return _taliseModulePkgs;
+}
+
+/**
+ * Classify a Talise-owned-module tx (goal_vault / cheque / stream) into the
+ * iOS-facing `direction` + `venue`. Returns null when the tx touches none of
+ * the configured packages — caller then falls through to the next heuristic.
+ *
+ * Direction mapping (chosen so iOS's existing HistoryRow copy reads right):
+ *   • goal_vault deposit / create_with  → invest, venue "goal"      ("Saved to a goal")
+ *   • goal_vault withdraw / close        → withdraw, venue "goal"
+ *   • goal_vault park_receipt (yield on) → invest, venue "navi" (yield engaged)
+ *   • goal_vault take_receipt (yield off)→ withdraw, venue "navi"
+ *   • cheque create                      → sent, venue "cheque"     (money parked in escrow)
+ *   • cheque claim                       → received, venue "cheque"
+ *   • cheque reclaim / reclaim_expired   → received, venue "cheque" (money back to issuer)
+ *   • stream create                      → sent, venue "stream"     (funded)
+ *   • stream claim_accrued               → received, venue "stream" (tranche pulled)
+ *   • stream cancel_and_withdraw         → received, venue "stream" (refund of remainder)
+ *
+ * For the transfer-flavored rails (cheque / stream) we still want the row's
+ * SIGN to follow the user's real balance delta — a claimer's USDsui goes UP,
+ * an issuer's goes DOWN. We therefore return only the `venue` for those and
+ * let the caller keep the balance-derived sent/received direction, EXCEPT we
+ * pin direction when the move-call function unambiguously implies it. The
+ * returned `direction` is advisory: the caller overrides it with the balance
+ * sign for cheque/stream so a self-funded cheque (issuer) never mislabels.
+ */
+function classifyTaliseModule(tx: RawTx): {
+  venue: string;
+  direction: ActivityEntry["direction"];
+  /** When true, the caller should keep the balance-sign direction and only
+   *  adopt the venue (transfer-flavored rails: cheque/stream). */
+  signFromBalance: boolean;
+} | null {
+  const { goal, cheque, stream } = taliseModulePackages();
+  if (!goal && !cheque && !stream) return null;
+  const moveTxs = tx.transaction?.data?.transaction?.transactions ?? [];
+  for (const t of moveTxs) {
+    const call = t.MoveCall ?? t;
+    const pkg = (call?.package ?? "").toLowerCase();
+    const mod = (call?.module ?? "").toLowerCase();
+    const fn = (call?.function ?? "").toLowerCase();
+    if (!pkg) continue;
+
+    if (goal && pkg === goal && mod === "goal_vault") {
+      // Yield engage/disengage via the parked NAVI AccountCap.
+      if (fn === "park_receipt") {
+        return { venue: "navi", direction: "invest", signFromBalance: false };
+      }
+      if (fn === "take_receipt") {
+        return { venue: "navi", direction: "withdraw", signFromBalance: false };
+      }
+      // Withdraw / close pull USDsui back out of the segregated vault.
+      if (fn.includes("withdraw") || fn === "close") {
+        return { venue: "goal", direction: "withdraw", signFromBalance: false };
+      }
+      // create / create_with / deposit all push USDsui INTO the goal.
+      if (fn === "deposit" || fn.startsWith("create")) {
+        return { venue: "goal", direction: "invest", signFromBalance: false };
+      }
+      // Any other goal_vault call (e.g. yield-add) — treat as invest.
+      return { venue: "goal", direction: "invest", signFromBalance: false };
+    }
+
+    if (cheque && pkg === cheque && mod === "cheque") {
+      // Claim/reclaim land money on the user; create parks it. Let the
+      // balance sign decide direction so issuer vs claimer is always right.
+      return { venue: "cheque", direction: "sent", signFromBalance: true };
+    }
+
+    if (stream && pkg === stream && mod === "stream") {
+      // create funds (sender −), claim_accrued / cancel_and_withdraw pay
+      // out (recipient/issuer +). Balance sign decides.
+      return { venue: "stream", direction: "sent", signFromBalance: true };
+    }
   }
   return null;
 }
@@ -1661,6 +1800,10 @@ export async function getRecentActivityWithMeta(
     const allMemos = registryId
       ? parseAllTalisePaymentRecords(tx, registryId)
       : [];
+    // Talise-owned-module heuristic (goal_vault / cheque / stream), computed
+    // once and consumed only in the no-PK-memo branch below. Cheap when all
+    // three package-id envs are unset (early return).
+    const taliseModuleClass = classifyTaliseModule(tx);
     const sendMemo = allMemos.find((m) => m.kind === "send");
     const investMemo = allMemos.find((m) => m.kind === "invest");
     // Is the VIEWER the one who paid? The compound spend+save treatment
@@ -1688,6 +1831,27 @@ export async function getRecentActivityWithMeta(
       direction = m.direction;
       venue = m.venue;
       if (direction === "invest" || direction === "withdraw") {
+        cpForRow = null;
+      }
+    } else if (taliseModuleClass) {
+      // B0. Talise-owned modules (goal_vault / cheque / stream). Checked
+      //     BEFORE the generic NAVI/DeepBook venue sniff because a goal-vault
+      //     yield tx also calls NAVI's package in the same PTB — we want the
+      //     "goal"/"navi-yield" framing, not a bare "Invested in NAVI" that
+      //     loses the goal context. Fail-open: null (and we fall to B/C)
+      //     whenever the relevant package id env is unset.
+      const tm = taliseModuleClass;
+      venue = tm.venue;
+      if (tm.signFromBalance) {
+        // Transfer-flavored rail (cheque/stream): keep the balance-sign
+        // direction so issuer (−) vs claimer (+) is always correct; only
+        // adopt the venue label. cpForRow stays the escrow address so the
+        // existing featureLabel heuristic can still fire as a secondary tag.
+        direction = myUsdsui < 0 || mySui < 0 ? "sent" : "received";
+      } else {
+        // Goal vault / yield: direction-neutral invest|withdraw, no
+        // counterparty (it's the user's own segregated vault).
+        direction = tm.direction;
         cpForRow = null;
       }
     } else {

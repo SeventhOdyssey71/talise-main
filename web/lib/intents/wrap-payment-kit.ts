@@ -157,6 +157,14 @@ const KIND_FROM_CODE: Record<string, TaliseTxKind> = Object.fromEntries(
 const VENUE_CODE: Record<string, string> = {
   navi: "n",
   deepbook: "d",
+  // Bridge.xyz off-ramp (USDC-on-Sui → bank wire). The cash-out PTB
+  // (/api/offramp/bridge/send-usdc-prepare) tags its `withdraw` receipt
+  // with venue:bridge so the on-chain memo distinguishes a bank cash-out
+  // from a NAVI/earn withdraw. Without this code the venue ref was
+  // silently dropped (buildPaymentKitNonce skips unknown venues), leaving
+  // the cash-out indistinguishable on chain. Adds 1 char to a ~27-char
+  // nonce — well under Payment Kit's 36-byte cap.
+  bridge: "b",
 };
 const VENUE_FROM_CODE: Record<string, string> = Object.fromEntries(
   Object.entries(VENUE_CODE).map(([k, v]) => [v, k])

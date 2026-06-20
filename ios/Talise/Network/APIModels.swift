@@ -185,6 +185,12 @@ struct ActivityEntryDTO: Codable, Identifiable {
     /// precision on the wire. Optional so older API responses that
     /// pre-date this field decode without a custom init(from:).
     let otherCoin: ActivityOtherCoin?
+    /// Compound spend+save: when a Send PTB bundled a round-up NAVI supply
+    /// leg, the server reports the primary transfer via `amountUsdsui` and the
+    /// auto-saved portion here. iOS renders "Sent + saved $X" with both legs.
+    /// Optional so older API responses (and optimistic stubs) decode without
+    /// threading this field through every call site. Defaults to nil.
+    var roundupUsdsui: Double? = nil
     /// Present on USDsui→fiat bank cash-out rows. When non-nil the row is
     /// a fiat off-ramp (Linq) and should render as a "Cash out" — the
     /// NGN payout, destination bank, and disbursement status — rather than
@@ -198,6 +204,9 @@ struct ActivityEntryDTO: Codable, Identifiable {
     var isReceived: Bool { direction == "received" }
     var isInvest: Bool { direction == "invest" }
     var isWithdraw: Bool { direction == "withdraw" }
+    /// True when a Send carried a meaningful round-up save leg (> $0). Drives
+    /// the "Sent + saved $X" title/subtitle treatment on outgoing rows.
+    var hasRoundup: Bool { (roundupUsdsui ?? 0) > 0 }
 }
 
 /// Fiat off-ramp metadata for a cash-out activity row. The server attaches
