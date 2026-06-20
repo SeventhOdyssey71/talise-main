@@ -261,9 +261,8 @@ struct SendToBankView: View {
 
     @ViewBuilder private var statusIcon: some View {
         if step == .sending {
-            ProgressView().controlSize(.large).tint(TaliseColor.fg)
+            TaliseLoadingRing(size: 64, lineWidth: 3.5)
                 .frame(width: 96, height: 96)
-                .background(Circle().fill(TaliseColor.surface2))
         } else if finalStatus == "completed" {
             Image(systemName: paidOut ? "checkmark.seal.fill" : "clock.fill")
                 .font(.system(size: paidOut ? 56 : 50)).foregroundStyle(TaliseColor.greenMint)

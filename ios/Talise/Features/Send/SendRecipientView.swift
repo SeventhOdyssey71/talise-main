@@ -16,6 +16,10 @@ struct SendRecipientView: View {
     @State private var loadingContacts = true
     @State private var resolving = false
     @State private var resolveTask: Task<Void, Never>?
+    /// Identifies the in-flight contact-pick bank enrichment. A manual "Next"
+    /// (or a different pick) clears it so the async auto-advance can't fire
+    /// after the user has already moved on.
+    @State private var pendingPickToken: UUID?
     /// Set by `pickContact` so the next `onChange(of: recipientInput)`
     /// skips its scheduleResolve call. Without this, picking a contact
     /// also fires a name-based server resolve that races the
@@ -352,6 +356,7 @@ struct SendRecipientView: View {
         suppressNextResolve = true
 
         draft.recipientInput = c.name ?? c.address
+        // Optimistic resolution so the recipient shows instantly.
         draft.resolved = RecipientResolution(
             address: c.address,
             displayName: c.name ?? shortAddress(c.address),
@@ -363,7 +368,36 @@ struct SendRecipientView: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
         inputFocused = false
-        onNext()
+
+        // Enrich with the recipient's payout bank (a contact pick carries no
+        // bank info). If they have a primary bank connected, STAY on this
+        // screen so the "Their bank" rail pops up; otherwise continue straight
+        // through as before. The token guards against the async branch firing
+        // after the user has already tapped Next.
+        let token = UUID()
+        pendingPickToken = token
+        resolveTask?.cancel()
+        resolveTask = Task {
+            let enriched = await resolveRecipientFull(c.address)
+            if Task.isCancelled || pendingPickToken != token { return }
+            if let enriched, enriched.recipientBank?.hasPrimary == true {
+                draft.resolved = enriched
+                pendingPickToken = nil
+                // Stay — the rail toggle is now visible.
+            } else {
+                pendingPickToken = nil
+                onNext()
+            }
+        }
+    }
+
+    /// Resolve a recipient through the server so the response carries the
+    /// masked PRIMARY payout bank (`recipientBank`). Accepts a @handle or a raw
+    /// address (the resolve route derives the bank from the address). Returns
+    /// nil on any failure — the caller falls back to the on-chain-only flow.
+    private func resolveRecipientFull(_ q: String) async -> RecipientResolution? {
+        let encoded = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q
+        return try? await APIClient.shared.get("/api/recipient/resolve?q=\(encoded)")
     }
 
     // MARK: - Next button
@@ -371,6 +405,9 @@ struct SendRecipientView: View {
     private var nextButton: some View {
         Button(action: {
             guard canAdvance else { return }
+            // A manual Next cancels any pending contact-pick auto-advance so it
+            // can't double-fire navigation after this tap.
+            pendingPickToken = nil
             inputFocused = false
             // "Their bank" branches into the NGN off-ramp payout sheet; it
             // settles there and closes the whole flow. "On-chain" (the
@@ -414,6 +451,16 @@ struct SendRecipientView: View {
                 source: "address"
             )
             resolving = false
+            // Enrich with the recipient's payout bank so the "Their bank" rail
+            // appears for a pasted address too — not just typed @handles.
+            resolveTask = Task {
+                let enriched = await resolveRecipientFull(addr.raw)
+                if Task.isCancelled { return }
+                if let enriched, enriched.recipientBank?.hasPrimary == true,
+                   draft.resolved?.address == addr.raw {
+                    draft.resolved = enriched
+                }
+            }
             return
         }
         resolving = true
