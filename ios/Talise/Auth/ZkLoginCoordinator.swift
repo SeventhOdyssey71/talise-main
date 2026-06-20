@@ -495,7 +495,7 @@ final class ZkLoginCoordinator {
             body: executeBody
         )
         if let err = exec["error"] as? String {
-            throw CoordinatorError.executeFailed(err)
+            throw mapExecuteError(err)
         }
         guard let digest = exec["digest"] as? String, !digest.isEmpty else {
             throw CoordinatorError.executeFailed("no digest in response")
@@ -582,7 +582,7 @@ final class ZkLoginCoordinator {
             path: "/api/zk/sponsor-execute",
             body: executeBody
         )
-        if let err = exec["error"] as? String { throw CoordinatorError.executeFailed(err) }
+        if let err = exec["error"] as? String { throw mapExecuteError(err) }
         guard let digest = exec["digest"] as? String, !digest.isEmpty else {
             throw CoordinatorError.executeFailed("no digest in response")
         }
@@ -783,7 +783,7 @@ final class ZkLoginCoordinator {
             body: executeBody
         )
         if let err = exec["error"] as? String {
-            throw CoordinatorError.executeFailed(err)
+            throw mapExecuteError(err)
         }
         guard let digestStr = exec["digest"] as? String, !digestStr.isEmpty else {
             throw CoordinatorError.executeFailed("no digest in response")
@@ -913,7 +913,7 @@ final class ZkLoginCoordinator {
             body: executeBody
         )
         if let err = exec["error"] as? String {
-            throw CoordinatorError.executeFailed(err)
+            throw mapExecuteError(err)
         }
         guard let digestStr = exec["digest"] as? String, !digestStr.isEmpty else {
             throw CoordinatorError.executeFailed("no digest in response")
@@ -984,7 +984,7 @@ final class ZkLoginCoordinator {
             body: executeBody
         )
         if let err = exec["error"] as? String {
-            throw CoordinatorError.executeFailed(err)
+            throw mapExecuteError(err)
         }
         guard let digestStr = exec["digest"] as? String, !digestStr.isEmpty else {
             throw CoordinatorError.executeFailed("no digest in response")
@@ -1089,7 +1089,7 @@ final class ZkLoginCoordinator {
             body: body
         )
         if let err = resp["error"] as? String {
-            throw CoordinatorError.executeFailed(err)
+            throw mapExecuteError(err)
         }
         guard let signature = resp["signature"] as? String, !signature.isEmpty else {
             throw CoordinatorError.executeFailed("no signature in response")
@@ -1192,6 +1192,28 @@ final class ZkLoginCoordinator {
     /// the Poseidon-nonce binding. SignInView intercepts this and
     /// auto-signs-out so the user just sees a normal re-auth prompt.
     enum SessionError: Error { case rebindRequired }
+
+    /// Map a sponsor-execute / Onara error to the right failure. A zkLogin
+    /// PROOF-verification failure ("Groth16 proof verify failed" / "invalid user
+    /// signature" / "signature is not valid") means the cached proof no longer
+    /// matches the chain — its `maxEpoch` expired or the ephemeral key rotated.
+    /// The ONLY fix is re-auth (a new JWT nonce), so we clear the stale proof and
+    /// route into the session-rebind path (clean sign-out + "sign in again")
+    /// instead of surfacing a cryptic crypto error the user can't act on.
+    private func mapExecuteError(_ err: String) -> Error {
+        let l = err.lowercased()
+        let proofFailure =
+            l.contains("groth16") || l.contains("proof verify failed")
+            || l.contains("invalid user signature") || l.contains("signature is not valid")
+        if proofFailure {
+            ProofCache.shared.clear()
+            Task { @MainActor in
+                NotificationCenter.default.post(name: .taliseSessionExpired, object: nil)
+            }
+            return SessionError.rebindRequired
+        }
+        return CoordinatorError.executeFailed(err)
+    }
 
     private func postAuthenticated(
         path: String,
