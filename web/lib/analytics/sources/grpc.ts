@@ -2,6 +2,36 @@ import { getRecentActivityWithMeta } from "@/lib/activity";
 import type { IndexedTx } from "@/lib/analytics/types";
 
 /**
+ * Resolve the USD-stablecoin magnitude an activity entry moved (sent OR
+ * received).
+ *
+ * `amountUsdsui` only carries USDsui. A USDC/USDT (or other USD-pegged)
+ * transfer lands in `otherCoin` with `amountUsdsui: null` — so without this it
+ * was silently dropped from volume (the "$None" received rows). We treat any
+ * coin whose symbol contains "USD" as a 1:1 dollar stablecoin and convert its
+ * raw u64 amount by its decimals. Non-stablecoin "other" coins (WAL, meme
+ * coins, etc.) stay null — they aren't stablecoin volume.
+ */
+function entryAmountUsd(e: {
+  amountUsdsui: number | null;
+  otherCoin: { symbol: string; amount: string; decimals: number } | null;
+}): number | null {
+  if (e.amountUsdsui !== null && Number.isFinite(e.amountUsdsui)) {
+    return Math.abs(e.amountUsdsui);
+  }
+  const oc = e.otherCoin;
+  if (oc && oc.symbol.toUpperCase().includes("USD")) {
+    const raw = Number(oc.amount);
+    const dec = Number.isFinite(oc.decimals) ? oc.decimals : 6;
+    if (Number.isFinite(raw)) {
+      const v = raw / Math.pow(10, dec);
+      if (Number.isFinite(v)) return Math.abs(v);
+    }
+  }
+  return null;
+}
+
+/**
  * Index a single address's on-chain transaction history via the existing
  * gRPC / GraphQL activity pipeline.
  *
@@ -39,10 +69,7 @@ export async function indexAddressViaGrpc(
     digest: e.digest,
     ts: e.timestampMs,
     direction: e.direction,
-    amountUsd:
-      e.amountUsdsui === null || !Number.isFinite(e.amountUsdsui)
-        ? null
-        : Math.abs(e.amountUsdsui),
+    amountUsd: entryAmountUsd(e),
     counterparty: e.counterparty,
     counterpartyName: e.counterpartyName,
     source: "grpc",
