@@ -2176,7 +2176,11 @@ export async function getRewardsSummary(userId: number): Promise<{
   const pointsTotal = Number(row?.points_total ?? 0) || 0;
 
   const ev = await c.execute({
+    // Goal deposits/withdrawals are NOT earning events — they move a tracked
+    // envelope, mint no points, and only cluttered the feed with "+0" rows.
+    // Excluded here so they never appear in Earning History (past or future).
     sql: `SELECT * FROM rewards_events WHERE user_id = ?
+          AND kind NOT IN ('goal_deposit', 'goal_withdraw')
           ORDER BY created_at DESC LIMIT 20`,
     args: [userId],
   });

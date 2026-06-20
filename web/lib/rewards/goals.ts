@@ -232,33 +232,17 @@ export async function depositToGoal(input: {
   if (!existing) throw new Error("goal not found");
   if (existing.archived) throw new Error("goal is archived");
 
-  // Goal deposits mint NO points (unverified self-report — see above), and
-  // no longer bump the global `lifetime_saved_usd` stat (also farmable via a
-  // self-report). The goal's own `current_usd` still tracks the envelope, and
-  // a 0-point `goal_deposit` event is written so the activity feed shows the
-  // deposit. Atomic batch so balance + feed commit together.
+  // Goal deposits mint NO points and trigger NO rewards/activity event — a goal
+  // is a savings envelope, not an earning action. We only bump the goal's own
+  // `current_usd` tracker. (Previously a 0-point `goal_deposit` event was
+  // written, which cluttered Earning History with "+0" rows.)
   const points = 0;
-  const metaJson = JSON.stringify({
-    amountUsd: amount,
-    goalId: input.goalId,
+  await db().execute({
+    sql: `UPDATE savings_goals
+          SET current_usd = COALESCE(current_usd, 0) + ?
+          WHERE id = ? AND user_id = ?`,
+    args: [amount, input.goalId, input.userId],
   });
-  await db().batch(
-    [
-      {
-        sql: `UPDATE savings_goals
-              SET current_usd = COALESCE(current_usd, 0) + ?
-              WHERE id = ? AND user_id = ?`,
-        args: [amount, input.goalId, input.userId],
-      },
-      {
-        sql: `INSERT INTO rewards_events
-              (user_id, kind, points, metadata, created_at)
-              VALUES (?, 'goal_deposit', ?, ?, ?)`,
-        args: [input.userId, points, metaJson, Date.now()],
-      },
-    ],
-    "write"
-  );
 
   const refreshed = (await getGoal(input.userId, input.goalId))!;
   return { goal: refreshed, points };
@@ -294,25 +278,16 @@ export async function withdrawFromGoal(input: {
   if (withdrawnUsd <= 0) {
     return { goal: existing, withdrawnUsd: 0 };
   }
-  const metaJson = JSON.stringify({ amountUsd: withdrawnUsd, goalId: input.goalId });
-  await db().batch(
-    [
-      {
-        // MAX(0, …) guard so a concurrent withdraw can't drive it negative.
-        sql: `UPDATE savings_goals
-              SET current_usd = MAX(0, COALESCE(current_usd, 0) - ?)
-              WHERE id = ? AND user_id = ?`,
-        args: [withdrawnUsd, input.goalId, input.userId],
-      },
-      {
-        sql: `INSERT INTO rewards_events
-              (user_id, kind, points, metadata, created_at)
-              VALUES (?, 'goal_withdraw', 0, ?, ?)`,
-        args: [input.userId, metaJson, Date.now()],
-      },
-    ],
-    "write"
-  );
+  // GREATEST(0, …) floor so a concurrent withdraw can't drive it negative.
+  // (Postgres has no 2-arg MAX(); MAX is an aggregate — the prior MAX(0, …)
+  // threw "function max(integer, double precision) does not exist".)
+  // No rewards/activity event — a goal withdrawal is not an earning action.
+  await db().execute({
+    sql: `UPDATE savings_goals
+          SET current_usd = GREATEST(0, COALESCE(current_usd, 0) - ?)
+          WHERE id = ? AND user_id = ?`,
+    args: [withdrawnUsd, input.goalId, input.userId],
+  });
 
   const refreshed = (await getGoal(input.userId, input.goalId))!;
   return { goal: refreshed, withdrawnUsd };
