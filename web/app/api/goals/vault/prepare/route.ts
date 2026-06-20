@@ -15,7 +15,16 @@ import {
   appendCreateVault,
   appendDepositToVault,
   appendWithdrawFromVault,
+  appendVaultYieldStart,
+  appendVaultYieldAdd,
+  appendVaultYieldWithdraw,
 } from "@/lib/goal-vault-ptb";
+
+/** Yield (NAVI) goal ops are gated behind their own flag — the on-chain
+ *  AccountCap-in-vault custody must be validated on a TestFlight build with a
+ *  small real deposit before activation. Off → only plain vault ops. */
+const GOAL_VAULT_YIELD_ENABLED =
+  process.env.GOAL_VAULT_YIELD_ENABLED === "true";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,8 +78,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
   const op = body.op;
-  if (op !== "create" && op !== "deposit" && op !== "withdraw") {
-    return NextResponse.json({ error: "op must be create|deposit|withdraw" }, { status: 400 });
+  const PLAIN_OPS = ["create", "deposit", "withdraw"];
+  const YIELD_OPS = ["yield-start", "yield-add", "yield-withdraw"];
+  if (!PLAIN_OPS.includes(op ?? "") && !YIELD_OPS.includes(op ?? "")) {
+    return NextResponse.json(
+      { error: "op must be create|deposit|withdraw|yield-start|yield-add|yield-withdraw" },
+      { status: 400 }
+    );
+  }
+  if (YIELD_OPS.includes(op ?? "") && !GOAL_VAULT_YIELD_ENABLED) {
+    return NextResponse.json(
+      { error: "Goal yield isn't enabled yet.", code: "GOAL_YIELD_DISABLED" },
+      { status: 503 }
+    );
   }
 
   const amountUsd = Number(body.amountUsd);
@@ -114,11 +134,28 @@ export async function POST(req: Request) {
       }
       if (op === "deposit") {
         appendDepositToVault(tx, { vaultId: goal.vaultObjectId, amountUsdsui: amountUsd });
-      } else {
+      } else if (op === "withdraw") {
         appendWithdrawFromVault(tx, {
           vaultId: goal.vaultObjectId,
           amountUsdsui: amountUsd,
           owner: user.sui_address,
+        });
+      } else if (op === "yield-start") {
+        // First time earning: mint cap, supply NEW funds to NAVI, park in vault.
+        appendVaultYieldStart(tx, { vaultId: goal.vaultObjectId, amountUsdsui: amountUsd });
+      } else if (op === "yield-add") {
+        // Already earning: add more — basis becomes the goal's total + this add.
+        appendVaultYieldAdd(tx, {
+          vaultId: goal.vaultObjectId,
+          amountUsdsui: amountUsd,
+          totalBasisUsd: (goal.currentUsd ?? 0) + amountUsd,
+        });
+      } else {
+        // yield-withdraw: redeem from NAVI back to vault principal; re-park.
+        appendVaultYieldWithdraw(tx, {
+          vaultId: goal.vaultObjectId,
+          amountUsdsui: amountUsd,
+          remainingBasisUsd: Math.max(0, (goal.currentUsd ?? 0) - amountUsd),
         });
       }
     }

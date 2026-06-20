@@ -7,6 +7,22 @@ import {
 } from "@mysten/sui/transactions";
 import { USDSUI_TYPE } from "./usdsui";
 import { USDSUI_DECIMALS } from "./sui";
+import {
+  buildNaviCreateAccount,
+  buildNaviSupply,
+  buildNaviWithdraw,
+  VENUE_ID,
+} from "./yield/ptb";
+
+/**
+ * NAVI `AccountCap` Move type — the storable receipt the GoalVault custodies
+ * when a goal is earning. Resolved from the live mainnet fullnode
+ * (`getNormalizedMoveFunction` on NAVI `lending::create_account`); the defining
+ * package (0xd899cf7d…) is the lending_core ORIGINAL id, NOT NAVI's upgraded
+ * call package. This is the `R` type-arg for `goal_vault::park_receipt<T, R>`.
+ */
+const NAVI_ACCOUNT_CAP_TYPE =
+  "0xd899cf7d2b5db716bd2cf55599fb0d5ee38a3061e7b6bb6eebf73fa5bc4c81ca::account::AccountCap";
 
 /**
  * Goal Vault — sponsor-friendly PTB builders (Phase 4 SCAFFOLD).
@@ -197,6 +213,124 @@ export function appendWithdrawFromVault(
     tx.transferObjects([coin], opts.owner);
   }
   return coin;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NAVI yield — supply the goal's USDsui into NAVI and custody the AccountCap
+// receipt INSIDE the vault (segregation preserved). The vault's value while
+// earning = the NAVI position under its parked AccountCap (basis tracks size).
+//
+// A goal's funds are ALWAYS in exactly one place: the vault's `principal`
+// Balance (idle) OR a NAVI position under an AccountCap parked in the vault
+// (earning). "Earn" moves principal → NAVI; "stop"/redeem moves NAVI →
+// principal. Wallet in/out always goes through the plain deposit/withdraw ops
+// against `principal`, so funds are never split across the two.
+//
+// Lifecycle (one cap per goal, parked under the vault's RECEIPT_KEY):
+//   • START  — not yet earning (vault.venue == 0): withdraw `amount` from the
+//     vault principal, mint a fresh AccountCap, supply it to NAVI, park the cap.
+//   • ADD    — already earning: withdraw more principal, take the parked cap,
+//     supply more under it, re-park (basis = new total).
+//   • REDEEM — take the cap, withdraw `amount` from NAVI, deposit it BACK to the
+//     vault principal, re-park the cap (basis = remaining).
+//
+// `basisUsd` is the goal's TOTAL USDsui in NAVI AFTER the op (START/ADD) or the
+// REMAINING after a redeem — the contract stores it verbatim for display.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** START earning: withdraw vault principal → create cap → supply → park. */
+export function appendVaultYieldStart(
+  tx: Transaction,
+  opts: { vaultId: string; amountUsdsui: number }
+): void {
+  const pkg = requireGoalVaultPackageId();
+  const onchain = toMicros(opts.amountUsdsui);
+  if (onchain <= 0n) throw new Error("amount too small");
+  const [coin] = tx.moveCall({
+    target: target(pkg, "withdraw"),
+    typeArguments: [USDSUI_TYPE],
+    arguments: [tx.object(opts.vaultId), tx.pure.u64(onchain)],
+  });
+  const cap = buildNaviCreateAccount(tx);
+  buildNaviSupply(tx, cap, coin, onchain);
+  tx.moveCall({
+    target: target(pkg, "park_receipt"),
+    typeArguments: [USDSUI_TYPE, NAVI_ACCOUNT_CAP_TYPE],
+    arguments: [
+      tx.object(opts.vaultId),
+      cap,
+      tx.pure.u8(VENUE_ID.navi),
+      tx.pure.u64(onchain),
+    ],
+  });
+}
+
+/** ADD to an earning goal: withdraw more principal → take cap → supply → re-park. */
+export function appendVaultYieldAdd(
+  tx: Transaction,
+  opts: { vaultId: string; amountUsdsui: number; totalBasisUsd: number }
+): void {
+  const pkg = requireGoalVaultPackageId();
+  const onchain = toMicros(opts.amountUsdsui);
+  if (onchain <= 0n) throw new Error("amount too small");
+  const [coin] = tx.moveCall({
+    target: target(pkg, "withdraw"),
+    typeArguments: [USDSUI_TYPE],
+    arguments: [tx.object(opts.vaultId), tx.pure.u64(onchain)],
+  });
+  const cap = tx.moveCall({
+    target: target(pkg, "take_receipt"),
+    typeArguments: [USDSUI_TYPE, NAVI_ACCOUNT_CAP_TYPE],
+    arguments: [tx.object(opts.vaultId)],
+  });
+  buildNaviSupply(tx, cap, coin, onchain);
+  tx.moveCall({
+    target: target(pkg, "park_receipt"),
+    typeArguments: [USDSUI_TYPE, NAVI_ACCOUNT_CAP_TYPE],
+    arguments: [
+      tx.object(opts.vaultId),
+      cap,
+      tx.pure.u8(VENUE_ID.navi),
+      tx.pure.u64(toMicros(opts.totalBasisUsd)),
+    ],
+  });
+}
+
+/**
+ * REDEEM from an earning goal: take cap → NAVI withdraw `amount` → deposit it
+ * back to the vault principal → re-park the cap (basis = remaining). Funds
+ * return to vault custody; the owner then withdraws to their wallet via the
+ * plain `withdraw` op.
+ */
+export function appendVaultYieldWithdraw(
+  tx: Transaction,
+  opts: { vaultId: string; amountUsdsui: number; remainingBasisUsd: number }
+): void {
+  const pkg = requireGoalVaultPackageId();
+  const onchain = toMicros(opts.amountUsdsui);
+  if (onchain <= 0n) throw new Error("amount too small");
+  const cap = tx.moveCall({
+    target: target(pkg, "take_receipt"),
+    typeArguments: [USDSUI_TYPE, NAVI_ACCOUNT_CAP_TYPE],
+    arguments: [tx.object(opts.vaultId)],
+  });
+  const coin = buildNaviWithdraw(tx, cap, onchain);
+  tx.moveCall({
+    target: target(pkg, "deposit"),
+    typeArguments: [USDSUI_TYPE],
+    arguments: [tx.object(opts.vaultId), coin],
+  });
+  // Re-park the cap so the (now smaller) NAVI position stays inside the vault.
+  tx.moveCall({
+    target: target(pkg, "park_receipt"),
+    typeArguments: [USDSUI_TYPE, NAVI_ACCOUNT_CAP_TYPE],
+    arguments: [
+      tx.object(opts.vaultId),
+      cap,
+      tx.pure.u8(VENUE_ID.navi),
+      tx.pure.u64(toMicros(Math.max(0, opts.remainingBasisUsd))),
+    ],
+  });
 }
 
 /**

@@ -409,6 +409,7 @@ async function doEnsureSchema(): Promise<void> {
     // object id. NULL = legacy DB tracking-envelope goal (funds in the user's
     // balance); set = funds segregated in an owner-owned on-chain vault.
     `ALTER TABLE savings_goals ADD COLUMN IF NOT EXISTS vault_object_id TEXT`,
+    `ALTER TABLE savings_goals ADD COLUMN IF NOT EXISTS yield_on INTEGER NOT NULL DEFAULT 0`,
     // AUDIT_PENDING (2026-05-29): the autoswap system was archived to
     // `web/_archive/autoswap-2026-05-29/`. The columns below are
     // dormant — no active code path writes them — but we keep them in

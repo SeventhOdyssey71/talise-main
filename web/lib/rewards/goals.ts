@@ -37,6 +37,9 @@ export type SavingsGoal = {
   /** On-chain GoalVault<USDsui> object id once the goal is vault-backed; null
    *  for legacy DB tracking-envelope goals (funds in the user's balance). */
   vaultObjectId: string | null;
+  /** True when the goal's funds are supplied to NAVI (earning) under an
+   *  AccountCap parked in its vault. False → funds idle in the vault principal. */
+  yieldOn: boolean;
 };
 
 type GoalRow = {
@@ -50,6 +53,7 @@ type GoalRow = {
   created_at: number;
   archived: number;
   vault_object_id: string | null;
+  yield_on: number | null;
 };
 
 function rowToGoal(row: GoalRow): SavingsGoal {
@@ -70,7 +74,21 @@ function rowToGoal(row: GoalRow): SavingsGoal {
     archived: Number(row.archived) === 1,
     completed: targetUsd > 0 && currentUsd >= targetUsd,
     vaultObjectId: row.vault_object_id ?? null,
+    yieldOn: Number(row.yield_on) === 1,
   };
+}
+
+/** Flip a goal's "earning" flag (set after a yield-start/redeem PTB confirms). */
+export async function setGoalYieldOn(
+  userId: number,
+  goalId: number,
+  yieldOn: boolean
+): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: "UPDATE savings_goals SET yield_on = ? WHERE id = ? AND user_id = ?",
+    args: [yieldOn ? 1 : 0, goalId, userId],
+  });
 }
 
 /** Link a goal to its on-chain vault object id (set after the create PTB

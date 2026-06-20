@@ -7,6 +7,7 @@ import { goalVaultEnabled, goalVaultPackageId } from "@/lib/goal-vault-ptb";
 import {
   getGoal,
   setGoalVaultObjectId,
+  setGoalYieldOn,
   depositToGoal,
   withdrawFromGoal,
 } from "@/lib/rewards/goals";
@@ -53,8 +54,19 @@ export async function POST(req: Request) {
   const amountUsd = Number(body.amountUsd);
   const digest = String(body.digest ?? "").trim();
 
-  if (op !== "create" && op !== "deposit" && op !== "withdraw") {
-    return NextResponse.json({ error: "op must be create|deposit|withdraw" }, { status: 400 });
+  const RECORD_OPS = [
+    "create",
+    "deposit",
+    "withdraw",
+    "yield-start",
+    "yield-add",
+    "yield-withdraw",
+  ];
+  if (!RECORD_OPS.includes(op ?? "")) {
+    return NextResponse.json(
+      { error: "op must be create|deposit|withdraw|yield-start|yield-add|yield-withdraw" },
+      { status: 400 }
+    );
   }
   if (!digest) return NextResponse.json({ error: "digest required" }, { status: 400 });
   if (!Number.isFinite(goalId)) return NextResponse.json({ error: "goalId required" }, { status: 400 });
@@ -112,13 +124,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ goal: updated, vaultObjectId: vaultId });
     }
 
-    // deposit / withdraw — goal must already be vault-backed.
+    // All remaining ops require an existing vault.
     if (!goal.vaultObjectId) {
       return NextResponse.json(
         { error: "goal not vault-backed", code: "GOAL_NOT_ON_CHAIN" },
         { status: 409 }
       );
     }
+
+    // Yield ops move funds between the vault's principal and its NAVI position
+    // WITHIN the same goal — the goal's total (current_usd) is unchanged. We
+    // only flip the "earning" flag. (Display total stays put; APY accrues on
+    // chain and is reflected when the position is next read.)
+    if (op === "yield-start" || op === "yield-add" || op === "yield-withdraw") {
+      const stillEarning =
+        op === "yield-withdraw" ? amountUsd < goal.currentUsd - 1e-9 : true;
+      await setGoalYieldOn(userId, goalId, stillEarning);
+      const updated = (await getGoal(userId, goalId)) ?? goal;
+      return NextResponse.json({ goal: updated });
+    }
+
+    // deposit / withdraw (wallet ↔ vault principal).
     if (amountUsd <= 0) {
       return NextResponse.json({ error: "amountUsd must be positive" }, { status: 400 });
     }
