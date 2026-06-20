@@ -480,6 +480,9 @@ struct SavingsGoal: Codable, Identifiable, Hashable {
     /// first real deposit creates the vault. Drives the deposit/withdraw rail:
     /// nil → first deposit `create`s the vault; set → `deposit`/`withdraw`.
     let vaultObjectId: String?
+    /// True when the goal's funds are earning NAVI yield (supplied under an
+    /// AccountCap parked in its vault). Optional so older API responses decode.
+    let yieldOn: Bool?
 
     /// 0…1 fill ratio for the progress ring. Caps at 1 even when the user
     /// has overshot the target.

@@ -250,6 +250,7 @@ private struct GoalActionSheet: View {
                 VStack(alignment: .leading, spacing: 28) {
                     summary
                     deposit
+                    if goal.vaultObjectId != nil { earnToggle }
                     archive
                     if let error {
                         Text(error)
@@ -376,6 +377,66 @@ private struct GoalActionSheet: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    /// Earn / stop-earning toggle. When on, the goal's balance is supplied to
+    /// NAVI (under an AccountCap parked in its vault) and earns yield; off keeps
+    /// it idle in the vault. Only shown for vault-backed goals.
+    private var earnToggle: some View {
+        let earning = goal.yieldOn == true
+        return Button {
+            Task { await runToggleYield(start: !earning) }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: earning ? "bolt.fill" : "bolt")
+                    .foregroundStyle(earning ? TaliseColor.accent : TaliseColor.fgDim)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(earning ? "Earning yield" : "Earn yield on this goal")
+                        .font(TaliseFont.body(15, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                    Text(earning ? "Tap to stop · funds return to the vault"
+                                 : "Supply to NAVI · withdraw anytime")
+                        .font(TaliseFont.body(12, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
+                Spacer()
+                if busy { ProgressView() }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+            .earnHeroGlass(cornerRadius: 16)
+        }
+        .buttonStyle(.plain)
+        .disabled(busy || goal.currentUsd <= 0)
+    }
+
+    /// Start or stop earning on the whole goal balance. start=true → yield-start
+    /// (move vault principal into NAVI); start=false → yield-withdraw (redeem the
+    /// full position back to the vault). Confirms server-side after the tx lands.
+    private func runToggleYield(start: Bool) async {
+        busy = true
+        defer { busy = false }
+        let op = start ? "yield-start" : "yield-withdraw"
+        let amountUsd = goal.currentUsd
+        guard amountUsd > 0 else { return }
+        do {
+            let sub = try await ZkLoginCoordinator.shared.signAndSubmitGoalVault(
+                op: op, goalId: goal.id, amountUsd: amountUsd
+            )
+            let _: GoalVaultConfirmResponse = try await APIClient.shared.post(
+                "/api/goals/vault/confirm",
+                body: GoalVaultConfirmBody(
+                    goalId: goal.id, op: op, amountUsd: amountUsd, digest: sub.digest
+                )
+            )
+            onChanged()
+            dismiss()
+        } catch ZkLoginCoordinator.CoordinatorError.structured(_, let code, _)
+            where code == "GOAL_YIELD_DISABLED" {
+            self.error = "Earning is rolling out — check back soon."
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     private var archive: some View {
