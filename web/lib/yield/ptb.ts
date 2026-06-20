@@ -63,7 +63,6 @@ export function buildNaviSupply(
       tx.object(NAVI.usdsuiPool),
       tx.pure.u8(NAVI.usdsuiAssetId),
       usdsuiCoin,
-      tx.pure.u64(amount),
       tx.object(NAVI.incentiveV2),
       tx.object(NAVI.incentiveV3),
       accountCap,
@@ -89,7 +88,6 @@ export function buildNaviWithdraw(
       tx.pure.u64(amount),
       tx.object(NAVI.incentiveV2),
       tx.object(NAVI.incentiveV3),
-      tx.object(SYSTEM_STATE),
       accountCap,
     ],
   });

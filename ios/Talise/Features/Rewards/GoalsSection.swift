@@ -401,13 +401,13 @@ private struct GoalActionSheet: View {
     /// it idle in the vault. Only shown for vault-backed goals.
     private var earnToggle: some View {
         HStack(spacing: 10) {
-            Image(systemName: earnOn ? "bolt.fill" : "bolt")
+            Image(systemName: earnOn ? "leaf.fill" : "leaf")
                 .foregroundStyle(earnOn ? TaliseColor.accent : TaliseColor.fgDim)
             VStack(alignment: .leading, spacing: 2) {
                 Text(earnOn ? "Earning yield" : "Earn yield on this goal")
                     .font(TaliseFont.body(15, weight: .medium))
                     .foregroundStyle(TaliseColor.fg)
-                Text("Supply to NAVI · withdraw anytime")
+                Text("Your savings grow · withdraw anytime")
                     .font(TaliseFont.body(12, weight: .light))
                     .foregroundStyle(TaliseColor.fgDim)
             }

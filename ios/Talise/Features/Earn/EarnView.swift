@@ -842,6 +842,9 @@ private struct EarnManageSheet: View {
         // ONE primary CTA (the partial withdraw) — the "earned" and
         // "all" shortcuts sit beneath as quiet pills so nothing competes
         // with the primary. All three actions are preserved.
+        // Two equal, stacked CTAs: the PRIMARY withdraws any typed amount; the
+        // secondary (same size) claims ONLY the accrued yield rewards. Withdraw-
+        // all is just MAX → the primary, so no separate "all" button is needed.
         VStack(spacing: 12) {
             LiquidGlassButton(
                 title: withdrawing
@@ -857,31 +860,31 @@ private struct EarnManageSheet: View {
             }
             .disabled(!canWithdrawPartial)
 
-            HStack(spacing: 10) {
-                // "Withdraw earned" — server computes the exact USDsui
-                // earned amount at request time so the value on the
-                // label can lag chain truth by a few seconds without a
-                // misclick burning the user's principal. Only shown when
-                // there's enough accrued yield to be worth the gas (see
-                // WITHDRAW_EARNED_DUST_USD).
-                if let earned = earnedSoFar, canWithdrawEarned {
-                    let (local, _) = CurrencySettings.shared.convert(usd: earned)
-                    let label = "Earned \(CurrencySettings.shared.current.symbol)\(String(format: "%.2f", local))"
-                    LiquidGlassPill(title: label, tint: TaliseColor.accent) {
-                        Task { await withdrawEarned() }
-                    }
-                    .disabled(withdrawing)
-                }
-                LiquidGlassPill(title: "Withdraw all + rewards") {
-                    Task { await withdraw(all: true) }
-                }
-                .disabled(withdrawing || supplied <= 0)
-                Spacer(minLength: 0)
+            // Claim ONLY the yield rewards — server computes the exact earned
+            // USDsui at request time, so principal is never touched.
+            LiquidGlassButton(
+                title: claimRewardsTitle,
+                tint: nil,
+                size: .lg,
+                loading: false
+            ) {
+                Task { await withdrawEarned() }
             }
+            .disabled(withdrawing || !canWithdrawEarned)
         }
         .padding(.horizontal, 22)
         .padding(.top, 12)
         .padding(.bottom, 32)
+    }
+
+    /// Label for the claim-rewards button: shows the accrued amount when there's
+    /// enough to claim, else a plain prompt (button is disabled in that case).
+    private var claimRewardsTitle: String {
+        if canWithdrawEarned, let earned = earnedSoFar {
+            let (local, _) = CurrencySettings.shared.convert(usd: earned)
+            return "Claim \(CurrencySettings.shared.current.symbol)\(String(format: "%.2f", local)) rewards"
+        }
+        return "Claim rewards"
     }
 
     private func successBanner(_ digest: String) -> some View {
