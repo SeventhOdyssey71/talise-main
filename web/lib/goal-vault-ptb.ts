@@ -15,14 +15,18 @@ import {
 } from "./yield/ptb";
 
 /**
- * NAVI `AccountCap` Move type — the storable receipt the GoalVault custodies
- * when a goal is earning. Resolved from the live mainnet fullnode
- * (`getNormalizedMoveFunction` on NAVI `lending::create_account`); the defining
- * package (0xd899cf7d…) is the lending_core ORIGINAL id, NOT NAVI's upgraded
- * call package. This is the `R` type-arg for `goal_vault::park_receipt<T, R>`.
+ * NAVI `AccountCap` Move type — the storable receipt (key + store) the GoalVault
+ * custodies when a goal is earning. The `R` type-arg for
+ * `goal_vault::park_receipt<T, R>` / `take_receipt<T, R>`.
+ *
+ * Address note: the `account` module was ADDED in NAVI's upgraded lending
+ * package (0x1e4a13a0…), so the type resolves there — verified live on the
+ * mainnet fullnode (`getNormalizedMoveStruct(0x1e4a13a0…, "account",
+ * "AccountCap")` → {Store, Key}). The lineage-original id (0xd899cf7d…) does NOT
+ * carry the module, so a tag against it is `TypeNotFound` on chain.
  */
 const NAVI_ACCOUNT_CAP_TYPE =
-  "0xd899cf7d2b5db716bd2cf55599fb0d5ee38a3061e7b6bb6eebf73fa5bc4c81ca::account::AccountCap";
+  "0x1e4a13a0494d5facdbe8473e74127b838c2d446ecec0ce262e2eddafa77259cb::account::AccountCap";
 
 /**
  * Goal Vault — sponsor-friendly PTB builders (Phase 4 SCAFFOLD).

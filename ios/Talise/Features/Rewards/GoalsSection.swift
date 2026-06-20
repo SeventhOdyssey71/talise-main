@@ -243,6 +243,9 @@ private struct GoalActionSheet: View {
     /// Non-nil after a successful withdrawal → shows the same target success
     /// cover with the "withdrawn" copy. Holds the pre-formatted amount.
     @State private var withdrawDone: String?
+    /// Mirrors `goal.yieldOn` for the earn switch; flipped optimistically on
+    /// tap and reverted if the on-chain op fails.
+    @State private var earnOn = false
     /// Add vs Withdraw, chosen by the segmented toggle.
     @State private var mode: Mode = .add
     private enum Mode { case add, withdraw }
@@ -397,31 +400,41 @@ private struct GoalActionSheet: View {
     /// NAVI (under an AccountCap parked in its vault) and earns yield; off keeps
     /// it idle in the vault. Only shown for vault-backed goals.
     private var earnToggle: some View {
-        let earning = goal.yieldOn == true
-        return Button {
-            Task { await runToggleYield(start: !earning) }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: earning ? "bolt.fill" : "bolt")
-                    .foregroundStyle(earning ? TaliseColor.accent : TaliseColor.fgDim)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(earning ? "Earning yield" : "Earn yield on this goal")
-                        .font(TaliseFont.body(15, weight: .medium))
-                        .foregroundStyle(TaliseColor.fg)
-                    Text(earning ? "Tap to stop · funds return to the vault"
-                                 : "Supply to NAVI · withdraw anytime")
-                        .font(TaliseFont.body(12, weight: .light))
-                        .foregroundStyle(TaliseColor.fgDim)
-                }
-                Spacer()
-                if busy { ProgressView() }
+        HStack(spacing: 10) {
+            Image(systemName: earnOn ? "bolt.fill" : "bolt")
+                .foregroundStyle(earnOn ? TaliseColor.accent : TaliseColor.fgDim)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(earnOn ? "Earning yield" : "Earn yield on this goal")
+                    .font(TaliseFont.body(15, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                Text("Supply to NAVI · withdraw anytime")
+                    .font(TaliseFont.body(12, weight: .light))
+                    .foregroundStyle(TaliseColor.fgDim)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity)
-            .earnHeroGlass(cornerRadius: 16)
+            Spacer()
+            if busy {
+                ProgressView()
+            } else {
+                // Real switch. The set closure drives the on-chain op; on
+                // failure runToggleYield reverts `earnOn` so the switch snaps
+                // back to the true state.
+                Toggle("", isOn: Binding(
+                    get: { earnOn },
+                    set: { want in
+                        guard want != earnOn else { return }
+                        earnOn = want
+                        Task { await runToggleYield(start: want) }
+                    }
+                ))
+                .labelsHidden()
+                .tint(TaliseColor.accent)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .earnHeroGlass(cornerRadius: 16)
         .disabled(busy || goal.currentUsd <= 0)
+        .onAppear { earnOn = goal.yieldOn == true }
     }
 
     /// Start or stop earning on the whole goal balance. start=true → yield-start
@@ -432,8 +445,9 @@ private struct GoalActionSheet: View {
         defer { busy = false }
         let op = start ? "yield-start" : "yield-withdraw"
         let amountUsd = goal.currentUsd
-        guard amountUsd > 0 else { return }
+        guard amountUsd > 0 else { earnOn = !start; return }
         do {
+            self.error = nil
             let sub = try await ZkLoginCoordinator.shared.signAndSubmitGoalVault(
                 op: op, goalId: goal.id, amountUsd: amountUsd
             )
@@ -443,13 +457,16 @@ private struct GoalActionSheet: View {
                     goalId: goal.id, op: op, amountUsd: amountUsd, digest: sub.digest
                 )
             )
+            // Stay on the sheet; reflect the new earning state + refresh the list.
+            earnOn = start
             onChanged()
-            dismiss()
         } catch ZkLoginCoordinator.CoordinatorError.structured(_, let code, _)
             where code == "GOAL_YIELD_DISABLED" || code == "GOAL_VAULT_DISABLED"
                || code == "HTTP_404" || code == "HTTP_503" {
+            earnOn = !start  // revert the switch — yield rail unavailable
             self.error = "Earning is rolling out — check back soon."
         } catch {
+            earnOn = !start  // revert the switch — the op failed, nothing moved
             self.error = friendlyGoalError(error)
         }
     }
