@@ -38,6 +38,24 @@ function amountUsd(n: number | null): string {
   }).format(n);
 }
 
+/** Direction pill colors keyed off the normalized direction string. */
+function dirStyle(dir: string): { bg: string; fg: string } {
+  switch (dir) {
+    case "received":
+      return { bg: "rgba(61,122,41,0.12)", fg: "#2f6420" };
+    case "sent":
+    case "withdraw":
+      return { bg: "rgba(192,83,47,0.12)", fg: "#c0532f" };
+    case "swap":
+    case "autoswap":
+      return { bg: "rgba(255,158,122,0.18)", fg: "#b5491f" };
+    case "invest":
+      return { bg: "rgba(255,229,158,0.35)", fg: "#7a5a12" };
+    default:
+      return { bg: "rgba(21,48,12,0.06)", fg: "#3a5230" };
+  }
+}
+
 /** Avatar disc: first letter of handle (or address), mint bg. */
 function Avatar({ label }: { label: string }) {
   return (
@@ -54,7 +72,7 @@ export default function RecentTxTable({ txs }: Props) {
     const needle = q.trim().toLowerCase();
     if (!needle) return txs;
     return txs.filter((t) => {
-      const hay = `${t.handle ?? ""} ${t.address ?? ""} ${t.recipient ?? ""} ${t.kind} ${t.asset ?? ""} ${t.digest}`.toLowerCase();
+      const hay = `${t.handle ?? ""} ${t.address ?? ""} ${t.counterparty ?? ""} ${t.counterpartyName ?? ""} ${t.direction} ${t.digest}`.toLowerCase();
       return hay.includes(needle);
     });
   }, [txs, q]);
@@ -81,42 +99,43 @@ export default function RecentTxTable({ txs }: Props) {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search user, asset, digest…"
+            placeholder="Search user, counterparty, digest…"
             className="w-44 bg-transparent text-[13px] text-[#15300c] placeholder:text-[#3d7a29]/60 focus:outline-none sm:w-56"
           />
         </label>
       </div>
 
       <div className="mt-5 overflow-x-auto">
-        <table className="w-full min-w-[680px] border-collapse text-left">
+        <table className="w-full min-w-[720px] border-collapse text-left">
           <thead>
             <tr className="border-y border-[#15300c]/10 font-mono text-[10px] uppercase tracking-[0.18em] text-[#3d7a29]">
               <th className="px-6 py-2.5 font-medium sm:px-7">When</th>
               <th className="px-3 py-2.5 font-medium">User</th>
-              <th className="px-3 py-2.5 font-medium">Kind</th>
+              <th className="px-3 py-2.5 font-medium">Direction</th>
               <th className="px-3 py-2.5 text-right font-medium">Amount</th>
-              <th className="px-3 py-2.5 font-medium">Asset</th>
-              <th className="px-3 py-2.5 font-medium">Recipient</th>
+              <th className="px-3 py-2.5 font-medium">Counterparty</th>
               <th className="px-6 py-2.5 text-right font-medium sm:px-7">Tx</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-[14px] text-[#3a5230] sm:px-7">
-                  {txs.length === 0 ? "No transactions recorded yet." : "No matches."}
+                <td colSpan={6} className="px-6 py-12 text-center text-[14px] text-[#3a5230] sm:px-7">
+                  {txs.length === 0 ? "No transactions indexed yet." : "No matches."}
                 </td>
               </tr>
             ) : (
               filtered.map((t) => {
                 const who = t.handle ? `${t.handle}@talise` : shortAddr(t.address);
+                const ds = dirStyle(t.direction);
+                const cp = t.counterpartyName ?? shortAddr(t.counterparty);
                 return (
                   <tr
-                    key={t.id}
+                    key={t.digest}
                     className="border-b border-[#15300c]/[0.06] transition-colors hover:bg-[#CAFFB8]/15"
                   >
                     <td className="px-6 py-3 text-[13px] text-[#3a5230] sm:px-7">
-                      {relTime(t.createdAt)}
+                      {relTime(t.ts)}
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2.5">
@@ -134,23 +153,23 @@ export default function RecentTxTable({ txs }: Props) {
                       </div>
                     </td>
                     <td className="px-3 py-3">
-                      <span className="inline-flex rounded-full bg-[#15300c]/[0.06] px-2.5 py-1 text-[11px] font-medium text-[#3a5230]">
-                        {t.kind || "—"}
+                      <span
+                        className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium capitalize"
+                        style={{ background: ds.bg, color: ds.fg }}
+                      >
+                        {t.direction || "—"}
                       </span>
                     </td>
                     <td className="px-3 py-3 text-right text-[13px] font-semibold tabular-nums text-[#15300c]">
-                      {amountUsd(t.amount)}
+                      {amountUsd(t.amountUsd)}
                     </td>
-                    <td className="px-3 py-3 font-mono text-[12px] text-[#3a5230]">
-                      {t.asset ?? "—"}
-                    </td>
-                    <td className="px-3 py-3 font-mono text-[12px] text-[#3a5230]">
-                      {shortAddr(t.recipient)}
+                    <td className="px-3 py-3 text-[12px] text-[#3a5230]">
+                      <span className={t.counterpartyName ? "" : "font-mono"}>{cp}</span>
                     </td>
                     <td className="px-6 py-3 text-right sm:px-7">
                       {t.digest ? (
                         <a
-                          href={`https://suiscan.xyz/mainnet/tx/${t.digest}`}
+                          href={`https://suivision.xyz/txblock/${t.digest}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 font-mono text-[11px] text-[#3d7a29] hover:text-[#15300c]"
