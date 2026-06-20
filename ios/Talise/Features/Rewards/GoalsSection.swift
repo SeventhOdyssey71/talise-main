@@ -451,7 +451,11 @@ private struct GoalActionSheet: View {
             let sub = try await ZkLoginCoordinator.shared.signAndSubmitGoalVault(
                 op: op, goalId: goal.id, amountUsd: amountUsd
             )
-            let _: GoalVaultConfirmResponse = try await APIClient.shared.post(
+            // Best-effort tracker sync. The on-chain tx already succeeded (we
+            // hold a digest) → a confirm failure (index race, proxy hiccup, or a
+            // response-decode quirk) must NOT report the action as failed. The
+            // list reload (onChanged) reflects the real, server-synced state.
+            let _: GoalVaultConfirmResponse? = try? await APIClient.shared.post(
                 "/api/goals/vault/confirm",
                 body: GoalVaultConfirmBody(
                     goalId: goal.id, op: op, amountUsd: amountUsd, digest: sub.digest
@@ -513,7 +517,10 @@ private struct GoalActionSheet: View {
                     name: op == "create" ? goal.name : nil,
                     targetUsd: op == "create" ? goal.targetUsd : nil
                 )
-                let _: GoalVaultConfirmResponse = try await APIClient.shared.post(
+                // Best-effort tracker sync — the on-chain tx already succeeded
+                // (we hold a digest), so a confirm failure must NOT report the
+                // action as failed. onChanged() reloads the real server state.
+                let _: GoalVaultConfirmResponse? = try? await APIClient.shared.post(
                     "/api/goals/vault/confirm",
                     body: GoalVaultConfirmBody(
                         goalId: goal.id, op: op, amountUsd: amountUsd, digest: sub.digest
@@ -556,7 +563,10 @@ private struct GoalActionSheet: View {
                     goalId: goal.id,
                     amountUsd: amountUsd
                 )
-                let _: GoalVaultConfirmResponse = try await APIClient.shared.post(
+                // Best-effort tracker sync — the on-chain tx already succeeded
+                // (we hold a digest), so a confirm failure must NOT report the
+                // action as failed. onChanged() reloads the real server state.
+                let _: GoalVaultConfirmResponse? = try? await APIClient.shared.post(
                     "/api/goals/vault/confirm",
                     body: GoalVaultConfirmBody(
                         goalId: goal.id, op: "withdraw", amountUsd: amountUsd, digest: sub.digest

@@ -3,6 +3,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { denyUnlessAppApproved } from "@/lib/app-access";
 import { getNormalizedTransaction } from "@/lib/sui-shapes";
+import { sui } from "@/lib/sui";
 import { goalVaultEnabled, goalVaultPackageId } from "@/lib/goal-vault-ptb";
 import { goalToWire } from "@/lib/rewards/goals";
 import {
@@ -80,6 +81,13 @@ export async function POST(req: Request) {
 
   // Verify the on-chain tx: success + this user is the sender. We only sync the
   // display tracker AFTER this passes, so a failed/forged digest can't bump it.
+  // The tx was JUST executed, so wait for it to index before reading (avoids a
+  // false "tx lookup failed" race); the wait is best-effort.
+  try {
+    await sui().waitForTransaction({ digest });
+  } catch {
+    /* not indexed in time — try the read anyway below */
+  }
   let tx;
   try {
     tx = await getNormalizedTransaction(digest);
