@@ -403,41 +403,79 @@ private struct GoalActionSheet: View {
         guard let amount = Double(cleaned), amount > 0 else { return }
         busy = true
         defer { busy = false }
+        // The user types in their display currency (₦, £, …); the goal ledger
+        // settles in USD. Convert before sending — same path as EarnView.
+        let amountUsd = CurrencySettings.shared.convertToUsd(local: amount)
         do {
-            // The user types in their display currency (₦, £, …); the goal
-            // ledger settles in USD. Convert before sending — same path as
-            // EarnView's supply field.
-            let amountUsd = CurrencySettings.shared.convertToUsd(local: amount)
-            let resp: SavingsGoalMutationResponse = try await APIClient.shared.post(
-                "/api/rewards/goals/\(goal.id)",
-                body: GoalDepositRequest(amountUsd: amountUsd)
-            )
-            lastPointsAwarded = resp.pointsAwarded
+            // ON-CHAIN VAULT RAIL — moves REAL USDsui into the goal's segregated
+            // GoalVault. The FIRST deposit `create`s + funds the vault; later
+            // ones `deposit` into it. We confirm server-side (records the vault
+            // id + syncs the display tracker) only after the tx lands.
+            do {
+                let op = goal.vaultObjectId == nil ? "create" : "deposit"
+                let sub = try await ZkLoginCoordinator.shared.signAndSubmitGoalVault(
+                    op: op,
+                    goalId: goal.id,
+                    amountUsd: amountUsd,
+                    name: op == "create" ? goal.name : nil,
+                    targetUsd: op == "create" ? goal.targetUsd : nil
+                )
+                let _: GoalVaultConfirmResponse = try await APIClient.shared.post(
+                    "/api/goals/vault/confirm",
+                    body: GoalVaultConfirmBody(
+                        goalId: goal.id, op: op, amountUsd: amountUsd, digest: sub.digest
+                    )
+                )
+            } catch ZkLoginCoordinator.CoordinatorError.structured(_, let code, _)
+                where code == "GOAL_VAULT_DISABLED" {
+                // Vault rail not enabled in this environment → DB tracking model.
+                let resp: SavingsGoalMutationResponse = try await APIClient.shared.post(
+                    "/api/rewards/goals/\(goal.id)",
+                    body: GoalDepositRequest(amountUsd: amountUsd)
+                )
+                lastPointsAwarded = resp.pointsAwarded
+            }
             depositText = ""
             onChanged()
             // Show the success cover (and stop the form from being re-tapped,
-            // which was stacking duplicate deposits). Amount shown in the
-            // user's display currency, same as the rest of the goal UI.
+            // which was stacking duplicate deposits). Amount in the display ccy.
             depositDone = TaliseFormat.local2(amountUsd)
         } catch {
             self.error = error.localizedDescription
         }
     }
 
-    /// Withdraw the typed amount back out of the goal. Mirrors runDeposit but
-    /// sends action:"withdraw"; the server floors at the goal's balance and
-    /// mints no points. Dismisses so the refreshed list reflects the change.
+    /// Withdraw the typed amount back out of the goal. On-chain vault rail pulls
+    /// REAL USDsui from the goal's GoalVault back to the user's wallet; falls
+    /// back to the DB tracking model when the vault rail is off or the goal
+    /// predates on-chain backing. Dismisses so the refreshed list reflects it.
     private func runWithdraw() async {
         let cleaned = depositText.replacingOccurrences(of: ",", with: ".")
         guard let amount = Double(cleaned), amount > 0 else { return }
         busy = true
         defer { busy = false }
+        let amountUsd = CurrencySettings.shared.convertToUsd(local: amount)
         do {
-            let amountUsd = CurrencySettings.shared.convertToUsd(local: amount)
-            let _: SavingsGoalMutationResponse = try await APIClient.shared.post(
-                "/api/rewards/goals/\(goal.id)",
-                body: GoalDepositRequest(amountUsd: amountUsd, action: "withdraw")
-            )
+            do {
+                let sub = try await ZkLoginCoordinator.shared.signAndSubmitGoalVault(
+                    op: "withdraw",
+                    goalId: goal.id,
+                    amountUsd: amountUsd
+                )
+                let _: GoalVaultConfirmResponse = try await APIClient.shared.post(
+                    "/api/goals/vault/confirm",
+                    body: GoalVaultConfirmBody(
+                        goalId: goal.id, op: "withdraw", amountUsd: amountUsd, digest: sub.digest
+                    )
+                )
+            } catch ZkLoginCoordinator.CoordinatorError.structured(_, let code, _)
+                where code == "GOAL_VAULT_DISABLED" || code == "GOAL_NOT_ON_CHAIN" {
+                // Vault off, or goal predates on-chain backing → tracking model.
+                let _: SavingsGoalMutationResponse = try await APIClient.shared.post(
+                    "/api/rewards/goals/\(goal.id)",
+                    body: GoalDepositRequest(amountUsd: amountUsd, action: "withdraw")
+                )
+            }
             depositText = ""
             onChanged()
             dismiss()

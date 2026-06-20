@@ -511,6 +511,87 @@ final class ZkLoginCoordinator {
         return SignedSubmission(digest: digest)
     }
 
+    /// On-chain GoalVault op — `create` (mint + optionally fund the vault),
+    /// `deposit`, or `withdraw`. Moves REAL USDsui into / out of the goal's
+    /// segregated vault (not the DB tracking envelope). Mirrors the Send path:
+    ///
+    ///   POST /api/goals/vault/prepare { op, goalId, amountUsd, name?, targetUsd? } → { bytes }
+    ///   sign(bytes) locally
+    ///   POST /api/zk/sponsor-execute  { bytesB64, …, cachedProof? } → { digest }
+    ///
+    /// The vault prepare route always returns a fully-built SPONSORED tx (Onara
+    /// is the gas owner), so there's no gasless branch. The caller records the
+    /// result via POST /api/goals/vault/confirm with the returned digest.
+    func signAndSubmitGoalVault(
+        op: String,
+        goalId: String,
+        amountUsd: Double,
+        name: String? = nil,
+        targetUsd: Double? = nil
+    ) async throws -> SignedSubmission {
+        guard let maxEpoch = ProofCache.shared.maxEpoch,
+              let jwtRandomness = ProofCache.shared.jwtRandomness else {
+            throw CoordinatorError.exchangeFailed("no proof cache — sign in again")
+        }
+
+        // 1. Build the sponsored PTB server-side.
+        var prepareBody: [String: Any] = [
+            "op": op,
+            "goalId": goalId,
+            "amountUsd": amountUsd,
+        ]
+        if let name { prepareBody["name"] = name }
+        if let targetUsd { prepareBody["targetUsd"] = targetUsd }
+        let prep = try await postAuthenticated(
+            path: "/api/goals/vault/prepare",
+            body: prepareBody
+        )
+        if let serverErr = prep["error"] as? String, !serverErr.isEmpty {
+            throw CoordinatorError.sponsorFailed(serverErr)
+        }
+        guard let bytesB64 = prep["bytes"] as? String,
+              let txBytesData = Data(base64Encoded: bytesB64) else {
+            throw CoordinatorError.sponsorFailed("malformed vault/prepare response")
+        }
+
+        // 2. Sign locally — identical shape to the Send path.
+        let intentMessage = Data([0, 0, 0]) + txBytesData
+        let digestToSign = Blake2b.hash256(intentMessage)
+        let key = try EphemeralKeyStore.shared.loadOrCreate()
+        let rawSig = try key.signature(for: digestToSign)
+        let pubKey = key.publicKey.rawRepresentation
+        let pubKeyB64 = pubKey.base64EncodedString()
+        let userSig = (Data([0x00]) + rawSig + pubKey).base64EncodedString()
+
+        // 3. Execute via the Onara-sponsored rail.
+        var executeBody: [String: Any] = [
+            "bytesB64": bytesB64,
+            "ephemeralPubKeyB64": pubKeyB64,
+            "maxEpoch": maxEpoch,
+            "randomness": jwtRandomness,
+            "userSignature": userSig,
+        ]
+        if let proofData = ProofCache.shared.proofRaw,
+           let proofJSON = try? JSONSerialization.jsonObject(with: proofData) as? [String: Any],
+           proofJSON["proofPoints"] is [String: Any] {
+            executeBody["cachedProof"] = proofJSON
+        } else {
+            ProofCache.shared.proofRaw = nil
+        }
+        let exec = try await postAuthenticated(
+            path: "/api/zk/sponsor-execute",
+            body: executeBody
+        )
+        if let err = exec["error"] as? String { throw CoordinatorError.executeFailed(err) }
+        guard let digest = exec["digest"] as? String, !digest.isEmpty else {
+            throw CoordinatorError.executeFailed("no digest in response")
+        }
+        if let fresh = exec["freshProof"], JSONSerialization.isValidJSONObject(fresh) {
+            ProofCache.shared.proofRaw = try? JSONSerialization.data(withJSONObject: fresh)
+        }
+        return SignedSubmission(digest: digest)
+    }
+
     /// Combined Send path. Replaces the legacy three-call sequence
     /// (prepare → sponsor → sponsor-execute) with two:
     ///

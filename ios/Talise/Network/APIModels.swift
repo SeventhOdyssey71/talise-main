@@ -476,6 +476,10 @@ struct SavingsGoal: Codable, Identifiable, Hashable {
     /// Server-derived "reached target" flag. Optional so older API responses
     /// (without the field) still decode; falls back to the local computation.
     let completed: Bool?
+    /// On-chain GoalVault object id once the goal is vault-backed. Nil until the
+    /// first real deposit creates the vault. Drives the deposit/withdraw rail:
+    /// nil → first deposit `create`s the vault; set → `deposit`/`withdraw`.
+    let vaultObjectId: String?
 
     /// 0…1 fill ratio for the progress ring. Caps at 1 even when the user
     /// has overshot the target.
@@ -536,6 +540,22 @@ struct GoalDepositRequest: Codable {
 struct SavingsGoalMutationResponse: Codable {
     let goal: SavingsGoal
     let pointsAwarded: Int?
+}
+
+/// Body for POST /api/goals/vault/confirm — records an on-chain GoalVault op
+/// (create | deposit | withdraw) AFTER its sponsored tx has landed.
+struct GoalVaultConfirmBody: Encodable {
+    let goalId: String
+    let op: String
+    let amountUsd: Double
+    let digest: String
+}
+
+/// Response from /api/goals/vault/confirm. We only need the refreshed goal;
+/// the list reloads via onChanged() regardless.
+struct GoalVaultConfirmResponse: Decodable {
+    let goal: SavingsGoal?
+    let vaultObjectId: String?
 }
 
 /// One row in the "top counterparties this month" strip.
