@@ -143,3 +143,9 @@ media/launch/
 media/misc/
 # docs/kyb may contain KYB/PII — never commit.
 docs/kyb/
+
+# Local-only working folders (kept out of the public history)
+/docs/
+/marketing/
+/media/
+/scripts/
