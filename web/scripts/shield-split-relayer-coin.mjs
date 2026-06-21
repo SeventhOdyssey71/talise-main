@@ -7,11 +7,15 @@ const { sui } = await import("../lib/sui.ts");
 
 const COIN_TYPE =
   "0x44f838219cf67b058f3b37907b655f226153c18e33dfcd0da559a844fea9b1c1::usdsui::USDSUI";
-const SRC = "0xdaa807c480422a586c4034a1d53fcb9e21982666eeb20688da98faac23ee014c";
+// Parameterized: SPLIT_SRC (coin id) + SPLIT_SK (owner key). Falls back to the
+// relayer's coin/key for the original relayer-funded path.
+const SRC =
+  process.env.SPLIT_SRC ||
+  "0xdaa807c480422a586c4034a1d53fcb9e21982666eeb20688da98faac23ee014c";
 const AMOUNT = 10_000_000n;
 
-const sk = process.env.SHIELD_RELAYER_SK;
-if (!sk) throw new Error("SHIELD_RELAYER_SK missing");
+const sk = process.env.SPLIT_SK || process.env.SHIELD_RELAYER_SK;
+if (!sk) throw new Error("SPLIT_SK (or SHIELD_RELAYER_SK) missing");
 const kp = Ed25519Keypair.fromSecretKey(sk);
 const addr = kp.toSuiAddress();
 console.log("relayer", addr);

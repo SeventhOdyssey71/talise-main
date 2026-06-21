@@ -54,6 +54,7 @@
 // =============================================================================
 
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -75,6 +76,20 @@ const AMOUNT = 10_000_000n; // $10.00 USDsui (6 decimals) — the per-tx cap.
 // spends an unlinkable nullifier to a fresh exit. WRELAYER is the effective
 // withdraw relayer address used by the PTB, the validator, and execution.
 const SELF_RELAYER = process.argv.includes("--self-relayer") || process.env.SELF_RELAYER === "1";
+// --withdraw-only: the deposit already landed; submit ONLY the withdraw. Requires
+// --resume so the SAME note secrets are reused (the prover is non-deterministic).
+const WITHDRAW_ONLY = process.argv.includes("--withdraw-only");
+// --resume: load the prover artifact from disk instead of re-running the prover.
+// CRASH-SAFETY: the prover uses fresh OsRng secrets each run (prove_lifecycle.rs),
+// so a deposit that lands but whose withdraw never fires would strand funds with
+// unrecoverable secrets. We therefore PERSIST `art` to disk BEFORE submitting the
+// deposit; if anything throws mid-flight, `--resume --withdraw-only` reloads the
+// exact same secrets and completes the matching withdraw.
+const RESUME = process.argv.includes("--resume");
+const ART_FILE = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".shield-lifecycle-art.json"
+);
 const WRELAYER = ((SELF_RELAYER ? process.env.SENDER_ADDRESS : RELAYER) || RELAYER).toLowerCase();
 
 // The validate-commands control reads SHIELD_PKG / SHIELD_RELAYER_ADDRESS from env.
@@ -150,6 +165,12 @@ function runRustProver(emptyRoot) {
 }
 
 async function main() {
+  if (WITHDRAW_ONLY && !RESUME) {
+    throw new Error(
+      "--withdraw-only requires --resume: the withdraw MUST reuse the landed " +
+        "deposit's persisted secrets, not a fresh (mismatched) prover run."
+    );
+  }
   hr("TALISE SHIELDED POOL — MAINNET LIFECYCLE HARNESS  (mode: " + (EXECUTE ? "EXECUTE" : "DRY-RUN") + ")");
   log(`pool      ${POOL}`);
   log(`package   ${PKG}`);
@@ -187,8 +208,24 @@ async function main() {
   log("merkle.ts emptyTree().root == live empty root : PASS");
 
   // STEP 1 — REAL Groth16 proofs (deposit + matched withdraw).
+  // CRASH-SAFETY: --resume loads the persisted artifact (same secrets) so a
+  // deposit that already landed can have its MATCHING withdraw completed. A fresh
+  // prover run is persisted to ART_FILE *before* any submission (see executeReal).
   hr("STEP 1 — Rust prover: REAL Groth16 deposit + matched withdraw (native verify)");
-  const art = runRustProver(emptyRoot);
+  let art;
+  if (RESUME) {
+    if (!fs.existsSync(ART_FILE)) {
+      throw new Error(`--resume: no saved artifact at ${ART_FILE} (nothing to resume)`);
+    }
+    art = JSON.parse(fs.readFileSync(ART_FILE, "utf8"));
+    log(`RESUME: loaded saved prover artifact from ${path.basename(ART_FILE)}`);
+    log(`  (same note secrets as the landed deposit — withdraw will match)`);
+  } else {
+    art = runRustProver(emptyRoot);
+    // Persist BEFORE any on-chain submission so a mid-flight crash is recoverable.
+    fs.writeFileSync(ART_FILE, JSON.stringify(art), { mode: 0o600 });
+    log(`prover artifact persisted to ${path.basename(ART_FILE)} (crash-safe).`);
+  }
   log(`deposit  public_value = ${art.deposit.public_value}  (== +amount)`);
   log(`withdraw public_value = ${art.withdraw.public_value}  (== r - amount)`);
   log(`post_deposit_root     = ${art.post_deposit_root}`);
@@ -491,9 +528,10 @@ async function executeReal({ depositTx, withdrawTx, art }) {
     if (!v) throw new Error(`--execute requires env ${k}`);
     return v;
   };
+  const { toBase64 } = await import("@mysten/sui/utils");
   const senderSk = need("SENDER_SK");
   const senderAddr = need("SENDER_ADDRESS");
-  need("DEPOSIT_COIN_ID");
+  if (!WITHDRAW_ONLY) need("DEPOSIT_COIN_ID");
   // In --self-relayer mode the sender signs the withdraw too (it owns the
   // zero-coin source + ext.relayer == sender). Otherwise use the prod relayer.
   const relayerSk = SELF_RELAYER ? senderSk : need("SHIELD_RELAYER_SK");
@@ -508,6 +546,34 @@ async function executeReal({ depositTx, withdrawTx, art }) {
   if (relayerKp.toSuiAddress().toLowerCase() !== WRELAYER)
     throw new Error(`withdraw signer does not match effective relayer ${WRELAYER}`);
 
+  // Build with the gRPC client (resolves objects + selects gas) but SUBMIT via
+  // JSON-RPC, which returns a clean { digest, effects } — the gRPC client's
+  // signAndExecuteTransaction response shape doesn't expose .digest reliably here.
+  const buildSignSubmit = async (tx, kp) => {
+    const built = await tx.build({ client });
+    const { signature } = await kp.signTransaction(built);
+    const res = await rpc("sui_executeTransactionBlock", [
+      toBase64(built),
+      [signature],
+      { showEffects: true, showEvents: true },
+      "WaitForLocalExecution",
+    ]);
+    return { digest: res?.digest, status: res?.effects?.status?.status, error: res?.effects?.status?.error };
+  };
+
+  let depRes = { digest: process.env.DEPOSIT_DIGEST || "(already landed)" };
+  if (WITHDRAW_ONLY) {
+    log("WITHDRAW-ONLY: skipping the (already-landed) deposit. Verifying post-deposit root is known…");
+    const rh = await rpc("suix_getDynamicFieldObject", [
+      "0x8e60af49055d1cec29e7ed6c5814157d5c6a499f123f4c7e4236811419ecbd7e",
+      { type: "u64", value: "1" },
+    ]).catch(() => null);
+    const v = rh?.data?.content?.fields?.value;
+    if (String(v) !== art.post_deposit_root) {
+      throw new Error(`post-deposit root not yet known on-chain (have ${v}, need ${art.post_deposit_root})`);
+    }
+    log("post-deposit root is KNOWN — proceeding to withdraw.");
+  } else {
   // --- DEPOSIT: the sender owns the deposit coin, so the sender submits. The
   //     ext_data.relayer is RELAYER but on the deposit leg assert_relayer is
   //     satisfied only if sender == relayer. So for a sender-submitted deposit
@@ -539,15 +605,12 @@ async function executeReal({ depositTx, withdrawTx, art }) {
   depTx.setSender(senderAddr);
   // Resolve object refs via JSON-RPC (reliable) rather than the gRPC client.
   depTx.addBuildPlugin(jsonRpcResolutionPlugin());
-  const depRes = await client.signAndExecuteTransaction({
-    signer: senderKp, transaction: depTx,
-    options: { showEffects: true, showEvents: true },
-  });
+  depRes = await buildSignSubmit(depTx, senderKp);
   log(`DEPOSIT digest: ${depRes.digest}`);
   log(`  https://suivision.xyz/txblock/${depRes.digest}`);
-  log(`  status: ${depRes.effects?.status?.status}`);
-  if (depRes.effects?.status?.status !== "success") {
-    throw new Error("deposit failed: " + JSON.stringify(depRes.effects?.status));
+  log(`  status: ${depRes.status}`);
+  if (depRes.status !== "success") {
+    throw new Error("deposit failed: " + JSON.stringify(depRes.error ?? depRes.status));
   }
   await client.waitForTransaction({ digest: depRes.digest });
 
@@ -564,18 +627,16 @@ async function executeReal({ depositTx, withdrawTx, art }) {
     else await new Promise((r) => setTimeout(r, 2000));
   }
   log(known ? "post-deposit root is KNOWN on-chain." : "root not observed (continuing — it is written in the deposit tx).");
+  }
 
   // --- WITHDRAW: relayer-signed (it owns ZERO_COIN_SOURCE_ID; ext.relayer==relayer).
   log(`Submitting WITHDRAW (${SELF_RELAYER ? "self-relayer" : "relayer"}-signed)...`);
   withdrawTx.setSender(WRELAYER);
   withdrawTx.addBuildPlugin(jsonRpcResolutionPlugin());
-  const wRes = await client.signAndExecuteTransaction({
-    signer: relayerKp, transaction: withdrawTx,
-    options: { showEffects: true, showEvents: true },
-  });
+  const wRes = await buildSignSubmit(withdrawTx, relayerKp);
   log(`WITHDRAW digest: ${wRes.digest}`);
   log(`  https://suivision.xyz/txblock/${wRes.digest}`);
-  log(`  status: ${wRes.effects?.status?.status}`);
+  log(`  status: ${wRes.status}${wRes.error ? "  error=" + wRes.error : ""}`);
 
   hr("ROUND-TRIP COMPLETE");
   log(`DEPOSIT : https://suivision.xyz/txblock/${depRes.digest}`);

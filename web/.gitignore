@@ -10,6 +10,9 @@ out
 *.tsbuildinfo
 .DS_Store
 /public/shield/
+# Shielded-pool lifecycle prover artifact — holds note secrets, never commit.
+.shield-lifecycle-art.json
+**/.shield-lifecycle-art.json
 .vercel
 
 # Credentials — never commit signing keys / certs / local secret stores.
