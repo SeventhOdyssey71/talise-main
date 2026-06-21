@@ -320,9 +320,14 @@ export async function POST(req: Request) {
     // here. iOS resolves the actual outcome by polling the digest
     // (HomeView's optimistic-balance path already does this).
     //
-    // 8s leg cap. The Onara client now also enforces an 8s
-    // AbortController internally — this withLegTimeout is belt-and-
-    // braces in case a future Onara client revision drops the abort.
+    // Onara leg cap (env-tunable). Even with waitForExecution:false the
+    // broadcast leg (Onara → fullnode executeTransaction) can run past 8s
+    // under Sui mainnet congestion — an 8s cap surfaced as "onara timeout
+    // after 8003ms" / "Send failed" with no funds moved. The iOS URLSession
+    // ceiling is ~60s, so a 20s cap is well within budget and lets a slow-
+    // but-healthy broadcast complete. Both the Onara client's internal
+    // AbortController and this belt-and-braces withLegTimeout use the same cap.
+    const onaraCapMs = Number(process.env.ONARA_SPONSOR_TIMEOUT_MS) || 20_000;
     const broadcast = (sig: string) =>
       withLegTimeout(
         onaraClient.sponsor({
@@ -330,9 +335,9 @@ export async function POST(req: Request) {
           txBytes: bytesB64,
           txSignature: sig,
           waitForExecution: false,
-          timeoutMs: 8_000,
+          timeoutMs: onaraCapMs,
         }),
-        8_000,
+        onaraCapMs,
         "onara",
         "ONARA_TIMEOUT"
       ) as Promise<Record<string, unknown>>;
