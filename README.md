@@ -6,7 +6,7 @@
 
 A gasless US dollar account on Sui. Sign in with Google, hold dollars, and send them to a name like `vanessa@talise.sui`. No seed phrase, no gas, settles in under a second, and a send can be private with the amount hidden on chain. Live on mainnet.
 
-[Web app](https://app.talise.io) · [iOS (TestFlight)](https://testflight.apple.com/join/BFNEPYtM) · [X](https://x.com/taliseio)
+[Website](https://talise.io) · [iOS (TestFlight)](https://testflight.apple.com/join/BFNEPYtM) · [X](https://x.com/taliseio)
 
 </div>
 
