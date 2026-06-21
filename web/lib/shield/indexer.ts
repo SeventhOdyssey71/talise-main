@@ -71,13 +71,20 @@ async function rpc<T>(method: string, params: unknown[]): Promise<T> {
   return body.result as T;
 }
 
-/** One page of `suix_queryEvents` filtered to a MoveEventType, ascending. */
-async function queryEventsPage(
-  moveEventType: string,
-  cursor: SuiEventId | null
-): Promise<QueryEventsResult> {
+/**
+ * One page of `suix_queryEvents` filtered to the shield events MODULE, ascending.
+ *
+ * CRITICAL: the pool's events are GENERIC — `events::NewCommitment<CoinType>` etc.
+ * A `MoveEventType` filter on the bare `…::events::NewCommitment` matches NOTHING
+ * (Sui requires the exact instantiated type), so the indexer was silently
+ * ingesting ZERO commitments while 20 sat on-chain → every withdraw's merkle-path
+ * lookup failed → withdraw never submitted → recipient never paid. Filtering by
+ * MODULE returns all generic instantiations; the caller then matches the struct,
+ * which is robust to CoinType formatting (no fragile generic string-matching).
+ */
+async function queryEventsPage(cursor: SuiEventId | null): Promise<QueryEventsResult> {
   return rpc<QueryEventsResult>("suix_queryEvents", [
-    { MoveEventType: moveEventType },
+    { MoveEventModule: { package: SHIELD.packageId, module: SHIELD.module } },
     cursor,
     PAGE_SIZE,
     false, // ascending — we index oldest→newest so leaf order is monotonic
@@ -169,18 +176,26 @@ async function drainPipeline(
   // Bound the run so a cron invocation can't loop forever on a huge backlog;
   // the next invocation resumes from the persisted cursor.
   for (let page = 0; page < 200; page++) {
-    const res = await queryEventsPage(eventType, cursor);
+    const res = await queryEventsPage(cursor);
     if (res.data.length === 0) break;
 
     const stmts: { sql: string; args: unknown[] }[] = [];
-    for (const ev of res.data) stmts.push(...buildStmts(ev));
+    let matched = 0;
+    for (const ev of res.data) {
+      // The module filter returns ALL generic event types; ingest only THIS
+      // pipeline's struct (compare ignoring the `<CoinType>` generic).
+      if (ev.type.split("<")[0] !== eventType) continue;
+      stmts.push(...buildStmts(ev));
+      matched++;
+    }
 
-    // Advance the cursor in the SAME transaction as the writes.
+    // Advance the cursor in the SAME transaction as the writes (over ALL module
+    // events — each pipeline keeps its own cursor + filters its own struct).
     const nextCursor = res.nextCursor ?? res.data[res.data.length - 1].id;
     stmts.push(nowCursorRow(pipeline, nextCursor));
 
     await db().batch(stmts, "write");
-    total += res.data.length;
+    total += matched;
     cursor = nextCursor;
 
     if (!res.hasNextPage) break;
