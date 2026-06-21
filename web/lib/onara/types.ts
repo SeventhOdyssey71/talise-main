@@ -63,6 +63,16 @@ export type SponsorOptions = {
   dryRun?: boolean
   waitForExecution?: boolean
   /**
+   * Skip Onara's pre-broadcast dry-run simulation (`?simulate=false`). The
+   * simulate step is a full extra RPC round-trip (with its own retry) before
+   * the sponsor signs + broadcasts — pure latency on the user's hot send path.
+   * Since the send is already optimistic (waitForExecution:false, iOS polls the
+   * digest for the real outcome), skipping it removes a round-trip and a major
+   * source of the "onara timeout" under RPC congestion. Leave unset (simulate
+   * on) for paths that want the pre-flight abort check.
+   */
+  simulate?: boolean
+  /**
    * Per-call fetch timeout in ms. Enforced via AbortController. Default
    * 8000ms. Aborts surface as `OnaraError("onara timeout after Nms", 504)`
    * so the caller can branch on the error shape.

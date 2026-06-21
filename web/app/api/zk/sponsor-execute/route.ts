@@ -335,6 +335,11 @@ export async function POST(req: Request) {
           txBytes: bytesB64,
           txSignature: sig,
           waitForExecution: false,
+          // Skip Onara's pre-broadcast simulate — one fewer RPC round-trip on
+          // the hot send path. The send is already optimistic (we don't wait
+          // for execution; iOS polls the digest), so the simulate only added
+          // latency + a timeout surface under RPC congestion.
+          simulate: false,
           timeoutMs: onaraCapMs,
         }),
         onaraCapMs,

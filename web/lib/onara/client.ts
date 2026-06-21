@@ -51,6 +51,7 @@ export class OnaraClient {
     const params = new URLSearchParams()
     if (options.dryRun) params.set('dryRun', 'true')
     if (options.waitForExecution === false) params.set('waitForExecution', 'false')
+    if (options.simulate === false) params.set('simulate', 'false')
 
     const query = params.toString()
     const url = `${this.baseUrl}/sponsor${query ? `?${query}` : ''}`
