@@ -1,5 +1,6 @@
 import "server-only";
 
+import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { SuinsClient, SuinsTransaction } from "@mysten/suins";
@@ -42,12 +43,31 @@ function operator(): Ed25519Keypair {
   return _operator;
 }
 
+/**
+ * A DIRECT-fullnode gRPC client for the subname mint — NOT the Hayabusa-proxied
+ * `sui()`. `tx.build()` resolves its inputs (the parent SuinsRegistration NFT,
+ * the shared SuiNS registry objects) by reading them back from the client; the
+ * Hayabusa read/cache proxy returns "Not Found" for those owned/shared object
+ * lookups, which surfaced to users as `On-chain subname mint failed: Not Found`.
+ * The direct fullnode resolves them correctly (build + simulate verified green).
+ * Mirrors `chequeChainClient()` in lib/cheques.ts, which fixed the same class of
+ * bug for the on-chain cheque build. Execution still goes through `sui()` (its
+ * broadcast path already bypasses Hayabusa and keeps the multi-endpoint failover).
+ */
+function directChainClient(): SuiGrpcClient {
+  return new SuiGrpcClient({
+    network: PACKAGE_NETWORK,
+    baseUrl: process.env.SUI_GRPC_URL?.trim() || "https://fullnode.mainnet.sui.io:443",
+  });
+}
+
 export function suins(): SuinsClient {
   if (_suins) return _suins;
-  // SuinsClient accepts any client conforming to the unified core surface;
-  // passing the shared gRPC client keeps every read path on one transport.
+  // Build the SuinsTransaction against the DIRECT fullnode, not the
+  // Hayabusa-proxied `sui()` — object resolution during `tx.build()` 404s
+  // through the read proxy. See directChainClient() above.
   _suins = new SuinsClient({
-    client: sui() as never,
+    client: directChainClient() as never,
     network: PACKAGE_NETWORK,
   });
   return _suins;
@@ -178,9 +198,14 @@ export async function mintSubname(opts: {
   const kp = operator();
   tx.setSender(kp.getPublicKey().toSuiAddress());
 
-  const client = sui();
-  const bytes = await tx.build({ client: client as never });
+  // Build (resolve inputs) against the DIRECT fullnode — the Hayabusa read
+  // proxy 404s the parent NFT / SuiNS object lookups ("…mint failed: Not Found").
+  const bytes = await tx.build({ client: directChainClient() as never });
   const { signature } = await kp.signTransaction(bytes);
+
+  // Execute through `sui()` — its broadcast path bypasses Hayabusa and keeps
+  // the multi-endpoint failover for the actual on-chain submit.
+  const client = sui();
 
   // gRPC executeTransaction returns a discriminated union:
   //   { $kind: "Transaction",       Transaction:       { digest, effects, objectTypes, ... } }
