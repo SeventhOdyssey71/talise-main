@@ -610,6 +610,69 @@ export async function spendExistingNote(args: {
 }
 
 /**
+ * RECOVERY SWEEP: scan ALL of the user's UNSPENT notes and withdraw each back to
+ * `destination` (the user's own wallet). One-tap reclaim of a shielded balance
+ * stranded by earlier failed withdraws. Each note is withdrawn at its full
+ * amount (no change), sequentially; a per-note failure is recorded and the sweep
+ * continues (best-effort — never aborts the whole sweep on one bad note). The
+ * withdraw root is bound to each note's own freshly-fetched path (see
+ * shieldWithdraw), so sequential withdraws stay valid as the tree grows.
+ */
+export async function sweepShieldedBalance(args: {
+  cfg: ShieldFlowConfig;
+  keypair: ShieldKeypair;
+  /** Where the reclaimed cleartext USDsui lands (the user's own address). */
+  destination: string;
+  /** A relayer-owned coin to split the zero deposit-coin from. */
+  zeroCoinSourceId: string;
+}): Promise<{ swept: { digest: string; amountMicros: string }[]; failed: number; totalMicros: string }> {
+  const { cfg, keypair, destination, zeroCoinSourceId } = args;
+  const viewingKey = await deriveShieldEncScalar(keypair.spendingKey);
+  let notes: Awaited<ReturnType<typeof scanNotes>> = [];
+  try {
+    notes = await scanNotes(viewingKey, {
+      baseUrl: `${cfg.apiBase ?? ""}/api/shield/commitments`,
+      fetch: ((u: string) => fetch(u, { ...cfg.fetchInit })) as typeof fetch,
+    });
+  } catch {
+    return { swept: [], failed: 0, totalMicros: "0" };
+  }
+
+  const swept: { digest: string; amountMicros: string }[] = [];
+  let failed = 0;
+  let total = 0n;
+  for (const n of notes) {
+    if (n.amount <= 0n || n.leafIndex == null) continue; // skip zero / unplaced notes
+    const nf = nullifierFor(keypair.spendingKey, n.commitment, BigInt(n.leafIndex));
+    if (await isSpent(cfg, nf).catch(() => false)) continue; // already spent
+    try {
+      const { digest } = await shieldWithdraw({
+        cfg,
+        keypair,
+        inputNotes: [
+          {
+            privateKey: keypair.spendingKey,
+            amount: n.amount,
+            blinding: n.blinding,
+            leafIndex: n.leafIndex,
+            commitment: n.commitment,
+          },
+        ],
+        amount: n.amount, // full note → no change
+        exitAddress: destination,
+        zeroCoinSourceId,
+        root: 0n, // ignored — shieldWithdraw binds the proof root to the note's path
+      });
+      swept.push({ digest, amountMicros: dec(n.amount) });
+      total += n.amount;
+    } catch {
+      failed++;
+    }
+  }
+  return { swept, failed, totalMicros: dec(total) };
+}
+
+/**
  * INTERNAL TRANSFER: spend `inputNotes` and re-split into a note for the
  * recipient (`recipientPubkey` + `recipientEncKey`) and a change note for the
  * user — with ZERO coin movement on-chain. public_amount == 0.

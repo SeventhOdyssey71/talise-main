@@ -6,6 +6,7 @@ import {
   proveShieldDeposit,
   shieldWithdraw,
   spendExistingNote,
+  sweepShieldedBalance,
   type ShieldFlowConfig,
   type FlowInputNote,
 } from "@/lib/shield/sdk/flow";
@@ -41,6 +42,7 @@ type Msg =
 declare global {
   interface Window {
     taliseShieldSend?: (micros: string, recipient: string, seedHex: string) => void;
+    taliseShieldRecover?: (seedHex: string, destination: string) => void;
     __taliseDepositSigned?: (digest: string, error: string) => void;
     webkit?: { messageHandlers?: { shield?: { postMessage: (m: Msg) => void } } };
   }
@@ -281,8 +283,58 @@ export function ShieldProveHarness({
       })();
     };
 
+    // ── ONE-TAP RECOVERY SWEEP ────────────────────────────────────────────
+    // Scan every UNSPENT shielded note the user owns and withdraw each back to
+    // their own wallet — reclaims a balance stranded by earlier failed withdraws.
+    window.taliseShieldRecover = (seedHex: string, destination: string) => {
+      void (async () => {
+        try {
+          post({ type: "progress", message: "Unlocking your private key…" });
+          if (!live || !packageId || !poolObjectId) throw new Error("Private send isn’t switched on yet.");
+          if (!/^0x[a-f0-9]{64}$/i.test(destination)) throw new Error("Invalid destination address.");
+          if (!/^[0-9a-f]{32,128}$/i.test(seedHex)) throw new Error("Couldn’t unlock your private key on this device.");
+          const keypair = await deriveShieldKeypairFromSeed(seedFromHex(seedHex));
+          if (keypair.spendingKey <= 0n) throw new Error("Key derivation failed.");
+
+          post({ type: "progress", message: "Finding your shielded balance…" });
+          const relRes = await fetch("/api/shield/relayer", { credentials: "same-origin" });
+          const rel = (await relRes.json().catch(() => ({}))) as { zeroCoinSourceId?: string };
+          if (!rel.zeroCoinSourceId) throw new Error("The shielded pool is busy. Try again shortly.");
+
+          post({ type: "progress", message: "Recovering your funds…" });
+          const res = await sweepShieldedBalance({
+            cfg,
+            keypair,
+            destination,
+            zeroCoinSourceId: rel.zeroCoinSourceId,
+          });
+
+          if (res.swept.length === 0) {
+            post({
+              type: "error",
+              message:
+                res.failed > 0
+                  ? "Couldn’t recover right now — please try again shortly. Your funds are safe."
+                  : "No recoverable shielded balance found.",
+            });
+            return;
+          }
+          const dollars = (Number(res.totalMicros) / 1e6).toFixed(2);
+          // Resolve the native continuation; the last digest is a concrete proof.
+          post({ type: "result", digest: res.swept[res.swept.length - 1].digest });
+          post({
+            type: "progress",
+            message: `Recovered $${dollars} across ${res.swept.length} note(s)${res.failed ? ` (${res.failed} pending)` : ""}.`,
+          });
+        } catch (e) {
+          post({ type: "error", message: (e as Error).message || "Recovery failed." });
+        }
+      })();
+    };
+
     return () => {
       delete window.taliseShieldSend;
+      delete window.taliseShieldRecover;
       delete window.__taliseDepositSigned;
     };
   }, [live, packageId, poolObjectId, coinType]);

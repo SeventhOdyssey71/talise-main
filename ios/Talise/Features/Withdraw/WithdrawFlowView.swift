@@ -1353,6 +1353,7 @@ struct PrivateSendFlowView: View {
     var onDone: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppSession.self) private var session
     @State private var path: [SendStep] = []
     @State private var draft = SendDraft(currency: CurrencySettings.shared.current)
     @StateObject private var prover = ShieldProverController()
@@ -1362,7 +1363,8 @@ struct PrivateSendFlowView: View {
             PrivateAmountView(
                 draft: draft,
                 onNext: { path.append(.recipient) },
-                onCancel: { close() }
+                onCancel: { close() },
+                onRecover: { Task { await recover() } }
             )
             .navigationDestination(for: SendStep.self) { step in
                 switch step {
@@ -1406,6 +1408,34 @@ struct PrivateSendFlowView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         )
+    }
+
+    /// One-tap recovery: sweep all unspent shielded notes back to the user's own
+    /// wallet. Reclaims a balance stranded by earlier failed withdraws.
+    private func recover() async {
+        guard let addr = session.currentUser?.suiAddress, !addr.isEmpty else {
+            draft.errorMessage = "Couldn’t read your wallet address."
+            path = [.failure]
+            return
+        }
+        draft.errorMessage = nil
+        path.append(.sending)
+        do {
+            let seedHex = await ShieldKeyStore.noteMasterHex()
+            let digest = try await prover.recover(seedHex: seedHex, destination: addr)
+            draft.success = SendSuccess(
+                digest: digest,
+                displayAmount: "Recovered",
+                currency: draft.currency,
+                usdsui: 0,
+                recipientAddress: addr,
+                recipientDisplay: "your wallet"
+            )
+            path = [.complete]
+        } catch {
+            draft.errorMessage = error.localizedDescription
+            path = [.failure]
+        }
     }
 
     private func confirm() async {
@@ -1495,6 +1525,30 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
                 if self.continuation != nil {
                     self.finish(.failure(ShieldError.message(
                         "Private send timed out. Check your balance — any shielded funds are safe and recoverable.")))
+                }
+            }
+        }
+    }
+
+    /// One-tap recovery: sweep ALL unspent shielded notes back to `destination`
+    /// (the user's own wallet). `seedHex` = the note master; `destination` = the
+    /// user's Sui address.
+    func recover(seedHex: String, destination: String) async throws -> String {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
+            self.continuation = cont
+            let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
+            let safeDest = destination.replacingOccurrences(of: "'", with: "")
+            let js = "if(!window.taliseShieldRecover){throw new Error('Recovery isn’t ready yet — try again.')}; window.taliseShieldRecover('\(safeSeed)','\(safeDest)')"
+            webView.evaluateJavaScript(js) { _, err in
+                if let err {
+                    self.finish(.failure(ShieldError.message(err.localizedDescription)))
+                }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 300 * 1_000_000_000)
+                if self.continuation != nil {
+                    self.finish(.failure(ShieldError.message(
+                        "Recovery timed out — your shielded funds are safe; please try again.")))
                 }
             }
         }
@@ -1665,6 +1719,7 @@ struct PrivateAmountView: View {
     @Bindable var draft: SendDraft
     var onNext: () -> Void
     var onCancel: () -> Void
+    var onRecover: () -> Void = {}
 
     private var amount: Double { Double(draft.rawAmount) ?? 0 }
     private var overCap: Bool { amount > 10 }
@@ -1679,10 +1734,23 @@ struct PrivateAmountView: View {
             shieldedPill.padding(.bottom, 18)
             SendNumpad(input: $draft.rawAmount)
                 .padding(.horizontal, 24).padding(.bottom, 12)
-            reviewButton.padding(.horizontal, 24).padding(.bottom, 18)
+            reviewButton.padding(.horizontal, 24).padding(.bottom, 8)
+            recoverButton.padding(.bottom, 16)
         }
         .taliseScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    /// Reclaims any shielded balance stranded by an earlier failed transfer —
+    /// sweeps every unspent note back to the user's own wallet.
+    private var recoverButton: some View {
+        Button(action: onRecover) {
+            Text("Recover shielded balance")
+                .font(TaliseFont.body(13, weight: .medium))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .underline()
+        }
+        .buttonStyle(.plain)
     }
 
     private var header: some View {
