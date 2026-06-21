@@ -228,7 +228,7 @@ async function main() {
   log(`pool      ${POOL}`);
   log(`package   ${PKG}`);
   log(`relayer   ${RELAYER}`);
-  log(`amount    ${AMOUNT} micros USDsui ($10.00 — the per-tx cap)`);
+  log(`amount    ${AMOUNT} micros USDsui ($${(Number(AMOUNT) / 1e6).toFixed(2)})`);
 
   // ── Real SDK + merkle (Node strips the TS types) ──────────────────────────
   const { buildTransact } = await import("../lib/shield/sdk/tx.ts");
@@ -701,7 +701,7 @@ async function executeReal({ depositTx, withdrawTx, art }) {
   hr("ROUND-TRIP COMPLETE");
   log(`DEPOSIT : https://suivision.xyz/txblock/${depRes.digest}`);
   log(`WITHDRAW: https://suivision.xyz/txblock/${wRes.digest}`);
-  log(`The $10 left the pool to a fresh address ${exit}, unlinked from the depositor.`);
+  log(`$${(Number(AMOUNT) / 1e6).toFixed(2)} left the pool to a fresh address ${exit}, unlinked from the depositor.`);
 }
 
 main().catch((e) => {
