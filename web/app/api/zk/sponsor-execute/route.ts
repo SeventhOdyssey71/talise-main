@@ -327,7 +327,7 @@ export async function POST(req: Request) {
     // ceiling is ~60s, so a 20s cap is well within budget and lets a slow-
     // but-healthy broadcast complete. Both the Onara client's internal
     // AbortController and this belt-and-braces withLegTimeout use the same cap.
-    const onaraCapMs = Number(process.env.ONARA_SPONSOR_TIMEOUT_MS) || 20_000;
+    const onaraCapMs = Number(process.env.ONARA_SPONSOR_TIMEOUT_MS) || 8_000;
     const broadcast = (sig: string) =>
       withLegTimeout(
         onaraClient.sponsor({

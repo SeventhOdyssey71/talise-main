@@ -796,15 +796,25 @@ export async function releaseCheque(input: {
   let chequeObjectId = (lock.rows[0].cheque_object_id as string | null) ?? null;
   const fundDigest = (lock.rows[0].fund_digest as string | null) ?? null;
 
-  const onchain = chequeOnchainEnabled();
-  if (onchain && !chequeObjectId) {
-    // The object id wasn't captured at funding time (fullnode indexing lag at
-    // confirm). Reconcile it now from the stored funding digest — by claim
-    // time the tx is long-indexed, so this resolves quickly. Only refuse if we
-    // genuinely can't find a Cheque object created by that funding tx.
+  // RAIL DECISION IS PER-CHEQUE, never the global chequeOnchainEnabled() flag.
+  // A cheque MINTED on the on-chain rail has a `cheque_object_id` (the money
+  // lives in that Cheque<T> object → claim via the worker `cheque::claim`); an
+  // escrow-rail cheque has none (the money sits in the shared escrow
+  // accumulator → settle with an escrow→claimer transfer). New cheques are
+  // created on the escrow rail even while the on-chain rail stays configured,
+  // so keying the claim off the global flag treated every escrow cheque as
+  // on-chain and failed it with "missing_cheque_object".
+  let rail: "onchain" | "escrow" | null = chequeObjectId ? "onchain" : null;
+  if (!rail) {
     if (fundDigest) {
+      // Classify by probing the funding tx (long-indexed by claim time):
+      //   • it created a Cheque<T> object  → on-chain rail (capture id + claim)
+      //   • none ("cheque_object_not_found", i.e. an escrow deposit) → escrow
+      //   • unfetchable after retries       → leave unresolved and REFUSE, never
+      //     guess escrow (an escrow transfer would mis-pay from the pooled
+      //     escrow balance that belongs to other cheques).
       let parsed = await parseCreatedChequeObjectId(fundDigest);
-      for (let i = 0; !parsed.ok && i < 4; i++) {
+      for (let i = 0; !parsed.ok && i < 3 && parsed.reason !== "cheque_object_not_found"; i++) {
         await new Promise((r) => setTimeout(r, 1000));
         parsed = await parseCreatedChequeObjectId(fundDigest);
       }
@@ -814,21 +824,28 @@ export async function releaseCheque(input: {
           sql: `UPDATE cheques SET cheque_object_id=? WHERE id=?`,
           args: [chequeObjectId, input.chequeId],
         });
+        rail = "onchain";
+      } else if (parsed.reason === "cheque_object_not_found") {
+        rail = "escrow";
       }
+    } else {
+      // No funding digest recorded (legacy escrow rows) → escrow rail.
+      rail = "escrow";
     }
-    if (!chequeObjectId) {
-      await db().execute({
-        sql: `UPDATE cheques SET status='funded' WHERE id=? AND status='claiming'`,
-        args: [input.chequeId],
-      });
-      return { ok: false, reason: "missing_cheque_object" };
-    }
+  }
+  if (!rail) {
+    await db().execute({
+      sql: `UPDATE cheques SET status='funded' WHERE id=? AND status='claiming'`,
+      args: [input.chequeId],
+    });
+    return { ok: false, reason: "rail_unresolved" };
   }
 
   try {
-    const digest = onchain
-      ? await claimOnChain(chequeObjectId as string, input.claimerAddress, input.secret ?? "")
-      : await escrowTransfer(input.claimerAddress, micros);
+    const digest =
+      rail === "onchain"
+        ? await claimOnChain(chequeObjectId as string, input.claimerAddress, input.secret ?? "")
+        : await escrowTransfer(input.claimerAddress, micros);
     await db().execute({
       sql: `UPDATE cheques SET status='claimed', release_digest=?, claim_digest=?,
               claimed_by_user_id=?, claimed_to_address=?, claimer_country=?,
@@ -948,7 +965,33 @@ export async function sweepExpiredCheques(limit = 50): Promise<number> {
     const id = String(row.id);
     let objectId = (row.cheque_object_id as string | null) ?? null;
     const fundDigest = (row.fund_digest as string | null) ?? null;
-    const isOnchain = chequeOnchainEnabled() && (objectId !== null || fundDigest !== null);
+
+    // Per-cheque rail (NOT the global flag — escrow cheques exist while the
+    // on-chain rail stays configured). Object id present → on-chain; otherwise
+    // probe the funding tx: a created Cheque<T> object means on-chain (capture
+    // the id), "cheque_object_not_found" means an escrow deposit. Unresolved
+    // (fetch failure) → skip this pass and retry next tick rather than risk an
+    // escrow mis-pay from the pooled escrow balance.
+    let isOnchain: boolean;
+    if (objectId) {
+      isOnchain = true;
+    } else if (fundDigest) {
+      const parsed = await parseCreatedChequeObjectId(fundDigest);
+      if (parsed.ok && parsed.chequeObjectId) {
+        objectId = parsed.chequeObjectId;
+        await db().execute({
+          sql: `UPDATE cheques SET cheque_object_id=? WHERE id=?`,
+          args: [objectId, id],
+        });
+        isOnchain = true;
+      } else if (parsed.reason === "cheque_object_not_found") {
+        isOnchain = false;
+      } else {
+        continue; // couldn't classify the rail this pass — retry next cron tick
+      }
+    } else {
+      isOnchain = false; // no funding digest → escrow rail
+    }
 
     // Lock the row. The lock predicate matches the rail we're about to settle
     // so a row that flips rails concurrently can never be double-settled.
@@ -964,18 +1007,6 @@ export async function sweepExpiredCheques(limit = 50): Promise<number> {
     try {
       let digest: string;
       if (isOnchain) {
-        // Reconcile a missing object id from the funding digest (indexing lag
-        // at confirm time), same as releaseCheque.
-        if (!objectId && fundDigest) {
-          const parsed = await parseCreatedChequeObjectId(fundDigest);
-          if (parsed.ok && parsed.chequeObjectId) {
-            objectId = parsed.chequeObjectId;
-            await db().execute({
-              sql: `UPDATE cheques SET cheque_object_id=? WHERE id=?`,
-              args: [objectId, id],
-            });
-          }
-        }
         if (!objectId) throw new Error("missing_cheque_object");
         digest = await reclaimExpiredOnChain(objectId);
       } else {
