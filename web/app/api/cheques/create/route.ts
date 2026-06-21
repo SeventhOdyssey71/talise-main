@@ -7,7 +7,7 @@ import { screenTransfer } from "@/lib/screening";
 import { requireAppAttestStructural } from "@/lib/app-attest";
 import {
   chequesEnabled,
-  chequeOnchainEnabled,
+  chequeOnchainCreateEnabled,
   escrowAddress,
   createCheque,
   getCheque,
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
   // parses the created on-chain Cheque object id and flips draft→funded. When
   // the on-chain rail is OFF, we return the escrow address + claim URL exactly
   // as before (the client funds the escrow via the normal send rail).
-  if (chequeOnchainEnabled()) {
+  if (chequeOnchainCreateEnabled()) {
     try {
       const { bytes: fundingBytes, sponsor } = await buildChequeCreateSponsored({
         creatorAddress: user.sui_address,

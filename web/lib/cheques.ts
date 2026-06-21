@@ -315,6 +315,26 @@ export function chequeOnchainEnabled(): boolean {
   );
 }
 
+/**
+ * Whether NEW cheques are MINTED on-chain (the sponsored `cheque::create` rail).
+ *
+ * The on-chain create funds the cheque with a COMBINED sponsored PTB —
+ * an accumulator `Balance<USDSUI>` withdrawal AND `cheque::create` in one tx.
+ * That combined tx proved flaky in production: it aborts at execution, and
+ * since sponsor-execute now (correctly) rejects a FailedTransaction instead of
+ * returning its digest, the user just sees "Couldn't issue the cheque." We
+ * therefore default NEW minting to the proven ESCROW rail (the same gasless
+ * send the app uses everywhere, then a server-key release at claim) and only
+ * use the on-chain mint when explicitly opted in via CHEQUE_ONCHAIN_CREATE=1.
+ *
+ * This gate is CREATE-ONLY: claim/reclaim/release still honour
+ * `chequeOnchainEnabled()` and branch per-cheque on `cheque_object_id`, so any
+ * cheque already minted on-chain keeps working regardless of this flag.
+ */
+export function chequeOnchainCreateEnabled(): boolean {
+  return chequeOnchainEnabled() && process.env.CHEQUE_ONCHAIN_CREATE === "1";
+}
+
 /** Fully-qualified on-chain Cheque object type prefix: `${PKG}::cheque::Cheque<`. */
 function chequeObjectTypePrefix(pkg: string): string {
   return `${pkg}::cheque::Cheque<`;
