@@ -245,7 +245,7 @@ async function ingestCommitments(): Promise<number> {
         sql: `INSERT INTO shield_commitments
                 (coin_type, leaf_index, commitment, encrypted_output, digest, sender, checkpoint, event_seq, created_at)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT (event_seq) DO NOTHING`,
+              ON CONFLICT (coin_type, leaf_index) DO NOTHING`,
         args: [
           coinType,
           leafIndex,

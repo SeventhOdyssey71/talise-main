@@ -62,10 +62,12 @@ export function ensureShieldSchema(): Promise<void> {
         PRIMARY KEY (coin_type, leaf_index)
       )`
     );
-    await c.execute(
-      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_shield_commitments_event_seq
-         ON shield_commitments (event_seq)`
-    );
+    // BUGFIX: a UNIQUE index on event_seq ALONE was wrong — event_seq is the
+    // PER-TX event index ("0","1",…), NOT globally unique, so every commitment
+    // after the first tx collided and was silently dropped (only 2 leaves ever
+    // persisted while 20 sat on-chain). Idempotency is the PK (coin_type,
+    // leaf_index), which IS unique per leaf. Drop the broken index.
+    await c.execute(`DROP INDEX IF EXISTS uniq_shield_commitments_event_seq`);
     // Hot scan: rebuild / extend the tree in leaf order for one coin type.
     await c.execute(
       `CREATE INDEX IF NOT EXISTS idx_shield_commitments_scan
@@ -87,11 +89,9 @@ export function ensureShieldSchema(): Promise<void> {
         PRIMARY KEY (coin_type, nullifier)
       )`
     );
-    await c.execute(
-      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_shield_nullifiers_event_seq
-         ON shield_nullifiers (event_seq)
-         WHERE event_seq IS NOT NULL`
-    );
+    // Same bug as commitments — event_seq is not globally unique. Idempotency
+    // is the PK (coin_type, nullifier). Drop the broken index.
+    await c.execute(`DROP INDEX IF EXISTS uniq_shield_nullifiers_event_seq`);
 
     // ── shield_pools ─────────────────────────────────────────────────
     // Per-CoinType pool address registry (from NewPool). One pool per
