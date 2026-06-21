@@ -39,6 +39,24 @@ export async function GET(req: Request) {
   await ensureShieldSchema();
 
   const out: Record<string, unknown> = {};
+
+  // ?reset=1 — clear the per-pipeline cursors so the next indexer run re-scans
+  // from genesis (recovers from a stuck/stale cursor). Also report the cursor.
+  const url = new URL(req.url);
+  try {
+    const cur = await db().execute({ sql: "SELECT pipeline, tx_digest, event_seq FROM shield_index_cursor", args: [] });
+    out.cursors_before = cur.rows;
+  } catch (e) {
+    out.cursors_before_error = (e as Error).message;
+  }
+  if (url.searchParams.get("reset") === "1") {
+    try {
+      await db().execute({ sql: "DELETE FROM shield_index_cursor", args: [] });
+      out.cursor_reset = true;
+    } catch (e) {
+      out.cursor_reset_error = (e as Error).message;
+    }
+  }
   try {
     const mt = await rpc("sui_getObject", [
       "0x5a32ce39a3d9961ca5c1785f708f95b22434287047cb0db1bff76090de2c3e47",
