@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { denyUnlessAppApproved } from "@/lib/app-access";
 import { shieldConfigured } from "@/lib/shield/onchain";
-import { merklePathForLeaf, dummyPath } from "@/lib/shield/merkle";
+import { merklePathForLeaf, dummyPath, refreshMerkleCache } from "@/lib/shield/merkle";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 
 export const runtime = "nodejs";
@@ -45,7 +45,17 @@ export async function POST(req: Request) {
 
   if (body.dummy) {
     const p = dummyPath();
-    return NextResponse.json({ dummy: true, ...p });
+    // The deposit leg uses dummy input paths (zero-amount inputs skip the
+    // membership check) but its proof's `root` public signal must be a KNOWN
+    // on-chain root, so surface the live tree root alongside the dummy path.
+    const coinType = body.coinType || USDSUI_TYPE;
+    let currentRoot: string | undefined;
+    try {
+      currentRoot = await refreshMerkleCache(coinType);
+    } catch {
+      /* leave undefined — the caller falls back / retries */
+    }
+    return NextResponse.json({ dummy: true, ...p, ...(currentRoot ? { currentRoot } : {}) });
   }
 
   const coinType = body.coinType || USDSUI_TYPE;

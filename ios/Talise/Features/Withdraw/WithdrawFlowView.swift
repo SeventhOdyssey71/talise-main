@@ -1478,10 +1478,23 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
             self.continuation = cont
             let safeRecipient = recipient.replacingOccurrences(of: "'", with: "")
             let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
-            let js = "window.taliseShieldSend && window.taliseShieldSend('\(micros)','\(safeRecipient)','\(safeSeed)')"
+            // Throw (not silently no-op) if the harness hasn't installed yet, so a
+            // missing function surfaces as a clean failure instead of a hang.
+            let js = "if(!window.taliseShieldSend){throw new Error('Private send isn’t ready yet — try again.')}; window.taliseShieldSend('\(micros)','\(safeRecipient)','\(safeSeed)')"
             webView.evaluateJavaScript(js) { _, err in
                 if let err {
                     self.finish(.failure(ShieldError.message(err.localizedDescription)))
+                }
+            }
+            // Watchdog — never hang forever if the webview goes silent (crash,
+            // navigation failure, lost message). The full flow (prove → sign →
+            // index → withdraw) can take a few minutes, so allow a generous
+            // ceiling. Message stays neutral: a deposit may already be shielded.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 300 * 1_000_000_000)
+                if self.continuation != nil {
+                    self.finish(.failure(ShieldError.message(
+                        "Private send timed out. Check your balance — any shielded funds are safe and recoverable.")))
                 }
             }
         }
@@ -1496,9 +1509,44 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
             finish(.success(body["digest"] as? String ?? ""))
         case "error":
             finish(.failure(ShieldError.message(body["message"] as? String ?? "Private send failed")))
+        case "signDeposit":
+            // The DEPOSIT-SIGNING BRIDGE. The webview proved the deposit + built
+            // the sponsor-ready PTB (POST /api/shield/deposit/prepare); only the
+            // device can zkLogin-sign it (the ephemeral key is native). Sign +
+            // submit via the same Onara-sponsored rail as cheques/streams, then
+            // hand the digest back so the webview can finish the withdraw leg.
+            guard let bytesB64 = body["bytesB64"] as? String, !bytesB64.isEmpty else {
+                depositSigned(digest: "", error: "Couldn’t prepare the private deposit.")
+                return
+            }
+            Task { @MainActor in
+                do {
+                    let sub = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                        bytesB64: bytesB64, intent: "Private send")
+                    depositSigned(digest: sub.digest, error: "")
+                } catch {
+                    depositSigned(digest: "", error: error.localizedDescription)
+                }
+            }
         default:
             break
         }
+    }
+
+    /// Resolve the webview's `window.__taliseDepositSigned(digest, error)` promise
+    /// with the native signing result (one is non-empty). Strings are JSON-escaped
+    /// so a recipient/error containing quotes can't break the injected call.
+    private func depositSigned(digest: String, error: String) {
+        let js = "window.__taliseDepositSigned && window.__taliseDepositSigned(\(Self.jsString(digest)), \(Self.jsString(error)))"
+        webView.evaluateJavaScript(js) { _, _ in }
+    }
+
+    private static func jsString(_ s: String) -> String {
+        // Encode as a one-element JSON array (top-level arrays are valid) then
+        // strip the brackets → a safely-escaped JS string literal.
+        guard let data = try? JSONSerialization.data(withJSONObject: [s]),
+              let arr = String(data: data, encoding: .utf8) else { return "\"\"" }
+        return String(arr.dropFirst().dropLast())
     }
 
     private func finish(_ result: Result<String, Error>) {

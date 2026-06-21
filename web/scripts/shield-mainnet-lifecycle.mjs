@@ -67,9 +67,19 @@ const COIN_TYPE =
 const RELAYER = "0x37949e572bbc9cd57b7817cf3d309c0fa1b5361e0bc7605f6feffc6b6fdb72af";
 const AMOUNT = 10_000_000n; // $10.00 USDsui (6 decimals) — the per-tx cap.
 
+// --self-relayer: drive BOTH legs from the funded sender wallet. This circuit's
+// proof binds pool/value/nullifiers/commitments — NOT the relayer/recipient — so
+// the sender can act as its own relayer for a complete real round-trip without
+// the production SHIELD_RELAYER_SK (which is a write-only Vercel sensitive var).
+// The unlinkability still holds: deposit emits an unlinkable commitment, withdraw
+// spends an unlinkable nullifier to a fresh exit. WRELAYER is the effective
+// withdraw relayer address used by the PTB, the validator, and execution.
+const SELF_RELAYER = process.argv.includes("--self-relayer") || process.env.SELF_RELAYER === "1";
+const WRELAYER = ((SELF_RELAYER ? process.env.SENDER_ADDRESS : RELAYER) || RELAYER).toLowerCase();
+
 // The validate-commands control reads SHIELD_PKG / SHIELD_RELAYER_ADDRESS from env.
 process.env.SHIELD_PKG ||= PKG;
-process.env.SHIELD_RELAYER_ADDRESS ||= RELAYER;
+process.env.SHIELD_RELAYER_ADDRESS = SELF_RELAYER ? WRELAYER : (process.env.SHIELD_RELAYER_ADDRESS || RELAYER);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CIRCUIT_DIR = path.resolve(__dirname, "../../move/talise-privacy/circuit");
@@ -251,8 +261,8 @@ async function main() {
       depositCoinId,
       outputRecipient: relayerAddr, // deposit return coin is zero -> submitter
     });
-  // Step 4 validates the RELAYER-submitted form (ext.relayer == our relayer).
-  const depositTx = mkDeposit(RELAYER);
+  // Step 4 validates the relayer-submitted form (ext.relayer == effective relayer).
+  const depositTx = mkDeposit(WRELAYER);
 
   // ----- WITHDRAW PTB -----
   const zeroCoinSourceId =
@@ -275,7 +285,7 @@ async function main() {
     ext: {
       value: AMOUNT,
       valueSign: false, // withdraw
-      relayer: RELAYER,
+      relayer: WRELAYER,
       relayerFee: 0n,
       encryptedOutput0: enc0w,
       encryptedOutput1: enc1w,
@@ -484,7 +494,9 @@ async function executeReal({ depositTx, withdrawTx, art }) {
   const senderSk = need("SENDER_SK");
   const senderAddr = need("SENDER_ADDRESS");
   need("DEPOSIT_COIN_ID");
-  const relayerSk = need("SHIELD_RELAYER_SK");
+  // In --self-relayer mode the sender signs the withdraw too (it owns the
+  // zero-coin source + ext.relayer == sender). Otherwise use the prod relayer.
+  const relayerSk = SELF_RELAYER ? senderSk : need("SHIELD_RELAYER_SK");
   need("ZERO_COIN_SOURCE_ID");
   const exit = need("EXIT_ADDRESS");
 
@@ -493,8 +505,8 @@ async function executeReal({ depositTx, withdrawTx, art }) {
   const relayerKp = Ed25519Keypair.fromSecretKey(relayerSk);
   if (senderKp.toSuiAddress().toLowerCase() !== senderAddr.toLowerCase())
     throw new Error("SENDER_SK does not match SENDER_ADDRESS");
-  if (relayerKp.toSuiAddress().toLowerCase() !== RELAYER.toLowerCase())
-    throw new Error("SHIELD_RELAYER_SK does not match the pinned relayer");
+  if (relayerKp.toSuiAddress().toLowerCase() !== WRELAYER)
+    throw new Error(`withdraw signer does not match effective relayer ${WRELAYER}`);
 
   // --- DEPOSIT: the sender owns the deposit coin, so the sender submits. The
   //     ext_data.relayer is RELAYER but on the deposit leg assert_relayer is
@@ -554,8 +566,8 @@ async function executeReal({ depositTx, withdrawTx, art }) {
   log(known ? "post-deposit root is KNOWN on-chain." : "root not observed (continuing — it is written in the deposit tx).");
 
   // --- WITHDRAW: relayer-signed (it owns ZERO_COIN_SOURCE_ID; ext.relayer==relayer).
-  log("Submitting WITHDRAW (relayer-signed)...");
-  withdrawTx.setSender(RELAYER);
+  log(`Submitting WITHDRAW (${SELF_RELAYER ? "self-relayer" : "relayer"}-signed)...`);
+  withdrawTx.setSender(WRELAYER);
   withdrawTx.addBuildPlugin(jsonRpcResolutionPlugin());
   const wRes = await client.signAndExecuteTransaction({
     signer: relayerKp, transaction: withdrawTx,

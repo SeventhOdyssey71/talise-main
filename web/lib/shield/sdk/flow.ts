@@ -392,6 +392,81 @@ export async function shieldDeposit(args: {
   });
 }
 
+/** A deposit proof + blobs, serialized for POST /api/shield/deposit/prepare. */
+export type PreparedShieldDeposit = {
+  proof: {
+    proofPointsHex: string;
+    root: string;
+    publicValue: string;
+    inputNullifier0: string;
+    inputNullifier1: string;
+    outputCommitment0: string;
+    outputCommitment1: string;
+  };
+  enc0B64: string;
+  enc1B64: string;
+  /** The spendable output note (out0) — persist + spend after it indexes. */
+  outputNote: { amount: string; blinding: string; commitment: string };
+};
+
+const toHex = (b: Uint8Array) =>
+  Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+const toB64 = (b: Uint8Array) =>
+  typeof btoa === "function"
+    ? btoa(String.fromCharCode(...b))
+    : Buffer.from(b).toString("base64");
+
+/**
+ * Build + PROVE a deposit, but DO NOT submit. The native bridge needs the proof
+ * client-side (note secrets never leave the device) and the deposit PTB built +
+ * USER-signed server-side via zkLogin + Onara (the relayer cannot sign the user's
+ * coin). Returns the serialized proof + ECIES blobs for /api/shield/deposit/prepare,
+ * and the spendable output note so the caller can run the withdraw leg once the
+ * commitment indexes. Mirrors {@link shieldDeposit}'s witness exactly, minus relay.
+ */
+export async function proveShieldDeposit(args: {
+  cfg: ShieldFlowConfig;
+  keypair: ShieldKeypair;
+  amount: bigint;
+  /** Current pool root (decimal) — must be a known on-chain root. */
+  root: bigint;
+}): Promise<PreparedShieldDeposit> {
+  const { cfg, keypair, amount, root } = args;
+  const pool = poolField(cfg.poolObjectId);
+  const ins: [WitnessInput, WitnessInput] = [
+    await dummyInput(cfg, pool, 0n),
+    await dummyInput(cfg, pool, 1n),
+  ];
+  const outs: [WitnessOutput, WitnessOutput] = [
+    makeOutput(pool, keypair.publicKey, amount),
+    makeOutput(pool, keypair.publicKey, 0n),
+  ];
+  const input = assembleProofInput({ pool, root, publicAmount: mod(amount), ins, outs });
+  const proof: ProofInputs = await proveTransact(input);
+
+  const selfKey = await selfEncKey(keypair);
+  const { blobs } = await encryptOutputs(pool, outs, [selfKey, selfKey]);
+
+  return {
+    proof: {
+      proofPointsHex: toHex(proof.proofPoints),
+      root: dec(proof.root),
+      publicValue: dec(proof.publicValue),
+      inputNullifier0: dec(proof.inputNullifier0),
+      inputNullifier1: dec(proof.inputNullifier1),
+      outputCommitment0: dec(proof.outputCommitment0),
+      outputCommitment1: dec(proof.outputCommitment1),
+    },
+    enc0B64: toB64(blobs[0]),
+    enc1B64: toB64(blobs[1]),
+    outputNote: {
+      amount: dec(outs[0].amount),
+      blinding: dec(outs[0].blinding),
+      commitment: dec(outs[0].commitment),
+    },
+  };
+}
+
 /**
  * WITHDRAW: spend `inputNotes` (1 or 2) and send `amount` OUT of the pool to
  * `exitAddress`; any remainder returns as a shielded change note to the user.
