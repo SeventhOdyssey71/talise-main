@@ -51,6 +51,10 @@ struct Args {
     amount: u64,
     empty_root: String,
     keys_dir: String,
+    /// Commitments ALREADY in the pool (decimal u256, in leaf order). On a
+    /// non-empty pool the new deposit lands AFTER these, so the withdraw must
+    /// prove membership against the real (reconstructed) tree — not an empty one.
+    existing_leaves: Vec<String>,
 }
 
 fn parse_args() -> anyhow::Result<Args> {
@@ -58,6 +62,7 @@ fn parse_args() -> anyhow::Result<Args> {
     let mut amount = None;
     let mut empty_root = None;
     let mut keys_dir = "keys".to_string();
+    let mut existing_leaves: Vec<String> = Vec::new();
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -70,11 +75,19 @@ fn parse_args() -> anyhow::Result<Args> {
                 )
             }
             "--empty-root" => empty_root = it.next(),
+            "--existing-leaves" => {
+                let v = it.next().ok_or_else(|| anyhow::anyhow!("--existing-leaves needs a value"))?;
+                existing_leaves = v
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            }
             "--keys-dir" => {
                 keys_dir = it.next().ok_or_else(|| anyhow::anyhow!("--keys-dir needs a value"))?
             }
             "-h" | "--help" => {
-                println!("Usage: prove_lifecycle --pool <0xADDR> --amount <u64> --empty-root <u256dec> [--keys-dir <dir>]");
+                println!("Usage: prove_lifecycle --pool <0xADDR> --amount <u64> --empty-root <u256dec> [--existing-leaves <dec,dec,...>] [--keys-dir <dir>]");
                 std::process::exit(0);
             }
             other => anyhow::bail!("unknown arg: {other}"),
@@ -85,6 +98,7 @@ fn parse_args() -> anyhow::Result<Args> {
         amount: amount.ok_or_else(|| anyhow::anyhow!("--amount is required"))?,
         empty_root: empty_root.ok_or_else(|| anyhow::anyhow!("--empty-root is required"))?,
         keys_dir,
+        existing_leaves,
     })
 }
 
@@ -171,24 +185,44 @@ fn main() -> anyhow::Result<()> {
     let dep_proof_h = proof_hex(&dep_proof)?;
 
     // ══════════════════════════════════════════════════════════════════════
-    // POST-DEPOSIT TREE — leaves 0,1 = (note0_commitment, note1_commitment).
+    // POST-DEPOSIT TREE — insert any EXISTING on-chain leaves first, THEN this
+    // deposit's pair. On an empty pool note0 lands at leaf 0 (old behavior); on a
+    // non-empty pool it lands at leaf `existing_count`, and the withdraw proves
+    // membership against the REAL reconstructed root (== the on-chain root).
     // ══════════════════════════════════════════════════════════════════════
+    let existing: Vec<Fr> = args
+        .existing_leaves
+        .iter()
+        .map(|s| u256_decimal_to_field(s))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let existing_count = existing.len();
+    if existing_count % 2 != 0 {
+        anyhow::bail!("--existing-leaves must be an even count (commitments are appended in pairs)");
+    }
     let mut tree = SparseMerkleTree::<MERKLE_TREE_LEVEL>::new_empty(&hasher, &empty_leaf);
+    let mut i = 0;
+    while i < existing_count {
+        tree.insert_pair(existing[i], existing[i + 1], &hasher)?;
+        i += 2;
+    }
+    let note0_leaf_index = existing_count as u64; // this deposit's note0 lands here
     tree.insert_pair(note0_commitment, note1_commitment, &hasher)?;
     let post_deposit_root = tree.root();
-    let note0_path: Path<MERKLE_TREE_LEVEL> = tree.generate_membership_proof(0)?;
+    let note0_path: Path<MERKLE_TREE_LEVEL> = tree.generate_membership_proof(existing_count)?;
     let path_root = note0_path.calculate_root(&note0_commitment, &hasher)?;
     assert_eq!(path_root, post_deposit_root, "note0 membership must recompute the post-deposit root");
 
     // ══════════════════════════════════════════════════════════════════════
     // LEG 2 — WITHDRAW  (spend note0 fully; public_amount = r - amount)
     // ══════════════════════════════════════════════════════════════════════
-    let win0_idx = Fr::from(0u64); // note0 is leaf 0
+    let win0_idx = Fr::from(note0_leaf_index); // note0's real leaf index
     let wnull0 = nullifier(&note0_privkey, &note0_commitment, &win0_idx);
-    // input1 = distinct random dummy zero note.
+    // input1 = distinct random dummy zero note. Its path index just needs to be
+    // distinct (amount 0 ⇒ membership skipped); use a high offset to avoid any
+    // collision with the real leaves or the deposit dummies.
     let win1_privkey = Fr::rand(&mut rng);
     let win1_blinding = Fr::rand(&mut rng);
-    let win1_idx = Fr::from(3u64);
+    let win1_idx = Fr::from(note0_leaf_index + 7);
     let win1_commitment = hash4(&Fr::ZERO, &hash1(&win1_privkey), &win1_blinding, &vortex);
     let wnull1 = nullifier(&win1_privkey, &win1_commitment, &win1_idx);
     assert_ne!(wnull0, wnull1, "withdraw nullifiers must differ");

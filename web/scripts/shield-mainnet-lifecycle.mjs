@@ -66,7 +66,9 @@ const POOL_INITIAL_SHARED_VERSION = "919114728";
 const COIN_TYPE =
   "0x44f838219cf67b058f3b37907b655f226153c18e33dfcd0da559a844fea9b1c1::usdsui::USDSUI";
 const RELAYER = "0x37949e572bbc9cd57b7817cf3d309c0fa1b5361e0bc7605f6feffc6b6fdb72af";
-const AMOUNT = 10_000_000n; // $10.00 USDsui (6 decimals) — the per-tx cap.
+// Deposit amount in micros. Default $10 (the per-tx cap); override with
+// AMOUNT_MICROS for a smaller validation run (e.g. 1000000 = $1).
+const AMOUNT = BigInt(process.env.AMOUNT_MICROS || 10_000_000);
 
 // --self-relayer: drive BOTH legs from the funded sender wallet. This circuit's
 // proof binds pool/value/nullifiers/commitments — NOT the relayer/recipient — so
@@ -116,16 +118,59 @@ function hr(title) {
 }
 
 // ── 1. Fetch the live empty-tree root (the deposit binds to it) ─────────────
-async function liveEmptyRoot() {
-  // Read the MerkleTree DOF's root_history[root_index]. The pool MUST be empty
-  // (next_index == 0) for the first-deposit path to be valid.
+const MERKLE_TREE_DOF = "0x8e60af49055d1cec29e7ed6c5814157d5c6a499f123f4c7e4236811419ecbd7e";
+
+async function rootHistoryAt(index) {
   const mtRes = await rpc("suix_getDynamicFieldObject", [
-    "0x8e60af49055d1cec29e7ed6c5814157d5c6a499f123f4c7e4236811419ecbd7e",
-    { type: "u64", value: "0" },
+    MERKLE_TREE_DOF,
+    { type: "u64", value: String(index) },
   ]);
   const root = mtRes?.data?.content?.fields?.value;
+  return root ? String(root) : null;
+}
+
+async function liveEmptyRoot() {
+  const root = await rootHistoryAt(0);
   if (!root) throw new Error("could not read live empty root from root_history[0]");
-  return String(root);
+  return root;
+}
+
+// The CURRENT (latest) tree root. Each deposit appends 2 leaves + 1 root entry,
+// so for next_index N the latest root sits at root_history[N/2]. The deposit's
+// dummy (zero-amount) inputs skip membership, so binding the deposit proof to
+// this KNOWN root satisfies on-chain assert_root_is_known on a non-empty pool.
+async function liveCurrentRoot(nextIndex) {
+  const idx = Math.floor(Number(nextIndex) / 2);
+  const root = (await rootHistoryAt(idx)) ?? (await liveEmptyRoot());
+  return root;
+}
+
+// All commitments already in the pool, in leaf order (so the prover can rebuild
+// the real tree and place this deposit at the correct next leaf index).
+async function fetchExistingLeaves(count) {
+  if (count <= 0) return [];
+  const res = await rpc("suix_queryEvents", [
+    { MoveEventModule: { package: PKG, module: "events" } },
+    null,
+    1000,
+    false, // ascending
+  ]);
+  const byLeaf = new Map();
+  for (const e of res?.data ?? []) {
+    const f = e.parsedJson ?? {};
+    const c = f.commitment ?? f.leaf ?? f.value;
+    const li = f.leaf_index ?? f.index ?? f.leafIndex;
+    if (c !== undefined && li !== undefined) byLeaf.set(Number(li), String(c));
+  }
+  const leaves = [];
+  for (let i = 0; i < count; i++) {
+    const v = byLeaf.get(i);
+    if (v === undefined) {
+      throw new Error(`missing on-chain leaf ${i} (have ${byLeaf.size} commitment events) — can't rebuild the tree`);
+    }
+    leaves.push(v);
+  }
+  return leaves;
 }
 
 async function rpc(method, params) {
@@ -140,16 +185,24 @@ async function rpc(method, params) {
 }
 
 // ── 2. Run the Rust lifecycle prover, parse its JSON artifact ───────────────
-function runRustProver(emptyRoot) {
+// `depositRoot` is the known root the deposit binds to (current root); on a
+// non-empty pool `existingLeaves` are the commitments already in the tree, so the
+// prover places this deposit at the right leaf + proves the withdraw against the
+// real reconstructed root.
+function runRustProver(depositRoot, existingLeaves = []) {
   let out;
   try {
+    const proverArgs = [
+      "--pool", POOL,
+      "--amount", String(AMOUNT),
+      "--empty-root", depositRoot,
+    ];
+    if (existingLeaves.length > 0) {
+      proverArgs.push("--existing-leaves", existingLeaves.join(","));
+    }
     out = execFileSync(
       PROVER_BIN,
-      [
-        "--pool", POOL,
-        "--amount", String(AMOUNT),
-        "--empty-root", emptyRoot,
-      ],
+      proverArgs,
       { cwd: CIRCUIT_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }
     );
   } catch (e) {
@@ -183,29 +236,26 @@ async function main() {
   const { validateTransactCommands } = await import("../lib/shield/validate-commands.ts");
   const merkle = await import("../lib/shield/merkle.ts");
 
-  // STEP 0 — pool must be empty (first-deposit invariant).
-  hr("STEP 0 — verify pool is empty (next_index == 0) + read live empty root");
+  // STEP 0 — read pool state. Works for an EMPTY pool (first deposit at leaves
+  // 0,1) AND a NON-EMPTY pool (deposit appends at next_index; the withdraw proves
+  // membership against the real reconstructed tree).
+  hr("STEP 0 — read pool state (next_index, current root, existing leaves)");
   const mt = await rpc("sui_getObject", [
     "0x5a32ce39a3d9961ca5c1785f708f95b22434287047cb0db1bff76090de2c3e47",
     { showContent: true },
   ]);
-  const nextIndex = mt?.data?.content?.fields?.next_index;
-  log(`merkle next_index = ${nextIndex}`);
-  if (String(nextIndex) !== "0") {
-    log("\nWARNING: pool is NOT empty. This harness assumes the deposit is the");
-    log("FIRST tx (leaves 0,1). For a non-empty pool, fetch the deposit's leaf");
-    log("indices + path from the indexer instead. Proceeding for proof-of-shape only.\n");
-  }
-  const emptyRoot = await liveEmptyRoot();
-  log(`live empty root   = ${emptyRoot}`);
+  const nextIndex = Number(mt?.data?.content?.fields?.next_index ?? 0);
+  log(`merkle next_index = ${nextIndex} (this deposit lands at leaves ${nextIndex},${nextIndex + 1})`);
 
   // Sanity: merkle.ts agrees the empty root is EMPTY_SUBTREE_HASHES[26].
   if (!merkle.selfTest()) throw new Error("merkle.ts Poseidon self-test FAILED");
-  const tsEmptyRoot = merkle.emptyTree().root;
-  if (tsEmptyRoot !== emptyRoot) {
-    throw new Error(`TS empty root ${tsEmptyRoot} != live ${emptyRoot}`);
-  }
-  log("merkle.ts emptyTree().root == live empty root : PASS");
+
+  // The deposit binds to the CURRENT (known) root; existing leaves let the prover
+  // rebuild the real tree so the withdraw targets the true post-deposit root.
+  const depositRoot = await liveCurrentRoot(nextIndex);
+  const existingLeaves = RESUME ? [] : await fetchExistingLeaves(nextIndex);
+  log(`deposit binds to current root = ${depositRoot}`);
+  log(`existing leaves               = ${existingLeaves.length}`);
 
   // STEP 1 — REAL Groth16 proofs (deposit + matched withdraw).
   // CRASH-SAFETY: --resume loads the persisted artifact (same secrets) so a
@@ -221,7 +271,7 @@ async function main() {
     log(`RESUME: loaded saved prover artifact from ${path.basename(ART_FILE)}`);
     log(`  (same note secrets as the landed deposit — withdraw will match)`);
   } else {
-    art = runRustProver(emptyRoot);
+    art = runRustProver(depositRoot, existingLeaves);
     // Persist BEFORE any on-chain submission so a mid-flight crash is recoverable.
     fs.writeFileSync(ART_FILE, JSON.stringify(art), { mode: 0o600 });
     log(`prover artifact persisted to ${path.basename(ART_FILE)} (crash-safe).`);
@@ -231,20 +281,30 @@ async function main() {
   log(`post_deposit_root     = ${art.post_deposit_root}`);
 
   // STEP 2 — TS merkle re-derives the SAME post-deposit root (cross-impl loop).
+  // Rebuild the tree exactly as the chain will: existing leaves first, then this
+  // deposit's pair. (On resume we trust the persisted artifact's root.)
   hr("STEP 2 — merkle.ts re-derives the post-deposit root (cross-impl parity)");
-  const tsTree = merkle.appendPair(
-    merkle.emptyTree(),
-    BigInt(art.deposit.output_commitment0),
-    BigInt(art.deposit.output_commitment1)
-  );
-  if (tsTree.root !== art.post_deposit_root) {
-    throw new Error(
-      `POST-DEPOSIT ROOT MISMATCH:\n  Rust  ${art.post_deposit_root}\n  TS    ${tsTree.root}`
+  if (!RESUME) {
+    let tsTree = merkle.emptyTree();
+    for (let i = 0; i < existingLeaves.length; i += 2) {
+      tsTree = merkle.appendPair(tsTree, BigInt(existingLeaves[i]), BigInt(existingLeaves[i + 1]));
+    }
+    tsTree = merkle.appendPair(
+      tsTree,
+      BigInt(art.deposit.output_commitment0),
+      BigInt(art.deposit.output_commitment1)
     );
+    if (tsTree.root !== art.post_deposit_root) {
+      throw new Error(
+        `POST-DEPOSIT ROOT MISMATCH:\n  Rust  ${art.post_deposit_root}\n  TS    ${tsTree.root}`
+      );
+    }
+    log(`existing-leaves + deposit pair → root == Rust post_deposit_root : PASS`);
+    log(`  => ${tsTree.root}`);
+    log("This is the root the chain holds AFTER the deposit; the withdraw targets it.");
+  } else {
+    log("RESUME: using persisted post_deposit_root (validated when first proven).");
   }
-  log(`appendPair(empty, comm0, comm1).root == Rust post_deposit_root : PASS`);
-  log(`  => ${tsTree.root}`);
-  log("This is the root the chain holds AFTER the deposit; the withdraw targets it.");
 
   // STEP 3 — build BOTH transact PTBs with the REAL SDK buildTransact.
   hr("STEP 3 — build deposit + withdraw PTBs via the REAL SDK buildTransact");
