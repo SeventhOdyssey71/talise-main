@@ -49,6 +49,28 @@ export async function GET(req: Request) {
   } catch (e) {
     out.cursors_before_error = (e as Error).message;
   }
+  // Report + force-drop the broken event_seq unique indexes (the warm-Lambda
+  // schema path may not have re-run the DROP). With them present, inserting any
+  // leaf whose per-tx event_seq collides throws → the whole batch fails → only
+  // the first tx's leaves persist.
+  try {
+    const idx = await db().execute({
+      sql: "SELECT indexname FROM pg_indexes WHERE indexname IN ('uniq_shield_commitments_event_seq','uniq_shield_nullifiers_event_seq')",
+      args: [],
+    });
+    out.bad_indexes_present = (idx.rows as any[]).map((r) => r.indexname);
+  } catch (e) {
+    out.bad_indexes_error = (e as Error).message;
+  }
+  if (url.searchParams.get("fixidx") === "1") {
+    try {
+      await db().execute({ sql: "DROP INDEX IF EXISTS uniq_shield_commitments_event_seq", args: [] });
+      await db().execute({ sql: "DROP INDEX IF EXISTS uniq_shield_nullifiers_event_seq", args: [] });
+      out.bad_indexes_dropped = true;
+    } catch (e) {
+      out.bad_indexes_drop_error = (e as Error).message;
+    }
+  }
   if (url.searchParams.get("reset") === "1") {
     try {
       await db().execute({ sql: "DELETE FROM shield_index_cursor", args: [] });
