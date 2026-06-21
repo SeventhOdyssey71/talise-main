@@ -72,8 +72,11 @@ const MAX_API_BODY_BYTES = 1_048_576;
 const APP_HOST = "app.talise.io";
 const MARKETING_HOSTS = new Set(["talise.io", "www.talise.io"]);
 // Top-level trees that must NOT be re-rooted under /app on the app host.
+// `shield` = the static WASM-prover asset tree (public/shield/*: glue, .wasm,
+// proving_key.bin, vk) the in-app private-send prover fetches at runtime; without
+// it those get rewritten to /app/shield/* and 404 ("failed to fetch proving key").
 const APP_HOST_PASSTHROUGH =
-  /^\/(app|api|auth|business|admin|c|i|u|pay|_next|_vercel)(\/|$)/;
+  /^\/(app|api|auth|business|admin|c|i|u|pay|shield|_next|_vercel)(\/|$)/;
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
