@@ -129,3 +129,17 @@ AuthKey_*
 marketing/higgsfield-flow/music/*.mp3
 marketing/higgsfield-flow/characters/hero-*.png
 marketing/higgsfield-flow/clips/**/*.mp4
+# Marketing/media clutter — not product code, keep out of the judged diff.
+marketing/cartoon-posts/
+marketing/idle-gold-content/
+marketing/talise-thread/
+marketing/testflight-live/
+marketing/talise-demo/public/**/*.mp3
+marketing/talise-demo/src/launch/
+marketing/talise-demo/src/lib/avatar.mjs
+marketing/higgsfield-flow/higgsfield-prompts/CARTOON-CHARACTERS.md
+media/brand/
+media/launch/
+media/misc/
+# docs/kyb may contain KYB/PII — never commit.
+docs/kyb/
