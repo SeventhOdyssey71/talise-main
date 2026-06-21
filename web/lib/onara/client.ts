@@ -61,7 +61,11 @@ export class OnaraClient {
     // Node socket open until GC — long past the iOS 60s URLSession
     // ceiling — and surface as a hang to the user. With it, we get a
     // clean typed throw the route handler can map to a 504.
-    const timeoutMs = options.timeoutMs ?? 8000
+    // Default to a true-hang backstop ABOVE Onara's own 45s execution budget,
+    // not a low cap that severs Onara mid-broadcast. Onara always returns a
+    // definitive result within its budget; aborting earlier reported phantom
+    // "onara timeout" failures on txs Onara had already accepted.
+    const timeoutMs = options.timeoutMs ?? 50_000
     const controller = new AbortController()
     const start = Date.now()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
