@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { USDSUI_TYPE } from "@/lib/usdsui";
+import { filterVerified } from "@/lib/coins-verified";
 
 export const runtime = "nodejs";
 
@@ -72,13 +73,16 @@ export async function GET(req: Request) {
     );
   }
 
-  const balances = rows
-    .filter((r) => r.coinType && BigInt(r.totalBalance ?? "0") > 0n)
-    .map((r) => ({
-      coinType: r.coinType,
-      amount: r.totalBalance,
-      isUsdsui: r.coinType === USDSUI_TYPE,
-    }));
+  const nonZero = rows.filter((r) => r.coinType && BigInt(r.totalBalance ?? "0") > 0n);
+  // ALWAYS IGNORE NON-VERIFIED coins: only Cetus-verified coins (USDsui +
+  // convertible blue-chips) are surfaced. Spam/airdrop tokens (no liquidity)
+  // never appear → never offered in "Convert all" → no failed swap, no error.
+  const verified = await filterVerified(nonZero);
+  const balances = verified.map((r) => ({
+    coinType: r.coinType,
+    amount: r.totalBalance,
+    isUsdsui: r.coinType === USDSUI_TYPE,
+  }));
 
   return NextResponse.json({
     address: user.sui_address,

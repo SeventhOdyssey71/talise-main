@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
+import { filterVerified } from "@/lib/coins-verified";
 
 export const runtime = "nodejs";
 
@@ -42,8 +43,7 @@ export async function POST(req: Request) {
   }
 
   // Normalize amount → u64 string so Onara's zod regex accepts it
-  // regardless of whether iOS sent a number or a string. We don't
-  // re-validate the coin type here — Onara is the source of truth.
+  // regardless of whether iOS sent a number or a string.
   const normalized = coins.map((c) => ({
     coinType: (c.coinType ?? "").trim(),
     amount:
@@ -51,6 +51,17 @@ export async function POST(req: Request) {
         ? Math.trunc(c.amount).toString()
         : (c.amount ?? "").toString().trim(),
   }));
+
+  // SERVER-SIDE GUARD: never sweep a NON-VERIFIED coin. A stale client (or a
+  // spam token like LMAGMA_COIN) would otherwise hit the Cetus aggregator,
+  // fail with "insufficient liquidity", and leak a raw error into activity.
+  const swept = await filterVerified(normalized);
+  if (swept.length === 0) {
+    return NextResponse.json(
+      { error: "no verified coins to convert", code: "NO_VERIFIED_COINS" },
+      { status: 400 }
+    );
+  }
 
   const onaraUrl = process.env.ONARA_URL;
   if (!onaraUrl) {
@@ -67,7 +78,7 @@ export async function POST(req: Request) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         owner: user.sui_address,
-        coins: normalized,
+        coins: swept,
       }),
     });
   } catch (err) {
