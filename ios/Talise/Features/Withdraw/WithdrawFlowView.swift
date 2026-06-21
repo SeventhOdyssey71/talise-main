@@ -79,7 +79,7 @@ struct WithdrawFlowView: View {
                             // web prover route isn't reachable — never a crash,
                             // never a faked success, never moves funds.
                             Button { showPrivateSoon = true } label: {
-                                ActionTile(icon: "hi.lock", title: "Send private tx", caption: "Shielded · USDsui")
+                                ActionTile(icon: "hi.lock", title: "Send privately", caption: "Amount stays hidden")
                             }
                             .buttonStyle(TilePress())
                         }
@@ -2017,7 +2017,7 @@ struct ShieldedBalanceView: View {
             Spacer()
             HStack(spacing: 6) {
                 HugeIcon(name: "hi.lock", size: 13, tint: TaliseColor.greenMint)
-                MicroLabel(text: "Shielded balance", color: TaliseColor.fgMuted).kerning(2.0)
+                MicroLabel(text: "Private", color: TaliseColor.fgMuted).kerning(2.0)
             }
             Spacer()
             Color.clear.frame(width: 38, height: 38)
@@ -2032,21 +2032,28 @@ struct ShieldedBalanceView: View {
                 Text(loading ? "—" : shieldedDisplay)
                     .font(TaliseFont.display(56, weight: .medium)).foregroundStyle(TaliseColor.fg)
             }
-            Text("Private pocket · amount hidden on-chain")
+            Text(shieldedMicros == 0
+                 ? "Send money so only you and the recipient know the amount."
+                 : "Your private balance · hidden on-chain")
                 .font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted)
+                .multilineTextAlignment(.center).padding(.horizontal, 36)
         }
         .padding(.vertical, 20)
     }
 
     private var actions: some View {
         VStack(spacing: 12) {
-            Button { showSend = true } label: { actionLabel("Send private", filled: true) }
+            Button { showSend = true } label: { actionLabel("Send privately", filled: true) }
                 .buttonStyle(TilePress())
-            Button { Task { await unshield() } } label: {
-                actionLabel(busy ? "Unshielding…" : "Unshield to my wallet", filled: false)
+            // Only offer "move to wallet" when there's actually a balance to move —
+            // a dead/disabled button at $0.00 is what made this screen confusing.
+            if shieldedMicros > 0 {
+                Button { Task { await unshield() } } label: {
+                    actionLabel(busy ? "Moving…" : "Move to my wallet", filled: false)
+                }
+                .buttonStyle(TilePress())
+                .disabled(busy)
             }
-            .buttonStyle(TilePress())
-            .disabled(busy || shieldedMicros == 0)
         }
         .padding(.horizontal, 24)
     }
@@ -2072,11 +2079,11 @@ struct ShieldedBalanceView: View {
             return
         }
         busy = true
-        status = "Unshielding your balance to your wallet…"
+        status = "Moving your private balance to your wallet…"
         do {
             let seed = await ShieldKeyStore.noteMasterHex()
             _ = try await prover.recover(seedHex: seed, destination: addr)
-            status = "Unshielded to your wallet."
+            status = "Moved to your wallet."
             await load()
         } catch {
             status = error.localizedDescription
