@@ -554,14 +554,23 @@ export async function spendExistingNote(args: {
 }): Promise<{ digest: string; outputs: FlowOutputNote[] } | null> {
   const { cfg, keypair, amount } = args;
   const viewingKey = await deriveShieldEncScalar(keypair.spendingKey);
-  const notes = await scanNotes(viewingKey, {
-    baseUrl: `${cfg.apiBase ?? ""}/api/shield/commitments`,
-    fetch: ((u: string) => fetch(u, { ...cfg.fetchInit })) as typeof fetch,
-  });
+  // Scanning is best-effort: a scan error means "couldn't check balance" → return
+  // null so the caller deposits normally. But once a matching UNSPENT note is
+  // found, the withdraw is NOT swallowed — if it throws, it propagates so the
+  // caller surfaces the error and does NOT deposit again (no stranded-deposit loop).
+  let notes: Awaited<ReturnType<typeof scanNotes>>;
+  try {
+    notes = await scanNotes(viewingKey, {
+      baseUrl: `${cfg.apiBase ?? ""}/api/shield/commitments`,
+      fetch: ((u: string) => fetch(u, { ...cfg.fetchInit })) as typeof fetch,
+    });
+  } catch {
+    return null;
+  }
   for (const n of notes) {
     if (n.amount !== amount || n.leafIndex == null) continue;
     const nf = nullifierFor(keypair.spendingKey, n.commitment, BigInt(n.leafIndex));
-    if (await isSpent(cfg, nf)) continue;
+    if (await isSpent(cfg, nf).catch(() => false)) continue;
     return shieldWithdraw({
       cfg,
       keypair,

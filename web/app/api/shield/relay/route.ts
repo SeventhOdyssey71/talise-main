@@ -17,6 +17,7 @@ import {
   validateTransactCommands,
   ShieldValidationError,
 } from "@/lib/shield/validate-commands";
+import { jsonRpcResolutionPlugin } from "@/lib/shield/resolve";
 
 export const runtime = "nodejs";
 
@@ -165,6 +166,11 @@ export async function POST(req: Request) {
     const tx = Transaction.from(txBytes);
     tx.setSender(relayer);
     tx.setGasOwner(sponsor);
+    // Resolve the shielded PTB's object inputs (shared pool + zero-coin source)
+    // via JSON-RPC — the gRPC client mis-resolves the SHARED pool object, which
+    // made every relayer withdraw throw at build (relayer never submitted →
+    // recipient never paid). Same proven resolver the CLI lifecycle uses.
+    tx.addBuildPlugin(jsonRpcResolutionPlugin());
 
     const built = await tx.build({ client: client as never });
     const { signature } = await signer.signTransaction(built);

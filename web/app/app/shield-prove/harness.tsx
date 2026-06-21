@@ -165,6 +165,9 @@ export function ShieldProveHarness({
           const relayer0 = (await relayerRes0.json().catch(() => ({}))) as { zeroCoinSourceId?: string };
           if (relayer0.zeroCoinSourceId) {
             post({ type: "progress", message: "Checking your shielded balance…" });
+            // No blanket catch: spendExistingNote returns null only when there's
+            // NO matching note (→ deposit). If it FINDS one but the withdraw
+            // fails, it throws → surfaced below, and we do NOT deposit again.
             const reused = await spendExistingNote({
               cfg,
               keypair,
@@ -172,7 +175,7 @@ export function ShieldProveHarness({
               exitAddress: recipient,
               zeroCoinSourceId: relayer0.zeroCoinSourceId,
               root: BigInt(currentRoot),
-            }).catch(() => null);
+            });
             if (reused?.digest) {
               post({ type: "result", digest: reused.digest });
               return;
