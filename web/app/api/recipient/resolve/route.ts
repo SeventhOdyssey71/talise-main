@@ -4,6 +4,7 @@ import { resolveRecipient } from "@/lib/suins";
 import { userBySuiAddress } from "@/lib/db";
 import { getPrimaryBankAccount, last4 } from "@/lib/bank-accounts";
 import { resolveLinqBank } from "@/lib/linq-banks";
+import { shieldIdentityFor } from "@/lib/shield/identity";
 
 export const runtime = "nodejs";
 
@@ -39,13 +40,45 @@ async function recipientBankFor(address: string): Promise<RecipientBank> {
 }
 
 /**
+ * The recipient's shield identity (Poseidon spend pubkey + P-256 enc pubkey),
+ * used by the sender to mint a hidden-amount shielded note OWNED BY THE
+ * RECIPIENT. `null` when the recipient hasn't published a shield identity or
+ * the lookup hiccups — additive + best-effort, must never fail resolution.
+ */
+type RecipientShieldIdentity = {
+  pubkey: string;
+  encPubkeyHex: string;
+} | null;
+
+/**
+ * Resolve a recipient's published shield identity from the address SuiNS gave
+ * us. Returns null on any miss — additive, best-effort, never throws.
+ */
+async function shieldIdentityForAddress(
+  address: string
+): Promise<RecipientShieldIdentity> {
+  try {
+    const id = await shieldIdentityFor(address);
+    if (!id) return null;
+    return { pubkey: id.pubkey, encPubkeyHex: id.encPubkeyHex };
+  } catch (e) {
+    console.warn(
+      "[recipient/resolve] shield identity lookup failed:",
+      (e as Error).message
+    );
+    return null;
+  }
+}
+
+/**
  * GET /api/recipient/resolve?q=<input>
  *
- * Returns { address, displayName, recipientBank } on a match. `recipientBank`
- * is the recipient's masked PRIMARY payout bank (bankName + last4 only) or
- * null. Returns 404 when input is well formed but unknown, and 400 when it's
- * malformed. Authenticated only — we don't want to leak the handle table to
- * crawlers.
+ * Returns { address, displayName, recipientBank, shieldIdentity } on a match.
+ * `recipientBank` is the recipient's masked PRIMARY payout bank (bankName +
+ * last4 only) or null. `shieldIdentity` is the recipient's shield spend/enc
+ * pubkeys (for hidden-amount shielded transfers) or null. Returns 404 when
+ * input is well formed but unknown, and 400 when it's malformed. Authenticated
+ * only — we don't want to leak the handle table to crawlers.
  */
 export async function GET(req: Request) {
   const userId = await readEntryIdFromRequest(req);
@@ -64,7 +97,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
     const recipientBank = await recipientBankFor(resolved.address);
-    return NextResponse.json({ ...resolved, recipientBank });
+    const shieldIdentity = await shieldIdentityForAddress(resolved.address);
+    return NextResponse.json({ ...resolved, recipientBank, shieldIdentity });
   } catch (err) {
     // Resolution touches SuiNS RPC + DB; either can transiently flake.
     // 502 instead of 500 so callers can distinguish "I couldn't reach

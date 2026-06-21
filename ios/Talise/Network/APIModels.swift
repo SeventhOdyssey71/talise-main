@@ -106,6 +106,15 @@ struct UsernameCheckResponse: Codable {
 // it through Codable produces stringified inner JSON — see warmProof's
 // comment). No shared DTOs for those paths either.
 
+/// A recipient's PUBLIC shield identity, from /api/recipient/resolve. Both are
+/// public values: `pubkey` = Poseidon1(spendingKey) u256 decimal; `encPubkeyHex`
+/// = the recipient's P-256 ECIES point (0x04+128hex). Used to address a
+/// hidden-amount shielded transfer to them. No secrets.
+struct ShieldIdentity: Codable {
+    let pubkey: String
+    let encPubkeyHex: String
+}
+
 struct RecipientResolution: Codable {
     let address: String
     /// Web endpoint returns `displayName`; some callers may use `display`.
@@ -119,17 +128,24 @@ struct RecipientResolution: Codable {
     /// cleanly without this field.
     let recipientBank: RecipientBank?
 
+    /// Present when the resolved recipient has published a shield identity
+    /// (pubkey + enc pubkey). Enables a HIDDEN-AMOUNT shielded transfer to them.
+    /// Nil → fall back to the public deposit→withdraw send. Optional so older
+    /// endpoints + address-only resolutions decode cleanly.
+    let shieldIdentity: ShieldIdentity?
+
     /// Explicit initializer so the call sites that build a resolution by
     /// hand (contact picks, raw-address fast-paths) don't have to pass the
     /// new `recipientBank` field — it defaults to nil there, which is
     /// correct (those paths carry no bank info). The server-decoded path
     /// still populates it via Codable.
-    init(address: String, displayName: String?, display: String?, source: String?, recipientBank: RecipientBank? = nil) {
+    init(address: String, displayName: String?, display: String?, source: String?, recipientBank: RecipientBank? = nil, shieldIdentity: ShieldIdentity? = nil) {
         self.address = address
         self.displayName = displayName
         self.display = display
         self.source = source
         self.recipientBank = recipientBank
+        self.shieldIdentity = shieldIdentity
     }
 
     var displayString: String {

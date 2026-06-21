@@ -721,3 +721,60 @@ export async function shieldTransfer(args: {
     zeroCoinSourceId: args.zeroCoinSourceId,
   });
 }
+
+/**
+ * SCAN-FIRST shielded transfer: a shielded note IS spendable balance. Look for an
+ * UNSPENT note the user already owns whose amount covers `amount`; if found, spend
+ * THAT to the recipient via a HIDDEN-AMOUNT shieldTransfer (public_amount == 0, so
+ * no amount or recipient lands on-chain) — change returns to self. Mirrors
+ * spendExistingNote's scan loop: scanning is best-effort (a scan error means
+ * "couldn't check balance" → return null so the caller falls back), but once a
+ * covering UNSPENT note is found the transfer is NOT swallowed — if it throws it
+ * propagates so the caller surfaces the error. Uses the FIRST unspent note whose
+ * amount >= the send amount. Returns null ONLY when no covering unspent note exists.
+ */
+export async function spendOrTransferToShield(args: {
+  cfg: ShieldFlowConfig;
+  keypair: ShieldKeypair;
+  amount: bigint;
+  recipientPubkey: bigint;
+  recipientEncKey: Uint8Array;
+  /** A relayer-owned coin to split a zero deposit-coin from. */
+  zeroCoinSourceId: string;
+}): Promise<{ digest: string; outputs: FlowOutputNote[] } | null> {
+  const { cfg, keypair, amount } = args;
+  const viewingKey = await deriveShieldEncScalar(keypair.spendingKey);
+  let notes: Awaited<ReturnType<typeof scanNotes>>;
+  try {
+    notes = await scanNotes(viewingKey, {
+      baseUrl: `${cfg.apiBase ?? ""}/api/shield/commitments`,
+      fetch: ((u: string) => fetch(u, { ...cfg.fetchInit })) as typeof fetch,
+    });
+  } catch {
+    return null;
+  }
+  for (const n of notes) {
+    if (n.amount < amount || n.leafIndex == null) continue;
+    const nf = nullifierFor(keypair.spendingKey, n.commitment, BigInt(n.leafIndex));
+    if (await isSpent(cfg, nf).catch(() => false)) continue;
+    return shieldTransfer({
+      cfg,
+      keypair,
+      inputNotes: [
+        {
+          privateKey: keypair.spendingKey,
+          amount: n.amount,
+          blinding: n.blinding,
+          leafIndex: n.leafIndex,
+          commitment: n.commitment,
+        },
+      ],
+      amount,
+      recipientPubkey: args.recipientPubkey,
+      recipientEncKey: args.recipientEncKey,
+      zeroCoinSourceId: args.zeroCoinSourceId,
+      root: 0n,
+    });
+  }
+  return null;
+}

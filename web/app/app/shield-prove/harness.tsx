@@ -6,10 +6,13 @@ import {
   proveShieldDeposit,
   shieldWithdraw,
   spendExistingNote,
+  spendOrTransferToShield,
   sweepShieldedBalance,
   type ShieldFlowConfig,
   type FlowInputNote,
 } from "@/lib/shield/sdk/flow";
+import { deriveShieldEncScalar } from "@/lib/shield/sdk/keys";
+import { encPublicKeyFromScalar } from "@/lib/shield/sdk/encrypt";
 
 /**
  * Client harness for the native private-send bridge. Installs
@@ -41,12 +44,25 @@ type Msg =
 
 declare global {
   interface Window {
-    taliseShieldSend?: (micros: string, recipient: string, seedHex: string) => void;
+    // `recipientShieldJson` (optional): JSON `{ pubkey, encPubkeyHex }` of the
+    // recipient's published shield identity. When present + the sender holds a
+    // covering note, the send becomes a HIDDEN-AMOUNT shielded transfer.
+    taliseShieldSend?: (micros: string, recipient: string, seedHex: string, recipientShieldJson?: string) => void;
     taliseShieldRecover?: (seedHex: string, destination: string) => void;
     __taliseDepositSigned?: (digest: string, error: string) => void;
     webkit?: { messageHandlers?: { shield?: { postMessage: (m: Msg) => void } } };
   }
 }
+
+const toHexBytes = (b: Uint8Array) =>
+  "0x" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+
+const hexToBytes = (hex: string): Uint8Array => {
+  const s = hex.replace(/^0x/, "");
+  const out = new Uint8Array(s.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(s.slice(i * 2, i * 2 + 2), 16);
+  return out;
+};
 
 function seedFromHex(hex: string): Uint8Array {
   const clean = hex.replace(/[^0-9a-f]/gi, "");
@@ -127,7 +143,24 @@ export function ShieldProveHarness({
       return { ok: res.ok, status: res.status, body: j };
     };
 
-    window.taliseShieldSend = (micros: string, recipient: string, seedHex: string) => {
+    // Publish this user's PUBLIC shield identity (pubkey + enc pubkey) so others
+    // can address hidden-amount transfers to them. Best-effort, idempotent.
+    const ensureIdentityPublished = async (kp: Awaited<ReturnType<typeof deriveShieldKeypairFromSeed>>) => {
+      try {
+        const d = await deriveShieldEncScalar(kp.spendingKey);
+        const encPubkeyHex = toHexBytes(encPublicKeyFromScalar(d));
+        await postJson("/api/shield/identity", { pubkey: kp.publicKey.toString(), encPubkeyHex });
+      } catch {
+        /* best-effort — never blocks a send */
+      }
+    };
+
+    window.taliseShieldSend = (
+      micros: string,
+      recipient: string,
+      seedHex: string,
+      recipientShieldJson?: string
+    ) => {
       void (async () => {
         try {
           post({ type: "progress", message: "Preparing your private send…" });
@@ -149,6 +182,21 @@ export function ShieldProveHarness({
           post({ type: "progress", message: "Unlocking your private key…" });
           const keypair = await deriveShieldKeypairFromSeed(seedFromHex(seedHex));
           if (keypair.spendingKey <= 0n) throw new Error("Key derivation failed.");
+          void ensureIdentityPublished(keypair); // become addressable for future transfers
+
+          // Parse the recipient's published shield identity (if any) → enables a
+          // hidden-amount shielded transfer instead of a public withdraw.
+          let recipientShield: { pubkey: bigint; encKey: Uint8Array } | null = null;
+          try {
+            if (recipientShieldJson) {
+              const r = JSON.parse(recipientShieldJson) as { pubkey?: string; encPubkeyHex?: string };
+              if (r?.pubkey && /^0x04[0-9a-f]{128}$/i.test(r.encPubkeyHex ?? "")) {
+                recipientShield = { pubkey: BigInt(r.pubkey), encKey: hexToBytes(r.encPubkeyHex!) };
+              }
+            }
+          } catch {
+            /* malformed identity → fall back to public withdraw */
+          }
 
           // 2. Fetch the live pool root (the deposit binds to a known root).
           post({ type: "progress", message: "Connecting to the shielded pool…" });
@@ -166,6 +214,28 @@ export function ShieldProveHarness({
           const relayerRes0 = await fetch("/api/shield/relayer", { credentials: "same-origin" });
           const relayer0 = (await relayerRes0.json().catch(() => ({}))) as { zeroCoinSourceId?: string };
           if (relayer0.zeroCoinSourceId) {
+            // PRIVATE TRANSFER (hidden amount) — the real privacy primitive. If
+            // the recipient has a published shield identity AND we hold a covering
+            // unspent note, send it shielded→shielded: public_amount=0, so NO
+            // amount and NO recipient land on-chain (only commitments/nullifiers).
+            // Recipient receives a shielded note they later cash out themselves.
+            if (recipientShield) {
+              post({ type: "progress", message: "Sending privately — amount hidden…" });
+              const transferred = await spendOrTransferToShield({
+                cfg,
+                keypair,
+                amount,
+                recipientPubkey: recipientShield.pubkey,
+                recipientEncKey: recipientShield.encKey,
+                zeroCoinSourceId: relayer0.zeroCoinSourceId,
+              });
+              if (transferred?.digest) {
+                post({ type: "result", digest: transferred.digest });
+                return;
+              }
+              // No covering note for a transfer → fall through (deposit then a
+              // public withdraw today; deposit→transfer is the fast-follow).
+            }
             post({ type: "progress", message: "Checking your shielded balance…" });
             // No blanket catch: spendExistingNote returns null only when there's
             // NO matching note (→ deposit). If it FINDS one but the withdraw

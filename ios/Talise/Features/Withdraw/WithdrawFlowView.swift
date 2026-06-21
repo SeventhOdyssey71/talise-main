@@ -1449,7 +1449,14 @@ struct PrivateSendFlowView: View {
             // Load (or first-time create + escrow) the user's note master, then
             // hand it to the in-page prover for client-side key derivation.
             let seedHex = await ShieldKeyStore.noteMasterHex()
-            let digest = try await prover.send(micros: micros, recipient: resolved.address, seedHex: seedHex)
+            // If the recipient published a shield identity, pass it so the send
+            // can be a HIDDEN-AMOUNT shielded transfer (else falls back to public).
+            var shieldJson: String?
+            if let sid = resolved.shieldIdentity,
+               let data = try? JSONEncoder().encode(sid) {
+                shieldJson = String(data: data, encoding: .utf8)
+            }
+            let digest = try await prover.send(micros: micros, recipient: resolved.address, seedHex: seedHex, recipientShieldJson: shieldJson)
             draft.success = SendSuccess(
                 digest: digest,
                 displayAmount: draft.rawAmount,
@@ -1503,15 +1510,26 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     }
 
     /// Run a shielded send. `micros` = USDsui base units; `recipient` = 0x addr;
-    /// `seedHex` = the user's note master (drives client-side key derivation).
-    func send(micros: UInt64, recipient: String, seedHex: String) async throws -> String {
+    /// `seedHex` = the user's note master; `recipientShieldJson` = the recipient's
+    /// published shield identity as JSON `{pubkey, encPubkeyHex}` (or nil → public
+    /// withdraw). When present + the sender holds a covering note, the send becomes
+    /// a hidden-amount shielded transfer.
+    func send(micros: UInt64, recipient: String, seedHex: String, recipientShieldJson: String? = nil) async throws -> String {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             self.continuation = cont
             let safeRecipient = recipient.replacingOccurrences(of: "'", with: "")
             let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
+            // JSON-encode the shield identity safely for JS injection (it contains
+            // only [0-9a-fx] but encode defensively); empty → undefined.
+            let shieldArg: String = {
+                guard let j = recipientShieldJson, !j.isEmpty,
+                      let data = try? JSONSerialization.data(withJSONObject: [j]),
+                      let arr = String(data: data, encoding: .utf8) else { return "undefined" }
+                return String(arr.dropFirst().dropLast()) // the quoted JS string literal
+            }()
             // Throw (not silently no-op) if the harness hasn't installed yet, so a
             // missing function surfaces as a clean failure instead of a hang.
-            let js = "if(!window.taliseShieldSend){throw new Error('Private send isn’t ready yet — try again.')}; window.taliseShieldSend('\(micros)','\(safeRecipient)','\(safeSeed)')"
+            let js = "if(!window.taliseShieldSend){throw new Error('Private send isn’t ready yet — try again.')}; window.taliseShieldSend('\(micros)','\(safeRecipient)','\(safeSeed)', \(shieldArg))"
             webView.evaluateJavaScript(js) { _, err in
                 if let err {
                     self.finish(.failure(ShieldError.message(err.localizedDescription)))

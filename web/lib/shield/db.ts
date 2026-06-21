@@ -24,10 +24,12 @@ import { db, ensureSchema, schemaVersionGate } from "@/lib/db";
  *   shield_pools         per-CoinType pool address registry (NewPool).
  *   shield_index_cursor  per-pipeline `suix_queryEvents` cursor.
  *   shield_merkle_cache  per-CoinType cached incremental-tree state + root.
+ *   shield_identity      per-user shield pubkey + enc pubkey directory; the
+ *                        off-chain lookup rail for hidden-amount transfers.
  */
 
 // Bump on ANY DDL edit below.
-const SHIELD_SCHEMA_VERSION = "2026-06-16.1";
+const SHIELD_SCHEMA_VERSION = "2026-06-21.1";
 
 let _schemaReadyP: Promise<void> | null = null;
 
@@ -136,6 +138,29 @@ export function ensureShieldSchema(): Promise<void> {
         root       TEXT NOT NULL,
         updated_at BIGINT NOT NULL
       )`
+    );
+
+    // ── shield_identity ──────────────────────────────────────────────
+    // Per-user shield-identity directory — the off-chain lookup rail for
+    // hidden-amount transfers. A sender resolves a recipient by their public
+    // `sui_address` to get the recipient's shield SPENDING pubkey + enc pubkey
+    // (both PUBLIC keys, never on-chain). PK (user_id) keeps re-publish an
+    // idempotent UPSERT; the sui_address index serves the recipient lookup.
+    //   pubkey     — Poseidon1(spendingKey) as a u256 decimal string.
+    //   enc_pubkey — 0x04-prefixed uncompressed P-256 point (0x04 + 128 hex).
+    await c.execute(
+      `CREATE TABLE IF NOT EXISTS shield_identity (
+        user_id     TEXT PRIMARY KEY,
+        sui_address TEXT NOT NULL,
+        pubkey      TEXT NOT NULL,
+        enc_pubkey  TEXT NOT NULL,
+        created_at  BIGINT,
+        updated_at  BIGINT
+      )`
+    );
+    await c.execute(
+      `CREATE INDEX IF NOT EXISTS idx_shield_identity_sui_address
+         ON shield_identity (sui_address)`
     );
 
     await gate.stamp();
