@@ -175,7 +175,29 @@ export async function POST(req: Request) {
       txSignature: signature,
     });
 
-    return NextResponse.json({ ok: true, result });
+    // Onara returns the raw gRPC TransactionResult — a discriminated union where
+    // the digest sits one level deep (`{ $kind, Transaction: { digest, ... } }`).
+    // The shielded SDK's submitRelay expects a top-level `digest`, so extract it
+    // here (mirrors /api/zk/sponsor-execute) — a missing digest is a real failure,
+    // never a fake success.
+    const r = result as Record<string, unknown>;
+    const txInner =
+      (r.Transaction as { digest?: string } | undefined) ??
+      (r.FailedTransaction as { digest?: string } | undefined) ??
+      (r.transaction as { digest?: string } | undefined);
+    const digest = (r.digest as string | undefined) ?? txInner?.digest ?? "";
+    if (!digest) {
+      console.error(
+        "[shield/relay] no digest in Onara response — shape:",
+        JSON.stringify(Object.keys(r))
+      );
+      return NextResponse.json(
+        { error: "relayer submitted but returned no digest", code: "NO_DIGEST" },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ ok: true, digest, result });
   } catch (err) {
     const msg = (err as Error).message ?? "relay failed";
     console.warn(`[shield/relay] user=${userId} failed: ${msg}`);
