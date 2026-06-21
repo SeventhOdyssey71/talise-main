@@ -173,7 +173,7 @@ enum DirectBroadcastSender {
             "params": [
                 bytesB64,
                 [signature],
-                ["showEffects": false, "showEvents": false] as [String: Any],
+                ["showEffects": true, "showEvents": false] as [String: Any],
                 "WaitForLocalExecution",
             ] as [Any],
         ]
@@ -224,6 +224,16 @@ enum DirectBroadcastSender {
               let digest = result["digest"] as? String,
               !digest.isEmpty else {
             throw DirectBroadcastError.noDigest
+        }
+        // MONEY-SAFETY: the JSON-RPC `error` envelope only fires on PRE-execution
+        // rejection (bad sig / expired epoch). A tx that is admitted then
+        // Move-ABORTS returns 200 with a digest + effects.status.status == "failure".
+        // Without checking effects we'd report a phantom "sent" with no funds moved.
+        if let effects = result["effects"] as? [String: Any],
+           let status = effects["status"] as? [String: Any],
+           let s = status["status"] as? String, s != "success" {
+            let reason = (status["error"] as? String) ?? "aborted on chain"
+            throw DirectBroadcastError.broadcastFailed("transaction failed: \(reason) — no funds moved")
         }
         return digest
     }

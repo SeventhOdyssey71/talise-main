@@ -147,10 +147,18 @@ export async function POST(req: Request) {
     // Same discriminated-union shape Onara returns:
     //   { $kind: "Transaction",       Transaction:       { digest, ... } }
     //   { $kind: "FailedTransaction", FailedTransaction: { digest, ... } }
-    const txInner =
-      (result.Transaction as { digest?: string } | undefined) ??
-      (result.FailedTransaction as { digest?: string } | undefined);
-    const digest = (result.digest as string | undefined) ?? txInner?.digest ?? "";
+    const okTx = result.Transaction as { digest?: string } | undefined;
+    const failedTx = result.FailedTransaction as { digest?: string } | undefined;
+    // MONEY-SAFETY: a Move-ABORT comes back as FailedTransaction WITH a digest —
+    // never report it as a delivered send (no funds moved).
+    if ((result.$kind as string | undefined) === "FailedTransaction" || (failedTx && !okTx)) {
+      console.error("[send/gasless-submit] FAILED on-chain tx:", JSON.stringify(failedTx ?? result));
+      return NextResponse.json(
+        { error: "transaction failed on chain (aborted) — funds not moved", code: "TX_ABORTED" },
+        { status: 502 }
+      );
+    }
+    const digest = (result.digest as string | undefined) ?? okTx?.digest ?? "";
     if (!digest) {
       console.error("[send/gasless-submit] no digest in response:", result);
       return NextResponse.json(

@@ -1375,7 +1375,8 @@ struct PrivateSendFlowView: View {
                         draft: draft,
                         onNext: { path.append(.review) },
                         onBack: { pop() },
-                        onClose: { close() }
+                        onClose: { close() },
+                        allowBankPayout: false // shielded flow: never the public NGN off-ramp
                     )
                 case .review:
                     PrivateReviewView(

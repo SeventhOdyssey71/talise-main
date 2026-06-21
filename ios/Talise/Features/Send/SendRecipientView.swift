@@ -11,6 +11,11 @@ struct SendRecipientView: View {
     /// path, which settles in its own sheet and then dismisses Send wholesale
     /// rather than continuing to the on-chain review/sending steps.
     var onClose: () -> Void
+    /// Off-ramp "Their bank" (NGN, PUBLIC) payout is allowed in the normal Send
+    /// flow but MUST be suppressed in the shielded private-send flow — a public
+    /// bank transfer there would contradict the privacy guarantee and tear down
+    /// the flow. PrivateSendFlowView passes `false`.
+    var allowBankPayout: Bool = true
 
     @State private var contacts: [ContactDTO] = []
     @State private var loadingContacts = true
@@ -38,7 +43,7 @@ struct SendRecipientView: View {
     /// True only when the resolved recipient has a PRIMARY bank — gates the
     /// segmented control. No bank → Send works exactly as today (no toggle).
     private var recipientHasBank: Bool {
-        draft.resolved?.recipientBank?.hasPrimary == true
+        allowBankPayout && draft.resolved?.recipientBank?.hasPrimary == true
     }
 
     var body: some View {

@@ -433,14 +433,26 @@ export async function POST(req: Request) {
     // changes — we'd rather extract a digest than fail the send over
     // a field-name diff.
     const r = result as Record<string, unknown>;
-    const txInner =
+    const okTx =
       (r.Transaction as { digest?: string; effects?: unknown } | undefined) ??
-      (r.FailedTransaction as { digest?: string; effects?: unknown } | undefined) ??
       (r.transaction as { digest?: string; effects?: unknown } | undefined);
-    const digest =
-      (r.digest as string | undefined) ??
-      txInner?.digest ??
-      "";
+    const failedTx = r.FailedTransaction as { digest?: string } | undefined;
+
+    // MONEY-SAFETY: a tx that is ADMITTED then Move-ABORTS comes back as a
+    // FailedTransaction that STILL carries a digest. Never report that as a
+    // delivered send — the recipient was not paid and the balance must not drop.
+    if ((r.$kind as string | undefined) === "FailedTransaction" || (failedTx && !okTx)) {
+      console.error(
+        `[zk/sponsor-execute] FAILED on-chain tx user=${userId} digest=${failedTx?.digest ?? ""}`,
+        JSON.stringify(failedTx ?? r)
+      );
+      return NextResponse.json(
+        { error: "transaction failed on chain (aborted) — funds not moved", code: "TX_ABORTED" },
+        { status: 502 }
+      );
+    }
+
+    const digest = (r.digest as string | undefined) ?? okTx?.digest ?? "";
     if (!digest) {
       // Log the raw shape so we can fix the extractor without guessing.
       console.error(
@@ -511,7 +523,7 @@ export async function POST(req: Request) {
       digest,
       effects:
         (r.effects as unknown) ??
-        (txInner?.effects as unknown) ??
+        (okTx?.effects as unknown) ??
         null,
       objectChanges:
         ((r.objectChanges as unknown[]) ?? []) as unknown[],
