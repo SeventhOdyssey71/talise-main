@@ -3,9 +3,24 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { denyUnlessAppApproved } from "@/lib/app-access";
 import { shieldConfigured } from "@/lib/shield/onchain";
 import { merklePathForLeaf, dummyPath, refreshMerkleCache } from "@/lib/shield/merkle";
+import { runShieldIndexer } from "@/lib/shield/indexer";
+import { memoTtl } from "@/lib/perf-cache";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 
 export const runtime = "nodejs";
+
+/**
+ * LIVE CATCH-UP — pull just-landed commitments straight from chain on demand,
+ * so a withdraw's Merkle path (and the deposit's current root) is available
+ * within ~seconds of the deposit finalizing, NOT gated by the 2-min indexer
+ * cron. Deduped to one in-flight run per 3s window so the harness's rapid polls
+ * don't spawn parallel indexer runs. Failures are swallowed — the cron + the
+ * caller's retry remain the backstop. THIS is what makes the shielded send fire
+ * at Sui speed instead of waiting minutes.
+ */
+function liveIndexCatchUp(): Promise<unknown> {
+  return memoTtl("shield-live-index", 3_000, () => runShieldIndexer().catch(() => null));
+}
 
 /**
  * POST /api/shield/merkle-path
@@ -42,6 +57,10 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
+
+  // Catch up to chain on-demand BEFORE serving — both the deposit's current
+  // root and the withdraw's path are then live (no 2-min cron wait).
+  await liveIndexCatchUp();
 
   if (body.dummy) {
     const p = dummyPath();
