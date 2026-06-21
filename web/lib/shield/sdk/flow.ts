@@ -49,6 +49,7 @@ import { randomField } from "./note";
 import { encryptNote, encPublicKeyFromScalar, type RecipientEncKey } from "./encrypt";
 import { proveTransact, buildTransact, type ProofInputs, type ExtDataInput } from "./tx";
 import type { ProofInput } from "./prover";
+import { scanNotes } from "./scan";
 
 const r = BN254_SCALAR_FIELD;
 const mod = (x: bigint) => ((x % r) + r) % r;
@@ -512,6 +513,74 @@ export async function shieldWithdraw(args: {
     outputRecipient: exitAddress,
     exitAddress,
   });
+}
+
+/** Is this nullifier already spent on-chain? Conservative: a failed lookup
+ *  returns false (treat as unspent) — the on-chain nullifier set is the real
+ *  guard, so the worst case is a withdraw that aborts harmlessly, never a spend. */
+async function isSpent(cfg: ShieldFlowConfig, nullifier: bigint): Promise<boolean> {
+  try {
+    const q = `coinType=${encodeURIComponent(cfg.coinType ?? USDSUI_TYPE)}&nullifier=${dec(nullifier)}`;
+    const res = await fetch(`${cfg.apiBase ?? ""}/api/shield/nullifier?${q}`, {
+      ...cfg.fetchInit,
+      method: "GET",
+    });
+    if (!res.ok) return false;
+    const j = (await res.json()) as { spent?: Record<string, boolean> };
+    return !!j.spent?.[dec(nullifier)];
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * SCAN-FIRST send: a shielded note IS spendable balance. Before depositing fresh
+ * funds, look for an UNSPENT note the user already owns whose amount matches the
+ * send; if found, spend THAT to the recipient (a relayer-signed withdraw) and
+ * skip the deposit entirely. This (a) completes a previously-stranded deposit
+ * whose withdraw never fired — the funds are already in the pool — and (b) makes
+ * sends cheaper when shielded balance exists. Returns the withdraw digest, or
+ * null when no matching unspent note exists (caller falls back to deposit→withdraw).
+ */
+export async function spendExistingNote(args: {
+  cfg: ShieldFlowConfig;
+  keypair: ShieldKeypair;
+  amount: bigint;
+  exitAddress: string;
+  /** A relayer-owned coin to split the zero deposit-coin from (from /api/shield/relayer). */
+  zeroCoinSourceId: string;
+  /** Current pool root (decimal) — must include the note's leaf. */
+  root: bigint;
+}): Promise<{ digest: string; outputs: FlowOutputNote[] } | null> {
+  const { cfg, keypair, amount } = args;
+  const viewingKey = await deriveShieldEncScalar(keypair.spendingKey);
+  const notes = await scanNotes(viewingKey, {
+    baseUrl: `${cfg.apiBase ?? ""}/api/shield/commitments`,
+    fetch: ((u: string) => fetch(u, { ...cfg.fetchInit })) as typeof fetch,
+  });
+  for (const n of notes) {
+    if (n.amount !== amount || n.leafIndex == null) continue;
+    const nf = nullifierFor(keypair.spendingKey, n.commitment, BigInt(n.leafIndex));
+    if (await isSpent(cfg, nf)) continue;
+    return shieldWithdraw({
+      cfg,
+      keypair,
+      inputNotes: [
+        {
+          privateKey: keypair.spendingKey,
+          amount: n.amount,
+          blinding: n.blinding,
+          leafIndex: n.leafIndex,
+          commitment: n.commitment,
+        },
+      ],
+      amount,
+      exitAddress: args.exitAddress,
+      zeroCoinSourceId: args.zeroCoinSourceId,
+      root: args.root,
+    });
+  }
+  return null;
 }
 
 /**

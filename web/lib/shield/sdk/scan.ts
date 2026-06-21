@@ -53,20 +53,25 @@ export async function scanNotes(
 ): Promise<SpendableNote[]> {
   const doFetch = opts.fetch ?? globalThis.fetch;
   const baseUrl = opts.baseUrl ?? "/api/shield/commitments";
-  const pageSize = opts.pageSize ?? 500;
-  let cursor = opts.fromLeafIndex ?? 0;
+  // The route caps `limit` at 200; requesting more makes the "short page = done"
+  // check misfire and stop after one page. Match the server cap exactly.
+  const pageSize = Math.min(opts.pageSize ?? 200, 200);
+  // The route's `after` cursor is EXCLUSIVE (leaf_index > after), so start one
+  // below the desired first leaf.
+  let after = (opts.fromLeafIndex ?? 0) - 1;
 
   const found: SpendableNote[] = [];
 
   // Bounded cursor walk: stop when a page returns fewer rows than requested.
   for (;;) {
-    const url = `${baseUrl}?from=${cursor}&limit=${pageSize}`;
+    const url = `${baseUrl}?after=${after}&limit=${pageSize}`;
     const res = await doFetch(url);
     if (!res.ok) {
       throw new Error(`scan fetch failed: ${res.status}`);
     }
-    const json = (await res.json()) as { commitments?: CommitmentRow[] };
-    const rows = json.commitments ?? [];
+    // The route returns { items }; tolerate { commitments } for older shapes.
+    const json = (await res.json()) as { items?: CommitmentRow[]; commitments?: CommitmentRow[] };
+    const rows = json.items ?? json.commitments ?? [];
     if (rows.length === 0) break;
 
     for (const row of rows) {
@@ -75,7 +80,7 @@ export async function scanNotes(
     }
 
     if (rows.length < pageSize) break;
-    cursor = rows[rows.length - 1].leafIndex + 1;
+    after = rows[rows.length - 1].leafIndex; // exclusive cursor
   }
 
   return found;

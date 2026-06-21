@@ -5,6 +5,7 @@ import { deriveShieldKeypairFromSeed } from "@/lib/shield/sdk";
 import {
   proveShieldDeposit,
   shieldWithdraw,
+  spendExistingNote,
   type ShieldFlowConfig,
   type FlowInputNote,
 } from "@/lib/shield/sdk/flow";
@@ -153,6 +154,30 @@ export function ShieldProveHarness({
           if (!rootRes.ok) throw new Error("The shielded pool is busy. Try again shortly.");
           const currentRoot = rootRes.body.currentRoot as string | undefined;
           if (!currentRoot) throw new Error("The shielded pool is syncing. Try again shortly.");
+
+          // 2b. SCAN-FIRST: a shielded note IS spendable balance. If an UNSPENT
+          // note you already own covers this amount (e.g. a prior send whose
+          // withdraw didn't fire — the funds are already in the pool), spend THAT
+          // to the recipient and skip the deposit. Completes stranded sends + is
+          // faster (no deposit/sign/index round-trip). Best-effort: any failure
+          // falls through to the normal deposit flow.
+          const relayerRes0 = await fetch("/api/shield/relayer", { credentials: "same-origin" });
+          const relayer0 = (await relayerRes0.json().catch(() => ({}))) as { zeroCoinSourceId?: string };
+          if (relayer0.zeroCoinSourceId) {
+            post({ type: "progress", message: "Checking your shielded balance…" });
+            const reused = await spendExistingNote({
+              cfg,
+              keypair,
+              amount,
+              exitAddress: recipient,
+              zeroCoinSourceId: relayer0.zeroCoinSourceId,
+              root: BigInt(currentRoot),
+            }).catch(() => null);
+            if (reused?.digest) {
+              post({ type: "result", digest: reused.digest });
+              return;
+            }
+          }
 
           // 3. PROVE the deposit in-page (Groth16, WASM) — note secrets stay here.
           post({ type: "progress", message: "Sealing your transfer…" });
