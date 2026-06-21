@@ -1,18 +1,16 @@
 // One-shot: split the relayer's USDsui coin into an EXACT $10 deposit coin +
 // remainder, both owned by the relayer. Signed with SHIELD_RELAYER_SK.
 // Prints DEPOSIT_COIN_ID ($10) + the remainder coin id (ZERO_COIN_SOURCE_ID).
-import { Transaction } from "@mysten/sui/transactions";
+import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 const { sui } = await import("../lib/sui.ts");
 
 const COIN_TYPE =
   "0x44f838219cf67b058f3b37907b655f226153c18e33dfcd0da559a844fea9b1c1::usdsui::USDSUI";
-// Parameterized: SPLIT_SRC (coin id) + SPLIT_SK (owner key). Falls back to the
-// relayer's coin/key for the original relayer-funded path.
-const SRC =
-  process.env.SPLIT_SRC ||
-  "0xdaa807c480422a586c4034a1d53fcb9e21982666eeb20688da98faac23ee014c";
-const AMOUNT = 10_000_000n;
+// Parameterized: SPLIT_SK (owner key) + SPLIT_AMOUNT (micros). Sources an exact
+// coin via coinWithBalance (version-robust — merges/splits the wallet's coins at
+// build time), avoiding stale specific-coin-id resolution.
+const AMOUNT = BigInt(process.env.SPLIT_AMOUNT || 10_000_000);
 
 const sk = process.env.SPLIT_SK || process.env.SHIELD_RELAYER_SK;
 if (!sk) throw new Error("SPLIT_SK (or SHIELD_RELAYER_SK) missing");
@@ -56,32 +54,37 @@ function jsonRpcResolutionPlugin() {
     await next();
   };
 }
+const { toBase64 } = await import("@mysten/sui/utils");
 const client = sui();
 const tx = new Transaction();
 tx.setSender(addr);
-tx.setGasBudget(10_000_000n);
-const [ten] = tx.splitCoins(tx.object(SRC), [tx.pure.u64(AMOUNT)]);
-tx.transferObjects([ten], addr); // keep $10 coin owned by relayer (becomes DEPOSIT_COIN_ID)
-tx.addBuildPlugin(jsonRpcResolutionPlugin());
+tx.setGasBudget(20_000_000n);
+// Source an EXACT-amount coin from the wallet's USDsui (never the gas coin) and
+// keep it owned by the wallet — it becomes DEPOSIT_COIN_ID.
+const coin = tx.add(coinWithBalance({ type: COIN_TYPE, balance: AMOUNT, useGasCoin: false }));
+tx.transferObjects([coin], addr);
 
-const res = await client.signAndExecuteTransaction({
-  signer: kp,
-  transaction: tx,
-  options: { showEffects: true, showObjectChanges: true },
-});
-console.log("split digest:", res.digest, res.effects?.status?.status);
-await client.waitForTransaction({ digest: res.digest });
+// Build with the gRPC client (resolves coinWithBalance + gas), SUBMIT via JSON-RPC.
+const built = await tx.build({ client });
+const { signature } = await kp.signTransaction(built);
+const res = await rpc("sui_executeTransactionBlock", [
+  toBase64(built),
+  [signature],
+  { showEffects: true },
+  "WaitForLocalExecution",
+]);
+console.log("split digest:", res?.digest, res?.effects?.status?.status, res?.effects?.status?.error ?? "");
 
-// Enumerate relayer USDsui coins post-split (via JSON-RPC).
+// Enumerate wallet USDsui coins post-split (via JSON-RPC).
 const coinsRes = await rpc("suix_getCoins", [addr, COIN_TYPE]);
-console.log("\nrelayer USDsui coins after split:");
-let ten10, rem;
+console.log("\nwallet USDsui coins after split:");
+let exact, rem;
 for (const c of coinsRes.data) {
   const v = BigInt(c.balance);
-  const tag = v === AMOUNT ? "  <- DEPOSIT_COIN_ID ($10 exact)" : "  <- ZERO_COIN_SOURCE_ID (remainder)";
+  const tag = v === AMOUNT ? `  <- DEPOSIT_COIN_ID (exact)` : (v > 0n ? "  <- ZERO_COIN_SOURCE_ID (remainder)" : "");
   console.log(" ", c.coinObjectId, Number(v) / 1e6, "USDsui", tag);
-  if (v === AMOUNT) ten10 = c.coinObjectId;
-  else rem = c.coinObjectId;
+  if (v === AMOUNT && !exact) exact = c.coinObjectId;
+  else if (v > 0n) rem = c.coinObjectId;
 }
-console.log("\nDEPOSIT_COIN_ID=" + ten10);
+console.log("\nDEPOSIT_COIN_ID=" + exact);
 console.log("ZERO_COIN_SOURCE_ID=" + rem);
