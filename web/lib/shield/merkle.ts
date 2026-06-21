@@ -417,6 +417,17 @@ export async function merklePathForLeaf(
     );
   }
 
+  // Pair-partner guard: on-chain `append_pair` writes BOTH leaves of a pair, and
+  // a real commitment is NEVER ZERO_VALUE. If the partner is missing/gap-filled,
+  // the deposit's odd leaf hasn't indexed yet — serving a path now would fold the
+  // even leaf against a ZERO_VALUE sibling, yielding a root that never existed
+  // on-chain → an unspendable proof that aborts the withdraw. Make the caller
+  // keep polling until the whole pair is indexed.
+  const partner = leafIndex ^ 1;
+  if (partner >= leaves.length || leaves[partner] === ZERO_VALUE) {
+    throw new Error("pair-partner not indexed yet — still indexing");
+  }
+
   return memoTtl(`shield-path:${coinType}:${leafIndex}:${leaves.length}`, 10_000, async () =>
     pathFor(leaves, leafIndex!)
   );

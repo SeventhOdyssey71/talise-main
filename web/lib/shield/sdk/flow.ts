@@ -118,7 +118,10 @@ export type ShieldFlowConfig = {
 };
 
 type RelayerInfo = { address: string; maxRelayerFee: bigint };
-type PathResult = { leafIndex: number; pathPairs: [string, string][] };
+// `root` is the root the returned path AUTHENTICATES to — the proof's public
+// root MUST equal this for the real input or the circuit is unsatisfiable. We
+// carry it so the proof root can never drift from the path it was built with.
+type PathResult = { leafIndex: number; pathPairs: [string, string][]; root: string };
 
 // ── API helpers ─────────────────────────────────────────────────────────────
 
@@ -146,8 +149,9 @@ async function getPath(
   const j = (await res.json()) as {
     leafIndex?: number;
     pathPairs: [string, string][];
+    root?: string;
   };
-  return { leafIndex: j.leafIndex ?? 0, pathPairs: j.pathPairs };
+  return { leafIndex: j.leafIndex ?? 0, pathPairs: j.pathPairs, root: j.root ?? "0" };
 }
 
 async function submitRelay(
@@ -176,6 +180,9 @@ type WitnessInput = {
   pathIndex: bigint;
   pathPairs: [string, string][];
   nullifier: bigint;
+  /** Root the path authenticates to — for a REAL (non-zero) input the proof's
+   *  public root MUST equal this, else the membership constraint fails. */
+  pathRoot: bigint;
 };
 type WitnessOutput = {
   pubkey: bigint;
@@ -196,14 +203,16 @@ async function dummyInput(cfg: ShieldFlowConfig, pool: bigint, pathIndex: bigint
   const pubkey = hash1(privateKey);
   const commitment = commit(0n, pubkey, blinding, pool);
   const nullifier = nullifierFor(privateKey, commitment, pathIndex);
-  const { pathPairs } = await getPath(cfg, { dummy: true });
-  return { privateKey, amount: 0n, blinding, pathIndex, pathPairs, nullifier };
+  const { pathPairs, root } = await getPath(cfg, { dummy: true });
+  // amount 0 ⇒ membership skipped, so pathRoot is unused for a dummy.
+  return { privateKey, amount: 0n, blinding, pathIndex, pathPairs, nullifier, pathRoot: BigInt(root) };
 }
 
-/** Turn a real {@link FlowInputNote} into a witness input (fetch its live path). */
+/** Turn a real {@link FlowInputNote} into a witness input (fetch its live path
+ *  AND the root that path folds to — they MUST stay together). */
 async function realInput(cfg: ShieldFlowConfig, pool: bigint, note: FlowInputNote): Promise<WitnessInput> {
   const pathIndex = BigInt(note.leafIndex);
-  const { pathPairs } = await getPath(cfg, { commitment: dec(note.commitment) });
+  const { pathPairs, root } = await getPath(cfg, { commitment: dec(note.commitment) });
   const nullifier = nullifierFor(note.privateKey, note.commitment, pathIndex);
   return {
     privateKey: note.privateKey,
@@ -212,6 +221,7 @@ async function realInput(cfg: ShieldFlowConfig, pool: bigint, note: FlowInputNot
     pathIndex,
     pathPairs,
     nullifier,
+    pathRoot: BigInt(root),
   };
 }
 
@@ -484,7 +494,7 @@ export async function shieldWithdraw(args: {
   zeroCoinSourceId: string;
   root: bigint;
 }): Promise<{ digest: string; outputs: FlowOutputNote[] }> {
-  const { cfg, keypair, inputNotes, amount, exitAddress, root } = args;
+  const { cfg, keypair, inputNotes, amount, exitAddress } = args;
   const pool = poolField(cfg.poolObjectId);
 
   const ins: [WitnessInput, WitnessInput] = [
@@ -496,6 +506,10 @@ export async function shieldWithdraw(args: {
   const totalIn = ins[0].amount + ins[1].amount;
   const change = totalIn - amount;
   if (change < 0n) throw new Error("withdraw exceeds spent notes");
+  // If a SECOND real note is spent, both paths must fold to the same root.
+  if (inputNotes[1] && ins[0].pathRoot !== ins[1].pathRoot) {
+    throw new Error("input note paths disagree on the root — retry");
+  }
   const outs: [WitnessOutput, WitnessOutput] = [
     makeOutput(pool, keypair.publicKey, change),
     makeOutput(pool, keypair.publicKey, 0n),
@@ -503,7 +517,10 @@ export async function shieldWithdraw(args: {
   const selfKey = await selfEncKey(keypair);
   return runOp({
     cfg,
-    root,
+    // Bind the public root to the SAME read that produced the spent note's path
+    // — NOT a stale snapshot the caller captured earlier (that mismatch made the
+    // membership constraint unsatisfiable → proof failed → withdraw never sent).
+    root: ins[0].pathRoot,
     publicAmount: mod(0n - amount),
     ins,
     outs,
@@ -608,7 +625,7 @@ export async function shieldTransfer(args: {
   zeroCoinSourceId: string;
   root: bigint;
 }): Promise<{ digest: string; outputs: FlowOutputNote[] }> {
-  const { cfg, keypair, inputNotes, amount, recipientPubkey, recipientEncKey, root } = args;
+  const { cfg, keypair, inputNotes, amount, recipientPubkey, recipientEncKey } = args;
   const pool = poolField(cfg.poolObjectId);
 
   const ins: [WitnessInput, WitnessInput] = [
@@ -620,6 +637,9 @@ export async function shieldTransfer(args: {
   const totalIn = ins[0].amount + ins[1].amount;
   const change = totalIn - amount;
   if (change < 0n) throw new Error("transfer exceeds spent notes");
+  if (inputNotes[1] && ins[0].pathRoot !== ins[1].pathRoot) {
+    throw new Error("input note paths disagree on the root — retry");
+  }
   // out0 → recipient, out1 → change back to self.
   const outs: [WitnessOutput, WitnessOutput] = [
     makeOutput(pool, recipientPubkey, amount),
@@ -628,7 +648,8 @@ export async function shieldTransfer(args: {
   const selfKey = await selfEncKey(keypair);
   return runOp({
     cfg,
-    root,
+    // Bind the public root to the path's own root (see shieldWithdraw).
+    root: ins[0].pathRoot,
     publicAmount: 0n,
     ins,
     outs,

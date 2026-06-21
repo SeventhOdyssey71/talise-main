@@ -161,11 +161,20 @@ export async function POST(req: Request) {
     const onaraClient = onara();
     const client = sui();
 
-    const { address: sponsor } = await onaraClient.status();
+    const [{ address: sponsor }, gasRes] = await Promise.all([
+      onaraClient.status(),
+      client.getReferenceGasPrice(),
+    ]);
+    const gasPrice = gasRes.referenceGasPrice;
 
     const tx = Transaction.from(txBytes);
     tx.setSender(relayer);
     tx.setGasOwner(sponsor);
+    // Explicit gas price + a generous fixed budget (0.06 SUI), mirroring
+    // /api/send/sponsor-prepare and goal-vault — without these the sponsor's
+    // gas-coin selection could pick a dust coin and fail with "Insufficient gas".
+    tx.setGasPrice(BigInt(gasPrice));
+    tx.setGasBudget(60_000_000n);
     // Resolve the shielded PTB's object inputs (shared pool + zero-coin source)
     // via JSON-RPC — the gRPC client mis-resolves the SHARED pool object, which
     // made every relayer withdraw throw at build (relayer never submitted →
@@ -187,11 +196,34 @@ export async function POST(req: Request) {
     // here (mirrors /api/zk/sponsor-execute) — a missing digest is a real failure,
     // never a fake success.
     const r = result as Record<string, unknown>;
-    const txInner =
+    const kind = r.$kind as string | undefined;
+    const failed = r.FailedTransaction as { digest?: string } | undefined;
+    const okTx =
       (r.Transaction as { digest?: string } | undefined) ??
-      (r.FailedTransaction as { digest?: string } | undefined) ??
       (r.transaction as { digest?: string } | undefined);
-    const digest = (r.digest as string | undefined) ?? txInner?.digest ?? "";
+
+    // CRITICAL: Onara returns HTTP 200 with a FailedTransaction (which STILL
+    // carries a digest) when the withdraw ABORTS on-chain (e.g. a TOCTOU
+    // root-rotation / concurrent nullifier spend that passed simulation but
+    // failed at execution). NEVER report that as a delivered send — the
+    // recipient was not paid and the input note must not be treated as consumed.
+    if (kind === "FailedTransaction" || (failed && !okTx)) {
+      const failDigest = failed?.digest ?? "";
+      console.error(
+        `[shield/relay] FAILED on-chain withdraw user=${userId} digest=${failDigest}`,
+        JSON.stringify(failed ?? r)
+      );
+      return NextResponse.json(
+        {
+          error: "withdraw failed on chain (aborted) — funds not delivered",
+          code: "WITHDRAW_ABORTED",
+          ...(failDigest ? { digest: failDigest } : {}),
+        },
+        { status: 502 }
+      );
+    }
+
+    const digest = (r.digest as string | undefined) ?? okTx?.digest ?? "";
     if (!digest) {
       console.error(
         "[shield/relay] no digest in Onara response — shape:",

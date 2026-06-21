@@ -11,6 +11,7 @@ import { memoTtl } from "@/lib/perf-cache";
 import { shieldConfigured, SHIELD } from "@/lib/shield/onchain";
 import { refreshMerkleCache } from "@/lib/shield/merkle";
 import { appendShieldDeposit, type ShieldDepositProof } from "@/lib/shield/deposit-ptb";
+import { jsonRpcResolutionPlugin } from "@/lib/shield/resolve";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 
 export const runtime = "nodejs";
@@ -194,6 +195,11 @@ export async function POST(req: Request) {
     tx.setGasOwner(sponsor);
     tx.setGasPrice(BigInt(gasPrice));
     tx.setGasBudget(SPONSOR_GAS_BUDGET_MIST);
+    // Resolve the shared ShieldedPool object via JSON-RPC (same as the relay) —
+    // the gRPC client mis-resolves shared objects (no initialSharedVersion). The
+    // coinWithBalance plugin runs first + resolves the deposit coin, so this only
+    // pins the pool.
+    tx.addBuildPlugin(jsonRpcResolutionPlugin());
     const bytes = await tx.build({ client: client as never });
 
     return NextResponse.json({ bytes: toBase64(bytes), mode: "sponsored" });

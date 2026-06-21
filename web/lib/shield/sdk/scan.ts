@@ -28,8 +28,10 @@ export type CommitmentRow = {
   leafIndex: number;
   /** The on-chain commitment field element (decimal string for u256 safety). */
   commitment: string;
-  /** Hex (0x…) of the `encrypted_output` ciphertext for this leaf. */
-  encryptedOutput: string;
+  /** The `encrypted_output` ciphertext for this leaf. May be 0x-hex (indexer
+   *  array path) OR a base64 string (Sui JSON-RPC renders vector<u8> as base64
+   *  on many fullnode versions) OR null (legacy/unindexed). decodeBlob handles all. */
+  encryptedOutput: string | null;
 };
 
 export type ScanOptions = {
@@ -75,8 +77,14 @@ export async function scanNotes(
     if (rows.length === 0) break;
 
     for (const row of rows) {
-      const note = await tryDecryptRow(row, viewingKey);
-      if (note) found.push(note);
+      // Per-row isolation: a single malformed/legacy row must NEVER abort the
+      // whole scan (that silently disabled scan-first → re-deposit → strand).
+      try {
+        const note = await tryDecryptRow(row, viewingKey);
+        if (note) found.push(note);
+      } catch {
+        /* skip this row, keep scanning */
+      }
     }
 
     if (rows.length < pageSize) break;
@@ -95,7 +103,7 @@ export async function tryDecryptRow(
   row: CommitmentRow,
   viewingKey: bigint
 ): Promise<SpendableNote | null> {
-  const ct = hexToBytes(row.encryptedOutput);
+  const ct = decodeBlob(row.encryptedOutput);
   if (!ct) return null;
   const note = await decryptNote(ct, viewingKey);
   if (!note) return null;
@@ -112,14 +120,36 @@ export async function tryDecryptRow(
   return { ...note, commitment: recomputed, leafIndex: row.leafIndex };
 }
 
-function hexToBytes(hex: string): Uint8Array | null {
-  const s = hex.startsWith("0x") ? hex.slice(2) : hex;
-  if (s.length % 2 !== 0) return null;
-  const out = new Uint8Array(s.length / 2);
-  for (let i = 0; i < out.length; i++) {
-    const byte = Number.parseInt(s.slice(i * 2, i * 2 + 2), 16);
-    if (Number.isNaN(byte)) return null;
-    out[i] = byte;
+/**
+ * Decode a `vector<u8>` blob to bytes. The on-chain `encrypted_output` reaches
+ * us in MULTIPLE wire shapes depending on the fullnode/index path: `0x`-hex
+ * (indexer array path), a base64 string (Sui JSON-RPC's vector<u8> rendering on
+ * many fullnode versions — the shape that previously broke scan entirely), or
+ * null. Tolerate all; the downstream 221-byte length gate + commitment match
+ * reject anything that decodes to garbage, so being permissive here is safe.
+ */
+function decodeBlob(raw: string | null | undefined): Uint8Array | null {
+  if (!raw || typeof raw !== "string") return null;
+  const fromHex = (s: string): Uint8Array | null => {
+    if (s.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(s)) return null;
+    const out = new Uint8Array(s.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(s.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  };
+  if (raw.startsWith("0x")) return fromHex(raw.slice(2));
+  // Not 0x-prefixed → almost certainly the base64 JSON-RPC rendering. Try base64
+  // first, then bare-hex as a last resort.
+  try {
+    const bin =
+      typeof atob === "function"
+        ? atob(raw)
+        : // eslint-disable-next-line no-undef
+          Buffer.from(raw, "base64").toString("binary");
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    if (out.length > 0) return out;
+  } catch {
+    /* fall through */
   }
-  return out;
+  return fromHex(raw);
 }

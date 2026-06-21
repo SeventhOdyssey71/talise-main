@@ -208,12 +208,22 @@ async function ingestCommitments(): Promise<number> {
     const coinType = coinTypeOf(ev);
     const leafIndex = Number(pj.index);
     const commitment = String(pj.commitment ?? "0");
-    // encrypted_output is a vector<u8> — JSON-RPC returns a number[]; store hex.
+    // encrypted_output is a vector<u8>. JSON-RPC renders it as EITHER a number[]
+    // OR (on many fullnode versions) a base64 STRING. Normalize BOTH to 0x-hex
+    // so the scanner can always decode it — storing the base64 string verbatim
+    // (the old behavior) made trial-decrypt parse it as hex → fail → scan found
+    // NOTHING → notes stranded. A `0x`-hex string is passed through unchanged.
     let enc: string | null = null;
-    if (Array.isArray(pj.encrypted_output)) {
-      enc = "0x" + Buffer.from(pj.encrypted_output).toString("hex");
-    } else if (typeof pj.encrypted_output === "string") {
-      enc = pj.encrypted_output;
+    const raw = pj.encrypted_output;
+    if (Array.isArray(raw)) {
+      enc = "0x" + Buffer.from(raw).toString("hex");
+    } else if (typeof raw === "string") {
+      if (/^0x[0-9a-fA-F]*$/.test(raw)) {
+        enc = raw.toLowerCase();
+      } else {
+        // base64 → 0x-hex (the common JSON-RPC case that broke scanning).
+        enc = "0x" + Buffer.from(raw, "base64").toString("hex");
+      }
     }
     return [
       {
