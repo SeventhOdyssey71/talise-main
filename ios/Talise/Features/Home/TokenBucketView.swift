@@ -105,17 +105,11 @@ struct TokenBucketView: View {
     // MARK: - Coin card
 
     private func coinCard(_ coin: WalletCoinBalance) -> some View {
-        let symbol = symbolFor(coin)
+        let symbol = coin.symbol ?? symbolFor(coin)
         let busy = swappingType == coin.coinType
         return VStack(spacing: 16) {
             HStack(spacing: 13) {
-                ZStack {
-                    Circle().fill(TaliseColor.surface2)
-                    Text(String(symbol.prefix(1)))
-                        .font(TaliseFont.heading(17, weight: .semibold))
-                        .foregroundStyle(TaliseColor.greenMint)
-                }
-                .frame(width: 42, height: 42)
+                coinIcon(coin, symbol: symbol)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(symbol)
                         .font(TaliseFont.heading(17, weight: .medium))
@@ -125,6 +119,11 @@ struct TokenBucketView: View {
                         .foregroundStyle(TaliseColor.fgMuted)
                 }
                 Spacer()
+                if let usd = coin.usdValue, usd > 0 {
+                    Text(usdText(usd))
+                        .font(TaliseFont.heading(16, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                }
             }
             HStack(spacing: 10) {
                 Button { onSend() } label: {
@@ -179,23 +178,44 @@ struct TokenBucketView: View {
 
     // MARK: - Formatting
 
-    /// Decimals for the verified coin set (the only coins shown). Defaults to 9.
-    private func decimals(for coinType: String) -> Int {
-        let t = coinType.lowercased()
-        if t.contains("::usdc::") { return 6 }
-        if t.contains("::deep::") { return 6 }
-        if t.contains("::usdsui::") { return 6 }
-        if t.contains("::cetus::") { return 9 }
-        if t.contains("::sui::sui") { return 9 }
-        return 9
+    /// Coin logo (from on-chain metadata) with a symbol-initial fallback.
+    @ViewBuilder
+    private func coinIcon(_ coin: WalletCoinBalance, symbol: String) -> some View {
+        ZStack {
+            Circle().fill(TaliseColor.surface2)
+            if let s = coin.logoUrl, let url = URL(string: s) {
+                AsyncImage(url: url) { phase in
+                    if let img = phase.image {
+                        img.resizable().scaledToFit().clipShape(Circle())
+                    } else {
+                        Text(String(symbol.prefix(1)))
+                            .font(TaliseFont.heading(17, weight: .semibold))
+                            .foregroundStyle(TaliseColor.greenMint)
+                    }
+                }
+                .frame(width: 30, height: 30)
+            } else {
+                Text(String(symbol.prefix(1)))
+                    .font(TaliseFont.heading(17, weight: .semibold))
+                    .foregroundStyle(TaliseColor.greenMint)
+            }
+        }
+        .frame(width: 42, height: 42)
     }
 
     private func amountText(_ b: WalletCoinBalance) -> String {
-        let v = (Double(b.amount) ?? 0) / pow(10, Double(decimals(for: b.coinType)))
         let nf = NumberFormatter()
         nf.numberStyle = .decimal
         nf.maximumFractionDigits = 4
         nf.minimumFractionDigits = 0
-        return nf.string(from: NSNumber(value: v)) ?? "\(v)"
+        return nf.string(from: NSNumber(value: b.humanAmount)) ?? "\(b.humanAmount)"
+    }
+
+    private func usdText(_ v: Double) -> String {
+        let nf = NumberFormatter()
+        nf.numberStyle = .currency
+        nf.currencyCode = "USD"
+        nf.maximumFractionDigits = 2
+        return nf.string(from: NSNumber(value: v)) ?? String(format: "$%.2f", v)
     }
 }
