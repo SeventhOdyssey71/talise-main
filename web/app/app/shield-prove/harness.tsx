@@ -8,6 +8,7 @@ import {
   spendExistingNote,
   spendOrTransferToShield,
   sweepShieldedBalance,
+  shieldedBalanceMicros,
   type ShieldFlowConfig,
   type FlowInputNote,
 } from "@/lib/shield/sdk/flow";
@@ -49,6 +50,8 @@ declare global {
     // covering note, the send becomes a HIDDEN-AMOUNT shielded transfer.
     taliseShieldSend?: (micros: string, recipient: string, seedHex: string, recipientShieldJson?: string) => void;
     taliseShieldRecover?: (seedHex: string, destination: string) => void;
+    // Reports the shielded balance back via { type:"result", digest:"<micros>" }.
+    taliseShieldBalance?: (seedHex: string) => void;
     __taliseDepositSigned?: (digest: string, error: string) => void;
     webkit?: { messageHandlers?: { shield?: { postMessage: (m: Msg) => void } } };
   }
@@ -402,9 +405,30 @@ export function ShieldProveHarness({
       })();
     };
 
+    // ── SHIELDED BALANCE (read-only) ──────────────────────────────────────
+    // Sum the user's unspent notes; report micros via { result, digest }.
+    window.taliseShieldBalance = (seedHex: string) => {
+      void (async () => {
+        try {
+          if (!live || !packageId || !poolObjectId) {
+            post({ type: "result", digest: "0" });
+            return;
+          }
+          if (!/^[0-9a-f]{32,128}$/i.test(seedHex)) throw new Error("Couldn’t read your shielded balance.");
+          const keypair = await deriveShieldKeypairFromSeed(seedFromHex(seedHex));
+          void ensureIdentityPublished(keypair);
+          const micros = await shieldedBalanceMicros({ cfg, keypair });
+          post({ type: "result", digest: micros.toString() });
+        } catch (e) {
+          post({ type: "error", message: (e as Error).message || "Couldn’t read your shielded balance." });
+        }
+      })();
+    };
+
     return () => {
       delete window.taliseShieldSend;
       delete window.taliseShieldRecover;
+      delete window.taliseShieldBalance;
       delete window.__taliseDepositSigned;
     };
   }, [live, packageId, poolObjectId, coinType]);

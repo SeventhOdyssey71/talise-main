@@ -160,7 +160,7 @@ struct WithdrawFlowView: View {
             .background(TaliseColor.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(isPresented: $showPrivateSoon) {
-                PrivateSendFlowView(onDone: { showPrivateSoon = false })
+                ShieldedBalanceView(onDone: { showPrivateSoon = false })
             }
         }
         .tint(TaliseColor.fg)
@@ -1573,6 +1573,23 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
         }
     }
 
+    /// Read-only: the user's shielded balance in micros (sum of unspent notes).
+    func shieldedBalanceMicros(seedHex: String) async throws -> UInt64 {
+        let raw = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
+            self.continuation = cont
+            let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
+            let js = "if(!window.taliseShieldBalance){throw new Error('not ready')}; window.taliseShieldBalance('\(safeSeed)')"
+            webView.evaluateJavaScript(js) { _, err in
+                if let err { self.finish(.failure(ShieldError.message(err.localizedDescription))) }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                if self.continuation != nil { self.finish(.failure(ShieldError.message("Balance read timed out."))) }
+            }
+        }
+        return UInt64(raw) ?? 0
+    }
+
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any] else { return }
         switch body["type"] as? String {
@@ -1948,5 +1965,122 @@ struct PrivateReviewView: View {
         }
         .buttonStyle(TilePress())
         .disabled(sending)
+    }
+}
+
+/// SHIELDED BALANCE hub — your private pocket (sum of unspent notes, amount
+/// hidden on-chain) + the actions. "Send private" routes the hidden-amount
+/// transfer; "Unshield" sweeps the shielded balance back to your public wallet.
+struct ShieldedBalanceView: View {
+    var onDone: (() -> Void)?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppSession.self) private var session
+    @StateObject private var prover = ShieldProverController()
+    @State private var shieldedMicros: UInt64 = 0
+    @State private var loading = true
+    @State private var busy = false
+    @State private var status: String?
+    @State private var showSend = false
+
+    private var shieldedDisplay: String { String(format: "$%.2f", Double(shieldedMicros) / 1_000_000) }
+
+    var body: some View {
+        VStack(spacing: 24) {
+            header
+            Spacer(minLength: 8)
+            balanceCard
+            Spacer(minLength: 4)
+            actions
+            if let s = status {
+                Text(s).font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted)
+                    .multilineTextAlignment(.center).padding(.horizontal, 32)
+            }
+            Spacer()
+        }
+        .taliseScreenBackground()
+        .task { await load() }
+        .fullScreenCover(isPresented: $showSend) {
+            PrivateSendFlowView(onDone: { showSend = false; Task { await load() } })
+        }
+        .background(
+            ShieldProverHost(controller: prover)
+                .frame(width: 0, height: 0).allowsHitTesting(false).accessibilityHidden(true)
+        )
+    }
+
+    private var header: some View {
+        HStack {
+            Button { if let onDone { onDone() } else { dismiss() } } label: {
+                Image(systemName: "xmark").font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgMuted).frame(width: 38, height: 38).glassCircle()
+            }
+            Spacer()
+            HStack(spacing: 6) {
+                HugeIcon(name: "hi.lock", size: 13, tint: TaliseColor.greenMint)
+                MicroLabel(text: "Shielded balance", color: TaliseColor.fgMuted).kerning(2.0)
+            }
+            Spacer()
+            Color.clear.frame(width: 38, height: 38)
+        }
+        .padding(.horizontal, 20).padding(.top, 12)
+    }
+
+    private var balanceCard: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HugeIcon(name: "hi.lock", size: 18, tint: TaliseColor.greenMint)
+                Text(loading ? "—" : shieldedDisplay)
+                    .font(TaliseFont.display(56, weight: .medium)).foregroundStyle(TaliseColor.fg)
+            }
+            Text("Private pocket · amount hidden on-chain")
+                .font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted)
+        }
+        .padding(.vertical, 20)
+    }
+
+    private var actions: some View {
+        VStack(spacing: 12) {
+            Button { showSend = true } label: { actionLabel("Send private", filled: true) }
+                .buttonStyle(TilePress())
+            Button { Task { await unshield() } } label: {
+                actionLabel(busy ? "Unshielding…" : "Unshield to my wallet", filled: false)
+            }
+            .buttonStyle(TilePress())
+            .disabled(busy || shieldedMicros == 0)
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private func actionLabel(_ t: String, filled: Bool) -> some View {
+        Text(t)
+            .font(TaliseFont.body(16, weight: .semibold))
+            .foregroundStyle(filled ? TaliseColor.bg : TaliseColor.fg)
+            .frame(maxWidth: .infinity).padding(.vertical, 16)
+            .background(RoundedRectangle(cornerRadius: 16).fill(filled ? TaliseColor.greenMint : TaliseColor.fg.opacity(0.08)))
+    }
+
+    private func load() async {
+        loading = true
+        let seed = await ShieldKeyStore.noteMasterHex()
+        shieldedMicros = (try? await prover.shieldedBalanceMicros(seedHex: seed)) ?? 0
+        loading = false
+    }
+
+    private func unshield() async {
+        guard let addr = session.currentUser?.suiAddress, !addr.isEmpty else {
+            status = "Couldn’t read your wallet address."
+            return
+        }
+        busy = true
+        status = "Unshielding your balance to your wallet…"
+        do {
+            let seed = await ShieldKeyStore.noteMasterHex()
+            _ = try await prover.recover(seedHex: seed, destination: addr)
+            status = "Unshielded to your wallet."
+            await load()
+        } catch {
+            status = error.localizedDescription
+        }
+        busy = false
     }
 }

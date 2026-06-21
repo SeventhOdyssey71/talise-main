@@ -551,6 +551,36 @@ async function isSpent(cfg: ShieldFlowConfig, nullifier: bigint): Promise<boolea
 }
 
 /**
+ * SHIELDED BALANCE: the user's private pocket = the sum of their UNSPENT notes.
+ * Scans the commitments feed (trial-decrypt with the viewing key), skips spent +
+ * zero notes, sums the rest. Read-only; never signs.
+ */
+export async function shieldedBalanceMicros(args: {
+  cfg: ShieldFlowConfig;
+  keypair: ShieldKeypair;
+}): Promise<bigint> {
+  const { cfg, keypair } = args;
+  const viewingKey = await deriveShieldEncScalar(keypair.spendingKey);
+  let notes: Awaited<ReturnType<typeof scanNotes>>;
+  try {
+    notes = await scanNotes(viewingKey, {
+      baseUrl: `${cfg.apiBase ?? ""}/api/shield/commitments`,
+      fetch: ((u: string) => fetch(u, { ...cfg.fetchInit })) as typeof fetch,
+    });
+  } catch {
+    return 0n;
+  }
+  let total = 0n;
+  for (const n of notes) {
+    if (n.amount <= 0n || n.leafIndex == null) continue;
+    const nf = nullifierFor(keypair.spendingKey, n.commitment, BigInt(n.leafIndex));
+    if (await isSpent(cfg, nf).catch(() => false)) continue;
+    total += n.amount;
+  }
+  return total;
+}
+
+/**
  * SCAN-FIRST send: a shielded note IS spendable balance. Before depositing fresh
  * funds, look for an UNSPENT note the user already owns whose amount matches the
  * send; if found, spend THAT to the recipient (a relayer-signed withdraw) and

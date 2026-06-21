@@ -16,6 +16,11 @@ import { memoTtl } from "@/lib/perf-cache";
  * break if the Cetus fetch is slow/unreachable. (Per the chosen design.)
  */
 
+/** A coin must have at least this much on-chain liquidity to be convertible —
+ *  below it the Cetus aggregator aborts with "insufficient liquidity" (exactly
+ *  what spam coins like LMAGMA_COIN do). Such coins are ignored entirely. */
+const MIN_LIQUIDITY_USD = 100;
+
 /** Canonicalize a Sui coin type: lowercase + zero-pad the address to 64 hex so
  *  short ("0x2::sui::SUI") and long forms compare equal. */
 function norm(t: string): string {
@@ -65,7 +70,12 @@ async function verifiedSet(): Promise<Set<string>> {
       for (const t of arr) {
         const ct = (t.coin_type ?? t.coinType ?? t.address ?? t.type) as string | undefined;
         const verified = (t.verified ?? t.is_verified ?? t.isVerified ?? true) as boolean;
-        if (ct && verified) set.add(norm(ct));
+        // LOW-LIQUIDITY GUARD: even a "verified" coin is ignored if its pool
+        // liquidity/TVL is below the floor (when the registry exposes it) — a
+        // thin coin's swap fails. Unknown liquidity → trust the verified flag.
+        const liq = Number(t.liquidity ?? t.liquidityUsd ?? t.tvl ?? t.tvlUsd ?? NaN);
+        const liquidEnough = Number.isNaN(liq) || liq >= MIN_LIQUIDITY_USD;
+        if (ct && verified && liquidEnough) set.add(norm(ct));
       }
       return set;
     } catch {
