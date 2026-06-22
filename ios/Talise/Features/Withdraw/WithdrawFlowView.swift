@@ -1409,6 +1409,18 @@ struct PrivateSendFlowView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         )
+        // Pre-warm the two slow prerequisites WHILE the user is still typing the
+        // amount / picking a recipient, so confirm() is fast:
+        //  • the zkLogin proof — so the deposit-sign leg sends a `cachedProof`
+        //    and the server SKIPS re-proving (a cold proof costs several seconds);
+        //  • the shield note master — so confirm() reads it from the Keychain
+        //    instead of blocking on the escrow round-trip on first use.
+        // Both run concurrently with the prover web layer loading above.
+        .task {
+            async let warm: Void = ZkLoginCoordinator.shared.ensureProofWarm()
+            async let seed: String = ShieldKeyStore.noteMasterHex()
+            _ = await (warm, seed)
+        }
     }
 
     /// One-tap recovery: sweep all unspent shielded notes back to the user's own
@@ -1487,6 +1499,29 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     @Published var status: String = ""
     private var continuation: CheckedContinuation<String, Error>?
 
+    // ── Timing instrumentation ────────────────────────────────────────────
+    // Parity with the gasless/sponsored `[ios/send] … total=Nms` log: prints,
+    // to the Xcode console, exactly how long a private tx takes and WHERE the
+    // time goes — web prover ready, each in-page stage (Δ between progress
+    // messages), the native deposit-sign leg, and the total. All times are
+    // wall-clock ms via the monotonic CFAbsoluteTime clock.
+    private let tInit = CFAbsoluteTimeGetCurrent()
+    private var tStart: CFAbsoluteTime = 0   // start of the current op
+    private var tPrev: CFAbsoluteTime = 0    // previous stage boundary (for Δ)
+    private var signMs = 0                   // native deposit-sign leg
+    private var opLabel = ""
+
+    private func ms(_ from: CFAbsoluteTime) -> Int {
+        Int(((CFAbsoluteTimeGetCurrent() - from) * 1000.0).rounded())
+    }
+    private func beginTiming(_ label: String) {
+        opLabel = label
+        tStart = CFAbsoluteTimeGetCurrent()
+        tPrev = tStart
+        signMs = 0
+        print("[ios/private] start op=\(label)")
+    }
+
     enum ShieldError: LocalizedError {
         case message(String)
         var errorDescription: String? { if case .message(let m) = self { return m }; return nil }
@@ -1517,6 +1552,7 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     func send(micros: UInt64, recipient: String, seedHex: String, recipientShieldJson: String? = nil) async throws -> String {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             self.continuation = cont
+            self.beginTiming("send")
             let safeRecipient = recipient.replacingOccurrences(of: "'", with: "")
             let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
             // JSON-encode the shield identity safely for JS injection (it contains
@@ -1555,6 +1591,7 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     func recover(seedHex: String, destination: String) async throws -> String {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             self.continuation = cont
+            self.beginTiming("recover")
             let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
             let safeDest = destination.replacingOccurrences(of: "'", with: "")
             let js = "if(!window.taliseShieldRecover){throw new Error('Recovery isn’t ready yet — try again.')}; window.taliseShieldRecover('\(safeSeed)','\(safeDest)')"
@@ -1577,6 +1614,7 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     func shieldedBalanceMicros(seedHex: String) async throws -> UInt64 {
         let raw = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             self.continuation = cont
+            self.beginTiming("balance")
             let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
             let js = "if(!window.taliseShieldBalance){throw new Error('not ready')}; window.taliseShieldBalance('\(safeSeed)')"
             webView.evaluateJavaScript(js) { _, err in
@@ -1595,6 +1633,13 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
         switch body["type"] as? String {
         case "progress":
             status = body["message"] as? String ?? ""
+            // Each in-page stage (key derivation, prove deposit, index, prove
+            // withdraw, relay) posts a progress message — timestamp it so the
+            // console shows the Δ between stages and where the time actually goes.
+            if tStart > 0 {
+                print("[ios/private] +\(ms(tStart))ms (Δ\(ms(tPrev))ms) — \(status)")
+                tPrev = CFAbsoluteTimeGetCurrent()
+            }
         case "result":
             finish(.success(body["digest"] as? String ?? ""))
         case "error":
@@ -1610,11 +1655,15 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
                 return
             }
             Task { @MainActor in
+                let tSign = CFAbsoluteTimeGetCurrent()
                 do {
                     let sub = try await ZkLoginCoordinator.shared.executeSponsorReady(
                         bytesB64: bytesB64, intent: "Private send")
+                    self.signMs = self.ms(tSign)
+                    print("[ios/private] native-sign(deposit)=\(self.signMs)ms digest=\(sub.digest.prefix(10))…")
                     depositSigned(digest: sub.digest, error: "")
                 } catch {
+                    print("[ios/private] native-sign(deposit) FAILED after \(self.ms(tSign))ms — \(error.localizedDescription)")
                     depositSigned(digest: "", error: error.localizedDescription)
                 }
             }
@@ -1640,8 +1689,30 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     }
 
     private func finish(_ result: Result<String, Error>) {
+        if tStart > 0 {
+            switch result {
+            case .success(let digest):
+                print("[ios/private] DONE op=\(opLabel) total=\(ms(tStart))ms native-sign=\(signMs)ms digest=\(digest.prefix(10))…")
+            case .failure(let err):
+                print("[ios/private] FAILED op=\(opLabel) after=\(ms(tStart))ms — \(err.localizedDescription)")
+            }
+            tStart = 0
+        }
         continuation?.resume(with: result)
         continuation = nil
+    }
+
+    // Navigation logging — surfaces the otherwise-silent web-prover load time
+    // and any load failure (the usual cause of a private send that "hangs" to
+    // the 300s watchdog because the harness never installed).
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        print("[ios/private] prover-web-ready=\(ms(tInit))ms")
+    }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        print("[ios/private] prover-web LOAD FAILED after \(ms(tInit))ms — \(error.localizedDescription)")
+    }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        print("[ios/private] prover-web PROVISIONAL LOAD FAILED after \(ms(tInit))ms — \(error.localizedDescription)")
     }
 }
 
