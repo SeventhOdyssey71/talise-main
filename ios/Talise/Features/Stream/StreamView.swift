@@ -28,6 +28,15 @@ private struct StreamCancelResp: Decodable {
     let refunded: Bool?
     let refundUsd: Double?
 }
+/// /api/streams/[id]/claim response. On-chain rail returns sponsor-ready
+/// `claim_accrued` `bytes` for the caller to sign+execute; `nothingToClaim`
+/// when the schedule has nothing newly due.
+private struct StreamClaimResp: Decodable {
+    let ok: Bool?
+    let mode: String?
+    let bytes: String?
+    let nothingToClaim: Bool?
+}
 struct StreamDTO: Decodable, Identifiable {
     let id: String
     let state: String
@@ -414,6 +423,7 @@ struct StreamsListView: View {
     @State private var streams: [StreamDTO] = []
     @State private var loading = true
     @State private var cancellingId: String?
+    @State private var claimingId: String?
     @State private var cancelError: String?
 
     var body: some View {
@@ -474,6 +484,22 @@ struct StreamsListView: View {
                 Text("\(s.tranchesDone ?? 0)/\(s.numTranches ?? 0) payments")
                     .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgDim)
             }
+            // Recipient: pull the funds the Clock has accrued. Streaming is
+            // CLOCK-BASED + cron-less — the contract has released tranches over
+            // time, and this claim transfers everything now due into the
+            // recipient's wallet (Onara-sponsored, free). Idempotent: claim as
+            // often as you like; it only ever moves what's newly accrued.
+            if s.role == "recipient", s.state == "active", released < total {
+                LiquidGlassButton(
+                    title: claimingId == s.id ? "Claiming…" : "Claim available",
+                    icon: claimingId == s.id ? nil : "arrow.down.circle",
+                    tint: TaliseColor.greenMint,
+                    size: .md,
+                    loading: claimingId == s.id
+                ) { Task { await claim(s) } }
+                    .disabled(claimingId != nil)
+                    .padding(.top, 4)
+            }
             // Sender-only cancel on a live stream. Stops further releases and
             // returns the undistributed remainder to the sender.
             if s.role != "recipient", s.state == "active" || s.state == "paused" {
@@ -528,6 +554,36 @@ struct StreamsListView: View {
         } catch {
             if APIError.isCancellation(error) { return }
             cancelError = "Couldn't cancel the stream right now."
+        }
+    }
+
+    /// Recipient claim: pull the Clock-accrued tranches into the wallet. The
+    /// server builds the Onara-sponsored `stream::claim_accrued` PTB; we sign +
+    /// execute it. The on-chain contract only ever pays the hardwired recipient,
+    /// so this is safe even though the call is permissionless.
+    private func claim(_ s: StreamDTO) async {
+        claimingId = s.id; cancelError = nil
+        defer { claimingId = nil }
+        struct ClaimBody: Encodable {}
+        do {
+            let r: StreamClaimResp = try await APIClient.shared.post(
+                "/api/streams/\(s.id)/claim", body: ClaimBody()
+            )
+            if r.mode == "onchain", let bytes = r.bytes {
+                _ = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                    bytesB64: bytes, intent: "Claim stream"
+                )
+                NotificationCenter.default.post(name: .taliseHomeShouldRefresh, object: nil)
+            }
+            await load()
+        } catch APIError.status(let code, let msg) {
+            cancelError = StreamSetupView.friendlyStreamError(code: code, message: msg)
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            cancelError = "Sign in again — your session needs a refresh."
+            session.signOut()
+        } catch {
+            if APIError.isCancellation(error) { return }
+            cancelError = "Couldn't claim the stream right now."
         }
     }
 
