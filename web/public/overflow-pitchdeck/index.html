@@ -24,6 +24,18 @@ body{font-family:var(--sans);color:var(--fg);}
 }
 .slide:last-child{page-break-after:auto;}
 
+/* On screen: scale each 1280x720 slide to fill the viewport width, fully
+   responsive on any device. Print (the PDF) keeps the fixed 1280x720 layout. */
+@media screen {
+  html,body{ margin:0; background:var(--bg); overflow-x:hidden; }
+  .slide{
+    transform: scale(calc(100vw / 1280));
+    transform-origin: top left;
+    margin-bottom: calc(720px * (100vw / 1280) - 720px);
+  }
+  .slide:last-child{ margin-bottom: calc(720px * (100vw / 1280) - 720px); }
+}
+
 .top{display:flex; align-items:center; justify-content:space-between; z-index:2;}
 .brand{display:flex; align-items:center; gap:11px;}
 .brand svg{width:24px; height:22px;}
