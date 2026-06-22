@@ -23,9 +23,17 @@ export default function LandingV2() {
           </svg>
           <span className="text-[19px] font-[600] tracking-[-0.01em]" style={{ fontFamily: "var(--font-display-v2)" }}>talise</span>
         </div>
-        <span aria-disabled="true" title="Waitlist closed" className="cursor-not-allowed select-none rounded-full border border-[#15300c]/15 px-5 py-2 text-[13px] font-semibold text-[#15300c]/35">
-          Waitlist closed
-        </span>
+        <div className="flex items-center gap-2.5">
+          <a
+            href="/blog"
+            className="rounded-full px-4 py-2 text-[13px] font-semibold text-[#15300c] transition-colors hover:bg-[#15300c]/[0.06]"
+          >
+            Blog
+          </a>
+          <span aria-disabled="true" title="Waitlist closed" className="cursor-not-allowed select-none rounded-full border border-[#15300c]/15 px-5 py-2 text-[13px] font-semibold text-[#15300c]/35">
+            Waitlist closed
+          </span>
+        </div>
       </div>
 
       <HeroV2 />
