@@ -31,18 +31,6 @@ async function withTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {
   }
 }
 
-async function scalar(sql: string, args: ReadonlyArray<unknown> = []): Promise<number> {
-  return withTimeout(
-    (async () => {
-      const r = await db().execute({ sql, args });
-      const v = r.rows[0] ? Object.values(r.rows[0])[0] : 0;
-      const n = Number(v);
-      return Number.isFinite(n) ? n : 0;
-    })(),
-    0
-  );
-}
-
 export type DirectionStat = { direction: string; count: number; volumeUsd: number };
 export type Corridor = { from: string; to: string; count: number };
 
@@ -56,43 +44,57 @@ export type PublicAnalytics = {
   updatedAt: string;
 };
 
+function row1(sql: string): Promise<Record<string, unknown>> {
+  return withTimeout(
+    (async () => {
+      const r = await db().execute({ sql });
+      return (r.rows[0] ?? {}) as Record<string, unknown>;
+    })(),
+    {} as Record<string, unknown>
+  );
+}
+const toNum = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
 export async function getPublicAnalytics(): Promise<PublicAnalytics> {
-  const [
-    // "Value moved" counts user-initiated flows only (sent, swap, withdraw,
-    // invest). We deliberately exclude `received` because it is the mirror
-    // side of `sent` and would double-count the same dollars.
-    volumeUsd,
-    txCount,
-    activeAccounts,
-    byDirectionRows,
-    corridorRows,
-    notes,
-    spent,
-    cheques,
-    streams,
-    goals,
-    accounts,
-    waitlist,
-  ] = await Promise.all([
-    scalar(
-      `SELECT COALESCE(SUM(amount_usd),0) FROM analytics_recent_tx
-       WHERE direction IN ('sent','swap','withdraw','invest')`
+  // Four independent round-trips, not twelve. Firing a dozen concurrent
+  // COUNT(*)s starves the small Postgres pool — the tail queries queue past
+  // the timeout and silently fall back to 0. Collapsing every simple count
+  // into ONE multi-subquery SELECT keeps us comfortably under the pool size.
+  const [counts, tx, byDirectionRows, corridorRows] = await Promise.all([
+    // All the plain counts in a single query.
+    row1(
+      `SELECT
+         (SELECT COUNT(*) FROM shield_commitments) AS notes,
+         (SELECT COUNT(*) FROM shield_nullifiers)  AS spent,
+         (SELECT COUNT(*) FROM cheques)            AS cheques,
+         (SELECT COUNT(*) FROM streams)            AS streams,
+         (SELECT COUNT(*) FROM savings_goals)      AS goals,
+         (SELECT COUNT(*) FROM users)              AS accounts,
+         (SELECT COUNT(*) FROM waitlist_signups)   AS waitlist`
     ),
-    scalar(`SELECT COUNT(*) FROM analytics_recent_tx`),
-    scalar(`SELECT COUNT(DISTINCT address) FROM analytics_recent_tx`),
+    // Transaction totals. "Value moved" counts user-initiated flows only
+    // (sent, swap, withdraw, invest); `received` is excluded as the mirror
+    // side of `sent` to avoid double-counting the same dollars.
+    row1(
+      `SELECT
+         COUNT(*)                                  AS txcount,
+         COUNT(DISTINCT address)                   AS active,
+         COALESCE(SUM(amount_usd) FILTER (
+           WHERE direction IN ('sent','swap','withdraw','invest')),0) AS vol
+       FROM analytics_recent_tx`
+    ),
     withTimeout(
       (async () => {
         const r = await db().execute({
           sql: `SELECT direction, COUNT(*) n, COALESCE(SUM(amount_usd),0) vol
                 FROM analytics_recent_tx GROUP BY direction ORDER BY vol DESC`,
         });
-        return r.rows.map((row) => {
-          const v = Object.values(row);
-          return {
-            direction: String(v[0] ?? "—"),
-            count: Number(v[1] ?? 0),
-            volumeUsd: Number(v[2] ?? 0),
-          };
+        return r.rows.map((rw) => {
+          const v = Object.values(rw);
+          return { direction: String(v[0] ?? "—"), count: toNum(v[1]), volumeUsd: toNum(v[2]) };
         });
       })(),
       [] as DirectionStat[]
@@ -105,30 +107,23 @@ export async function getPublicAnalytics(): Promise<PublicAnalytics> {
                 ORDER BY n DESC`,
         });
         return r.rows
-          .map((row) => {
-            const v = Object.values(row);
-            return { from: String(v[0] ?? ""), to: String(v[1] ?? ""), count: Number(v[2] ?? 0) };
+          .map((rw) => {
+            const v = Object.values(rw);
+            return { from: String(v[0] ?? ""), to: String(v[1] ?? ""), count: toNum(v[2]) };
           })
           .filter((c) => c.from && c.to);
       })(),
       [] as Corridor[]
     ),
-    scalar(`SELECT COUNT(*) FROM shield_commitments`),
-    scalar(`SELECT COUNT(*) FROM shield_nullifiers`),
-    scalar(`SELECT COUNT(*) FROM cheques`),
-    scalar(`SELECT COUNT(*) FROM streams`),
-    scalar(`SELECT COUNT(*) FROM savings_goals`),
-    scalar(`SELECT COUNT(*) FROM users`),
-    scalar(`SELECT COUNT(*) FROM waitlist_signups`),
   ]);
 
   return {
-    settled: { volumeUsd, txCount, activeAccounts },
+    settled: { volumeUsd: toNum(tx.vol), txCount: toNum(tx.txcount), activeAccounts: toNum(tx.active) },
     byDirection: byDirectionRows,
     corridors: corridorRows,
-    privacy: { notes, spent },
-    product: { cheques, streams, goals },
-    community: { accounts, waitlist },
+    privacy: { notes: toNum(counts.notes), spent: toNum(counts.spent) },
+    product: { cheques: toNum(counts.cheques), streams: toNum(counts.streams), goals: toNum(counts.goals) },
+    community: { accounts: toNum(counts.accounts), waitlist: toNum(counts.waitlist) },
     updatedAt: new Date().toISOString(),
   };
 }
