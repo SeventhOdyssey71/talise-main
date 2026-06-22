@@ -711,10 +711,12 @@ final class ZkLoginCoordinator {
                 "amountUsd": r.amountUsd,
             ]
             if let v = r.venue { metaDict["venue"] = v }
-            // Prefer the server's value (recomputed from the user's
-            // current round-up config) over whatever the caller passed.
-            let roundup = serverRoundupUsd > 0 ? serverRoundupUsd : (r.roundupUsd ?? 0)
-            if roundup > 0 { metaDict["roundupUsd"] = roundup }
+            // Round-up & Save is DECOUPLED: the send PTB no longer performs the
+            // NAVI supply, so the send must NOT credit a round-up save here. The
+            // client fires a SEPARATE sponsored /api/earn/supply tx for the
+            // round-up, which credits roundup_save once at the place the money
+            // actually moves. `serverRoundupUsd` is still returned below so the
+            // client knows how much to save.
             executeBody["meta"] = metaDict
         }
         // Forward a CACHED proof if available + well-shaped. Skipping
