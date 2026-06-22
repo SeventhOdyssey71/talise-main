@@ -4,6 +4,7 @@ import { userById } from "@/lib/db";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { filterVerified } from "@/lib/coins-verified";
 import { cetusUniverse, normCoinType } from "@/lib/cetus-tokens";
+import { logoForSymbol } from "@/lib/token-logos";
 import { getSuiUsdcPrice } from "@/lib/deepbook";
 import { memoTtl } from "@/lib/perf-cache";
 
@@ -155,7 +156,9 @@ export async function GET(req: Request) {
         isUsdsui,
         symbol,
         decimals,
-        logoUrl: meta.logoUrl,
+        // On-chain icon first; fall back to the curated Cetus/Noodles logo for
+        // majors (WAL, DEEP, …) whose metadata ships no iconUrl.
+        logoUrl: meta.logoUrl || logoForSymbol(symbol),
         usdValue,
       };
     })
