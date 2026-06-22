@@ -489,7 +489,12 @@ struct StreamsListView: View {
             // time, and this claim transfers everything now due into the
             // recipient's wallet (Onara-sponsored, free). Idempotent: claim as
             // often as you like; it only ever moves what's newly accrued.
-            if s.role == "recipient", s.state == "active", released < total {
+            // Show for any active incoming stream — the progress bar shows
+            // ACCRUED (clock-derived), not what's actually been pulled on chain,
+            // so we can't gate on `released < total` or a fully-accrued stream
+            // would hide Claim while real funds still sit unclaimed. claim_accrued
+            // is idempotent: if nothing's newly due it simply moves nothing.
+            if s.role == "recipient", s.state == "active" {
                 LiquidGlassButton(
                     title: claimingId == s.id ? "Claiming…" : "Claim available",
                     icon: claimingId == s.id ? nil : "arrow.down.circle",
