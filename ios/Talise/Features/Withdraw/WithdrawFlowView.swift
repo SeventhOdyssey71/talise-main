@@ -1385,7 +1385,10 @@ struct PrivateSendFlowView: View {
                         onBack: { pop() }
                     )
                 case .sending:
-                    SendInProgressView(draft: draft, onDone: { close() })
+                    // Surface the prover's live stage (Sealing your transfer…,
+                    // Confirm on your device…, …). `prover` is observed, so each
+                    // progress message re-renders this screen with the new stage.
+                    SendInProgressView(draft: draft, progress: prover.status, onDone: { close() })
                         .navigationBarBackButtonHidden(true)
                 case .complete:
                     SendCompleteView(draft: draft, onDone: { close() })
@@ -2048,7 +2051,6 @@ struct ShieldedBalanceView: View {
     @Environment(AppSession.self) private var session
     @StateObject private var prover = ShieldProverController()
     @State private var shieldedMicros: UInt64 = 0
-    @State private var loading = true
     @State private var busy = false
     @State private var status: String?
     @State private var showSend = false
@@ -2059,7 +2061,7 @@ struct ShieldedBalanceView: View {
         VStack(spacing: 24) {
             header
             Spacer(minLength: 8)
-            balanceCard
+            explainer
             Spacer(minLength: 4)
             actions
             if let s = status {
@@ -2096,20 +2098,47 @@ struct ShieldedBalanceView: View {
         .padding(.horizontal, 20).padding(.top, 12)
     }
 
-    private var balanceCard: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                HugeIcon(name: "hi.lock", size: 18, tint: TaliseColor.greenMint)
-                Text(loading ? "—" : shieldedDisplay)
-                    .font(TaliseFont.display(56, weight: .medium)).foregroundStyle(TaliseColor.fg)
+    // A plain-language explainer of what a private send is — the screen leads
+    // with this, not a $0.00 balance (which read as "you have nothing"). The
+    // shielded balance only surfaces, quietly, when there is one to recover.
+    private var explainer: some View {
+        VStack(spacing: 24) {
+            ZStack {
+                Circle().fill(TaliseColor.greenMint.opacity(0.14)).frame(width: 86, height: 86)
+                HugeIcon(name: "hi.lock", size: 34, tint: TaliseColor.greenMint)
             }
-            Text(shieldedMicros == 0
-                 ? "Send money so only you and the recipient know the amount."
-                 : "Your private balance · hidden on-chain")
-                .font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted)
-                .multilineTextAlignment(.center).padding(.horizontal, 36)
+            VStack(spacing: 8) {
+                Text("Private sends")
+                    .font(TaliseFont.heading(26, weight: .medium)).kerning(-0.4)
+                    .foregroundStyle(TaliseColor.fg)
+                Text("Send dollars so only you and the person you pay ever know the amount.")
+                    .font(TaliseFont.body(14, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
+                    .multilineTextAlignment(.center).padding(.horizontal, 34)
+            }
+            VStack(alignment: .leading, spacing: 15) {
+                point("The amount is hidden on-chain.")
+                point("Sender and recipient stay unlinked.")
+                point("Real zero-knowledge, live on Sui.")
+            }
+            .padding(.horizontal, 34)
+            if shieldedMicros > 0 {
+                Text("You have \(shieldedDisplay) shielded.")
+                    .font(TaliseFont.body(12, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
+            }
         }
-        .padding(.vertical, 20)
+        .padding(.vertical, 8)
+    }
+
+    private func point(_ text: String) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(TaliseColor.greenMint.opacity(0.16)).frame(width: 26, height: 26)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .bold)).foregroundStyle(TaliseColor.greenMint)
+            }
+            Text(text).font(TaliseFont.body(15)).foregroundStyle(TaliseColor.fg)
+            Spacer(minLength: 0)
+        }
     }
 
     private var actions: some View {
@@ -2125,6 +2154,10 @@ struct ShieldedBalanceView: View {
                 .buttonStyle(TilePress())
                 .disabled(busy)
             }
+            Text("Up to $10 per send during the pilot.")
+                .font(TaliseFont.mono(10, weight: .regular)).tracking(1.2)
+                .foregroundStyle(TaliseColor.fgDim)
+                .padding(.top, 4)
         }
         .padding(.horizontal, 24)
     }
@@ -2138,10 +2171,8 @@ struct ShieldedBalanceView: View {
     }
 
     private func load() async {
-        loading = true
         let seed = await ShieldKeyStore.noteMasterHex()
         shieldedMicros = (try? await prover.shieldedBalanceMicros(seedHex: seed)) ?? 0
-        loading = false
     }
 
     private func unshield() async {
