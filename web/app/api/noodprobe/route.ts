@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-/**
- * TEMPORARY probe to discover the Noodles API request format + response shape
- * from Vercel's egress (the sandbox dev box is Cloudflare-challenged). Pass the
- * key as ?key=… ; this file is deleted once the real client is wired.
- */
+/** TEMPORARY probe — discover the Noodles API shape from Vercel egress. */
 export async function GET(req: Request) {
   const key = new URL(req.url).searchParams.get("key") ?? "";
   const UA =
@@ -27,15 +23,8 @@ export async function GET(req: Request) {
     try {
       const res = await fetch(url, { headers, signal: AbortSignal.timeout(9000) });
       const text = await res.text();
-      const isChallenge = text.includes("Just a moment") || text.includes("_cf_chl");
-      out.push({
-        ep: t.ep,
-        auth: t.auth,
-        status: res.status,
-        ct: res.headers.get("content-type"),
-        challenged: isChallenge,
-        sample: isChallenge ? null : text.slice(0, 800),
-      });
+      const challenged = text.includes("Just a moment") || text.includes("_cf_chl");
+      out.push({ ep: t.ep, auth: t.auth, status: res.status, ct: res.headers.get("content-type"), challenged, sample: challenged ? null : text.slice(0, 900) });
     } catch (e) {
       out.push({ ep: t.ep, auth: t.auth, error: String(e) });
     }
