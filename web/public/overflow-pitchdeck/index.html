@@ -24,16 +24,21 @@ body{font-family:var(--sans);color:var(--fg);}
 }
 .slide:last-child{page-break-after:auto;}
 
-/* On screen: scale each 1280x720 slide to fill the viewport width, fully
-   responsive on any device. Print (the PDF) keeps the fixed 1280x720 layout. */
+/* On screen: scale each 1280x720 slide to fill the viewport width so the deck
+   uses the full viewport on desktop and is responsive on any device. The scale
+   factor is a unitless number (innerWidth / 1280) set on :root by the inline
+   script at the end of <body> — CSS calc cannot derive a unitless scale from
+   `vw` on its own. Print (the PDF) ignores this block and keeps 1280x720. */
 @media screen {
   html,body{ margin:0; background:var(--bg); overflow-x:hidden; }
+  body{ --deck-scale: 1; }
   .slide{
-    transform: scale(calc(100vw / 1280));
+    transform: scale(var(--deck-scale));
     transform-origin: top left;
-    margin-bottom: calc(720px * (100vw / 1280) - 720px);
+    /* A scaled slide still occupies its 720px layout box; reserve the real
+       visual height so slides stack without overlap (scale>1) or gaps (<1). */
+    margin-bottom: calc((var(--deck-scale) - 1) * 720px);
   }
-  .slide:last-child{ margin-bottom: calc(720px * (100vw / 1280) - 720px); }
 }
 
 .top{display:flex; align-items:center; justify-content:space-between; z-index:2;}
@@ -102,7 +107,7 @@ td.feat{color:var(--muted);}
 
 <!-- 1. COVER -->
 <section class="slide" style="justify-content:space-between; padding:0;">
-  <img class="imgfull" src="assets/hero.png" alt="" />
+  <img class="imgfull" src="/overflow-pitchdeck/assets/hero.png" alt="" />
   <div class="scrim"></div>
   <div style="position:relative; z-index:2; padding:64px 72px; display:flex; flex-direction:column; height:100%; justify-content:space-between;">
     <div class="top">
@@ -152,7 +157,7 @@ td.feat{color:var(--muted);}
         <div class="col card" style="padding:18px 20px;"><div class="stat s-md mint">20+</div><div class="label">Countries reachable</div></div>
       </div>
     </div>
-    <div class="shot"><img src="assets/app-home-dark.png" alt="Talise home" /></div>
+    <div class="shot"><img src="/overflow-pitchdeck/assets/app-home-dark.png" alt="Talise home" /></div>
   </div>
 </section>
 
@@ -178,7 +183,7 @@ td.feat{color:var(--muted);}
 
 <!-- 5. PRIVACY -->
 <section class="slide" style="padding:0;">
-  <img class="imgfull" src="assets/privacy.png" alt="" style="object-position:right;" />
+  <img class="imgfull" src="/overflow-pitchdeck/assets/privacy.png" alt="" style="object-position:right;" />
   <div class="scrim"></div>
   <div style="position:relative; z-index:2; padding:64px 72px; display:flex; flex-direction:column; height:100%;">
     <div class="top"><div class="brand"><svg class="bm"><use href="#logo"/></svg><span class="wm">talise</span></div><span class="pageno">05 · Privacy</span></div>
@@ -234,13 +239,13 @@ td.feat{color:var(--muted);}
       <div class="card" style="margin-top:12px; padding:20px 22px;"><div class="stat s-md mint">Live</div><div class="label">On Sui mainnet, public beta shipping to iOS</div></div>
       <p class="lead" style="margin-top:20px; font-size:17px; max-width:560px;">Real dollars have moved end to end: gasless sends, private sends, claim links, and bank cash-out all work in the shipped build.</p>
     </div>
-    <div class="shot"><img src="assets/app-mint.png" alt="Talise app" /></div>
+    <div class="shot"><img src="/overflow-pitchdeck/assets/app-mint.png" alt="Talise app" /></div>
   </div>
 </section>
 
 <!-- 9. MARKET -->
 <section class="slide" style="padding:0;">
-  <img class="imgfull" src="assets/corridor.png" alt="" />
+  <img class="imgfull" src="/overflow-pitchdeck/assets/corridor.png" alt="" />
   <div class="scrim-b"></div>
   <div style="position:relative; z-index:2; padding:64px 72px; display:flex; flex-direction:column; height:100%; justify-content:space-between;">
     <div class="top"><div class="brand"><svg class="bm"><use href="#logo"/></svg><span class="wm">talise</span></div><span class="pageno">09 · Market</span></div>
@@ -311,5 +316,17 @@ td.feat{color:var(--muted);}
   </div>
 </section>
 
+<script>
+  /* Fit the fixed 1280-wide slides to the viewport width. Sets a unitless
+     --deck-scale on <body>; the @media screen rule consumes it. Only runs on
+     screen — print is unaffected (it reads --deck-scale:1 / native layout). */
+  (function () {
+    var fit = function () {
+      document.body.style.setProperty('--deck-scale', String(window.innerWidth / 1280));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+  })();
+</script>
 </body>
 </html>
