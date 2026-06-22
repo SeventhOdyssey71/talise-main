@@ -425,6 +425,9 @@ struct StreamsListView: View {
     @State private var cancellingId: String?
     @State private var claimingId: String?
     @State private var cancelError: String?
+    /// Streams already auto-claimed this view session, so opening the list
+    /// pulls accrued funds once per stream rather than re-firing on every refresh.
+    @State private var autoClaimed: Set<String> = []
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -449,7 +452,46 @@ struct StreamsListView: View {
         .background(TaliseColor.bg.ignoresSafeArea())
         .coverDismiss(onDone)
         .presentationDragIndicator(.visible)
-        .task { await load() }
+        .task { await load(); await autoClaimAccrued() }
+    }
+
+    /// Auto-pull accrued tranches for every incoming stream when the recipient
+    /// opens the list — so funds land without a manual tap (still just the
+    /// on-chain Clock + claim_accrued, no cron). Best-effort + silent: once per
+    /// stream per session, only when something has accrued, and the manual
+    /// "Claim available" button stays for later accruals. Refreshes once after.
+    private func autoClaimAccrued() async {
+        var claimedAny = false
+        for s in streams where s.role == "recipient"
+            && s.state == "active"
+            && (s.tranchesDone ?? 0) > 0
+            && !autoClaimed.contains(s.id) {
+            autoClaimed.insert(s.id)
+            if await silentClaim(s) { claimedAny = true }
+        }
+        if claimedAny { await load() }
+    }
+
+    /// Silent claim for the auto path — no button spinner, no error surfaced.
+    /// Returns true if a claim tx was actually executed.
+    private func silentClaim(_ s: StreamDTO) async -> Bool {
+        struct ClaimBody: Encodable {}
+        do {
+            let r: StreamClaimResp = try await APIClient.shared.post(
+                "/api/streams/\(s.id)/claim", body: ClaimBody()
+            )
+            if r.mode == "onchain", let bytes = r.bytes {
+                _ = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                    bytesB64: bytes, intent: "Claim stream"
+                )
+                NotificationCenter.default.post(name: .taliseHomeShouldRefresh, object: nil)
+                return true
+            }
+        } catch {
+            // Best-effort: a session lapse or build hiccup just leaves the
+            // manual Claim button as the fallback. Never surfaced.
+        }
+        return false
     }
 
     private func streamRow(_ s: StreamDTO) -> some View {
