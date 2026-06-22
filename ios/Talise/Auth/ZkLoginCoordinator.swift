@@ -1201,10 +1201,15 @@ final class ZkLoginCoordinator {
     /// route into the session-rebind path (clean sign-out + "sign in again")
     /// instead of surfacing a cryptic crypto error the user can't act on.
     private func mapExecuteError(_ err: String) -> Error {
-        let l = err.lowercased()
+        // The error can arrive PERCENT-ENCODED (e.g. relayed through a URL), so
+        // "invalid%20user%20signature" must be decoded or the spaced needles
+        // below never match and the raw cryptic string leaks to the user — which
+        // is exactly what happened with "ZKLogin expired at epoch …".
+        let l = (err.removingPercentEncoding ?? err).lowercased()
         let proofFailure =
             l.contains("groth16") || l.contains("proof verify failed")
             || l.contains("invalid user signature") || l.contains("signature is not valid")
+            || l.contains("zklogin expired") || l.contains("expired at epoch")
         if proofFailure {
             ProofCache.shared.clear()
             Task { @MainActor in
