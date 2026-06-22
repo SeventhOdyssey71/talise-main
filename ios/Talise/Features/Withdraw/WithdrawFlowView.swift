@@ -1109,10 +1109,14 @@ private struct BankWithdrawView: View {
         }
     }
 
-    /// Poll the Linq order until it completes or fails (or we time out and
-    /// leave it "processing" — the payout still completes server-side).
+    /// Poll the Linq order until it completes or fails. We wait a GENEROUS
+    /// window (~3 min): bank payouts can lag a couple of minutes, so we hold to
+    /// CONFIRM success (green "Paid out") rather than giving up early. The
+    /// server maps a transient "timeout" to still-processing, so only a real
+    /// failed/reject ends this red; otherwise we finish on the reassuring
+    /// "On its way" (the payout completes server-side and shows in activity).
     private func pollStatus(_ id: String) async {
-        for _ in 0..<20 {
+        for i in 0..<45 {
             do {
                 let s: LinqStatusResp = try await APIClient.shared.get("/api/offramp/linq/status/\(id)")
                 switch s.phase {
@@ -1133,9 +1137,12 @@ private struct BankWithdrawView: View {
             } catch {
                 if APIError.isCancellation(error) { return }
             }
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            // Poll a little quicker early (catch fast completions), then ease
+            // off to stay well under the status route's 60/min rate limit.
+            try? await Task.sleep(nanoseconds: UInt64(i < 10 ? 3 : 5) * 1_000_000_000)
         }
-        // Timed out waiting — payout is in flight; let the user move on.
+        // Still in flight after the window — NOT a failure. Reassuring
+        // "On its way" (green clock); paidOut stays false.
         finalStatus = "completed"
         paidOut = false
         statusText = "Your transfer is on its way. It can take a few minutes to land in the bank account."
