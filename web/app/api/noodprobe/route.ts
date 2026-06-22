@@ -1,33 +1,33 @@
 import { NextResponse } from "next/server";
+import { cetusUniverse, normCoinType } from "@/lib/cetus-tokens";
 
 export const dynamic = "force-dynamic";
 
-/** TEMPORARY probe — discover the Noodles API shape from Vercel egress. */
-export async function GET(req: Request) {
-  const key = new URL(req.url).searchParams.get("key") ?? "";
-  const UA =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
-  const targets = [
-    { ep: "coin-info-list", auth: "x-api-key" },
-    { ep: "coin-top", auth: "x-api-key" },
-    { ep: "coin-info-list", auth: "authorization" },
-    { ep: "coin-info-list", auth: "query" },
-  ];
-  const out: unknown[] = [];
-  for (const t of targets) {
-    const headers: Record<string, string> = { "User-Agent": UA, Accept: "application/json" };
-    let url = `https://api.noodles.fi/${t.ep}`;
-    if (t.auth === "x-api-key") headers["x-api-key"] = key;
-    else if (t.auth === "authorization") headers["Authorization"] = `Bearer ${key}`;
-    else url += `?api_key=${encodeURIComponent(key)}`;
-    try {
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(9000) });
-      const text = await res.text();
-      const challenged = text.includes("Just a moment") || text.includes("_cf_chl");
-      out.push({ ep: t.ep, auth: t.auth, status: res.status, ct: res.headers.get("content-type"), challenged, sample: challenged ? null : text.slice(0, 900) });
-    } catch (e) {
-      out.push({ ep: t.ep, auth: t.auth, error: String(e) });
+/** TEMPORARY: verify the Cetus-derived price + logo maps on Vercel. Deleted next. */
+export async function GET() {
+  const u = await cetusUniverse();
+  const wanted: Record<string, string> = {
+    SUI: "0x2::sui::SUI",
+    USDC: "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
+  };
+  const out: Record<string, unknown> = {
+    coins: u.priceUsd.size,
+    logos: u.logo.size,
+    verified: u.verified.size,
+  };
+  const bySym: Record<string, { price?: number; logo?: string }> = {};
+  for (const [type, sym] of u.symbol) {
+    const S = sym.toUpperCase();
+    if (["SUI", "WAL", "DEEP", "USDC", "USDSUI", "CETUS", "HASUI"].includes(S) && !bySym[S]) {
+      bySym[S] = { price: u.priceUsd.get(type), logo: u.logo.get(type) };
     }
   }
-  return NextResponse.json({ probe: out });
+  out.bySymbol = bySym;
+  out.byKnownType = Object.fromEntries(
+    Object.entries(wanted).map(([k, t]) => [
+      k,
+      { price: u.priceUsd.get(normCoinType(t)), logo: u.logo.get(normCoinType(t)) },
+    ])
+  );
+  return NextResponse.json(out);
 }
