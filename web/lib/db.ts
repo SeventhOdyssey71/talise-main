@@ -788,6 +788,7 @@ async function doEnsureSchema(): Promise<void> {
         CHECK (kyc_tier IN ('none', 'lite', 'standard', 'enhanced')),
       provider TEXT,
       provider_customer_id TEXT,
+      kyc_link_id TEXT,
       status TEXT NOT NULL DEFAULT 'unverified'
         CHECK (status IN ('unverified', 'pending', 'approved', 'rejected', 'expired')),
       country TEXT,
@@ -795,6 +796,10 @@ async function doEnsureSchema(): Promise<void> {
       monthly_limit_cents BIGINT,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`,
+    // Bridge KYC-Links id (link.id) — the stable poll handle while the Bridge
+    // customer_id is still null (it's null until the user starts KYC). Added
+    // via ALTER so existing onramp_kyc rows pick it up too.
+    `ALTER TABLE onramp_kyc ADD COLUMN IF NOT EXISTS kyc_link_id TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_onramp_kyc_provider_customer
        ON onramp_kyc (provider_customer_id)
        WHERE provider_customer_id IS NOT NULL`,
