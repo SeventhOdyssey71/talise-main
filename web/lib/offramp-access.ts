@@ -3,20 +3,16 @@ import "server-only";
 /**
  * USD withdrawal (Bridge USD-wire cash-out) access gate.
  *
- * While USD withdrawal is piloted, it is CLOSED to everyone except an explicit
- * allowlist. This is separate from the general app-access allowlist
- * (lib/app-access.ts) — a user can be fully app-approved yet still not be able
- * to initiate a USD wire withdrawal.
+ * USD withdrawal is now OPEN to everyone — note that cash-out independently
+ * requires the user to have completed Bridge identity verification (the
+ * `KYC_NOT_APPROVED` guard in the cashout route), so "open" means "anyone who
+ * has verified can cash out", not "no checks".
  *
- * Resolution order:
- *   1. `USD_WITHDRAWAL_OPEN=true`  → open to everyone (the "ship it" switch).
- *   2. otherwise, allow only accounts whose email is in
- *      `USD_WITHDRAWAL_ALLOWED_EMAILS` OR whose @handle is in
- *      `USD_WITHDRAWAL_ALLOWED_HANDLES` (both comma-separated, case-insensitive).
- *
- * Defaults (when the env vars are unset) restrict it to the maintainer,
- * `rolandojude18`, so a fresh deploy is closed-by-default without needing the
- * env set. Server-authoritative — the iOS app surfaces the 403 as "coming soon".
+ * Kill-switch: set `USD_WITHDRAWAL_OPEN=false` in the environment to re-close
+ * (e.g. a payout-partner incident) with no code change. Even when closed, the
+ * maintainer allowlist (`USD_WITHDRAWAL_ALLOWED_EMAILS` / `_HANDLES`, defaulting
+ * to `rolandojude18`) still gets through so testing keeps working.
+ * Server-authoritative — the iOS app surfaces the 403 as "coming soon".
  */
 const DEFAULT_EMAILS = "rolandojude18@gmail.com";
 const DEFAULT_HANDLES = "rolandojude18";
@@ -35,15 +31,19 @@ export function usdWithdrawalAllowed(user: {
   email?: string | null;
   talise_username?: string | null;
 }): boolean {
-  if (process.env.USD_WITHDRAWAL_OPEN?.trim().toLowerCase() === "true") return true;
-
-  const email = user.email?.trim().toLowerCase();
-  if (email && list(process.env.USD_WITHDRAWAL_ALLOWED_EMAILS, DEFAULT_EMAILS).includes(email)) {
-    return true;
+  // Kill-switch: only an explicit `false` re-closes; default is open.
+  if (process.env.USD_WITHDRAWAL_OPEN?.trim().toLowerCase() === "false") {
+    // Closed — but keep the maintainer allowlist working for testing.
+    const email = user.email?.trim().toLowerCase();
+    if (email && list(process.env.USD_WITHDRAWAL_ALLOWED_EMAILS, DEFAULT_EMAILS).includes(email)) {
+      return true;
+    }
+    const handle = user.talise_username?.trim().toLowerCase();
+    if (handle && list(process.env.USD_WITHDRAWAL_ALLOWED_HANDLES, DEFAULT_HANDLES).includes(handle)) {
+      return true;
+    }
+    return false;
   }
-  const handle = user.talise_username?.trim().toLowerCase();
-  if (handle && list(process.env.USD_WITHDRAWAL_ALLOWED_HANDLES, DEFAULT_HANDLES).includes(handle)) {
-    return true;
-  }
-  return false;
+  // Default: open to everyone (cash-out still requires approved Bridge KYC).
+  return true;
 }
