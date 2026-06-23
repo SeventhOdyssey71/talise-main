@@ -143,7 +143,7 @@ export async function POST(req: Request) {
     appendPaymentKitReceipt(tx, {
       kind: "withdraw",
       sender: user.sui_address,
-      refs: { venue: "bridge", currency },
+      refs: { venue: "bridge" },
     });
 
     const [{ address: sponsor }, gasPrice] = await Promise.all([sponsorPromise, gasPricePromise]);
