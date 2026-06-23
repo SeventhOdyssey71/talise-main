@@ -4,6 +4,7 @@ import { userById, ensureSchema } from "@/lib/db";
 import { bridgeAdapter } from "@/lib/onramp/bridge";
 import { upsertOnrampKyc } from "@/lib/onramp/kyc-store";
 import { bridgeConfigured } from "@/lib/bridge/client";
+import { rateLimitAsync } from "@/lib/rate-limit";
 import type { KycProfile } from "@/lib/onramp/types";
 
 export const runtime = "nodejs";
@@ -35,6 +36,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
 
+  // Anti-abuse: cap KYC-link creation per user. Generous (verification is a
+  // handful of taps), but stops a loop from spamming Bridge's kyc_links API.
+  const rl = await rateLimitAsync({
+    key: `kyc-start:user:${userId}`,
+    limit: 12,
+    windowSec: 60,
+  });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many attempts. Please wait a moment and try again.", code: "RATE_LIMITED" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 30) } }
+    );
+  }
+
   // Derive a minimal profile from the signed-in user (same shape as the
   // onramp v2 session route): split name into first/last, normalize email +
   // country. Bridge runs hosted KYC from just an email + name.
@@ -46,7 +61,13 @@ export async function POST(req: Request) {
     country: (user.country ?? "").toUpperCase(),
   };
   if (!profile.email) {
-    return NextResponse.json({ error: "email required for KYC" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Add an email to your account to verify your identity.",
+        code: "EMAIL_REQUIRED",
+      },
+      { status: 400 }
+    );
   }
 
   try {
