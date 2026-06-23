@@ -36,6 +36,12 @@ struct ProfileView: View {
     /// Drives the `BankAccountsView` presentation — off-ramp Phase 2
     /// "link a bank account to your @handle" management screen.
     @State private var showBankAccounts = false
+    /// Drives the `IdentityVerificationView` presentation — Bridge KYC, the
+    /// one-time identity check that unlocks bank cash-out. Lives in Profile
+    /// (not onboarding). `kyc` mirrors the latest status for the row chip +
+    /// the stats-strip KYC cell.
+    @State private var showIdentity = false
+    @State private var kyc: KYCStatus?
     /// Account deletion (App Store Guideline 5.1.1(v)) — confirmation
     /// alert flag, in-flight spinner, and a failure message surfaced in
     /// its own alert so the user knows the account is still live.
@@ -49,6 +55,7 @@ struct ProfileView: View {
                 hero
                 statsStrip
                 walletSection
+                verificationSection
                 // Bank-account linking deferred — entry removed for now.
                 preferencesSection
                 // Security section removed — transactions are slide-to-confirm
@@ -62,9 +69,22 @@ struct ProfileView: View {
             .padding(.horizontal, 24)
             .padding(.top, 12)
         }
-        .refreshable { await loadRewards() }
+        .refreshable { await loadRewards(); await loadKyc() }
         .taliseScreenBackground()
         .task { await loadRewards() }
+        .task { await loadKyc() }
+        .sheet(isPresented: $showIdentity) {
+            NavigationStack {
+                IdentityVerificationView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showIdentity = false; Task { await loadKyc() } }
+                                .foregroundStyle(TaliseColor.accent)
+                        }
+                    }
+            }
+            .environment(session)
+        }
         // AutoSwapSettings archived 2026-05-29 — sheet removed alongside
         // the autoswap system. The Preferences row that opened it has been
         // neutralized to a no-op (search showAutoSwap below).
@@ -146,6 +166,38 @@ struct ProfileView: View {
                         .frame(width: 22)
                     rowLabel(title: "Bank accounts")
                     Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgDim)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Verification section
+    //
+    // Bridge identity KYC — the one-time check that unlocks bank cash-out.
+    // A single row showing the live status chip; tapping opens the flow.
+
+    private var verificationSection: some View {
+        section(title: "Cash out") {
+            Button {
+                showIdentity = true
+            } label: {
+                HStack {
+                    Image(systemName: "checkmark.shield")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .frame(width: 22)
+                    rowLabel(title: "Identity verification")
+                    Spacer()
+                    Text((kyc ?? .unverified).label)
+                        .font(TaliseFont.mono(11, weight: .regular))
+                        .foregroundStyle(kyc == .approved ? TaliseColor.greenMint : TaliseColor.fgMuted)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(TaliseColor.fgDim)
@@ -302,7 +354,7 @@ struct ProfileView: View {
 
     private var statsStrip: some View {
         HStack(spacing: 0) {
-            statCell(label: "KYC", value: kycTierLabel, accent: kycTierLabel != "Free")
+            statCell(label: "KYC", value: (kyc ?? .unverified).label, accent: kyc == .approved)
             statDivider
             statCell(label: "Rewards", value: rewards?.tier?.label ?? "Bronze",
                      accent: (rewards?.tier?.label ?? "Bronze") != "Bronze")
@@ -347,18 +399,6 @@ struct ProfileView: View {
             .fill(TaliseColor.line)
             .frame(width: 1 / UIScreen.main.scale)
             .padding(.vertical, 12)
-    }
-
-    /// Best-effort KYC tier read from UserDefaults (set by the
-    /// onboarding `KycTierPicker`). Defaults to "Free" if missing —
-    /// new users land in that bucket until they upgrade.
-    private var kycTierLabel: String {
-        let raw = UserDefaults.standard.string(forKey: "talise.kyc_tier") ?? "free"
-        switch raw {
-        case "verified": return "Verified"
-        case "pro":      return "Pro"
-        default:         return "Free"
-        }
     }
 
     // MARK: - Wallet section
@@ -812,6 +852,15 @@ struct ProfileView: View {
             rewards = try await APIClient.shared.get("/api/referral/summary")
         } catch {
             // Soft-fail — stats strip degrades to "Bronze" default.
+        }
+    }
+
+    /// Live Bridge KYC status for the verification row + the stats-strip KYC
+    /// cell. Soft-fails (leaves `kyc` nil → "Not verified") so the row always
+    /// renders something actionable.
+    private func loadKyc() async {
+        if let s = try? await BridgeKYCAPI.status() {
+            kyc = KYCStatus(s.status)
         }
     }
 

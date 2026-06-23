@@ -48,7 +48,17 @@ struct HistoryRow: View {
                     Image(systemName: iconName)
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(badgeFgColor)
+                    // Cash-out rows carry the destination country's flag tucked
+                    // into the bottom-trailing corner of the badge (US for a
+                    // Bridge USD wire, Nigeria for a Linq NGN payout).
+                    if let flag = cashoutFlagCode {
+                        RoundedFlag(code: flag, size: 20)
+                            .overlay(Circle().strokeBorder(TaliseColor.bg, lineWidth: 2))
+                            .frame(width: 20, height: 20)
+                            .offset(x: 12, y: 12)
+                    }
                 }
+                .frame(width: 36, height: 36)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(title)
@@ -141,6 +151,10 @@ struct HistoryRow: View {
         // we surface it as its own CASH-OUT category so it never reads as an
         // anonymous on-chain transfer.
         if entry.offramp != nil { return .cashout }
+        // Bridge USD cash-out: a withdraw tagged with venue "bridge" pays out
+        // to a US bank — render it as a cash-out (bank icon, red), the same way
+        // the Linq/Nigeria rail above does, not a generic yield-venue withdraw.
+        if entry.direction == "withdraw" && entry.venue == "bridge" { return .cashout }
         switch entry.direction {
         case "received": return .received
         case "invest":   return .invest
@@ -261,12 +275,22 @@ struct HistoryRow: View {
         return nil
     }
 
+    /// Destination-country flag for a cash-out row, tucked into the badge
+    /// corner. Linq = Nigeria; Bridge cash-out (venue "bridge") = US.
+    private var cashoutFlagCode: String? {
+        if entry.offramp != nil { return "ng" }
+        if entry.direction == "withdraw" && entry.venue == "bridge" { return "us" }
+        return nil
+    }
+
     private var title: String {
-        // Fiat cash-out takes priority over every other classification.
-        if let off = entry.offramp {
-            if let bank = off.bankName, !bank.isEmpty {
-                return "Cash out \u{2192} \(bank)"
-            }
+        // Fiat cash-out takes priority over EVERY other classification,
+        // including the otherCoin (USDC) label below — a Bridge cash-out moves
+        // USDC on-chain but the user thinks "I cashed out", not "I sent USDC".
+        // Linq = Nigeria; Bridge (venue "bridge") = United States.
+        if category == .cashout {
+            if entry.offramp != nil { return "Cash out to Nigeria" }
+            if entry.venue == "bridge" { return "Cash out to United States" }
             return "Cash out"
         }
         // Non-USDsui/non-SUI rows (WAL, USDC, USDT, …) override the
@@ -363,6 +387,12 @@ struct HistoryRow: View {
         // the USDsui debit — "−₦142,350.00".
         if let off = entry.offramp {
             return "\u{2212}\(TaliseFormat.ngn(off.amountNgn))"
+        }
+        // Bridge USD cash-out: USDC leaving the wallet for a US bank — a debit,
+        // shown with a minus like the Nigeria payout above (NOT a "+" the way a
+        // yield-venue withdraw credits back in).
+        if category == .cashout, let other = entry.otherCoin {
+            return "\u{2212}\(other.displayAmount) \(other.symbol)"
         }
         // Auto-swap & manual swap are net-neutral economically — one
         // coin in, a different coin out. We render BOTH legs of the

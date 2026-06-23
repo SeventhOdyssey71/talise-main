@@ -38,7 +38,7 @@ struct RampCorridor: Identifiable, Equatable, Hashable {
     /// Short rail label for the row subtitle.
     var railLabel: String {
         switch availability {
-        case .bridge: return "Bank transfer · USDsui on Sui"
+        case .bridge: return "Bank transfer · USDC on Sui"
         case .local: return "Local bank"
         case .soon: return "Coming soon"
         }
@@ -56,8 +56,6 @@ enum RampCorridors {
     static let all: [RampCorridor] = [
         // ── Live via Bridge (USD/EUR/GBP) ──
         .init(code: "US", name: "United States", currencyCode: "USD",
-              availability: .bridge, onramp: true, offramp: true),
-        .init(code: "EU", name: "Europe", currencyCode: "EUR",
               availability: .bridge, onramp: true, offramp: true),
         // GBP add-money is live (virtual account); GBP cash-out (Faster
         // Payments) isn't wired yet → onramp only.
@@ -109,7 +107,13 @@ enum RampCorridors {
         let live: (RampCorridor) -> Bool = { c in
             switch c.availability {
             case .local: return cc == c.code
-            case .bridge: return RampFlags.bridgeLive && c.code == cc
+            case .bridge:
+                guard RampFlags.bridgeLive else { return false }
+                // Cash-out (off-ramp) is country-agnostic: anyone holding
+                // dollars can pay out to a USD/EUR bank, so we don't gate it on
+                // the user's residence. Add-money (on-ramp) stays matched to the
+                // user's country (their local funding rail).
+                return direction == .offramp ? true : c.code == cc
             case .soon: return false
             }
         }
@@ -130,5 +134,5 @@ enum RampDirection {
 /// — the Bridge corridors (US/EU/GB/…) show as "coming soon". Flip
 /// `bridgeLive` to true to switch them on with no other code change.
 enum RampFlags {
-    static let bridgeLive = false
+    static let bridgeLive = true
 }

@@ -14,6 +14,8 @@ struct BridgeCashOutView: View {
 
     // ── Withdraw (route already exists) ──
     @State private var checking = true        // initial reuse-first lookup
+    @State private var needsKyc = false        // identity not verified yet → gate
+    @State private var showIdentity = false    // present the verification flow
     @State private var hasRoute = false        // a payout route exists for this corridor
     @State private var payoutBank: CashOutResponse?  // destination bank + USDC pocket
     @State private var balanceUsdsui: Double?
@@ -81,6 +83,8 @@ struct BridgeCashOutView: View {
                     lookupCard
                 } else if !supported {
                     unsupportedCard
+                } else if needsKyc {
+                    verifyCard
                 } else if withdrawDone {
                     successCard
                 } else if hasRoute {
@@ -105,6 +109,42 @@ struct BridgeCashOutView: View {
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
         .task { await lookupExisting() }
+        .sheet(isPresented: $showIdentity, onDismiss: { Task { await lookupExisting() } }) {
+            NavigationStack {
+                IdentityVerificationView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showIdentity = false }
+                                .foregroundStyle(TaliseColor.accent)
+                        }
+                    }
+            }
+        }
+    }
+
+    /// Identity-not-verified gate. Cash-out requires a verified Bridge customer;
+    /// rather than let the user fill the bank form and fail, we surface this and
+    /// route them straight into verification (also reachable from Profile).
+    private var verifyCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Verify your identity to cash out", systemImage: "checkmark.shield")
+                .font(TaliseFont.heading(16, weight: .semibold))
+                .foregroundStyle(TaliseColor.fg)
+            Text("A quick one-time check unlocks bank cash-out. It takes a couple of minutes with our payments partner.")
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Button { showIdentity = true } label: {
+                Text("Verify identity")
+                    .font(TaliseFont.body(16, weight: .semibold)).foregroundStyle(.black)
+                    .frame(maxWidth: .infinity).frame(height: 54)
+                    .background(Capsule().fill(TaliseColor.greenMint))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .rampCard()
     }
 
     private var header: some View {
@@ -388,6 +428,13 @@ struct BridgeCashOutView: View {
     private func lookupExisting() async {
         guard supported else { checking = false; return }
         defer { checking = false }
+        // Gate on identity verification first — cash-out needs an approved
+        // Bridge customer. Avoids letting the user fill the bank form only to
+        // be blocked server-side (409 KYC_NOT_APPROVED).
+        if let s = try? await BridgeKYCAPI.status() {
+            needsKyc = KYCStatus(s.status) != .approved
+        }
+        if needsKyc { return }
         let probe = isUsd
             ? CashOutRequest(rail: "wire", currency: "usd", accountOwnerName: "")
             : CashOutRequest(rail: "sepa", currency: "eur", accountOwnerName: "")
@@ -446,8 +493,9 @@ struct BridgeCashOutView: View {
             let msg = (error as NSError).localizedDescription
             if msg.contains("503") || msg.contains("disabled") {
                 setupError = "Cash-out isn't switched on yet. Please try again soon."
-            } else if msg.contains("409") || msg.contains("CUSTOMER") {
-                setupError = "Finish identity verification (Add money) first, then cash out."
+            } else if msg.contains("KYC_NOT_APPROVED") || msg.contains("409") || msg.contains("CUSTOMER") {
+                needsKyc = true
+                setupError = "Verify your identity first, then cash out."
             } else {
                 setupError = "We couldn't save your bank. Check your details and try again."
             }
