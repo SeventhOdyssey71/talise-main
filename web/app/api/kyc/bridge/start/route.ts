@@ -68,9 +68,14 @@ export async function POST(req: Request) {
       customerId: customer.providerCustomerId,
     });
   } catch (e) {
-    console.error(`[kyc/bridge/start] failed user=${userId}: ${(e as Error).message}`);
+    // TEMP DIAGNOSTIC: surface the real underlying error (Bridge status/code +
+    // message) so we can see WHY start fails in prod. Revert to a generic
+    // message once the root cause is fixed.
+    const err = e as { message?: string; status?: number; code?: string };
+    const detail = [err.code, err.status, err.message].filter(Boolean).join(" · ");
+    console.error(`[kyc/bridge/start] failed user=${userId}: ${detail}`);
     return NextResponse.json(
-      { error: "Couldn't start verification. Please try again.", code: "BRIDGE_ERROR" },
+      { error: `start failed: ${detail || "unknown"}`, code: "BRIDGE_ERROR" },
       { status: 502 }
     );
   }
