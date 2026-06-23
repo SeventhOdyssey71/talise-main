@@ -3,6 +3,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { refreshBridgeKyc } from "@/lib/onramp/bridge";
 import { getOnrampKyc, upsertOnrampKyc } from "@/lib/onramp/kyc-store";
 import { bridgeConfigured } from "@/lib/bridge/client";
+import { ensureSchema } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -22,6 +23,7 @@ export async function GET(req: Request) {
   if (!bridgeConfigured()) {
     return NextResponse.json({ error: "bridge_disabled" }, { status: 503 });
   }
+  await ensureSchema(); // apply onramp_kyc.kyc_link_id before reading it
   const userId = await readEntryIdFromRequest(req);
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });

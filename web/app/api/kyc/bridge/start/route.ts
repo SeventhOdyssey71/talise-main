@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
-import { userById } from "@/lib/db";
+import { userById, ensureSchema } from "@/lib/db";
 import { bridgeAdapter } from "@/lib/onramp/bridge";
 import { upsertOnrampKyc } from "@/lib/onramp/kyc-store";
 import { bridgeConfigured } from "@/lib/bridge/client";
@@ -23,6 +23,9 @@ export async function POST(req: Request) {
   if (!bridgeConfigured()) {
     return NextResponse.json({ error: "bridge_disabled" }, { status: 503 });
   }
+  // Apply pending schema (the onramp_kyc.kyc_link_id column) before we read/
+  // write it — otherwise the upsert throws undefined_column (42703) and 502s.
+  await ensureSchema();
   const userId = await readEntryIdFromRequest(req);
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
