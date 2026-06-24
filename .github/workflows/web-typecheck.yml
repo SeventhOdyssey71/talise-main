@@ -1,0 +1,50 @@
+name: Web typecheck gate
+
+# Build gate: runs `tsc --noEmit` over web/ on every PR and on pushes to main
+# that touch web/. A type error here is exactly what silently broke the Vercel
+# production build before (a bad object literal in an API route) — this catches
+# it loudly in CI instead of via a stale prod deploy hours later.
+#
+# To make it actually BLOCK merges, add "Web typecheck gate / typecheck" as a
+# required status check in the repo's branch-protection rules for `main`.
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-typecheck.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-typecheck.yml'
+
+jobs:
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: 'web/pnpm-lock.yaml'
+
+      # Full install (with lifecycle scripts) so every @types/* and the Next
+      # TS plugin resolve exactly as they do for `next build`.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (tsc --noEmit)
+        run: pnpm typecheck
