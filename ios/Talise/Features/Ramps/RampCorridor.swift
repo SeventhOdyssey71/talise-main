@@ -134,5 +134,7 @@ enum RampDirection {
 /// — the Bridge corridors (US/EU/GB/…) show as "coming soon". Flip
 /// `bridgeLive` to true to switch them on with no other code change.
 enum RampFlags {
-    static let bridgeLive = true
+    // LOCKED for now: Bridge corridors (US cash-out / add-money) hidden while
+    // KYC + the US flow are paused. Flip back to true to re-enable.
+    static let bridgeLive = false
 }

@@ -42,6 +42,9 @@ struct ProfileView: View {
     /// the stats-strip KYC cell.
     @State private var showIdentity = false
     @State private var kyc: KYCStatus?
+    /// LOCKED for now: Bridge identity verification (KYC) is paused. Flip to
+    /// true to restore the Profile entry, the loader, and the stats chip.
+    private let kycEnabled = false
     /// Account deletion (App Store Guideline 5.1.1(v)) — confirmation
     /// alert flag, in-flight spinner, and a failure message surfaced in
     /// its own alert so the user knows the account is still live.
@@ -55,7 +58,7 @@ struct ProfileView: View {
                 hero
                 statsStrip
                 walletSection
-                verificationSection
+                if kycEnabled { verificationSection }
                 // Bank-account linking deferred — entry removed for now.
                 preferencesSection
                 // Security section removed — transactions are slide-to-confirm
@@ -69,10 +72,10 @@ struct ProfileView: View {
             .padding(.horizontal, 24)
             .padding(.top, 12)
         }
-        .refreshable { await loadRewards(); await loadKyc() }
+        .refreshable { await loadRewards(); if kycEnabled { await loadKyc() } }
         .taliseScreenBackground()
         .task { await loadRewards() }
-        .task { await loadKyc() }
+        .task { if kycEnabled { await loadKyc() } }
         .sheet(isPresented: $showIdentity) {
             NavigationStack {
                 IdentityVerificationView()
@@ -354,7 +357,7 @@ struct ProfileView: View {
 
     private var statsStrip: some View {
         HStack(spacing: 0) {
-            statCell(label: "KYC", value: (kyc ?? .unverified).label, accent: kyc == .approved)
+            statCell(label: "KYC", value: kycEnabled ? (kyc ?? .unverified).label : "—", accent: kycEnabled && kyc == .approved)
             statDivider
             statCell(label: "Rewards", value: rewards?.tier?.label ?? "Bronze",
                      accent: (rewards?.tier?.label ?? "Bronze") != "Bronze")
