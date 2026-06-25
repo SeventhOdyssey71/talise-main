@@ -124,11 +124,13 @@ private struct SaveBody: Encodable {
     let members: [TeamMemberDTO]
 }
 
-/// Response to a save PREPARE. `mode` is "db" (already saved → `team`) or
-/// "onchain" (sign `bytes`, then record). `edit`/`chainObjectId` distinguish
-/// create vs. edit so the record step can pass the stable object id back.
+/// Response to a save PREPARE. `mode` is "onchain" (sign `bytes`, then record)
+/// or "db" / absent (the team is already saved → `team`; nothing to sign). We
+/// only ever sign when mode is explicitly "onchain", so an older backend that
+/// returns just `{team}` decodes cleanly and is treated as the DB path.
+/// `edit`/`chainObjectId` distinguish create vs. edit for the record step.
 struct SaveTeamPrepareResponse: Codable {
-    let mode: String
+    let mode: String?
     let team: TeamDTO?
     let bytes: String?
     let edit: Bool?
