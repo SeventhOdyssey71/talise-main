@@ -130,6 +130,9 @@ export async function POST(req: Request) {
 
   // ── Resolve EVERY recipient server-side (never trust client addresses) ──
   // If any single resolution fails, reject the whole batch and write NOTHING.
+  // Resolution is the slow part (one SuiNS lookup per recipient), so fan the
+  // lookups out in PARALLEL, then validate the results in order (the self/dup
+  // checks are cheap in-memory passes).
   const selfAddr = user.sui_address.toLowerCase();
   const seen = new Set<string>();
   const resolvedLegs: {
@@ -139,14 +142,18 @@ export async function POST(req: Request) {
     amount: number;
     label?: string;
   }[] = [];
+  const resolutions = await Promise.all(
+    parsed.map(async (p) => {
+      try {
+        return await resolveRecipient(p.input);
+      } catch {
+        return null;
+      }
+    })
+  );
   for (let i = 0; i < parsed.length; i++) {
     const { input, amount, label } = parsed[i];
-    let resolved: { address: string; displayName: string } | null;
-    try {
-      resolved = await resolveRecipient(input);
-    } catch {
-      resolved = null;
-    }
+    const resolved = resolutions[i];
     if (!resolved || !ADDRESS_RE.test(resolved.address)) {
       return NextResponse.json(
         {
@@ -201,14 +208,22 @@ export async function POST(req: Request) {
   // ── Compliance screening — HARD STOP, per recipient ─────────────
   // Mirrors sponsor-prepare. Any single hit blocks the WHOLE batch — we never
   // hand back signable bytes for a batch that contains a flagged recipient.
-  for (const leg of resolvedLegs) {
-    const screen = await screenTransfer({
-      senderAddr: user.sui_address,
-      recipientAddr: leg.address,
-      senderName: user.business_name ?? user.name,
-      recipientName: null,
-    });
+  // Screen every leg in PARALLEL (same fan-out reasoning as resolution), then
+  // fail closed if any leg was blocked.
+  const screens = await Promise.all(
+    resolvedLegs.map((leg) =>
+      screenTransfer({
+        senderAddr: user.sui_address,
+        recipientAddr: leg.address,
+        senderName: user.business_name ?? user.name,
+        recipientName: null,
+      })
+    )
+  );
+  for (let i = 0; i < resolvedLegs.length; i++) {
+    const screen = screens[i];
     if (!screen.allow) {
+      const leg = resolvedLegs[i];
       console.warn(
         `[payouts/batch/prepare] SCREENING_BLOCK user=${userId} to=${leg.address} cause=${screen.cause} reason=${screen.reason}`
       );
@@ -245,11 +260,12 @@ export async function POST(req: Request) {
   }
 
   // ── Build ONE sponsored PTB ─────────────────────────────────────────
-  // Prefer the Payment Kit builder (a receipt per recipient under the talise
-  // registry) when receipts are enabled; otherwise the plain payroll builder.
-  // The env override matches lib/payment-kit's kill switch — receipts are
-  // on by default, force-off with NEXT_PUBLIC_PK_RECEIPTS_ENABLED=false.
-  const useReceipts = process.env.NEXT_PUBLIC_PK_RECEIPTS_ENABLED !== "false";
+  // Default to the PLAIN payroll builder: a clean `transferObjects` of USDsui
+  // to each recipient, all in one atomic Onara-sponsored (gasless) PTB. This is
+  // the fast path — no per-recipient registry Move call to build or execute.
+  // The Payment Kit receipts builder (a receipt per recipient under the talise
+  // registry) is heavier and now OPT-IN via NEXT_PUBLIC_PK_RECEIPTS_ENABLED=true.
+  const useReceipts = process.env.NEXT_PUBLIC_PK_RECEIPTS_ENABLED === "true";
   const kind = "payout-batch";
   try {
     const t0 = Date.now();
@@ -320,23 +336,24 @@ export async function POST(req: Request) {
         now,
       ],
     });
-    for (let i = 0; i < resolvedLegs.length; i++) {
-      const leg = resolvedLegs[i];
-      await c.execute({
-        sql: `INSERT INTO payout_batch_recipients
-                (id, batch_id, resolved_address, input_handle, amount_usd, label, idx)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          `pobr_${randomUUID().replace(/-/g, "")}`,
-          batchId,
-          leg.address,
-          leg.input,
-          leg.amount,
-          leg.label ?? null,
-          i,
-        ],
-      });
-    }
+    await Promise.all(
+      resolvedLegs.map((leg, i) =>
+        c.execute({
+          sql: `INSERT INTO payout_batch_recipients
+                  (id, batch_id, resolved_address, input_handle, amount_usd, label, idx)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            `pobr_${randomUUID().replace(/-/g, "")}`,
+            batchId,
+            leg.address,
+            leg.input,
+            leg.amount,
+            leg.label ?? null,
+            i,
+          ],
+        })
+      )
+    );
 
     console.log(
       `[payouts/batch/prepare] user=${userId} batch=${batchId} recipients=${resolvedLegs.length} total=${totalUsd} receipts=${useReceipts} build=${Date.now() - t0}ms`
