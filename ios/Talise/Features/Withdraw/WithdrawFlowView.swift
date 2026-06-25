@@ -151,6 +151,17 @@ struct WithdrawFlowView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                             .zIndex(0)
                         }
+
+                        // ── Payroll: pay a saved team in one sponsored tx ──
+                        // PayrollView has no NavigationStack of its own, so it
+                        // pushes cleanly inside this one (like Cash out).
+                        NavigationLink {
+                            PayrollView()
+                        } label: {
+                            NavRow(icon: "hi.cash", title: "Payroll", caption: "Pay a team in one tap")
+                        }
+                        .buttonStyle(TilePress())
+                        .zIndex(0)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 10)
@@ -356,6 +367,44 @@ private struct GroupRow: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(TaliseColor.fgDim)
                 .rotationEffect(.degrees(isExpanded ? 180 : 0))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(TaliseColor.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+}
+
+/// Slim full-width row that NAVIGATES (chevron.right) rather than expands —
+/// same surface as `GroupRow`, used for single-destination entries (Payroll).
+private struct NavRow: View {
+    let icon: String
+    let title: String
+    let caption: String
+
+    var body: some View {
+        HStack(spacing: 14) {
+            IconChip(icon: icon)
+            VStack(alignment: .leading, spacing: 2.5) {
+                Text(title)
+                    .font(TaliseFont.heading(16, weight: .semibold))
+                    .kerning(-0.3)
+                    .foregroundStyle(TaliseColor.fg)
+                Text(caption)
+                    .font(TaliseFont.body(12.5, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(TaliseColor.fgDim)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
