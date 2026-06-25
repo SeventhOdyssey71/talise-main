@@ -13,6 +13,7 @@ struct PayTeamView: View {
     let team: TeamDTO
 
     @Environment(AppSession.self) private var session
+    @Environment(\.dismiss) private var dismiss
 
     /// Editable amount text per member, keyed by member index.
     @State private var amounts: [String]
@@ -23,6 +24,8 @@ struct PayTeamView: View {
     @State private var error: String?
     /// Forces the slider knob back to start after a failed confirm.
     @State private var resetSlider = false
+    @State private var confirmDelete = false
+    @State private var deleting = false
 
     init(team: TeamDTO) {
         self.team = team
@@ -82,10 +85,34 @@ struct PayTeamView: View {
                 .opacity(!allFilled || paying ? 0.5 : 1)
 
                 gaslessNote
+
+                // Subtle, deliberate delete — lives on the team's own screen
+                // (not the list), de-emphasized so it's never an accidental tap.
+                Button {
+                    confirmDelete = true
+                } label: {
+                    HStack(spacing: 6) {
+                        if deleting { ProgressView().controlSize(.mini).tint(TaliseColor.fgDim) }
+                        Text(deleting ? "Removing…" : "Delete team")
+                            .font(TaliseFont.body(13, weight: .regular))
+                            .foregroundStyle(TaliseColor.fgDim)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 18)
+                }
+                .buttonStyle(.plain)
+                .disabled(deleting || paying)
+
                 Color.clear.frame(height: 20)
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
+        }
+        .confirmationDialog("Delete \(team.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete team", role: .destructive) { Task { await deleteTeam() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the saved team. It won't affect any payments already sent.")
         }
     }
 
@@ -275,6 +302,19 @@ struct PayTeamView: View {
         }
     }
 
+    private func deleteTeam() async {
+        guard !deleting else { return }
+        deleting = true; error = nil
+        defer { deleting = false }
+        do {
+            try await PayrollAPI.deleteTeam(id: team.id)
+            dismiss() // pop back to the list, which reloads on appear
+        } catch {
+            if APIError.isCancellation(error) { return }
+            self.error = "Couldn't delete that team. Please try again."
+        }
+    }
+
     /// Map server / signing failures to friendly copy. Inspects the error's
     /// text (covers APIError.status bodies, NSError descriptions, and any
     /// thrown coordinator messages) for the known sentinels.
@@ -295,6 +335,9 @@ struct PayTeamView: View {
         if case APIError.status(let code, _) = error, code == 429 {
             return "Too many attempts — try again shortly."
         }
-        return "Couldn't pay the team. Please try again."
+        // Surface the server's real, human reason (e.g. "Couldn't resolve
+        // recipient #1 (ruru@talise)." or "You don't have enough USDsui")
+        // instead of a blanket failure — honestMoneyError trims/maps it safely.
+        return APIError.honestMoneyError(error, fallback: "Couldn't pay the team. Please try again.")
     }
 }

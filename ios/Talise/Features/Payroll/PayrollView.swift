@@ -111,24 +111,10 @@ struct PayrollView: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(TaliseColor.fgDim)
                 }
-                // Explicit trash control — works regardless of the container
-                // (this list lives in a ScrollView, where `.swipeActions`
-                // would be a no-op). The swipe + context-menu paths are kept
-                // as a bonus for List-hosted contexts / long-press.
+                // No inline trash button — deletion lives subtly on the team's
+                // own screen (PayTeamView). Swipe + long-press stay as a bonus.
                 if deletingId == team.id {
-                    ProgressView().tint(TaliseColor.fgMuted)
-                        .frame(width: 34, height: 34)
-                } else {
-                    Button {
-                        Task { await delete(team) }
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(TaliseColor.fgMuted)
-                            .frame(width: 34, height: 34)
-                            .background(Circle().fill(TaliseColor.surface2))
-                    }
-                    .buttonStyle(.plain)
+                    ProgressView().tint(TaliseColor.fgMuted).frame(width: 18, height: 18)
                 }
             }
             .padding(16)
