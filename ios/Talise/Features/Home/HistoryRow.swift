@@ -45,9 +45,15 @@ struct HistoryRow: View {
                     Circle()
                         .fill(badgeBgColor)
                         .frame(width: 36, height: 36)
-                    Image(systemName: iconName)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(badgeFgColor)
+                    // Team payouts use the HugeIcons team glyph; everything
+                    // else uses an SF Symbol.
+                    if category == .team {
+                        HugeIcon(name: "hi.team", size: 18, tint: badgeFgColor)
+                    } else {
+                        Image(systemName: iconName)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(badgeFgColor)
+                    }
                     // Cash-out rows carry the destination country's flag tucked
                     // into the bottom-trailing corner of the badge (US for a
                     // Bridge USD wire, Nigeria for a Linq NGN payout).
@@ -137,6 +143,7 @@ struct HistoryRow: View {
         case withdraw
         case autoswap
         case cashout
+        case team
         case neutral
     }
 
@@ -155,6 +162,9 @@ struct HistoryRow: View {
         // to a US bank — render it as a cash-out (bank icon, red), the same way
         // the Linq/Nigeria rail above does, not a generic yield-venue withdraw.
         if entry.direction == "withdraw" && entry.venue == "bridge" { return .cashout }
+        // A team payout is a "sent" batch — surface it as its own category so it
+        // reads as "Paid {team}" with a team icon, not one recipient's name.
+        if entry.isTeamPayout { return .team }
         switch entry.direction {
         case "received": return .received
         case "invest":   return .invest
@@ -179,6 +189,7 @@ struct HistoryRow: View {
         switch category {
         case .sent:     return Color(hex: 0xE5484D)
         case .cashout:  return Color(hex: 0xE5484D)
+        case .team:     return Color(hex: 0xE5484D)
         case .received: return Color(hex: 0x79D96C)
         case .invest:   return TaliseColor.accent
         case .withdraw: return Color(hex: 0x79D96C)
@@ -193,6 +204,7 @@ struct HistoryRow: View {
         switch category {
         case .sent:     return Color(hex: 0xE5484D).opacity(0.16)
         case .cashout:  return Color(hex: 0xE5484D).opacity(0.16)
+        case .team:     return Color(hex: 0xE5484D).opacity(0.16)
         case .received: return Color(hex: 0x79D96C).opacity(0.20)
         case .invest:   return TaliseColor.accent.opacity(0.20)
         case .withdraw: return Color(hex: 0xCAFFB8).opacity(0.42)
@@ -207,6 +219,7 @@ struct HistoryRow: View {
         switch category {
         case .sent:     return Color(hex: 0xFF6B6B)
         case .cashout:  return Color(hex: 0xFF6B6B)
+        case .team:     return Color(hex: 0xFF6B6B)
         case .received: return Color(hex: 0xCAFFB8)
         case .invest:   return TaliseColor.accent
         case .withdraw: return Color(hex: 0x2E5E1F)
@@ -217,8 +230,8 @@ struct HistoryRow: View {
 
     private var tintAlpha: Double {
         switch category {
-        case .sent, .cashout, .received, .invest, .withdraw, .autoswap: return 0.18
-        case .neutral:                                                  return 0
+        case .sent, .cashout, .team, .received, .invest, .withdraw, .autoswap: return 0.18
+        case .neutral:                                                          return 0
         }
     }
 
@@ -231,6 +244,7 @@ struct HistoryRow: View {
         switch category {
         case .sent:     return "arrow.up.right"
         case .cashout:  return "building.columns"
+        case .team:     return "person.3.fill" // unused — team renders hi.team
         case .received: return "arrow.down.left"
         case .invest:   return "leaf.fill"
         case .withdraw: return "leaf"
@@ -309,6 +323,10 @@ struct HistoryRow: View {
                 return entry.hasRoundup ? "Sent to \(who) + saved" : "Sent to \(who)"
             }
             return entry.hasRoundup ? "Sent + saved" : "Sent"
+        case .team:
+            // "Paid Dev Team" — name the team, never one arbitrary recipient.
+            if let name = entry.team?.name, !name.isEmpty { return "Paid \(name)" }
+            return "Paid your team"
         // Unreachable — the offramp guard above returns first — but the
         // switch must stay exhaustive.
         case .cashout:  return "Cash out"
@@ -361,6 +379,11 @@ struct HistoryRow: View {
         let fmt = RelativeDateTimeFormatter()
         fmt.unitsStyle = .abbreviated
         let relative = fmt.localizedString(for: date, relativeTo: Date())
+        // Team payouts lead with how many people were paid in the one tx.
+        if let team = entry.team {
+            let people = team.recipientCount == 1 ? "1 person" : "\(team.recipientCount) people"
+            return "\(people) \u{2022} \(relative)"
+        }
         // Round-up sends surface the auto-saved portion alongside the
         // timestamp ("Saved $0.40 · 2h ago") so the "+ saved" in the title
         // is backed by a concrete amount.

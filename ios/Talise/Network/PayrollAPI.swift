@@ -66,10 +66,16 @@ enum PayrollAPI {
 
     /// Build a batch payout. Returns the `batchId` + sponsored `bytes` to
     /// sign and execute (signAndExecuteRaw), plus a recipient/total summary.
-    static func prepareBatch(recipients: [BatchRecipient]) async throws -> BatchPrepareResponse {
+    /// Pass the team's name/id so the activity feed can label the row
+    /// "Paid {team}" with a team icon instead of one recipient's name.
+    static func prepareBatch(
+        recipients: [BatchRecipient],
+        teamName: String? = nil,
+        teamId: String? = nil
+    ) async throws -> BatchPrepareResponse {
         try await APIClient.shared.post(
             "/api/payouts/batch/prepare",
-            body: PrepareBody(recipients: recipients, asset: "USDsui")
+            body: PrepareBody(recipients: recipients, asset: "USDsui", teamName: teamName, teamId: teamId)
         )
     }
 
@@ -161,6 +167,8 @@ struct DeleteTeamResponse: Codable {
 private struct PrepareBody: Encodable {
     let recipients: [BatchRecipient]
     let asset: String
+    let teamName: String?
+    let teamId: String?
 }
 
 private struct RecordBody: Encodable {

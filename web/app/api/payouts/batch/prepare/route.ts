@@ -71,12 +71,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
 
-  let body: { recipients?: InputRecipient[]; asset?: string };
+  let body: {
+    recipients?: InputRecipient[];
+    asset?: string;
+    teamName?: string;
+    teamId?: string;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
+
+  // Optional: which saved team this batch is paying. Stored on the batch so the
+  // activity feed can label it "Paid {team}" instead of one recipient's name.
+  const teamName = (body.teamName ?? "").trim().slice(0, 60) || null;
+  const teamId = (body.teamId ?? "").trim().slice(0, 80) || null;
 
   const asset = body.asset ?? "USDsui";
   if (asset !== "USDsui") {
@@ -325,8 +335,8 @@ export async function POST(req: Request) {
     const c = db();
     await c.execute({
       sql: `INSERT INTO payout_batches
-              (id, user_id, kind, total_usd, recipient_count, status, digest, created_at)
-            VALUES (?, ?, ?, ?, ?, 'prepared', NULL, ?)`,
+              (id, user_id, kind, total_usd, recipient_count, status, digest, created_at, team_name, team_id)
+            VALUES (?, ?, ?, ?, ?, 'prepared', NULL, ?, ?, ?)`,
       args: [
         batchId,
         String(userId),
@@ -334,6 +344,8 @@ export async function POST(req: Request) {
         totalUsd,
         resolvedLegs.length,
         now,
+        teamName,
+        teamId,
       ],
     });
     await Promise.all(

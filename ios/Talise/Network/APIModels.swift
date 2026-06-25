@@ -215,11 +215,18 @@ struct ActivityEntryDTO: Codable, Identifiable {
     /// memberwise initializer used by optimistic stubs in HomeView compiles
     /// without threading an `offramp:` argument through every call site.
     var offramp: OfframpInfo? = nil
+    /// Present when this "sent" row is a TEAM payout (a saved team paid in one
+    /// PTB). The server attaches the team name + recipient count so the row
+    /// renders "Paid {name}" with a team icon instead of one leg's recipient.
+    /// Optional so non-team rows (and optimistic stubs) decode unchanged.
+    var team: TeamPayoutInfo? = nil
 
     var id: String { digest }
     var isReceived: Bool { direction == "received" }
     var isInvest: Bool { direction == "invest" }
     var isWithdraw: Bool { direction == "withdraw" }
+    /// True when this send was a team payout (drives the team icon + label).
+    var isTeamPayout: Bool { team != nil }
     /// True when a Send carried a meaningful round-up save leg (> $0). Drives
     /// the "Sent + saved $X" title/subtitle treatment on outgoing rows.
     var hasRoundup: Bool { (roundupUsdsui ?? 0) > 0 }
@@ -237,6 +244,14 @@ struct OfframpInfo: Codable, Hashable {
     let status: String
     let rate: Double
     let orderId: String
+}
+
+/// Team-payout metadata for a batch activity row. The server attaches this to
+/// a "sent" row whose digest matches a saved-team batch — the team name and how
+/// many people were paid in that one transaction.
+struct TeamPayoutInfo: Codable, Hashable {
+    let name: String
+    let recipientCount: Int
 }
 
 struct ActivityOtherCoin: Codable, Hashable {

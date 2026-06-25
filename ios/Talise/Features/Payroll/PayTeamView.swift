@@ -277,7 +277,9 @@ struct PayTeamView: View {
         }
 
         do {
-            let resp = try await PayrollAPI.prepareBatch(recipients: recipients)
+            let resp = try await PayrollAPI.prepareBatch(
+                recipients: recipients, teamName: team.name, teamId: team.id
+            )
             let digest = try await ZkLoginCoordinator.shared.signAndExecuteRaw(
                 bytesB64: resp.bytes,
                 meta: ["kind": "payout-batch", "amountUsd": resp.totalUsd]
