@@ -184,12 +184,29 @@ struct TeamEditView: View {
         }
 
         do {
-            _ = try await PayrollAPI.saveTeam(name: trimmedName, members: members)
+            // Prepare: the server either persists immediately (DB mode) or hands
+            // back sponsor-ready bytes for an on-chain create/edit.
+            let prep = try await PayrollAPI.prepareSaveTeam(name: trimmedName, members: members)
+            if prep.mode == "onchain", let bytes = prep.bytes {
+                let sub = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                    bytesB64: bytes,
+                    intent: (prep.edit ?? false) ? "Update team" : "Create team"
+                )
+                _ = try await PayrollAPI.recordSaveTeam(
+                    digest: sub.digest,
+                    name: prep.name ?? trimmedName,
+                    members: members,
+                    chainObjectId: prep.chainObjectId
+                )
+            }
+            // DB mode: already saved by the prepare call — nothing more to do.
             onSaved()
             dismiss()
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            error = "Sign in again — your session needs a refresh."
         } catch {
             if APIError.isCancellation(error) { return }
-            self.error = "Couldn't save your team. Please try again."
+            self.error = APIError.honestMoneyError(error, fallback: "Couldn't save your team. Please try again.")
         }
     }
 }

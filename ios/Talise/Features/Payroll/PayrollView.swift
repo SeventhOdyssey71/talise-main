@@ -217,8 +217,18 @@ struct PayrollView: View {
         deletingId = team.id
         defer { deletingId = nil }
         do {
-            try await PayrollAPI.deleteTeam(id: team.id)
+            // Prepare: DB-only teams delete immediately; on-chain teams return
+            // sponsor-ready `payroll::delete` bytes to sign, then record.
+            let resp = try await PayrollAPI.prepareDeleteTeam(id: team.id)
+            if resp.mode == "onchain", let bytes = resp.bytes {
+                let sub = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                    bytesB64: bytes, intent: "Delete team"
+                )
+                try await PayrollAPI.recordDeleteTeam(id: team.id, digest: sub.digest)
+            }
             await load()
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            self.error = "Sign in again — your session needs a refresh."
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = "Couldn't delete that team. Please try again."
