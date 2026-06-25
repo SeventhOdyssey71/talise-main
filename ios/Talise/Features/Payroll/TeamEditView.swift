@@ -21,16 +21,6 @@ struct TeamEditView: View {
     @State private var saving = false
     @State private var error: String?
 
-    /// A locally-editable member row. `id` keeps SwiftUI identity stable as
-    /// rows are added/removed; the text fields are plain strings (amount is
-    /// parsed only at save time).
-    private struct MemberRow: Identifiable {
-        let id = UUID()
-        var recipient: String = ""
-        var amount: String = ""
-        var label: String = ""
-    }
-
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     private var namedRows: [MemberRow] {
         rows.filter { !$0.recipient.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -130,64 +120,10 @@ struct TeamEditView: View {
                     .foregroundStyle(TaliseColor.fgMuted)
             } else {
                 ForEach($rows) { $row in
-                    memberRow($row)
+                    MemberRowView(row: $row) { remove(row.id) }
                 }
             }
         }
-    }
-
-    private func memberRow(_ row: Binding<MemberRow>) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                TextField("", text: row.recipient,
-                          prompt: Text("@handle, name.talise.sui or 0x…").foregroundColor(TaliseColor.fgDim))
-                    .font(TaliseFont.body(15, weight: .regular))
-                    .foregroundStyle(TaliseColor.fg)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .padding(.horizontal, 12).frame(height: 46)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(TaliseColor.surface2)
-                    )
-                Button {
-                    remove(row.wrappedValue.id)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(TaliseColor.surface2))
-                }
-                .buttonStyle(.plain)
-            }
-            HStack(spacing: 10) {
-                HStack(spacing: 4) {
-                    Text("$").font(TaliseFont.body(15, weight: .regular)).foregroundStyle(TaliseColor.fgMuted)
-                    TextField("", text: row.amount,
-                              prompt: Text("Amount").foregroundColor(TaliseColor.fgDim))
-                        .font(TaliseFont.body(15, weight: .regular))
-                        .foregroundStyle(TaliseColor.fg)
-                        .keyboardType(.decimalPad)
-                }
-                .padding(.horizontal, 12).frame(height: 46).frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(TaliseColor.surface2)
-                )
-                TextField("", text: row.label,
-                          prompt: Text("Label (optional)").foregroundColor(TaliseColor.fgDim))
-                    .font(TaliseFont.body(15, weight: .regular))
-                    .foregroundStyle(TaliseColor.fg)
-                    .padding(.horizontal, 12).frame(height: 46).frame(maxWidth: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(TaliseColor.surface2)
-                    )
-            }
-        }
-        .padding(14)
-        .rampCard()
     }
 
     private var saveButton: some View {
@@ -254,6 +190,144 @@ struct TeamEditView: View {
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = "Couldn't save your team. Please try again."
+        }
+    }
+}
+
+/// A locally-editable member row. `id` keeps SwiftUI identity stable as rows
+/// are added/removed; the text fields are plain strings (amount is parsed only
+/// at save time).
+struct MemberRow: Identifiable {
+    let id = UUID()
+    var recipient: String = ""
+    var amount: String = ""
+    var label: String = ""
+}
+
+/// One person in the team editor. Owns its own live recipient resolution: as
+/// you type a @handle / name.talise.sui / 0x address, it debounces (~0.4s) then
+/// hits `/api/recipient/resolve` (the same path Send + Stream use) and shows
+/// the matched identity — so a typo is caught here, not at pay time.
+private struct MemberRowView: View {
+    @Binding var row: MemberRow
+    var onRemove: () -> Void
+
+    @State private var resolved: RecipientResolution?
+    @State private var resolving = false
+    @State private var resolveFailed = false
+
+    private var trimmedRecipient: String {
+        row.recipient.trimmingCharacters(in: .whitespaces)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                TextField("", text: $row.recipient,
+                          prompt: Text("@handle, name.talise.sui or 0x…").foregroundColor(TaliseColor.fgDim))
+                    .font(TaliseFont.body(15, weight: .regular))
+                    .foregroundStyle(TaliseColor.fg)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(.horizontal, 12).frame(height: 46)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(TaliseColor.surface2)
+                    )
+                Button(action: onRemove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(TaliseColor.surface2))
+                }
+                .buttonStyle(.plain)
+            }
+
+            resolutionLine
+
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    Text("$").font(TaliseFont.body(15, weight: .regular)).foregroundStyle(TaliseColor.fgMuted)
+                    TextField("", text: $row.amount,
+                              prompt: Text("Amount").foregroundColor(TaliseColor.fgDim))
+                        .font(TaliseFont.body(15, weight: .regular))
+                        .foregroundStyle(TaliseColor.fg)
+                        .keyboardType(.decimalPad)
+                }
+                .padding(.horizontal, 12).frame(height: 46).frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(TaliseColor.surface2)
+                )
+                TextField("", text: $row.label,
+                          prompt: Text("Label (optional)").foregroundColor(TaliseColor.fgDim))
+                    .font(TaliseFont.body(15, weight: .regular))
+                    .foregroundStyle(TaliseColor.fg)
+                    .padding(.horizontal, 12).frame(height: 46).frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(TaliseColor.surface2)
+                    )
+            }
+        }
+        .padding(14)
+        .rampCard()
+        // Re-resolve whenever the typed recipient changes (debounced inside).
+        .task(id: trimmedRecipient) { await resolve() }
+    }
+
+    @ViewBuilder private var resolutionLine: some View {
+        if resolving {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini).tint(TaliseColor.fgMuted)
+                Text("Finding…")
+                    .font(TaliseFont.body(12, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+            }
+        } else if let resolved {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TaliseColor.greenMint)
+                Text(resolved.displayString)
+                    .font(TaliseFont.body(12.5, weight: .regular))
+                    .foregroundStyle(TaliseColor.fg).lineLimit(1)
+            }
+        } else if resolveFailed {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(TaliseColor.danger)
+                Text("No one found by that name")
+                    .font(TaliseFont.body(12, weight: .light))
+                    .foregroundStyle(TaliseColor.danger)
+            }
+        }
+    }
+
+    private func resolve() async {
+        let q = trimmedRecipient
+        guard !q.isEmpty else {
+            resolved = nil; resolveFailed = false; resolving = false
+            return
+        }
+        // Debounce — coalesce fast typing into one request.
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        if Task.isCancelled { return }
+
+        resolving = true; resolveFailed = false
+        defer { resolving = false }
+        do {
+            let r: RecipientResolution = try await APIClient.shared.get(
+                "/api/recipient/resolve?q=\(q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q)"
+            )
+            if Task.isCancelled || q != trimmedRecipient { return }
+            resolved = r; resolveFailed = false
+        } catch {
+            if Task.isCancelled || APIError.isCancellation(error) { return }
+            if q != trimmedRecipient { return }
+            resolved = nil; resolveFailed = true
         }
     }
 }
