@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base app theme. Compose owns the real styling; this is the window chrome:
+         pure-black background + light status/nav icons to match the dark UI. -->
+    <style name="Theme.Talise" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/talise_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/talise_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Splash (androidx core-splashscreen) → hands off to Theme.Talise. -->
+    <style name="Theme.Talise.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/talise_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.Talise</item>
+    </style>
+</resources>

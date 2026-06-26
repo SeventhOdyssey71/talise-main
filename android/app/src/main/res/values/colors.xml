@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window-chrome only; the Compose palette in ui/theme/Color.kt is the source of truth. -->
+    <color name="talise_bg">#000000</color>
+</resources>
