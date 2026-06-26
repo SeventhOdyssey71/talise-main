@@ -86,6 +86,28 @@ struct PayTeamView: View {
 
                 gaslessNote
 
+                // Stream instead of paying all at once: fund a pot, equal shares
+                // release to the team on a schedule (gasless), until it's empty.
+                NavigationLink {
+                    TeamStreamSetupView(team: team)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(.system(size: 14, weight: .medium))
+                        Text("Stream over time instead")
+                            .font(TaliseFont.body(15, weight: .medium))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(TaliseColor.fgDim)
+                    }
+                    .foregroundStyle(TaliseColor.fg)
+                    .padding(.horizontal, 16).frame(height: 52)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(TaliseColor.surface2))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+
                 // Subtle, deliberate delete — lives on the team's own screen
                 // (not the list), de-emphasized so it's never an accidental tap.
                 Button {
