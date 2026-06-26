@@ -14,29 +14,31 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.talise.app.ui.components.LiquidGlassButton
 import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
 
 /**
- * Sign-in entry — iOS `SignInScreen`. zkLogin via Google (phase 1 wires Credential
- * Manager → [io.talise.app.core.auth.ZkLoginCoordinator.exchangeGoogle]). The layout
- * mirrors iOS: top green glow, logo, welcome copy, provider button, beta + legal notes.
+ * Sign-in entry — iOS `SignInScreen`. Native zkLogin via Google: Credential Manager
+ * returns a nonce-bound ID token → `/api/auth/mobile/exchange` → bearer. Layout mirrors
+ * iOS: top green glow, logo, welcome copy, provider button, beta + legal notes.
  */
 @Composable
-fun SignInScreen() {
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+fun SignInScreen(vm: SignInViewModel = viewModel()) {
+    val state by vm.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val loading = state.loading
+    val error = state.error
 
     Box(Modifier.fillMaxSize().background(TaliseColors.bg)) {
         // Top glow — mossy green → forest → black (iOS TopGlow).
@@ -82,10 +84,7 @@ fun SignInScreen() {
                 title = if (loading) "Signing in…" else "Continue with Google",
                 tint = TaliseColors.fg, // white provider button
                 loading = loading,
-                onClick = {
-                    // Phase 1: Credential Manager → Google ID token → ZkLoginCoordinator.exchangeGoogle.
-                    error = "Sign-in wiring lands in phase 1 (needs GOOGLE_WEB_CLIENT_ID)."
-                },
+                onClick = { vm.signInWithGoogle(context) },
             )
 
             if (error != null) {

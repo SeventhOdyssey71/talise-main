@@ -15,6 +15,8 @@ object SecureStore {
     private const val KEY_BEARER = "bearer"
     private const val KEY_EPHEMERAL = "ephemeral_sk"
     private const val KEY_PROOF = "proof_cache"
+    private const val KEY_MAX_EPOCH = "max_epoch"
+    private const val KEY_RANDOMNESS = "jwt_randomness"
 
     private lateinit var prefs: SharedPreferences
 
@@ -42,6 +44,16 @@ object SecureStore {
     var proofCache: String?
         get() = prefs.getString(KEY_PROOF, null)
         set(value) = prefs.edit().apply { if (value == null) remove(KEY_PROOF) else putString(KEY_PROOF, value) }.apply()
+
+    /** The (maxEpoch, randomness) the ephemeral key was bound to at sign-in — needed
+     *  by phase-2 transaction signing / proof minting. */
+    var maxEpoch: Int
+        get() = prefs.getInt(KEY_MAX_EPOCH, 0)
+        set(value) = prefs.edit().putInt(KEY_MAX_EPOCH, value).apply()
+
+    var jwtRandomness: String?
+        get() = prefs.getString(KEY_RANDOMNESS, null)
+        set(value) = prefs.edit().apply { if (value == null) remove(KEY_RANDOMNESS) else putString(KEY_RANDOMNESS, value) }.apply()
 
     /** Wipe everything on sign-out (mirrors iOS signOut clearing Keychain). */
     fun clear() {

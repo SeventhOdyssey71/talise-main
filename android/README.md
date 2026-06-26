@@ -21,9 +21,16 @@ Done and structured to compile in Android Studio (Giraffe+ / AGP 8.7):
   team/cash-out treatment), SignIn, Earn, Rewards, Profile, the Move-money hub,
   Deposit, Payroll (live `/api/payouts/teams`), Send (amount + SlideToConfirm).
 
-## Remaining (phases 1–4 — see PLAN.md §6)
+## Phase 1 — zkLogin sign-in (done)
 
-- Phase 1: real zkLogin sign-in (Credential Manager → Google ID token → exchange).
+Native Google sign-in is wired end-to-end against the live backend:
+`prepareGoogle` (GET `/api/sui/epoch` → maxEpoch+2, gen randomness, POST
+`/api/auth/mobile/nonce` for the Poseidon nonce) → Credential Manager returns a
+**nonce-bound** Google ID token (web client id) → POST `/api/auth/mobile/exchange`
+→ bearer stored, session advances into the app. Set `GOOGLE_WEB_CLIENT_ID` to use it.
+
+## Remaining (phases 2–4 — see PLAN.md §6)
+
 - Phase 2: Send pipeline (sponsor-prepare → sign → execute), Earn supply/withdraw,
   Payroll pay, Profile actions, Play Integrity headers.
 - Phase 3: cross-border, cheques, streams, invoices, ramps, scan-to-pay, private send.

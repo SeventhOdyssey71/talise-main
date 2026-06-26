@@ -31,7 +31,9 @@ fun TaliseRoot() {
     when (phase) {
         is AppSession.Phase.Launching -> Splash()
         is AppSession.Phase.SignedOut -> SignInScreen()
-        is AppSession.Phase.Onboarding -> SignInScreen() // handle-claim/onboarding lands here (phase 1)
+        // A signed-in but not-yet-onboarded user enters the app and claims their
+        // @handle from Home (matching iOS), rather than bouncing back to SignIn.
+        is AppSession.Phase.Onboarding -> MainNavHost()
         is AppSession.Phase.Ready -> MainNavHost()
     }
 }

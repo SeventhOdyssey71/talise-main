@@ -2,8 +2,11 @@ package io.talise.app.core.net
 
 import io.talise.app.core.model.ActivityResponse
 import io.talise.app.core.model.BalancesDTO
+import io.talise.app.core.model.EpochResponse
 import io.talise.app.core.model.ExchangeRequest
 import io.talise.app.core.model.ExchangeResponse
+import io.talise.app.core.model.NonceRequest
+import io.talise.app.core.model.NonceResponse
 import io.talise.app.core.model.RecipientResolution
 import io.talise.app.core.model.TeamsResponse
 import io.talise.app.core.model.UserDTO
@@ -36,6 +39,12 @@ interface TaliseApi {
 
     @GET("api/payouts/teams")
     suspend fun teams(): TeamsResponse
+
+    @GET("api/sui/epoch")
+    suspend fun epoch(): EpochResponse
+
+    @POST("api/auth/mobile/nonce")
+    suspend fun nonce(@Body body: NonceRequest): NonceResponse
 
     @POST("api/auth/mobile/exchange")
     suspend fun exchange(@Body body: ExchangeRequest): ExchangeResponse

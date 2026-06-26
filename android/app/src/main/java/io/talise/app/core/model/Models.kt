@@ -149,3 +149,16 @@ data class ExchangeResponse(
     val user: UserDTO? = null,
     val existing: Boolean = false,
 )
+
+@Serializable
+data class EpochResponse(val epoch: String)
+
+@Serializable
+data class NonceRequest(
+    val ephemeralPubKeyB64: String,
+    val maxEpoch: Int,
+    val randomness: String,
+)
+
+@Serializable
+data class NonceResponse(val nonce: String)
