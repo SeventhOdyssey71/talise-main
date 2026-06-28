@@ -1,0 +1,181 @@
+import Foundation
+
+/// Runs a confirmed Talise Agent plan — the ONLY place the agent path moves
+/// money. Read-only steps fetch + format inline (no signature); write steps
+/// (`ok` only) call the same prepare + sign endpoints the manual flows use, so
+/// every guardrail (caps, screening, gasless minimum) is already enforced
+/// server-side. Posts `.taliseTxCompleted` per executed money step exactly like
+/// `PayTeamView` / `EarnView` so Home reconciles optimistically.
+@MainActor
+enum AgentExecutor {
+    /// Run the read-only steps of an intent and return one display line each.
+    /// Never signs. Used for "what's my balance / show my activity" turns.
+    static func runReadOnly(_ steps: [AgentStep]) async throws -> [String] {
+        var lines: [String] = []
+        for step in steps where step.isReadOnly {
+            switch step.kind {
+            case "check_balance":
+                let b: BalancesDTO = try await APIClient.shared.get("/api/balances")
+                lines.append("Available: \(TaliseFormat.usd2(b.usdsui)) · Total \(TaliseFormat.usd2(b.totalUsd))")
+            case "check_yield":
+                let cmp: YieldComparison = try await APIClient.shared.get("/api/yield/comparison")
+                let supplied = cmp.venues.compactMap { $0.supplied }.reduce(0, +)
+                let earned = cmp.venues.compactMap { $0.earned }.reduce(0, +)
+                if supplied > 0 {
+                    var s = "Saved \(TaliseFormat.usd2(supplied)) earning"
+                    if let best = cmp.best { s += " up to \(String(format: "%.1f", best.apy))% APY" }
+                    if earned > 0 { s += " · \(TaliseFormat.usd2(earned)) earned so far" }
+                    lines.append(s)
+                } else if let best = cmp.best {
+                    lines.append("Nothing saved yet — best rate is \(String(format: "%.1f", best.apy))% APY.")
+                } else {
+                    lines.append("Nothing saved yet.")
+                }
+            case "show_activity":
+                let n = max(1, min(step.limit ?? 8, 25))
+                let r: ActivityResponse = try await APIClient.shared.get("/api/activity?limit=\(n)")
+                if r.entries.isEmpty {
+                    lines.append("No recent activity.")
+                } else {
+                    for e in r.entries.prefix(n) { lines.append(activityLine(e)) }
+                }
+            default:
+                break
+            }
+        }
+        return lines
+    }
+
+    /// Execute every `ok` write step of a validated plan, in order. `intent` is
+    /// the original proposal (same length + order as `plan.steps`) — we read
+    /// the venue / recipient fallback from it since the plan response doesn't
+    /// echo those. Returns one confirmation line per executed step. Throws on
+    /// the first failure (the card surfaces it via `honestMoneyError`).
+    static func execute(plan: AgentPlanDTO, intent: AgentIntent) async throws -> [String] {
+        var lines: [String] = []
+        let steps = intent.steps
+        for (idx, planned) in plan.steps.enumerated() {
+            guard planned.isOk else { continue }
+            let step = idx < steps.count ? steps[idx] : nil
+
+            switch planned.kind {
+            case "send":
+                let to = planned.resolved?.address ?? step?.recipient ?? ""
+                let amount = planned.amountUsd ?? step?.amount ?? 0
+                guard !to.isEmpty, amount > 0 else { continue }
+                let name = planned.resolved?.displayName
+                let sub = try await ZkLoginCoordinator.shared.signAndSubmitSend(
+                    to: to,
+                    amountUsd: amount,
+                    intent: "Send \(TaliseFormat.usd2(amount)) to \(name ?? to)"
+                )
+                postCompleted(direction: "sent", amountUsd: amount,
+                              counterparty: to, counterpartyName: name, venue: nil,
+                              digest: sub.digest)
+                lines.append("Sent \(TaliseFormat.usd2(amount)) to \(name ?? shortAddr(to)).")
+
+            case "save":
+                let amount = planned.amountUsd ?? step?.amount ?? 0
+                guard amount > 0 else { continue }
+                let venue = step?.venue ?? "navi"
+                struct Body: Encodable { let venue: String; let amount: Double }
+                let built: BuildKindResponse = try await APIClient.shared.post(
+                    "/api/earn/supply/prepare", body: Body(venue: venue, amount: amount)
+                )
+                let sub = try await ZkLoginCoordinator.shared.signAndSubmit(
+                    transactionKindB64: built.transactionKindB64,
+                    intent: "Save \(TaliseFormat.usd2(amount))",
+                    rewards: .init(kind: "invest", amountUsd: amount, venue: venue)
+                )
+                postCompleted(direction: "invest", amountUsd: amount,
+                              counterparty: nil, counterpartyName: nil, venue: venue,
+                              digest: sub.digest)
+                lines.append("Saved \(TaliseFormat.usd2(amount)) into \(displayVenue(venue)).")
+
+            case "withdraw":
+                let amount = planned.amountUsd ?? step?.amount ?? 0
+                guard amount > 0 else { continue }
+                let venue = step?.venue ?? "navi"
+                struct Body: Encodable { let venue: String; let amount: Double? }
+                let built: BuildKindResponse = try await APIClient.shared.post(
+                    "/api/earn/withdraw/prepare", body: Body(venue: venue, amount: amount)
+                )
+                let sub = try await ZkLoginCoordinator.shared.signAndSubmit(
+                    transactionKindB64: built.transactionKindB64,
+                    intent: "Withdraw \(TaliseFormat.usd2(amount))",
+                    rewards: .init(kind: "withdraw", amountUsd: amount, venue: venue)
+                )
+                postCompleted(direction: "withdraw", amountUsd: amount,
+                              counterparty: nil, counterpartyName: nil, venue: venue,
+                              digest: sub.digest)
+                lines.append("Withdrew \(TaliseFormat.usd2(amount)) from \(displayVenue(venue)).")
+
+            case "claim_rewards":
+                let venue = step?.venue ?? "navi"
+                struct Body: Encodable { let venue: String }
+                let built: BuildKindResponse = try await APIClient.shared.post(
+                    "/api/earn/withdraw-earned/prepare", body: Body(venue: venue)
+                )
+                let sub = try await ZkLoginCoordinator.shared.signAndSubmit(
+                    transactionKindB64: built.transactionKindB64,
+                    intent: "Claim rewards",
+                    rewards: .init(kind: "withdraw", amountUsd: 0, venue: venue)
+                )
+                postCompleted(direction: "withdraw", amountUsd: 0,
+                              counterparty: nil, counterpartyName: nil, venue: venue,
+                              digest: sub.digest)
+                lines.append("Claimed your \(displayVenue(venue)) rewards.")
+
+            default:
+                // swap and any future kinds aren't executable from chat yet —
+                // skip rather than fail the whole plan.
+                break
+            }
+        }
+        return lines
+    }
+
+    // MARK: - Helpers
+
+    private static func postCompleted(
+        direction: String, amountUsd: Double,
+        counterparty: String?, counterpartyName: String?, venue: String?,
+        digest: String
+    ) {
+        NotificationCenter.default.post(
+            name: .taliseTxCompleted,
+            object: TaliseTxEvent(
+                digest: digest,
+                direction: direction,
+                amountUsdsui: amountUsd,
+                counterparty: counterparty,
+                counterpartyName: counterpartyName,
+                venue: venue
+            )
+        )
+    }
+
+    private static func activityLine(_ e: ActivityEntryDTO) -> String {
+        let amt = TaliseFormat.usd2(abs(e.amountUsdsui ?? 0))
+        let who = e.counterpartyName ?? e.counterparty.map(shortAddr) ?? ""
+        switch e.direction {
+        case "received": return "Received \(amt)" + (who.isEmpty ? "" : " from \(who)")
+        case "invest":   return "Saved \(amt)" + (e.venue.map { " into \(displayVenue($0))" } ?? "")
+        case "withdraw": return "Withdrew \(amt)" + (e.venue.map { " from \(displayVenue($0))" } ?? "")
+        default:         return "Sent \(amt)" + (who.isEmpty ? "" : " to \(who)")
+        }
+    }
+
+    private static func displayVenue(_ v: String) -> String {
+        switch v.lowercased() {
+        case "deepbook": return "DeepBook"
+        case "navi": return "NAVI"
+        default: return v.capitalized
+        }
+    }
+
+    private static func shortAddr(_ a: String) -> String {
+        if a.hasPrefix("0x"), a.count > 12 { return "\(a.prefix(6))…\(a.suffix(4))" }
+        return a
+    }
+}

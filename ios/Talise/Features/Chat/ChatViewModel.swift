@@ -24,6 +24,13 @@ final class ChatViewModel {
 
     private var streamTask: Task<Void, Never>?
 
+    /// Un-stripped accumulator per in-flight assistant message. We keep the
+    /// FULL raw stream (including the `---INTENT---…---END---` fence) here and
+    /// derive the displayed `content` from it each delta — both so a fence
+    /// split across SSE chunks never flashes half-rendered JSON, and so we can
+    /// parse the intent once the stream completes. Cleared on finalize.
+    private var streamRaw: [UUID: String] = [:]
+
     init() {
         self.messages = ChatHistoryStore.shared.load()
     }
@@ -40,6 +47,7 @@ final class ChatViewModel {
         streamTask = nil
         streaming = false
         messages = []
+        streamRaw = [:]
         ChatHistoryStore.shared.clear()
     }
 
@@ -177,16 +185,16 @@ final class ChatViewModel {
 
     private func appendAssistant(text: String, id: UUID) {
         guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
-        messages[idx].content += text
         // The Talise agent emits structured `---INTENT---{...}---END---`
         // blocks inline. They're the agent's machine-readable payload
-        // (Payment Intents the app can execute on confirm), not text
-        // for the user. Strip them from the rendered content on each
-        // delta so the bubble shows only the natural-language prose —
-        // even while the block is still streaming in. We keep the raw
-        // stream available for a future intent-card UI that listens
-        // for the closing `---END---` and renders an action card.
-        messages[idx].content = stripIntentBlocks(messages[idx].content)
+        // (Payment Intents the app can execute on confirm), not text for
+        // the user. We accumulate the FULL raw stream (fence included) in
+        // `streamRaw` and derive the displayed `content` by stripping the
+        // fence each delta — so the bubble shows only prose even while the
+        // block streams in, and so `finalize` can parse the closed intent.
+        let raw = (streamRaw[id] ?? "") + text
+        streamRaw[id] = raw
+        messages[idx].content = stripIntentBlocks(raw)
     }
 
     /// Removes any `---INTENT---{json}---END---` fence (and trailing
@@ -220,10 +228,19 @@ final class ChatViewModel {
     private func finalize(assistantId: UUID) {
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             messages[idx].streaming = false
+            // Parse the agent's intent block (if any) from the full raw
+            // stream now that it's closed — the UI renders an
+            // `AgentIntentCard` beneath the bubble.
+            if let raw = streamRaw[assistantId] {
+                messages[idx].intent = AgentIntentParser.parse(raw)
+            }
             if messages[idx].content.isEmpty {
-                messages[idx].content = "(no reply)"
+                // A pure-intent turn (no prose) shouldn't read as "(no
+                // reply)" — the action card carries the meaning.
+                messages[idx].content = messages[idx].intent == nil ? "(no reply)" : ""
             }
         }
+        streamRaw[assistantId] = nil
         ChatHistoryStore.shared.save(messages)
     }
 
@@ -235,6 +252,7 @@ final class ChatViewModel {
             }
         }
         lastError = message
+        streamRaw[assistantId] = nil
         ChatHistoryStore.shared.save(messages)
     }
 }

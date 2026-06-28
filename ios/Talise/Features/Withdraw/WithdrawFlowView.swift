@@ -162,6 +162,26 @@ struct WithdrawFlowView: View {
                         }
                         .buttonStyle(TilePress())
                         .zIndex(0)
+
+                        // ── Request money: mint a shareable pay link / QR ──
+                        // RequestsListView has no NavigationStack of its own,
+                        // so it pushes cleanly inside this one.
+                        NavigationLink {
+                            RequestsListView()
+                        } label: {
+                            NavRow(icon: "hi.qr", title: "Request money", caption: "Ask anyone with a link")
+                        }
+                        .buttonStyle(TilePress())
+                        .zIndex(0)
+
+                        // ── Rules / Automations: money that runs itself ──
+                        NavigationLink {
+                            RulesView()
+                        } label: {
+                            NavRow(icon: "hi.stream", title: "Rules", caption: "Money that runs itself")
+                        }
+                        .buttonStyle(TilePress())
+                        .zIndex(0)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 10)

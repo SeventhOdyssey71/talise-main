@@ -93,7 +93,7 @@ struct ChatTabView: View {
                             .padding(.top, 60)
                     } else {
                         ForEach(vm.messages) { msg in
-                            bubble(for: msg).id(msg.id)
+                            row(for: msg).id(msg.id)
                         }
                     }
                     Color.clear.frame(height: 8).id(scrollAnchorId)
@@ -125,6 +125,24 @@ struct ChatTabView: View {
                 .foregroundStyle(TaliseColor.fgMuted)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// One transcript row: the prose bubble (when there's text or it's still
+    /// streaming) plus, once the stream closes, the Talise Agent action card
+    /// for any parsed intent. A pure-intent turn shows just the card.
+    @ViewBuilder
+    private func row(for msg: ChatMessage) -> some View {
+        VStack(alignment: msg.role == .user ? .trailing : .leading, spacing: 8) {
+            if !msg.content.isEmpty || msg.streaming {
+                bubble(for: msg)
+            }
+            if let intent = msg.intent, !msg.streaming {
+                AgentIntentCard(intent: intent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, 36)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: msg.role == .user ? .trailing : .leading)
     }
 
     private func bubble(for msg: ChatMessage) -> some View {
