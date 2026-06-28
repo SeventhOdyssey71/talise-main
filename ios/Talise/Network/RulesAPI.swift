@@ -1,52 +1,95 @@
 import Foundation
 
-/// Programmable money — "rules" that run themselves. A rule pairs a TRIGGER
-/// (a schedule: an interval in minutes OR a day-of-month) with an ACTION (v1:
-/// `send` a fixed amount to a recipient on that schedule — "pay rent on the
-/// 1st"). The funds draw from a Talise-controlled "Rules Pocket" escrow the
-/// user pre-funds over the normal gasless send rail; a backend cron evaluates
-/// every due rule and pays out gaslessly — no per-run signing by the user.
+/// Programmable money — "rules" that run themselves, NON-CUSTODIALLY. A rule
+/// pairs a TRIGGER (a schedule: an interval in minutes OR a day-of-month) with
+/// an ACTION (v1: `send` a fixed amount to a recipient on that schedule — "pay
+/// rent on the 1st").
 ///
-///   • GET    /api/rules            → { rules:[…], escrowAddress }
-///   • POST   /api/rules            → create a scheduled-send rule
-///   • DELETE /api/rules/{id}       → soft-delete a rule
+/// Each rule is backed by an on-chain `standing_order` object the user owns: the
+/// pot is funded up front (one-or-more payments' worth) and the recipient +
+/// amount are baked on chain. A backend worker can only release the pre-set
+/// amount to the pre-set recipient on schedule — it can never send elsewhere or
+/// more than the schedule allows. Cancelling refunds the entire remaining pot.
+///
+/// Create is a two-step prepare → sign → record (exactly like team streams + the
+/// goal vault):
+///   • GET    /api/rules            → { rules:[…], enabled }
+///   • POST   /api/rules            → PREPARE: returns Onara-sponsored
+///                                    `standing_order::create` bytes to sign
+///   • POST   /api/rules/record     → activate with the signed funding digest
+///   • POST   /api/rules/{id}/cancel→ owner-signed `cancel` bytes (refund pot)
+///   • DELETE /api/rules/{id}       → clear the row (after a signed cancel)
 ///   • POST   /api/rules/{id}/pause → stop a rule from firing
 ///   • POST   /api/rules/{id}/resume→ re-arm a paused rule
 ///
-/// The feature is gated server-side until an escrow key is set: GET then
-/// returns `{ rules: [], escrowAddress: null }` and POST 503s. Callers treat a
-/// nil `escrowAddress` as "automations aren't live yet" and show a clean empty
-/// state rather than an error.
+/// The feature is gated server-side until the automations engine is configured:
+/// GET then returns `{ rules: [], enabled: false }` and POST 503s. Callers treat
+/// `enabled == false` as "automations aren't live yet" and show a clean
+/// "coming soon" state rather than an error.
 @MainActor
 enum RulesAPI {
-    /// List the caller's money rules + the Rules Pocket escrow address (nil
-    /// when the feature is gated off server-side).
+    /// List the caller's money rules. `enabled` is false when the feature is
+    /// gated off server-side.
     static func list() async throws -> RulesListResponse {
         try await APIClient.shared.get("/api/rules")
     }
 
-    /// Create a scheduled-send rule. Pass `intervalMinutes` OR `dayOfMonth`
-    /// (not both) for the cadence; the server resolves + screens `toRecipient`.
-    /// Returns the created rule + the escrow address to pre-fund.
-    static func create(
+    /// STEP 1 — PREPARE a scheduled-send rule. Pass `intervalMinutes` OR
+    /// `dayOfMonth` (not both) for the cadence; the server resolves + screens
+    /// `toRecipient`. `prefundUsd` (>= amountUsd) is how much to load into the
+    /// rule's pot now — default one payment. Returns the Onara-sponsored
+    /// `standing_order::create` bytes to sign + the record to echo back.
+    static func prepareCreate(
         name: String,
         intervalMinutes: Int?,
         dayOfMonth: Int?,
         toRecipient: String,
-        amountUsd: Double
-    ) async throws -> RuleCreateResponse {
+        amountUsd: Double,
+        prefundUsd: Double
+    ) async throws -> RulePrepareResponse {
         try await APIClient.shared.post(
             "/api/rules",
-            body: CreateBody(
+            body: PrepareBody(
                 name: name,
                 trigger: "schedule",
                 action: "send",
                 intervalMinutes: intervalMinutes,
                 dayOfMonth: dayOfMonth,
                 toRecipient: toRecipient,
-                amountUsd: amountUsd
+                amountUsd: amountUsd,
+                prefundUsd: prefundUsd
             )
         )
+    }
+
+    /// STEP 2 — after signing the create, activate the rule with the funding
+    /// `digest` + the `record` echoed by `prepareCreate`.
+    static func recordCreate(
+        digest: String,
+        firstDueMs: Double,
+        record: RuleRecord
+    ) async throws -> RuleDTO {
+        let res: RuleResponse = try await APIClient.shared.post(
+            "/api/rules/record",
+            body: RecordBody(
+                digest: digest,
+                firstDueMs: firstDueMs,
+                name: record.name,
+                trigger: record.trigger,
+                intervalMinutes: record.intervalMinutes,
+                dayOfMonth: record.dayOfMonth,
+                toAddress: record.toAddress,
+                toHandle: record.toHandle,
+                amountUsd: record.amountUsd
+            )
+        )
+        return res.rule
+    }
+
+    /// Build the owner-signed `cancel` bytes (stops + refunds the remaining pot).
+    /// On success the client signs these, then calls `delete` to clear the row.
+    static func cancelPrepare(id: String) async throws -> RuleCancelResponse {
+        try await APIClient.shared.post("/api/rules/\(id)/cancel", body: EmptyBody())
     }
 
     static func pause(id: String) async throws -> RuleDTO {
@@ -146,27 +189,61 @@ struct RuleDTO: Codable, Identifiable, Hashable {
 
 struct RulesListResponse: Codable {
     let rules: [RuleDTO]
-    /// nil when the feature is gated off server-side (no escrow key set).
-    let escrowAddress: String?
-
-    /// True when automations are actually live (an escrow key is configured).
-    var enabled: Bool { (escrowAddress ?? "").isEmpty == false }
+    /// True when automations are configured + live server-side.
+    let enabled: Bool
 }
 
-struct RuleCreateResponse: Codable {
-    let rule: RuleDTO
-    let escrowAddress: String?
+/// The DB/ledger mirror echoed by `prepareCreate`; the client signs the bytes
+/// then posts this (plus the digest + firstDueMs) to `/api/rules/record`. The
+/// on-chain object is the source of truth for recipient + amount — this is just
+/// what the server stores so the scheduler/UI can describe the rule.
+struct RuleRecord: Codable, Hashable {
+    let name: String
+    let trigger: String
+    let intervalMinutes: Int?
+    let dayOfMonth: Int?
+    let toAddress: String
+    let toHandle: String?
+    let amountUsd: Double
+}
+
+/// PREPARE response: the sponsor-ready `standing_order::create` bytes to sign,
+/// the first due time, and the record to echo back on /record.
+struct RulePrepareResponse: Codable {
+    let mode: String?
+    let bytes: String
+    let firstDueMs: Double
+    let record: RuleRecord
+}
+
+/// CANCEL response: the owner-signed `cancel` bytes (refunds the pot).
+struct RuleCancelResponse: Codable {
+    let mode: String?
+    let bytes: String
 }
 
 // MARK: - Request / response wrappers
 
-private struct CreateBody: Encodable {
+private struct PrepareBody: Encodable {
     let name: String
     let trigger: String
     let action: String
     let intervalMinutes: Int?
     let dayOfMonth: Int?
     let toRecipient: String
+    let amountUsd: Double
+    let prefundUsd: Double
+}
+
+private struct RecordBody: Encodable {
+    let digest: String
+    let firstDueMs: Double
+    let name: String
+    let trigger: String
+    let intervalMinutes: Int?
+    let dayOfMonth: Int?
+    let toAddress: String
+    let toHandle: String?
     let amountUsd: Double
 }
 

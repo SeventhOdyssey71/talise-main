@@ -1,16 +1,15 @@
 import SwiftUI
 
-/// Create a scheduled-send rule: pick who it pays, how much, and how often.
-/// The rule draws from a Talise-controlled "Rules Pocket" escrow; on create we
-/// surface that escrow address so the user can top it up over the normal
-/// gasless send rail (the backend cron pays out from it — no per-run signing).
+/// Create a scheduled-send rule: pick who it pays, how much, how often, and how
+/// much to load into the rule's pot up front. The rule is NON-CUSTODIAL — the
+/// pot lives in an on-chain `standing_order` object you own, with the recipient
+/// + amount baked on chain. A backend worker can only release the pre-set amount
+/// to the pre-set recipient on schedule; cancelling refunds the remaining pot.
 ///
-/// Flow: form (recipient + amount + cadence) → create → success, where the user
-/// can optionally fund the first payout into the Rules Pocket right away.
+/// Flow (mirrors TeamStreamSetupView): form → prepareCreate (Onara-sponsored
+/// `standing_order::create` bytes that fund the pot) → sign with the zkLogin
+/// ephemeral key → recordCreate (activate) → success. No per-run signing.
 struct RuleEditView: View {
-    /// The Rules Pocket escrow address (passed in from the enabled list).
-    let escrowAddress: String
-
     @Environment(\.dismiss) private var dismiss
     @Environment(AppSession.self) private var session
 
@@ -19,6 +18,8 @@ struct RuleEditView: View {
     @State private var amount: String = ""
     @State private var cadence: Cadence = .daily
     @State private var dayOfMonth: Int = 1
+    /// How many payments' worth to load into the pot now (default one).
+    @State private var prefundPayments: Int = 1
 
     // Live recipient resolution (mirrors the Payroll team editor).
     @State private var resolved: RecipientResolution?
@@ -31,9 +32,8 @@ struct RuleEditView: View {
 
     // Post-create state.
     @State private var created: RuleDTO?
-    @State private var funding = false
-    @State private var fundResetSlider = false
-    @State private var funded = false
+    @State private var fundedUsd: Double = 0
+    @State private var fundedPayments: Int = 1
 
     /// Schedule presets. Daily/weekly map to an interval in minutes; monthly
     /// sends a day-of-month instead.
@@ -55,6 +55,8 @@ struct RuleEditView: View {
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     private var trimmedRecipient: String { recipient.trimmingCharacters(in: .whitespaces) }
     private var amountValue: Double { Double(amount.trimmingCharacters(in: .whitespaces)) ?? 0 }
+    /// Total loaded into the pot up front = one payment × number of payments.
+    private var prefundUsd: Double { amountValue * Double(prefundPayments) }
     private var canCreate: Bool {
         !trimmedName.isEmpty
             && resolved != nil
@@ -80,6 +82,7 @@ struct RuleEditView: View {
                 recipientCard
                 amountCard
                 scheduleCard
+                prefundCard
                 previewCard
 
                 if let error {
@@ -97,7 +100,7 @@ struct RuleEditView: View {
                 .disabled(!canCreate)
                 .opacity(canCreate ? 1 : 0.6)
 
-                Text("The rule pays out automatically from your Rules Pocket — gaslessly, no signing each time.")
+                Text("One signature funds the rule's own pot. Payouts release automatically — gaslessly, no signing each time — and the remaining balance is refunded if you cancel.")
                     .font(TaliseFont.mono(11, weight: .regular))
                     .foregroundStyle(TaliseColor.fgMuted)
 
@@ -121,7 +124,7 @@ struct RuleEditView: View {
             Text("Create a rule")
                 .font(TaliseFont.heading(24, weight: .medium)).kerning(-0.5)
                 .foregroundStyle(TaliseColor.fg)
-            Text("Send a fixed amount to someone on a schedule. It runs by itself until you pause it.")
+            Text("Send a fixed amount to someone on a schedule. It runs by itself from its own pot until you pause or cancel it.")
                 .font(TaliseFont.body(13, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -246,6 +249,39 @@ struct RuleEditView: View {
         .rampCard()
     }
 
+    /// How much to load into the rule's pot up front — one or more payments'
+    /// worth. The pot is non-custodial; the remainder is refunded on cancel.
+    private var prefundCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("LOAD THE POT")
+                    .font(TaliseFont.mono(10, weight: .regular)).kerning(0.6)
+                    .foregroundStyle(TaliseColor.fgDim)
+                Spacer()
+                Stepper(value: $prefundPayments, in: 1...60) {
+                    Text("\(prefundPayments) \(prefundPayments == 1 ? "payment" : "payments")")
+                        .font(TaliseFont.heading(15, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            if amountValue >= 0.01 {
+                Text("Funds the rule's pot — \(prefundPayments) \(prefundPayments == 1 ? "payment" : "payments") of \(TaliseFormat.usd2(amountValue)) (\(TaliseFormat.usd2(prefundUsd)) total).")
+                    .font(TaliseFont.body(12.5, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Set an amount to choose how much to load.")
+                    .font(TaliseFont.body(12.5, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .rampCard()
+    }
+
     private var previewCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("PREVIEW")
@@ -309,37 +345,22 @@ struct RuleEditView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 28)
 
-                // Keep the Rules Pocket funded so payouts can run.
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("RULES POCKET")
+                // The pot is funded — restate that it's non-custodial + refundable.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("POT LOADED")
                         .font(TaliseFont.mono(10, weight: .regular)).kerning(0.6)
                         .foregroundStyle(TaliseColor.fgDim)
-                    Text("Your rules pay out from a pocket you top up. Fund \(TaliseFormat.usd2(rule.amountUsd)) now to cover the first payout.")
-                        .font(TaliseFont.body(13, weight: .light))
+                    HStack(spacing: 7) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 13)).foregroundStyle(TaliseColor.greenMint)
+                        Text("\(TaliseFormat.usd2(fundedUsd)) loaded — \(fundedPayments) \(fundedPayments == 1 ? "payment" : "payments")")
+                            .font(TaliseFont.body(13, weight: .medium))
+                            .foregroundStyle(TaliseColor.fg)
+                    }
+                    Text("Payouts are pulled from this rule's own pot. You own it — the remaining balance is refunded if you cancel.")
+                        .font(TaliseFont.body(12.5, weight: .light))
                         .foregroundStyle(TaliseColor.fgMuted)
                         .fixedSize(horizontal: false, vertical: true)
-                    if funded {
-                        HStack(spacing: 7) {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 13)).foregroundStyle(TaliseColor.greenMint)
-                            Text("Pocket topped up")
-                                .font(TaliseFont.body(13, weight: .medium))
-                                .foregroundStyle(TaliseColor.greenMint)
-                        }
-                    } else {
-                        SlideToConfirm(title: funding ? "Funding…" : "Slide to fund pocket",
-                                       tint: TaliseColor.greenMint,
-                                       reset: $fundResetSlider) {
-                            await fundPocket(rule.amountUsd)
-                        }
-                        .disabled(funding || rule.amountUsd < 0.01)
-                        .opacity(rule.amountUsd < 0.01 ? 0.6 : 1)
-                    }
-                    if let error {
-                        Text(error)
-                            .font(TaliseFont.body(12, weight: .light))
-                            .foregroundStyle(TaliseColor.danger)
-                    }
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -389,50 +410,48 @@ struct RuleEditView: View {
         }
     }
 
+    /// Prepare → sign the sponsored `standing_order::create` (funds the pot) →
+    /// record (activate). Mirrors TeamStreamSetupView's start() exactly.
     private func create() async {
         guard canCreate else { resetSlider.toggle(); return }
         creating = true; error = nil
         defer { creating = false }
         do {
-            let res = try await RulesAPI.create(
+            // 1) Prepare: validate + screen the recipient, get the funding bytes.
+            let prep = try await RulesAPI.prepareCreate(
                 name: trimmedName,
                 intervalMinutes: cadence.intervalMinutes,
                 dayOfMonth: cadence == .monthly ? dayOfMonth : nil,
                 toRecipient: trimmedRecipient,
-                amountUsd: amountValue
+                amountUsd: amountValue,
+                prefundUsd: prefundUsd
             )
-            withAnimation { created = res.rule }
+            // 2) Sign the Onara-sponsored bytes that fund the rule's on-chain pot.
+            let digest = try await ZkLoginCoordinator.shared.signAndExecuteRaw(
+                bytesB64: prep.bytes,
+                meta: ["kind": "rule-create"]
+            )
+            // 3) Activate the rule with the funding digest.
+            let rule = try await RulesAPI.recordCreate(
+                digest: digest,
+                firstDueMs: prep.firstDueMs,
+                record: prep.record
+            )
+
+            fundedUsd = prefundUsd
+            fundedPayments = prefundPayments
+            NotificationCenter.default.post(name: .taliseTxCompleted, object: TaliseTxEvent(
+                digest: digest, direction: "sent", amountUsdsui: prefundUsd,
+                counterparty: prep.record.toAddress, counterpartyName: trimmedName, venue: nil))
+            withAnimation { created = rule }
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            error = "Sign in again — your session needs a refresh."
+            resetSlider.toggle()
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = APIError.honestMoneyError(error, fallback: "Couldn't create that rule. Please try again.")
             resetSlider.toggle()
-        }
-    }
-
-    /// Top up the Rules Pocket escrow over the normal gasless send rail so the
-    /// rule's first payout is covered (same rail as a normal send).
-    private func fundPocket(_ amountUsd: Double) async {
-        guard amountUsd >= 0.01 else { fundResetSlider.toggle(); return }
-        funding = true; error = nil
-        defer { funding = false }
-        do {
-            let sub = try await ZkLoginCoordinator.shared.signAndSubmitSend(
-                to: escrowAddress,
-                amountUsd: amountUsd,
-                intent: "Fund Rules Pocket"
-            )
-            NotificationCenter.default.post(name: .taliseTxCompleted, object: TaliseTxEvent(
-                digest: sub.digest, direction: "sent", amountUsdsui: amountUsd,
-                counterparty: escrowAddress, counterpartyName: "Rules Pocket", venue: nil))
-            withAnimation { funded = true }
-        } catch ZkLoginCoordinator.SessionError.rebindRequired {
-            error = "Sign in again — your session needs a refresh."
-            fundResetSlider.toggle()
-            session.signOut()
-        } catch {
-            if APIError.isCancellation(error) { return }
-            self.error = APIError.honestMoneyError(error, fallback: "Couldn't fund the pocket right now.")
-            fundResetSlider.toggle()
         }
     }
 }

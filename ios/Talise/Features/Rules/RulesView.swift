@@ -1,19 +1,21 @@
 import SwiftUI
 
 /// Rules / Automations hub. A rule is money that runs itself — a fixed amount
-/// sent to a recipient on a schedule, paid out gaslessly by a backend cron from
-/// your pre-funded Rules Pocket. List shows active + paused rules; each can be
-/// paused/resumed or deleted.
+/// sent to a recipient on a schedule, paid out gaslessly by a backend worker
+/// from the rule's OWN non-custodial on-chain pot. List shows active + paused
+/// rules; each can be paused/resumed or cancelled (a cancel signs an on-chain
+/// refund of the remaining pot, then clears the row).
 ///
 /// Presented INSIDE the NavigationStack the parent provides (like PayrollView):
 /// it pushes RuleEditView with NavigationLink and reloads on every appearance.
 ///
-/// When the feature is gated off server-side (no escrow key → `escrowAddress`
-/// is nil), we show a clean "Automations are coming soon" state instead of an
-/// error, and hide the create button (POST would 503).
+/// When the feature is gated off server-side (`enabled == false`), we show a
+/// clean "Automations are coming soon" state instead of an error, and hide the
+/// create button (POST would 503).
 struct RulesView: View {
+    @Environment(AppSession.self) private var session
+
     @State private var rules: [RuleDTO] = []
-    @State private var escrowAddress: String?
     @State private var enabled = false
     @State private var loaded = false
     @State private var loading = true
@@ -25,9 +27,9 @@ struct RulesView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
 
-                if enabled, let escrowAddress {
+                if enabled {
                     NavigationLink {
-                        RuleEditView(escrowAddress: escrowAddress)
+                        RuleEditView()
                     } label: {
                         newRuleLabel
                     }
@@ -133,7 +135,7 @@ struct RulesView: View {
             Button(role: .destructive) {
                 Task { await delete(rule) }
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Cancel", systemImage: "trash")
             }
         }
         .contextMenu {
@@ -145,7 +147,7 @@ struct RulesView: View {
             Button(role: .destructive) {
                 Task { await delete(rule) }
             } label: {
-                Label("Delete rule", systemImage: "trash")
+                Label("Cancel & refund pot", systemImage: "trash")
             }
         }
     }
@@ -227,7 +229,6 @@ struct RulesView: View {
         do {
             let res = try await RulesAPI.list()
             rules = res.rules
-            escrowAddress = res.escrowAddress
             enabled = res.enabled
         } catch {
             if APIError.isCancellation(error) { return }
@@ -248,15 +249,30 @@ struct RulesView: View {
         }
     }
 
+    /// Cancel a rule: sign the on-chain `cancel` (refunds the remaining pot to
+    /// you), then clear the row. If the rule has no on-chain order (409), there's
+    /// nothing to refund — just clear the row.
     private func delete(_ rule: RuleDTO) async {
         busyId = rule.id
         defer { busyId = nil }
         do {
+            do {
+                let prep = try await RulesAPI.cancelPrepare(id: rule.id)
+                _ = try await ZkLoginCoordinator.shared.signAndExecuteRaw(
+                    bytesB64: prep.bytes,
+                    meta: ["kind": "rule-cancel"]
+                )
+            } catch APIError.status(409, _) {
+                // No on-chain order to refund — fall through to clear the row.
+            }
             try await RulesAPI.delete(id: rule.id)
             await load()
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            error = "Sign in again — your session needs a refresh."
+            session.signOut()
         } catch {
             if APIError.isCancellation(error) { return }
-            self.error = "Couldn't delete that rule. Please try again."
+            self.error = "Couldn't cancel that rule. Please try again."
         }
     }
 }
