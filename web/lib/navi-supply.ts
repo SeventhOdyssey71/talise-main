@@ -10,6 +10,7 @@ import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { USDSUI_TYPE, isUsdsui } from "./usdsui";
 import { USDSUI_DECIMALS, sui } from "./sui";
 import { memoTtl } from "./perf-cache";
+import { sourceUsdsuiCoin } from "./usdsui-coin";
 
 /**
  * NAVI USDsui supply / withdraw — sponsor-friendly PTB builders.
@@ -140,9 +141,10 @@ export async function appendNaviSupply(
   if (onchain <= 0n) {
     throw new Error("amount too small");
   }
-  const coin = tx.add(
-    coinWithBalance({ type: USDSUI_TYPE, balance: onchain, useGasCoin: false })
-  );
+  // Source from coins OR the Address-Balance accumulator — most users' USDsui is
+  // in the accumulator (gasless rail), where a coins-only `coinWithBalance` would
+  // revert (this silently broke earn supply + spend-and-save). See lib/usdsui-coin.ts.
+  const coin = await sourceUsdsuiCoin(tx, senderAddress, onchain);
 
   // Treasury fee: split `feeBps` off the supply coin and send it to the
   // treasury wallet atomically, then supply the remainder. `splitCoins`
