@@ -1,57 +1,40 @@
 import "server-only";
 
 import { randomBytes } from "node:crypto";
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { Transaction } from "@mysten/sui/transactions";
-import { fromBase64 } from "@mysten/sui/utils";
 import { db, ensureSchema, schemaVersionGate } from "@/lib/db";
-import { sui, getUsdsuiBalance } from "@/lib/sui";
-import { USDSUI_TYPE } from "@/lib/usdsui";
-import { getChainIdentifier, getCurrentEpoch } from "@/lib/sui-epoch";
+import { getUsdsuiBalance } from "@/lib/sui";
+import {
+  automationsEnabled,
+  buildCreateOrderSponsored,
+  buildCancelOrderSponsored,
+  parseCreatedOrderId,
+  workerExecuteDue,
+} from "@/lib/automations";
 
 /**
- * Programmable money / rules — money that runs itself.
+ * Programmable money / rules — money that runs itself, NON-CUSTODIALLY.
  *
  * A rule pairs a TRIGGER (schedule | on-inflow | threshold) with an ACTION. For
- * launch the only escrow-signed action is `send` (pay a fixed amount to an
- * address on a schedule — "pay rent on the 1st"). `sweep-earn` is OUT for v1
- * (it needs a custom Move call and must therefore be user-signed/sponsored, not
- * gasless server-signed) — it is accepted as a stored value but rejected at
- * create time. `on-inflow` is a stored trigger type whose evaluation is stubbed
- * pending the Phase-3 activity poller.
+ * launch the only action is a scheduled `send` ("pay rent on the 1st", "send mum
+ * $50 weekly").
  *
- * Reuses the proven server-custodied escrow model (mirrors lib/team-streams.ts):
- *   • The user pre-funds a Talise-controlled "Rules Pocket" escrow over the
- *     normal gasless send rail (a `0x2::balance::send_funds<USDSUI>` that credits
- *     the escrow's Address Balance accumulator).
- *   • A Vercel cron (`/api/cron/process-money-rules`) evaluates every due rule
- *     and, when it fires, pays out by signing escrow→recipient `send_funds`
- *     transfers with the server escrow key (`MONEY_RULES_ESCROW_SK`). Gasless:
- *     zero gas price/budget, no gas payment, epoch-bounded expiration — identical
- *     to the team-stream / cheque escrow release recipe.
+ * Each rule is backed by an on-chain `talise_automations::standing_order` object
+ * (the audited, non-custodial primitive):
+ *   • CREATE — the user signs an Onara-sponsored `standing_order::create` that
+ *     funds the rule's pot (they own the object; only THEY can cancel/withdraw).
+ *   • EXECUTE — a Vercel cron evaluates due rules; the registered worker key
+ *     triggers `execute_due`, which releases the pre-set `amount_per` to the
+ *     pre-set `recipient` on schedule. The worker can never send elsewhere or
+ *     more than the schedule allows.
+ *   • CANCEL — the user signs `cancel`, which refunds the entire remaining pot.
  *
- * The escrow holds money commingled across rules; the DB is the ledger that
- * bounds each rule's behavior. Gated by MONEY_RULES_ESCROW_SK (unset → feature
- * off, nothing in prod changes).
+ * The DB row is the scheduler's index + metadata (it holds the order id + the
+ * next-due mirror); the money lives on chain. Gated by automationsEnabled()
+ * (AUTOMATIONS_PACKAGE_ID + REGISTRY_ID + WORKER_SK) — unset → feature off.
  */
 
-// ── Escrow key (server-custodied) ───────────────────────────────────────────
-let _escrow: Ed25519Keypair | null = null;
-
 export function moneyRulesEnabled(): boolean {
-  return !!process.env.MONEY_RULES_ESCROW_SK;
-}
-
-function escrowKeypair(): Ed25519Keypair {
-  if (_escrow) return _escrow;
-  const k = process.env.MONEY_RULES_ESCROW_SK;
-  if (!k) throw new Error("MONEY_RULES_ESCROW_SK missing — the money-rules escrow key");
-  _escrow = Ed25519Keypair.fromSecretKey(k);
-  return _escrow;
-}
-
-export function moneyRulesEscrowAddress(): string {
-  return escrowKeypair().getPublicKey().toSuiAddress();
+  return automationsEnabled();
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -67,7 +50,7 @@ export type RuleState = "active" | "paused" | "deleted";
 
 // ── Schema ─────────────────────────────────────────────────────────────────
 let _schemaReady: Promise<void> | null = null;
-const SCHEMA_VERSION = "2026-06-28.1";
+const SCHEMA_VERSION = "2026-06-28.2";
 
 export function ensureMoneyRulesSchema(): Promise<void> {
   if (_schemaReady) return _schemaReady;
@@ -93,6 +76,7 @@ export function ensureMoneyRulesSchema(): Promise<void> {
         condition_value_micros    BIGINT,
         action_type               TEXT NOT NULL,
         action_config             TEXT NOT NULL DEFAULT '{}',
+        order_object_id           TEXT,
         state                     TEXT NOT NULL DEFAULT 'active',
         next_due_at               BIGINT,
         execution_count           INTEGER NOT NULL DEFAULT 0,
@@ -104,6 +88,8 @@ export function ensureMoneyRulesSchema(): Promise<void> {
         deleted_at                BIGINT
       )
     `);
+    // Backfill the on-chain order id column for any table created pre-2026-06-28.2.
+    await c.execute(`ALTER TABLE money_rules ADD COLUMN IF NOT EXISTS order_object_id TEXT`);
     await c.execute(`CREATE INDEX IF NOT EXISTS idx_money_rules_user ON money_rules(user_id, created_at DESC)`);
     // Cron read: active rules ordered by their next due time.
     await c.execute(`CREATE INDEX IF NOT EXISTS idx_money_rules_due ON money_rules(state, next_due_at)`);
@@ -155,6 +141,7 @@ interface Row {
   condition_value_micros: number | string | null;
   action_type: string;
   action_config: string;
+  order_object_id: string | null;
   state: string;
   next_due_at: number | string | null;
   execution_count: number;
@@ -181,6 +168,7 @@ export interface MoneyRule {
   conditionValueUsd: number | null;
   actionType: ActionType;
   actionConfig: Record<string, unknown>;
+  orderObjectId: string | null;
   state: string;
   nextDueAt: number | null;
   executionCount: number;
@@ -215,6 +203,7 @@ function project(row: Row): MoneyRule {
     conditionValueUsd: usd(row.condition_value_micros),
     actionType: row.action_type as ActionType,
     actionConfig,
+    orderObjectId: row.order_object_id,
     state: row.state,
     nextDueAt: num(row.next_due_at),
     executionCount: Number(row.execution_count),
@@ -292,90 +281,142 @@ export interface CreateRuleInput {
   send?: { toAddress: string; toHandle?: string | null; amountMicros: bigint };
 }
 
-/**
- * Insert an ACTIVE rule. The route resolves + screens the recipient before
- * calling this. For launch only `send` is executable; `sweep-earn` is rejected.
- */
-export async function createRule(input: CreateRuleInput): Promise<MoneyRule> {
-  await ensureMoneyRulesSchema();
+interface NormalizedRule {
+  name: string;
+  intervalMinutes: number | null;
+  dayOfMonth: number | null;
+  inflowMinMicros: bigint | null;
+  balanceThresholdMicros: bigint | null;
+  to: string;
+  toHandle: string | null;
+  amountMicros: bigint;
+  /** Fixed cadence the on-chain order advances by each release. */
+  intervalMs: number;
+}
 
+/** Shared validation for both prepare + record so the recorded rule always
+ *  matches what was signed (never trusts un-revalidated client input). */
+function validateRule(input: CreateRuleInput): NormalizedRule {
   const name = (input.name ?? "").trim();
   if (!name) throw new Error("Give this rule a name.");
   if (name.length > 80) throw new Error("That name is too long.");
-
   if (input.triggerType !== "schedule" && input.triggerType !== "on-inflow" && input.triggerType !== "threshold") {
     throw new Error("Unknown trigger type.");
   }
-  if (input.actionType !== "send" && input.actionType !== "sweep-earn") {
-    throw new Error("Unknown action type.");
-  }
-  if (input.actionType === "sweep-earn") {
-    // OUT for v1 — needs a custom Move call (user-signed/sponsored), not gasless server-signed.
-    throw new Error("Sweep-to-earn rules aren't available yet.");
+  if (input.actionType !== "send") {
+    // v1: only scheduled send is wired to the on-chain standing order.
+    throw new Error("Only scheduled payments are available right now.");
   }
 
-  // Validate the schedule (interval OR day-of-month).
   let intervalMinutes: number | null = null;
   let dayOfMonth: number | null = null;
+  let intervalMs = THRESHOLD_RECHECK_MS;
   if (input.triggerType === "schedule") {
     const iv = input.intervalMinutes == null ? null : Number(input.intervalMinutes);
     const dom = input.dayOfMonth == null ? null : Number(input.dayOfMonth);
     if (iv != null && Number.isFinite(iv) && iv >= MIN_INTERVAL_MINUTES) {
       intervalMinutes = Math.floor(iv);
+      intervalMs = intervalMinutes * 60_000;
     } else if (dom != null && Number.isInteger(dom) && dom >= 1 && dom <= 31) {
       dayOfMonth = dom;
+      intervalMs = 30 * 24 * 3_600_000; // monthly ≈ 30d fixed cadence (first due lands on the chosen day)
     } else {
       throw new Error("Choose how often this runs (an interval or a day of the month).");
     }
   }
 
-  // Validate the threshold trigger.
   let balanceThresholdMicros: bigint | null = null;
   if (input.triggerType === "threshold") {
     balanceThresholdMicros = input.balanceThresholdMicros ?? null;
     if (balanceThresholdMicros == null || balanceThresholdMicros <= 0n) {
       throw new Error("Set the balance threshold for this rule.");
     }
+    intervalMs = THRESHOLD_RECHECK_MS;
   }
-
-  // on-inflow optional minimum.
   const inflowMinMicros = input.triggerType === "on-inflow" ? (input.inflowMinMicros ?? 0n) : null;
 
-  // Validate + serialize the send action.
   if (!input.send) throw new Error("This rule has no payout configured.");
   const to = (input.send.toAddress ?? "").trim().toLowerCase();
   if (!ADDRESS_RE.test(to)) throw new Error("The payout address looks invalid.");
+  if (to === input.ownerAddress.trim().toLowerCase()) throw new Error("A rule can't pay your own wallet.");
   const amountMicros = input.send.amountMicros;
   if (amountMicros < MIN_SEND_MICROS) throw new Error("The payout amount must be at least 0.01 USDsui.");
   if (amountMicros > MAX_SEND_MICROS) throw new Error("That payout amount is too large.");
-  const actionConfig: SendActionConfig = {
-    toAddress: to,
-    toHandle: input.send.toHandle ?? null,
-    amountMicros: amountMicros.toString(),
-  };
+
+  return { name, intervalMinutes, dayOfMonth, inflowMinMicros, balanceThresholdMicros, to, toHandle: input.send.toHandle ?? null, amountMicros, intervalMs };
+}
+
+/**
+ * STEP 1 — validate the rule + return the Onara-sponsored `standing_order::create`
+ * bytes the user signs to fund the rule's pot. `prefundMicros` (>= amount) is how
+ * much to load now; the client can fund several periods up front. Moves no money
+ * until the user signs.
+ */
+export async function prepareCreateRule(
+  input: CreateRuleInput,
+  prefundMicros: bigint
+): Promise<{ bytes: string; sponsor: string; firstDueMs: number; intervalMs: number }> {
+  await ensureMoneyRulesSchema();
+  if (!automationsEnabled()) throw new Error("Automations aren't enabled yet.");
+  const v = validateRule(input);
+  if (prefundMicros < v.amountMicros) throw new Error("Fund at least one payment to start the rule.");
+  const firstDueMs = computeNextDue({ triggerType: input.triggerType, intervalMinutes: v.intervalMinutes, dayOfMonth: v.dayOfMonth }, Date.now()) ?? Date.now() + v.intervalMs;
+  const { bytes, sponsor } = await buildCreateOrderSponsored({
+    sender: input.ownerAddress,
+    recipient: v.to,
+    amountPerMicros: v.amountMicros,
+    intervalMs: v.intervalMs,
+    firstDueMs,
+    prefundMicros,
+  });
+  return { bytes, sponsor, firstDueMs, intervalMs: v.intervalMs };
+}
+
+/**
+ * STEP 2 — after the user signs the create, parse the new StandingOrder object id
+ * from the funding `digest` and insert the ACTIVE rule. The DB row mirrors the
+ * on-chain schedule (the cron reads `next_due_at` and triggers `execute_due`).
+ */
+export async function recordCreatedRule(
+  input: CreateRuleInput,
+  digest: string,
+  firstDueMs: number
+): Promise<MoneyRule> {
+  await ensureMoneyRulesSchema();
+  const v = validateRule(input);
+  const orderId = await parseCreatedOrderId(digest);
+  if (!orderId) throw new Error("Couldn't confirm the on-chain rule yet — wait a moment and retry.");
 
   const now = Date.now();
   const id = newRuleId();
-  const nextDueAt = computeNextDue({ triggerType: input.triggerType, intervalMinutes, dayOfMonth }, now);
+  const actionConfig: SendActionConfig = { toAddress: v.to, toHandle: v.toHandle, amountMicros: v.amountMicros.toString() };
 
   await db().execute({
     sql: `INSERT INTO money_rules
             (id, user_id, owner_address, name, trigger_type,
              schedule_interval_minutes, schedule_day_of_month,
              inflow_min_usd, balance_threshold_usd,
-             action_type, action_config, state, next_due_at,
+             action_type, action_config, order_object_id, state, next_due_at,
              execution_count, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, 0, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, 0, ?, ?)`,
     args: [
-      id, input.userId, input.ownerAddress, name, input.triggerType,
-      intervalMinutes == null ? null : intervalMinutes,
-      dayOfMonth == null ? null : dayOfMonth,
-      inflowMinMicros == null ? null : inflowMinMicros.toString(),
-      balanceThresholdMicros == null ? null : balanceThresholdMicros.toString(),
-      input.actionType, JSON.stringify(actionConfig), nextDueAt, now, now,
+      id, input.userId, input.ownerAddress, v.name, input.triggerType,
+      v.intervalMinutes == null ? null : v.intervalMinutes,
+      v.dayOfMonth == null ? null : v.dayOfMonth,
+      v.inflowMinMicros == null ? null : v.inflowMinMicros.toString(),
+      v.balanceThresholdMicros == null ? null : v.balanceThresholdMicros.toString(),
+      input.actionType, JSON.stringify(actionConfig), orderId, firstDueMs, now, now,
     ],
   });
   return getRule(id, input.userId) as Promise<MoneyRule>;
+}
+
+/** Build the owner-signed `cancel` PTB (stops + refunds the pot). The route
+ *  returns these bytes; on success the client calls deleteRule to clear the row. */
+export async function prepareCancelRule(id: string, userId: number): Promise<{ bytes: string; sponsor: string } | null> {
+  const rule = await getRule(id, userId);
+  if (!rule || !rule.orderObjectId) return null;
+  return buildCancelOrderSponsored({ sender: rule.ownerAddress, orderId: rule.orderObjectId });
 }
 
 export async function getRule(id: string, userId: number): Promise<MoneyRule | null> {
@@ -510,14 +551,16 @@ async function evaluateOneRule(rule: MoneyRule): Promise<boolean> {
   const cfg = rule.actionConfig as Partial<SendActionConfig>;
   const to = (cfg.toAddress ?? "").trim().toLowerCase();
   const amountMicros = cfg.amountMicros ? BigInt(cfg.amountMicros) : 0n;
-  if (!ADDRESS_RE.test(to) || amountMicros < MIN_SEND_MICROS) {
-    await recordExecution(rule, oldDue, "skipped", to || null, amountMicros, "invalid payout config");
+  if (!rule.orderObjectId) {
+    await recordExecution(rule, oldDue, "skipped", to || null, amountMicros, "no on-chain order");
     return false;
   }
 
   try {
-    const digests = await escrowSendFunds(rule.id, `rule:${rule.executionCount}`, [{ address: to, micros: amountMicros }]);
-    await recordExecution(rule, oldDue, "ok", to, amountMicros, null, digests);
+    // The worker triggers the on-chain release: `execute_due` pays the order's
+    // pre-set amount to its pre-set recipient (the worker can't change either).
+    const digest = await workerExecuteDue(rule.orderObjectId);
+    await recordExecution(rule, oldDue, "ok", to, amountMicros, null, [digest]);
     await db().execute({
       sql: `UPDATE money_rules
                SET execution_count = execution_count + 1, last_status = 'ok', last_error = NULL, updated_at = ?
@@ -602,64 +645,4 @@ export async function listRuleExecutions(ruleId: string, userId: number, limit =
       createdAt: Number(row.created_at),
     };
   });
-}
-
-// ── Gasless escrow payout ─────────────────────────────────────────────────────
-
-/**
- * Sign + submit one gasless escrow `send_funds` per leg with the server escrow key.
- * Mirrors lib/team-streams.ts::escrowSendFunds exactly (zero gas, epoch-bounded
- * expiration, empty gas payment). One tx per leg — the gasless rail permits a
- * single send_funds.
- */
-async function escrowSendFunds(
-  ruleId: string,
-  ref: string,
-  legs: Array<{ address: string; micros: bigint }>,
-): Promise<string[]> {
-  const kp = escrowKeypair();
-  const sender = kp.getPublicKey().toSuiAddress();
-  const client = sui();
-  const [chainId, currentEpoch] = await Promise.all([getChainIdentifier(), getCurrentEpoch()]);
-  const epoch = BigInt(currentEpoch);
-  const digests: string[] = [];
-
-  for (const leg of legs) {
-    if (leg.micros < MIN_SEND_MICROS) continue;
-    const tx = new Transaction();
-    tx.setSender(sender);
-    tx.moveCall({
-      target: "0x2::balance::send_funds",
-      typeArguments: [USDSUI_TYPE],
-      arguments: [tx.balance({ type: USDSUI_TYPE, balance: leg.micros }), tx.pure.address(leg.address)],
-    });
-    tx.setGasPrice(0n);
-    tx.setGasBudget(0n);
-    tx.setExpiration({
-      ValidDuring: {
-        minEpoch: String(epoch),
-        maxEpoch: String(epoch + 1n),
-        minTimestamp: null,
-        maxTimestamp: null,
-        chain: chainId,
-        nonce: randomBytes(4).readUInt32BE(0),
-      },
-    });
-    tx.setGasPayment([]);
-    const bytes = await tx.build({ client: client as never });
-    const { signature } = await kp.signTransaction(bytes);
-    const result = (await client.executeTransaction({
-      transaction: fromBase64(Buffer.from(bytes).toString("base64")),
-      signatures: [signature],
-    })) as Record<string, unknown>;
-    const inner =
-      (result.Transaction as { digest?: string } | undefined) ??
-      (result.FailedTransaction as { digest?: string } | undefined);
-    const digest = (result.digest as string | undefined) ?? inner?.digest;
-    if (!digest || (result.$kind as string | undefined) === "FailedTransaction") {
-      throw new Error(`money-rule payout failed (${ref}) → ${leg.address}`);
-    }
-    digests.push(digest);
-  }
-  return digests;
 }
