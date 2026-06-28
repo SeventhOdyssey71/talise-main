@@ -60,9 +60,14 @@ enum AgentExecutor {
 
             switch planned.kind {
             case "send":
-                let to = planned.resolved?.address ?? step?.recipient ?? ""
-                let amount = planned.amountUsd ?? step?.amount ?? 0
-                guard !to.isEmpty, amount > 0 else { continue }
+                // Defense-in-depth: a send executes ONLY against the
+                // server-resolved, screened recipient + the server-validated
+                // amount from the plan — never the model's raw proposal
+                // (step.recipient / step.amount). If the server didn't resolve
+                // both for an "ok" step, skip it rather than sign LLM-supplied
+                // money movement.
+                guard let to = planned.resolved?.address, !to.isEmpty,
+                      let amount = planned.amountUsd, amount > 0 else { continue }
                 let name = planned.resolved?.displayName
                 let sub = try await ZkLoginCoordinator.shared.signAndSubmitSend(
                     to: to,

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { settleRequestByDigest } from "@/lib/requests";
-import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { suiscanTxUrl } from "@/lib/sui";
 
 export const runtime = "nodejs";
@@ -17,9 +16,9 @@ export const runtime = "nodejs";
  * replay-guards the digest so one payment can't close two requests.
  *
  * Mirrors /api/invoices/[id]/settle. Idempotent: re-paying an already-paid
- * request returns ok with the recorded digest. An authed caller (the in-app
- * payer who knows they settled) gets the relaxed lower amount bound via
- * `trustPayer`, while the digest is still fully verified on-chain.
+ * request returns ok with the recorded digest. The settled amount is always
+ * bound to the request (±0.5%) and the digest is fully verified on-chain,
+ * whether the caller is authed (in-app) or an anonymous public payer.
  */
 
 const DIGEST_RE = /^[1-9A-HJ-NP-Za-km-z]{40,60}$/;
@@ -61,13 +60,7 @@ export async function POST(
     );
   }
 
-  // An authed in-app payer that just signed the send gets the relaxed lower
-  // amount bound (the digest is still verified on-chain either way).
-  const viewerId = await readEntryIdFromRequest(req);
-  const trustPayer = viewerId != null;
-
   const result = await settleRequestByDigest(id, digest, {
-    trustPayer,
     payerAddressHint,
   });
   if (!result.ok) {

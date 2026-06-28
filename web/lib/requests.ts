@@ -397,15 +397,14 @@ export type SettleRequestResult =
  *   6. Amount-bind: reject underpayment AND >0.5% overpayment.
  *   7. Authoritative close (the partial-unique pay_digest index wins any race).
  *
- * `trustPayer` relaxes ONLY the lower amount bound (an in-app pay that knows it
- * settled may record a payment that credited the requester ≥1 micro-unit even
- * off a rounded figure); the digest is ALWAYS verified to exist, succeed, and
- * credit the requester.
+ * The amount is ALWAYS bound to the request (within ±0.5% of the requested
+ * figure) regardless of who reports the digest, and the digest is ALWAYS
+ * verified to exist, succeed, and credit the requester.
  */
 export async function settleRequestByDigest(
   id: string,
   digest: string,
-  opts: { trustPayer?: boolean; payerAddressHint?: string | null } = {}
+  opts: { payerAddressHint?: string | null } = {}
 ): Promise<SettleRequestResult> {
   await ensureRequestsSchema();
 
@@ -474,10 +473,13 @@ export async function settleRequestByDigest(
     payerAddress = opts.payerAddressHint;
   }
 
-  // Bind the payment to THIS request by amount (expected ≤ paid ≤ expected +
-  // 0.5%). `trustPayer` only relaxes the lower bound.
-  const maxMicro = expectedMicro + (expectedMicro * 50n) / 10_000n;
-  const lowerBound = opts.trustPayer ? 1n : expectedMicro;
+  // Bind the payment to THIS request by amount: within ±0.5% of the requested
+  // figure, regardless of who reports the digest. (A symmetric tolerance absorbs
+  // fee/rounding dust on either side; it must NEVER collapse to a single micro —
+  // doing so would let any caller settle a request with a dust payment.)
+  const tol = (expectedMicro * 50n) / 10_000n;
+  const maxMicro = expectedMicro + tol;
+  const lowerBound = expectedMicro > tol ? expectedMicro - tol : 1n;
   if (receivedMicro < lowerBound || receivedMicro > maxMicro) {
     return {
       ok: false,

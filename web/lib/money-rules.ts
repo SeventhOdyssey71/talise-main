@@ -571,13 +571,32 @@ async function evaluateOneRule(rule: MoneyRule): Promise<boolean> {
   } catch (err) {
     const msg = (err as Error).message ?? "payout failed";
     await recordExecution(rule, oldDue, "error", to, amountMicros, msg);
-    await db().execute({
-      sql: `UPDATE money_rules SET last_status = 'error', last_error = ?, updated_at = ? WHERE id = ?`,
-      args: [msg.slice(0, 500), Date.now(), rule.id],
-    });
+    // The CLAIM above already advanced next_due_at to the NEXT interval. A naive
+    // error path would therefore SKIP this whole payment window (the rule isn't
+    // due again until the next interval). Two recoveries instead:
+    //  • Depleted pot (EInsufficientPot) — pause the rule so it stops retrying.
+    //    The owner tops up + resumes; we don't burn cron cycles on an empty pot.
+    //  • Anything else (RPC blip, not-yet-due clock skew) — retry SOON by pulling
+    //    next_due_at back to now+RETRY rather than losing the window.
+    const now2 = Date.now();
+    const depleted = /insufficient|EInsufficientPot|\b407\b/i.test(msg);
+    if (depleted) {
+      await db().execute({
+        sql: `UPDATE money_rules SET state = 'paused', last_status = 'error', last_error = ?, updated_at = ? WHERE id = ?`,
+        args: [`pot depleted — top up and resume: ${msg}`.slice(0, 500), now2, rule.id],
+      });
+    } else {
+      await db().execute({
+        sql: `UPDATE money_rules SET next_due_at = ?, last_status = 'error', last_error = ?, updated_at = ? WHERE id = ?`,
+        args: [now2 + RULE_RETRY_MS, msg.slice(0, 500), now2, rule.id],
+      });
+    }
     return false;
   }
 }
+
+/** How soon a transiently-failed rule retries (vs. skipping its whole interval). */
+const RULE_RETRY_MS = 5 * 60_000;
 
 /** Append-only ledger write; idempotent on (rule_id, triggered_at). */
 async function recordExecution(

@@ -143,13 +143,23 @@ export async function POST(req: Request) {
         // on chain, hand the client back to the DB-tracking rail (GOAL_NOT_ON_CHAIN).
         const requested = BigInt(Math.round(amountUsd * 1e6));
         const principal = await readGoalVaultPrincipalMicros(goal.vaultObjectId);
-        if (principal !== null && principal <= 0n) {
+        if (principal === null) {
+          // Couldn't read the on-chain principal (RPC/GraphQL lag or an
+          // unexpected Balance shape). Proceeding unclamped risks the very
+          // MoveAbort 301 the clamp prevents, so ask the client to retry rather
+          // than build a tx that may revert on-chain.
+          return NextResponse.json(
+            { error: "couldn't read the goal's on-chain balance — try again in a moment", code: "PRINCIPAL_READ_FAILED" },
+            { status: 503 }
+          );
+        }
+        if (principal <= 0n) {
           return NextResponse.json(
             { error: "goal has no on-chain balance to withdraw", code: "GOAL_NOT_ON_CHAIN" },
             { status: 409 }
           );
         }
-        const clamped = principal !== null && requested > principal ? principal : requested;
+        const clamped = requested > principal ? principal : requested;
         appendWithdrawFromVault(tx, {
           vaultId: goal.vaultObjectId,
           amountUsdsui: amountUsd,
