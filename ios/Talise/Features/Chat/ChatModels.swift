@@ -22,11 +22,24 @@ struct ChatMessage: Identifiable, Codable, Hashable {
     /// "Empty reply" emptiness checks while characters are still flowing.
     var streaming: Bool
 
-    init(id: UUID = UUID(), role: Role, content: String, streaming: Bool = false) {
+    /// Parsed Talise Agent intent (the `---INTENT---{json}---END---` block the
+    /// assistant emitted). Set on stream completion when a well-formed block is
+    /// present; the UI renders an `AgentIntentCard` beneath the bubble. Nil for
+    /// plain conversational turns. Decoded as nil for older persisted history.
+    var intent: AgentIntent?
+
+    init(
+        id: UUID = UUID(),
+        role: Role,
+        content: String,
+        streaming: Bool = false,
+        intent: AgentIntent? = nil
+    ) {
         self.id = id
         self.role = role
         self.content = content
         self.streaming = streaming
+        self.intent = intent
     }
 }
 

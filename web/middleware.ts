@@ -185,7 +185,7 @@ export function middleware(req: NextRequest) {
   // app.talise.io → the web wallet is retired; everyone goes to the iOS beta.
   // Backend stays fully alive so nothing breaks: the iOS app's API (`/api`),
   // OAuth (`/auth`), the shield prover assets (`/shield`), public money links
-  // (`/c` `/i` `/u` `/pay`), ops (`/admin`), and framework assets
+  // (`/c` `/i` `/u` `/pay` `/req`), ops (`/admin`), and framework assets
   // (`/_next` `/_vercel`) all keep serving. Every other path (the wallet UI,
   // `/app`, `/business`, the bare root) redirects to TestFlight.
   if (host === APP_HOST) {
@@ -205,7 +205,7 @@ export function middleware(req: NextRequest) {
       url.pathname = "/app/shield-prove";
       return withSecurityHeaders(NextResponse.rewrite(url));
     }
-    const keepAlive = /^\/(api|auth|shield|c|i|u|pay|admin|_next|_vercel)(\/|$)/;
+    const keepAlive = /^\/(api|auth|shield|c|i|u|pay|req|admin|_next|_vercel)(\/|$)/;
     if (!keepAlive.test(pathname)) {
       return NextResponse.redirect(
         "https://testflight.apple.com/join/BFNEPYtM",
