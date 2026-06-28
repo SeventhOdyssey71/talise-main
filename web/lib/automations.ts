@@ -1,8 +1,7 @@
 import "server-only";
 
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
-import { toBase64, fromBase64 } from "@mysten/sui/utils";
+import { toBase64 } from "@mysten/sui/utils";
 import { sui } from "@/lib/sui";
 import { onara } from "@/lib/onara";
 import { USDSUI_TYPE } from "@/lib/usdsui";
@@ -11,13 +10,17 @@ import { getNormalizedTransaction } from "@/lib/sui-shapes";
 /**
  * On-chain automations — PTB builders for the `talise_automations::standing_order`
  * package (the audited, NON-CUSTODIAL "rule"). A rule's pot lives in a user-owned
- * `StandingOrder<USDSUI>` shared object; the registered worker can ONLY release the
- * pre-set `amount_per` to the pre-set `recipient` on schedule. The owner funds it
- * (sponsored, user-signed), tops up/cancels (user-signed), and the cron worker
- * triggers due releases (worker-signed, Onara-sponsored).
+ * `StandingOrder<USDSUI>` shared object. The owner funds it (sponsored, user-signed),
+ * tops up / cancels (user-signed), and triggers due releases via `execute_due`.
  *
- * Gated by AUTOMATIONS_PACKAGE_ID + AUTOMATIONS_REGISTRY_ID + AUTOMATIONS_WORKER_SK
- * (all three required). Unset → automations are off; the routes 503 and the cron no-ops.
+ * `execute_due` is PERMISSIONLESS on-chain: the contract itself guarantees it can
+ * only release the pre-set `amount_per` to the pre-set `recipient` once the Clock
+ * passes `next_due_ms`. There is NO scheduler key and NO cron — the smart contract
+ * is the guarantee, and the trigger is just an Onara-sponsored tx the owner's app
+ * signs when it's open (anyone could trigger it; they gain nothing).
+ *
+ * Gated by AUTOMATIONS_PACKAGE_ID + AUTOMATIONS_REGISTRY_ID (both required).
+ * Unset → automations are off and the routes 503.
  */
 
 const SUI_CLOCK_ID = "0x6";
@@ -30,19 +33,7 @@ export function automationsRegistryId(): string | null {
   return process.env.AUTOMATIONS_REGISTRY_ID?.trim() || null;
 }
 export function automationsEnabled(): boolean {
-  return !!(automationsPackageId() && automationsRegistryId() && process.env.AUTOMATIONS_WORKER_SK);
-}
-
-let _worker: Ed25519Keypair | null = null;
-function workerKeypair(): Ed25519Keypair {
-  if (_worker) return _worker;
-  const k = process.env.AUTOMATIONS_WORKER_SK;
-  if (!k) throw new Error("AUTOMATIONS_WORKER_SK missing — the automations scheduler worker key");
-  _worker = Ed25519Keypair.fromSecretKey(k);
-  return _worker;
-}
-export function automationsWorkerAddress(): string {
-  return workerKeypair().getPublicKey().toSuiAddress();
+  return !!(automationsPackageId() && automationsRegistryId());
 }
 
 function requirePkgReg(): { pkg: string; reg: string } {
@@ -156,36 +147,26 @@ export async function buildCancelOrderSponsored(input: {
 }
 
 /**
- * Worker-signed, Onara-SPONSORED `standing_order::execute_due` — the cron's
- * release. The worker key signs the sender slot (it's the registered worker the
- * contract checks); Onara owns the gas. Returns the digest, or throws on a failed
- * tx (e.g. ENotDue / EInsufficientPot) so the cron can record the reason.
+ * Onara-SPONSORED, PERMISSIONLESS `standing_order::execute_due` — the trigger for
+ * a due release. The owner's app signs the sender slot when it's open (anyone
+ * could, since the contract gates the release on the Clock + schedule, not on the
+ * caller). Returns sponsor-ready bytes the client signs → /api/zk/sponsor-execute.
+ * The on-chain call aborts ENotDue if it isn't due yet (harmless — the client just
+ * skips it) and EInsufficientPot if the pot is empty.
  */
-export async function workerExecuteDue(orderId: string): Promise<string> {
+export async function buildExecuteDueSponsored(input: {
+  sender: string;
+  orderId: string;
+}): Promise<{ bytes: string; sponsor: string }> {
   const { pkg, reg } = requirePkgReg();
-  const client = sui();
-
   const tx = new Transaction();
+  tx.setSender(input.sender);
   tx.moveCall({
     target: `${pkg}::standing_order::execute_due`,
     typeArguments: [USDSUI_TYPE],
-    arguments: [tx.object(reg), tx.object(orderId), tx.object(SUI_CLOCK_ID)],
+    arguments: [tx.object(reg), tx.object(input.orderId), tx.object(SUI_CLOCK_ID)],
   });
-  // Onara sets the gas owner + co-signs gas; the worker key signs the sender slot
-  // (the contract checks ctx.sender() ∈ registry.workers). One round-trip.
-  const res = (await onara().sponsorTransaction({
-    transaction: tx,
-    signer: workerKeypair(),
-    client: client as never,
-  })) as Record<string, unknown>;
-  const txInner = res.Transaction as { digest?: string } | undefined;
-  const fxInner = res.effects as { transactionDigest?: string } | undefined;
-  const digest =
-    (res.digest as string | undefined) ??
-    txInner?.digest ??
-    fxInner?.transactionDigest;
-  if (!digest) throw new Error(`execute_due produced no digest for ${orderId}`);
-  return digest;
+  return sponsorTail(tx);
 }
 
 /** Parse the created StandingOrder object id from a confirmed create tx digest. */
@@ -207,6 +188,3 @@ export async function parseCreatedOrderId(digest: string): Promise<string | null
   }
   return null;
 }
-
-// Re-export for callers that build raw worker txs elsewhere.
-export { fromBase64 };

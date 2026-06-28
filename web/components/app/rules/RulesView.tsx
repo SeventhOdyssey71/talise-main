@@ -25,7 +25,7 @@
  * `api` client.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -164,6 +164,40 @@ export function RulesView() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Fire due rules on open — there is NO cron. `execute_due` is permissionless
+  // on-chain, so the owner's open app triggers any due scheduled payment:
+  // prepare → sign → record. The contract is the gate (it aborts ENotDue if a
+  // rule isn't actually due), so every step here is best-effort and safe to skip.
+  const firedRef = useRef(false);
+  const fireDueRules = useCallback(async (current: MoneyRule[]) => {
+    const now = Date.now();
+    const due = current.filter(
+      (r) => r.state === "active" && r.triggerType === "schedule" && r.nextDueAt != null && r.nextDueAt <= now,
+    );
+    if (due.length === 0) return;
+    let fired = 0;
+    for (const rule of due) {
+      try {
+        const prep = await api<{ mode: string; bytes: string }>(`/api/rules/${rule.id}/execute`, { method: "POST" });
+        const { digest } = await signSponsorReadyBytes(prep.bytes, { kind: "rule-execute" });
+        await api(`/api/rules/${rule.id}/executed`, { method: "POST", body: { digest } });
+        fired++;
+      } catch {
+        // ENotDue / NO_ORDER / transient — the contract is the gate; just skip.
+      }
+    }
+    if (fired > 0) {
+      toast(`Ran ${fired} scheduled payment${fired > 1 ? "s" : ""}`, "neutral");
+      await load();
+    }
+  }, [toast, load]);
+
+  useEffect(() => {
+    if (loading || firedRef.current || !enabled) return;
+    firedRef.current = true;
+    void fireDueRules(rules);
+  }, [loading, enabled, rules, fireDueRules]);
 
   const toggle = async (rule: MoneyRule) => {
     const action = rule.state === "active" ? "pause" : "resume";

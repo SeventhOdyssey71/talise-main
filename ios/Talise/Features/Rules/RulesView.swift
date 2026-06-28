@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// Rules / Automations hub. A rule is money that runs itself — a fixed amount
-/// sent to a recipient on a schedule, paid out gaslessly by a backend worker
-/// from the rule's OWN non-custodial on-chain pot. List shows active + paused
-/// rules; each can be paused/resumed or cancelled (a cancel signs an on-chain
-/// refund of the remaining pot, then clears the row).
+/// sent to a recipient on a schedule from the rule's OWN non-custodial on-chain
+/// pot. There is NO cron and NO scheduler key: `execute_due` is permissionless,
+/// so opening this screen triggers any DUE rules (prepare → sign → record) — the
+/// contract guarantees it can only pay the pre-set amount to the pre-set
+/// recipient on schedule. List shows active + paused rules; each can be
+/// paused/resumed or cancelled (a cancel signs an on-chain refund, then clears).
 ///
 /// Presented INSIDE the NavigationStack the parent provides (like PayrollView):
 /// it pushes RuleEditView with NavigationLink and reloads on every appearance.
@@ -21,6 +23,7 @@ struct RulesView: View {
     @State private var loading = true
     @State private var error: String?
     @State private var busyId: String?
+    @State private var firedDue = false
 
     var body: some View {
         ScrollView {
@@ -58,7 +61,7 @@ struct RulesView: View {
         .background(TaliseColor.bg.ignoresSafeArea())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .task { await load(); await fireDueRulesOnce() }
         .refreshable { await load() }
     }
 
@@ -234,6 +237,39 @@ struct RulesView: View {
             if APIError.isCancellation(error) { return }
             self.error = "Couldn't load your rules right now."
         }
+    }
+
+    /// Fire any DUE scheduled rules once per appearance — the "no cron" trigger.
+    /// `execute_due` is permissionless on-chain, so the owner's open app releases
+    /// due payments: prepare → sign → record. The contract is the real gate (it
+    /// aborts ENotDue if a rule isn't actually due), so each step is best-effort.
+    private func fireDueRulesOnce() async {
+        guard enabled, !firedDue else { return }
+        firedDue = true
+        let now = Date().timeIntervalSince1970 * 1000
+        let due = rules.filter {
+            $0.isActive && $0.triggerType == "schedule" && ($0.nextDueAt ?? .greatestFiniteMagnitude) <= now
+        }
+        guard !due.isEmpty else { return }
+        var fired = 0
+        for rule in due {
+            do {
+                let prep = try await RulesAPI.executePrepare(id: rule.id)
+                let digest = try await ZkLoginCoordinator.shared.signAndExecuteRaw(
+                    bytesB64: prep.bytes,
+                    meta: ["kind": "rule-execute"]
+                )
+                _ = try await RulesAPI.recordExecuted(id: rule.id, digest: digest)
+                fired += 1
+            } catch ZkLoginCoordinator.SessionError.rebindRequired {
+                error = "Sign in again — your session needs a refresh."
+                session.signOut()
+                return
+            } catch {
+                // ENotDue / NO_ORDER (409) / transient — the contract is the gate; skip.
+            }
+        }
+        if fired > 0 { await load() }
     }
 
     private func toggle(_ rule: RuleDTO) async {

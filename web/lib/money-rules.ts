@@ -2,13 +2,12 @@ import "server-only";
 
 import { randomBytes } from "node:crypto";
 import { db, ensureSchema, schemaVersionGate } from "@/lib/db";
-import { getUsdsuiBalance } from "@/lib/sui";
 import {
   automationsEnabled,
   buildCreateOrderSponsored,
   buildCancelOrderSponsored,
+  buildExecuteDueSponsored,
   parseCreatedOrderId,
-  workerExecuteDue,
 } from "@/lib/automations";
 
 /**
@@ -19,18 +18,20 @@ import {
  * $50 weekly").
  *
  * Each rule is backed by an on-chain `talise_automations::standing_order` object
- * (the audited, non-custodial primitive):
+ * (the audited, non-custodial primitive). The SMART CONTRACT is the automation —
+ * there is no cron and no scheduler key:
  *   • CREATE — the user signs an Onara-sponsored `standing_order::create` that
  *     funds the rule's pot (they own the object; only THEY can cancel/withdraw).
- *   • EXECUTE — a Vercel cron evaluates due rules; the registered worker key
- *     triggers `execute_due`, which releases the pre-set `amount_per` to the
- *     pre-set `recipient` on schedule. The worker can never send elsewhere or
- *     more than the schedule allows.
+ *   • EXECUTE — `execute_due` is PERMISSIONLESS; the owner's app triggers any due
+ *     rules when it's open (Onara-sponsored, owner-signed). The contract releases
+ *     the pre-set `amount_per` to the pre-set `recipient` only once the Clock
+ *     passes `next_due_ms` — the caller can't change destination, amount, or fire
+ *     early, so triggering is trustless.
  *   • CANCEL — the user signs `cancel`, which refunds the entire remaining pot.
  *
- * The DB row is the scheduler's index + metadata (it holds the order id + the
- * next-due mirror); the money lives on chain. Gated by automationsEnabled()
- * (AUTOMATIONS_PACKAGE_ID + REGISTRY_ID + WORKER_SK) — unset → feature off.
+ * The DB row mirrors the on-chain schedule for display + to surface which rules
+ * are due to trigger; the money + the authoritative cursor live on chain. Gated
+ * by automationsEnabled() (AUTOMATIONS_PACKAGE_ID + REGISTRY_ID) — unset → off.
  */
 
 export function moneyRulesEnabled(): boolean {
@@ -91,7 +92,7 @@ export function ensureMoneyRulesSchema(): Promise<void> {
     // Backfill the on-chain order id column for any table created pre-2026-06-28.2.
     await c.execute(`ALTER TABLE money_rules ADD COLUMN IF NOT EXISTS order_object_id TEXT`);
     await c.execute(`CREATE INDEX IF NOT EXISTS idx_money_rules_user ON money_rules(user_id, created_at DESC)`);
-    // Cron read: active rules ordered by their next due time.
+    // "Which rules are due to trigger" read (listDueRules), keyed on state + next due.
     await c.execute(`CREATE INDEX IF NOT EXISTS idx_money_rules_due ON money_rules(state, next_due_at)`);
 
     // Append-only execution ledger; the unique index is the double-fire guard.
@@ -475,128 +476,70 @@ export async function deleteRule(id: string, userId: number): Promise<boolean> {
   return (r.rowsAffected ?? 0) > 0;
 }
 
-// ── Evaluation engine (cron) ──────────────────────────────────────────────────
+// ── Client-triggered execution (no cron) ───────────────────────────────────────
 
 /**
- * Evaluate every due active rule. Each rule is claimed atomically (advance
- * `next_due_at` via a guarded UPDATE keyed on the OLD due time) before any
- * payout, so a concurrent/duplicate cron can never double-fire. Returns a
- * summary for the cron.
+ * The active rules that are DUE to trigger for a user (schedule rules whose
+ * `next_due_at` has passed and that have an on-chain order). The client fetches
+ * these when the app opens and triggers each via prepare→sign→record. The
+ * on-chain Clock is the real gate, so a stale `next_due_at` only ever means the
+ * trigger no-ops with ENotDue — never an early or wrong payment.
+ *
+ * `threshold`/`on-inflow` rules aren't surfaced here: they need a balance check
+ * the client can't authoritatively make, so they're held until that poller lands.
  */
-export async function evaluateDueRules(nowMs: number = Date.now()): Promise<{ processed: number; fired: number; errors: number }> {
+export async function listDueRules(userId: number, nowMs: number = Date.now()): Promise<MoneyRule[]> {
   await ensureMoneyRulesSchema();
-  const due = await db().execute({
+  const r = await db().execute({
     sql: `SELECT * FROM money_rules
-           WHERE state = 'active' AND deleted_at IS NULL
+           WHERE user_id = ? AND state = 'active' AND deleted_at IS NULL
+             AND trigger_type = 'schedule' AND order_object_id IS NOT NULL
              AND next_due_at IS NOT NULL AND next_due_at <= ?
            ORDER BY next_due_at ASC LIMIT 50`,
-    args: [nowMs],
+    args: [userId, nowMs],
   });
-  let processed = 0, fired = 0, errors = 0;
-  for (const raw of due.rows as unknown as Row[]) {
-    processed++;
-    try {
-      if (await evaluateOneRule(project(raw))) fired++;
-    } catch (err) {
-      errors++;
-      console.warn(`[money-rules] evaluation failed for ${raw.id}: ${(err as Error).message}`);
-    }
-  }
-  return { processed, fired, errors };
+  return (r.rows as unknown as Row[]).map(project);
 }
 
-async function evaluateOneRule(rule: MoneyRule): Promise<boolean> {
-  const oldDue = rule.nextDueAt;
-  if (oldDue == null) return false;
+/**
+ * STEP 1 of a trigger — return the Onara-sponsored `execute_due` bytes for a due
+ * rule the caller owns. Builds against the OWNER as sender (their app signs);
+ * the contract still enforces the schedule, so this is safe even if the rule
+ * isn't actually due (it would just abort ENotDue on submit). Returns null when
+ * the rule has no on-chain order.
+ */
+export async function prepareExecuteRule(id: string, userId: number): Promise<{ bytes: string; sponsor: string } | null> {
+  const rule = await getRule(id, userId);
+  if (!rule || !rule.orderObjectId) return null;
+  if (rule.state !== "active") return null;
+  return buildExecuteDueSponsored({ sender: rule.ownerAddress, orderId: rule.orderObjectId });
+}
+
+/**
+ * STEP 2 of a trigger — record a confirmed on-chain release. Advances the
+ * `next_due_at` mirror by one interval, bumps the counter, and appends to the
+ * ledger. Idempotent on (rule_id, triggered_at): a double-record is a no-op, and
+ * the on-chain Clock already prevents a double PAY.
+ */
+export async function recordRuleExecuted(id: string, userId: number, digest: string): Promise<MoneyRule | null> {
+  const rule = await getRule(id, userId);
+  if (!rule) return null;
   const now = Date.now();
-  const newDue = computeNextDue(rule, now);
-
-  // CLAIM: only the worker that flips next_due_at off the value it read proceeds.
-  const claim = await db().execute({
-    sql: `UPDATE money_rules
-             SET next_due_at = ?, last_run_at = ?, updated_at = ?
-           WHERE id = ? AND state = 'active' AND deleted_at IS NULL AND next_due_at = ?`,
-    args: [newDue, now, now, rule.id, oldDue],
-  });
-  if ((claim.rowsAffected ?? 0) === 0) return false; // someone else claimed it
-
-  // ── Trigger gating ──────────────────────────────────────────────────────────
-  if (rule.triggerType === "on-inflow") {
-    // TODO(P3): the activity poller fires on-inflow rules. Until then this is a
-    // no-op — the claim above already advanced next_due_at for the next recheck.
-    await recordExecution(rule, oldDue, "skipped", null, null, "on-inflow poller not yet wired");
-    return false;
-  }
-
-  if (rule.triggerType === "threshold") {
-    const thresholdMicros = rule.balanceThresholdUsd == null ? null : BigInt(Math.round(rule.balanceThresholdUsd * 1e6));
-    if (thresholdMicros == null) {
-      await recordExecution(rule, oldDue, "skipped", null, null, "no threshold set");
-      return false;
-    }
-    let balRaw = "0";
-    try { balRaw = (await getUsdsuiBalance(rule.ownerAddress)).raw; } catch { balRaw = "0"; }
-    if (BigInt(balRaw) < thresholdMicros) {
-      await recordExecution(rule, oldDue, "skipped", null, null, "below threshold");
-      return false;
-    }
-  }
-
-  // ── Action ────────────────────────────────────────────────────────────────
-  if (rule.actionType !== "send") {
-    await recordExecution(rule, oldDue, "skipped", null, null, `unsupported action: ${rule.actionType}`);
-    return false;
-  }
-
+  const triggeredAt = rule.nextDueAt ?? now;
   const cfg = rule.actionConfig as Partial<SendActionConfig>;
-  const to = (cfg.toAddress ?? "").trim().toLowerCase();
-  const amountMicros = cfg.amountMicros ? BigInt(cfg.amountMicros) : 0n;
-  if (!rule.orderObjectId) {
-    await recordExecution(rule, oldDue, "skipped", to || null, amountMicros, "no on-chain order");
-    return false;
-  }
-
-  try {
-    // The worker triggers the on-chain release: `execute_due` pays the order's
-    // pre-set amount to its pre-set recipient (the worker can't change either).
-    const digest = await workerExecuteDue(rule.orderObjectId);
-    await recordExecution(rule, oldDue, "ok", to, amountMicros, null, [digest]);
-    await db().execute({
-      sql: `UPDATE money_rules
-               SET execution_count = execution_count + 1, last_status = 'ok', last_error = NULL, updated_at = ?
-             WHERE id = ?`,
-      args: [Date.now(), rule.id],
-    });
-    return true;
-  } catch (err) {
-    const msg = (err as Error).message ?? "payout failed";
-    await recordExecution(rule, oldDue, "error", to, amountMicros, msg);
-    // The CLAIM above already advanced next_due_at to the NEXT interval. A naive
-    // error path would therefore SKIP this whole payment window (the rule isn't
-    // due again until the next interval). Two recoveries instead:
-    //  • Depleted pot (EInsufficientPot) — pause the rule so it stops retrying.
-    //    The owner tops up + resumes; we don't burn cron cycles on an empty pot.
-    //  • Anything else (RPC blip, not-yet-due clock skew) — retry SOON by pulling
-    //    next_due_at back to now+RETRY rather than losing the window.
-    const now2 = Date.now();
-    const depleted = /insufficient|EInsufficientPot|\b407\b/i.test(msg);
-    if (depleted) {
-      await db().execute({
-        sql: `UPDATE money_rules SET state = 'paused', last_status = 'error', last_error = ?, updated_at = ? WHERE id = ?`,
-        args: [`pot depleted — top up and resume: ${msg}`.slice(0, 500), now2, rule.id],
-      });
-    } else {
-      await db().execute({
-        sql: `UPDATE money_rules SET next_due_at = ?, last_status = 'error', last_error = ?, updated_at = ? WHERE id = ?`,
-        args: [now2 + RULE_RETRY_MS, msg.slice(0, 500), now2, rule.id],
-      });
-    }
-    return false;
-  }
+  const to = (cfg.toAddress ?? "").trim().toLowerCase() || null;
+  const amountMicros = cfg.amountMicros ? BigInt(cfg.amountMicros) : null;
+  await recordExecution(rule, triggeredAt, "ok", to, amountMicros, null, [digest]);
+  const nextDue = computeNextDue(rule, now);
+  await db().execute({
+    sql: `UPDATE money_rules
+             SET next_due_at = ?, last_run_at = ?, last_status = 'ok', last_error = NULL,
+                 execution_count = execution_count + 1, updated_at = ?
+           WHERE id = ? AND user_id = ?`,
+    args: [nextDue, now, now, id, userId],
+  });
+  return getRule(id, userId);
 }
-
-/** How soon a transiently-failed rule retries (vs. skipping its whole interval). */
-const RULE_RETRY_MS = 5 * 60_000;
 
 /** Append-only ledger write; idempotent on (rule_id, triggered_at). */
 async function recordExecution(

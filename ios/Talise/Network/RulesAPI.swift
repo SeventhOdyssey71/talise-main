@@ -7,9 +7,11 @@ import Foundation
 ///
 /// Each rule is backed by an on-chain `standing_order` object the user owns: the
 /// pot is funded up front (one-or-more payments' worth) and the recipient +
-/// amount are baked on chain. A backend worker can only release the pre-set
-/// amount to the pre-set recipient on schedule — it can never send elsewhere or
-/// more than the schedule allows. Cancelling refunds the entire remaining pot.
+/// amount are baked on chain. `execute_due` is PERMISSIONLESS — the contract
+/// releases only the pre-set amount to the pre-set recipient, and only once the
+/// Clock passes the schedule. There is NO cron and NO scheduler key: the app
+/// triggers any DUE rules when it opens (`executePrepare` → sign → `recordExecuted`).
+/// Cancelling refunds the entire remaining pot.
 ///
 /// Create is a two-step prepare → sign → record (exactly like team streams + the
 /// goal vault):
@@ -104,6 +106,24 @@ enum RulesAPI {
 
     static func delete(id: String) async throws {
         let _: OkResponse = try await APIClient.shared.delete("/api/rules/\(id)")
+    }
+
+    /// Build the Onara-sponsored, PERMISSIONLESS `execute_due` bytes for a due
+    /// rule. The owner signs (they're the sender); the contract gates the actual
+    /// release on the Clock + schedule, so signing a not-yet-due rule just aborts
+    /// ENotDue. Pair with `recordExecuted` after the signed tx confirms.
+    static func executePrepare(id: String) async throws -> RuleExecuteResponse {
+        try await APIClient.shared.post("/api/rules/\(id)/execute", body: EmptyBody())
+    }
+
+    /// Record a confirmed on-chain release — advances the rule's next-due mirror
+    /// and appends to its ledger. Idempotent (the on-chain Clock prevents a double pay).
+    static func recordExecuted(id: String, digest: String) async throws -> RuleDTO {
+        let res: RuleResponse = try await APIClient.shared.post(
+            "/api/rules/\(id)/executed",
+            body: ExecutedBody(digest: digest)
+        )
+        return res.rule
     }
 }
 
@@ -222,6 +242,12 @@ struct RuleCancelResponse: Codable {
     let bytes: String
 }
 
+/// EXECUTE response: the sponsor-ready, permissionless `execute_due` bytes to sign.
+struct RuleExecuteResponse: Codable {
+    let mode: String?
+    let bytes: String
+}
+
 // MARK: - Request / response wrappers
 
 private struct PrepareBody: Encodable {
@@ -247,6 +273,7 @@ private struct RecordBody: Encodable {
     let amountUsd: Double
 }
 
+private struct ExecutedBody: Encodable { let digest: String }
 private struct RuleResponse: Codable { let rule: RuleDTO }
 private struct EmptyBody: Encodable {}
 private struct OkResponse: Codable { let ok: Bool? }

@@ -2,20 +2,23 @@
 ///
 /// A "rule" like *"pay rent $1,200 on the 1st"* or *"send mum $50 every week"*
 /// is a `StandingOrder<T>`: a shared object that custodies the rule's pot as a
-/// `Balance<T>` and the schedule. A registered worker (the Talise scheduler key)
-/// calls `execute_due` once each interval comes due; it releases exactly
-/// `amount_per` to the **hardwired** `recipient` (set by the owner at creation)
-/// and advances the cursor. The worker can NEVER send elsewhere, never more than
-/// the schedule allows, and never touch funds the owner hasn't deposited.
+/// `Balance<T>` and the schedule. `execute_due` is PERMISSIONLESS — ANYONE may
+/// call it once an interval comes due (the owner's own app, the recipient, a
+/// public keeper). It releases exactly `amount_per` to the **hardwired**
+/// `recipient` (set by the owner at creation) and advances the cursor. The
+/// caller can NEVER send elsewhere, never more than the schedule allows, never
+/// before `next_due_ms`, and never touch funds the owner hasn't deposited — the
+/// contract itself is the guarantee, so no privileged scheduler key exists.
 ///
 /// The owner keeps full control: `pause` / `resume`, `top_up` (add funds), and
 /// `cancel` (stop + refund the entire remaining pot). When the pot can't cover
 /// the next release the order simply idles until topped up or cancelled — funds
 /// are never stranded (cancel always refunds the remainder).
 ///
-/// Modeled 1:1 on the audited `talise::stream` worker+Clock release pattern
-/// (registry holds the worker allowlist; release is Clock-gated on `next_due_ms`),
-/// generalized from a fixed tranche count to an open-ended schedule.
+/// Release is Clock-gated on `next_due_ms` and generalized from a fixed tranche
+/// count to an open-ended schedule. The registry keeps only a global admin pause
+/// (a circuit-breaker); `execute_due` needs no allowlist because the caller has
+/// zero discretion over destination or amount.
 ///
 /// GENERIC over `T` (USDsui in production) — the coin type is a phantom param,
 /// so this package carries no dependency on the coin's defining package.
@@ -31,7 +34,6 @@ use sui::{
 // ───────────────────────────────────────────────────────────────────
 // Errors
 
-const ENotWorker: u64 = 400;
 const ERegistryPaused: u64 = 401;
 const ENotOwner: u64 = 402;
 const EPaused: u64 = 403;
@@ -189,13 +191,14 @@ public fun create<T>(
 }
 
 // ───────────────────────────────────────────────────────────────────
-// Execute (worker-signed, Clock-gated)
+// Execute (PERMISSIONLESS, Clock-gated)
 
-/// Release one due payment. Worker-only, gated on: registry not paused, order
-/// active, now >= next_due_ms, and the pot can cover `amount_per`. Advances
-/// `next_due_ms` by exactly one interval so cadence never drifts. The ONLY
-/// destination is the hardwired `recipient`, so a worker has zero extraction
-/// surface.
+/// Release one due payment. Callable by ANYONE — gated only on: registry not
+/// paused, order active, now >= next_due_ms, and the pot can cover `amount_per`.
+/// Advances `next_due_ms` by exactly one interval so cadence never drifts. The
+/// ONLY destination is the hardwired `recipient` and the ONLY amount is the
+/// owner-set `amount_per`, so the caller has zero discretion: triggering a due
+/// release just executes what the owner already authorized. No scheduler key.
 public fun execute_due<T>(
     registry: &AutomationRegistry,
     order: &mut StandingOrder<T>,
@@ -203,7 +206,6 @@ public fun execute_due<T>(
     ctx: &mut TxContext,
 ) {
     assert!(!registry.paused, ERegistryPaused);
-    assert!(registry.worker_addresses.contains(&ctx.sender()), ENotWorker);
     assert!(!order.cancelled, ECancelled);
     assert!(!order.paused, EPaused);
     assert!(clock.timestamp_ms() >= order.next_due_ms, ENotDue);
@@ -300,15 +302,6 @@ fun create_execute_topup_cancel() {
     {
         init(sc.ctx());
     };
-    // admin adds a worker
-    sc.next_tx(admin);
-    {
-        let mut reg = sc.take_shared<AutomationRegistry>();
-        let cap = sc.take_from_sender<AutomationAdminCap>();
-        add_worker(&mut reg, &cap, @0x9); // worker = 0x9
-        ts::return_shared(reg);
-        sc.return_to_sender(cap);
-    };
     // owner creates + funds an order: 100/interval, fund 250 (2 releases + change)
     sc.next_tx(owner);
     {
@@ -319,8 +312,10 @@ fun create_execute_topup_cancel() {
         ts::return_shared(reg);
         clock::destroy_for_testing(clk);
     };
-    // worker executes first due release at t=1000
-    sc.next_tx(@0x9);
+    // a STRANGER (not owner, not a worker) executes the first due release at
+    // t=1000 — execute_due is permissionless; the contract still pays only the
+    // hardwired recipient the hardwired amount.
+    sc.next_tx(@0xCAFE);
     {
         let reg = sc.take_shared<AutomationRegistry>();
         let mut order = sc.take_shared<StandingOrder<SUI>>();
@@ -352,22 +347,15 @@ fun cannot_execute_before_due() {
     let admin = @0xA;
     let mut sc = ts::begin(admin);
     { init(sc.ctx()); };
-    sc.next_tx(admin);
-    {
-        let mut reg = sc.take_shared<AutomationRegistry>();
-        let cap = sc.take_from_sender<AutomationAdminCap>();
-        add_worker(&mut reg, &cap, @0x9);
-        ts::return_shared(reg);
-        sc.return_to_sender(cap);
-    };
     sc.next_tx(@0x0);
     {
         let mut reg = sc.take_shared<AutomationRegistry>();
         create<SUI>(&mut reg, mint<SUI>(250), @0xBEEF, 100, 1_000, 5_000, sc.ctx());
         ts::return_shared(reg);
     };
-    // worker tries at t=1000 but first_due is 5000 → ENotDue
-    sc.next_tx(@0x9);
+    // anyone tries at t=1000 but first_due is 5000 → ENotDue (Clock gate holds
+    // even though execute_due is permissionless)
+    sc.next_tx(@0xCAFE);
     {
         let reg = sc.take_shared<AutomationRegistry>();
         let mut order = sc.take_shared<StandingOrder<SUI>>();
@@ -381,24 +369,30 @@ fun cannot_execute_before_due() {
     sc.end();
 }
 
-#[test, expected_failure(abort_code = ENotWorker)]
-fun stranger_cannot_execute() {
+#[test]
+fun anyone_can_execute_when_due() {
     let admin = @0xA;
+    let recipient = @0xBEEF;
     let mut sc = ts::begin(admin);
     { init(sc.ctx()); };
     sc.next_tx(@0x0);
     {
         let mut reg = sc.take_shared<AutomationRegistry>();
-        create<SUI>(&mut reg, mint<SUI>(250), @0xBEEF, 100, 1_000, 1_000, sc.ctx());
+        create<SUI>(&mut reg, mint<SUI>(250), recipient, 100, 1_000, 1_000, sc.ctx());
         ts::return_shared(reg);
     };
-    sc.next_tx(@0xBAD); // not a registered worker
+    // @0xBAD is neither owner nor a registered worker, yet CAN trigger a due
+    // release — the contract pays the hardwired recipient the hardwired amount.
+    sc.next_tx(@0xBAD);
     {
         let reg = sc.take_shared<AutomationRegistry>();
         let mut order = sc.take_shared<StandingOrder<SUI>>();
         let mut clk = clock::create_for_testing(sc.ctx());
         clock::set_for_testing(&mut clk, 2_000);
         execute_due<SUI>(&reg, &mut order, &clk, sc.ctx());
+        assert!(releases_done(&order) == 1, 0);
+        assert!(pot_value(&order) == 150, 1);
+        assert!(recipient<SUI>(&order) == recipient, 2);
         ts::return_shared(reg);
         ts::return_shared(order);
         clock::destroy_for_testing(clk);
