@@ -30,6 +30,8 @@ import {
   Invoice01Icon,
   UserGroupIcon,
   BarcodeScanIcon,
+  MoneyReceive01Icon,
+  RepeatIcon,
 } from "@hugeicons/core-free-icons";
 import { CurrencyProvider, useCurrency } from "./data/currency";
 import { Flag } from "./ui";
@@ -94,6 +96,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/app/pay/request": "Request",
   "/app/pay/cheques": "Cheques",
   "/app/pay/stream": "Stream",
+  "/app/requests": "Requests",
+  "/app/rules": "Automations",
   "/app/earn": "Earn",
   "/app/rewards": "Rewards",
   "/app/work": "Work",
@@ -365,11 +369,14 @@ function AccountMenu({
   size = 32,
   activityHref = "/app/activity",
   rampsHref = "/app/ramps",
+  showMoneyTools = false,
 }: {
   me: Me;
   size?: number;
   activityHref?: string;
   rampsHref?: string;
+  /** Consumer-only: surface Requests + Automations (no sidebar on mobile). */
+  showMoneyTools?: boolean;
 }) {
   return (
     <DropdownMenu>
@@ -400,6 +407,20 @@ function AccountMenu({
             <HugeiconsIcon icon={CreditCardIcon} size={18} strokeWidth={1.8} /> Add money & cash out
           </Link>
         </DropdownMenuItem>
+        {showMoneyTools && (
+          <>
+            <DropdownMenuItem asChild>
+              <Link href="/app/requests">
+                <HugeiconsIcon icon={MoneyReceive01Icon} size={18} strokeWidth={1.8} /> Requests
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/app/rules">
+                <HugeiconsIcon icon={RepeatIcon} size={18} strokeWidth={1.8} /> Automations
+              </Link>
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           {/* Wipe the tab's ephemeral key + cross-tab expiry marker BEFORE the
@@ -465,6 +486,21 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
             );
           })}
           <div className="my-3 h-px bg-[#15300c]/10" />
+          {/* Secondary money tools — Requests (track who owes you) and
+              Automations (scheduled sends). Consumer surface only; the business
+              nav has its own primary set so these stay out of it. */}
+          {nav === CONSUMER_NAV && (
+            <>
+              <SidebarItem
+                item={{ label: "Requests", href: "/app/requests", icon: MoneyReceive01Icon as IconSvgElement }}
+                active={isActive(pathname, "/app/requests", nav.brandHref)}
+              />
+              <SidebarItem
+                item={{ label: "Automations", href: "/app/rules", icon: RepeatIcon as IconSvgElement }}
+                active={isActive(pathname, "/app/rules", nav.brandHref)}
+              />
+            </>
+          )}
           <SidebarItem
             item={{ label: "Ramps", href: nav.rampsHref, icon: CreditCardIcon as IconSvgElement }}
             active={isActive(pathname, nav.rampsHref, nav.brandHref)}
@@ -520,6 +556,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
                 nav.primary.find((i) => i.label === "Activity")?.href ?? "/app/activity"
               }
               rampsHref={nav.rampsHref}
+              showMoneyTools={nav === CONSUMER_NAV}
             />
           </div>
         </header>
