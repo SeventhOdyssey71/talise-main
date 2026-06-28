@@ -1,0 +1,171 @@
+import "server-only";
+
+import type { ChatStep } from "@/lib/chat/intent";
+import { stepLabel, isReadOnly } from "@/lib/chat/intent";
+import { resolveRecipient } from "@/lib/suins";
+import { screenTransfer } from "@/lib/screening";
+import { checkSendAllowed } from "@/lib/send-limits";
+import type { User } from "@/lib/db";
+
+/**
+ * The Talise Agent's safety brain: take a PROPOSED intent (steps the LLM emitted)
+ * and return a VALIDATED, priced preview — resolving recipients, screening them,
+ * and checking the user's send cap — WITHOUT moving any money. The client renders
+ * this as a confirm card; only on a user slide does it call the real prepare +
+ * sign endpoints. "Agent proposes → server validates → human confirms."
+ *
+ * Nothing here signs, sponsors, or broadcasts. It is pure validation + preview.
+ */
+
+const ADDRESS_RE = /^0x[a-f0-9]{64}$/i;
+
+export type PlannedStep = {
+  kind: ChatStep["kind"];
+  label: string;
+  /** ok = safe to confirm · read_only = run inline · blocked = a hard stop · needs_info = missing/invalid param. */
+  status: "ok" | "read_only" | "blocked" | "needs_info";
+  detail?: string;
+  /** Resolved recipient (send steps only). */
+  resolved?: { address: string; displayName: string };
+  /** USD this step moves out of the wallet (send/save/withdraw); 0 for read-only. */
+  amountUsd?: number;
+};
+
+export type AgentPlan = {
+  /** True only if every step is ok/read_only and the cap check passes. */
+  confirmable: boolean;
+  steps: PlannedStep[];
+  /** Total USD leaving the wallet across send steps (cap is checked on this). */
+  totalSendUsd: number;
+  /** Present when the send total would breach a tier cap. */
+  limit?: { window: "daily" | "monthly"; limit: number; used: number; tier: number };
+  /** A short human summary for the confirm card header. */
+  summary: string;
+};
+
+/**
+ * Validate + price an intent for a user. Read-only steps echo back as `read_only`.
+ * Send steps resolve + screen + accumulate toward the cap check. Other write steps
+ * (save/withdraw/swap/claim) are amount-validated only (they sign client-side).
+ */
+export async function planIntent(user: User, steps: ChatStep[]): Promise<AgentPlan> {
+  const selfAddr = user.sui_address.toLowerCase();
+  const senderName = user.business_name ?? user.name ?? null;
+  const planned: PlannedStep[] = [];
+  let totalSendUsd = 0;
+
+  // Resolve every send recipient in parallel (the slow part), then validate in order.
+  const sendIdx = steps
+    .map((s, i) => (s.kind === "send" ? i : -1))
+    .filter((i) => i >= 0);
+  const resolutions = await Promise.all(
+    sendIdx.map(async (i) => {
+      const s = steps[i] as Extract<ChatStep, { kind: "send" }>;
+      try {
+        return await resolveRecipient(s.recipient);
+      } catch {
+        return null;
+      }
+    })
+  );
+  const resolvedByStep = new Map<number, { address: string; displayName: string } | null>();
+  sendIdx.forEach((i, k) => resolvedByStep.set(i, resolutions[k]));
+
+  // Screen all resolved send recipients in parallel.
+  const screenInputs = sendIdx
+    .map((i) => resolvedByStep.get(i))
+    .filter((r): r is { address: string; displayName: string } => !!r && ADDRESS_RE.test(r.address));
+  const screens = await Promise.all(
+    screenInputs.map((r) =>
+      screenTransfer({ senderAddr: user.sui_address, recipientAddr: r.address, senderName, recipientName: null })
+    )
+  );
+  const screenByAddr = new Map<string, boolean>();
+  screenInputs.forEach((r, k) => screenByAddr.set(r.address.toLowerCase(), screens[k].allow));
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const label = stepLabel(step);
+
+    if (isReadOnly(step)) {
+      planned.push({ kind: step.kind, label, status: "read_only", amountUsd: 0 });
+      continue;
+    }
+
+    if (step.kind === "send") {
+      const amt = Number(step.amount);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        planned.push({ kind: step.kind, label, status: "needs_info", detail: "Enter a positive amount." });
+        continue;
+      }
+      const r = resolvedByStep.get(i);
+      if (!r || !ADDRESS_RE.test(r.address)) {
+        planned.push({ kind: step.kind, label, status: "needs_info", detail: `Couldn't find "${step.recipient}".` });
+        continue;
+      }
+      if (r.address.toLowerCase() === selfAddr) {
+        planned.push({ kind: step.kind, label, status: "blocked", detail: "That's your own wallet." });
+        continue;
+      }
+      if (screenByAddr.get(r.address.toLowerCase()) === false) {
+        planned.push({ kind: step.kind, label, status: "blocked", detail: "Blocked by a compliance screen." });
+        continue;
+      }
+      totalSendUsd += amt;
+      planned.push({
+        kind: step.kind,
+        label: `Send $${amt.toFixed(2)} → ${r.displayName}`,
+        status: "ok",
+        resolved: r,
+        amountUsd: amt,
+      });
+      continue;
+    }
+
+    // save / withdraw / swap / claim_rewards — amount sanity only (signed client-side).
+    const amt = "amount" in step ? Number((step as { amount?: number }).amount) : 0;
+    if (step.kind !== "claim_rewards" && (!Number.isFinite(amt) || amt <= 0)) {
+      planned.push({ kind: step.kind, label, status: "needs_info", detail: "Enter a positive amount." });
+      continue;
+    }
+    planned.push({ kind: step.kind, label, status: "ok", amountUsd: step.kind === "save" || step.kind === "withdraw" ? amt : 0 });
+  }
+
+  // One cap check for the whole send total (the batch is one outflow).
+  let limit: AgentPlan["limit"];
+  if (totalSendUsd > 0) {
+    const decision = await checkSendAllowed(user.id, totalSendUsd);
+    if (!decision.allowed) {
+      limit = { window: decision.window, limit: decision.limit, used: decision.used, tier: decision.tier };
+      // Mark the send steps blocked.
+      for (const p of planned) {
+        if (p.kind === "send" && p.status === "ok") {
+          p.status = "blocked";
+          p.detail = `Over your ${decision.window} limit ($${decision.limit.toLocaleString()}).`;
+        }
+      }
+    }
+  }
+
+  const hasBlock = planned.some((p) => p.status === "blocked" || p.status === "needs_info");
+  const confirmable = !hasBlock && planned.some((p) => p.status === "ok");
+
+  return {
+    confirmable,
+    steps: planned,
+    totalSendUsd: Math.round(totalSendUsd * 100) / 100,
+    limit,
+    summary: buildSummary(planned, totalSendUsd, limit),
+  };
+}
+
+function buildSummary(steps: PlannedStep[], total: number, limit: AgentPlan["limit"]): string {
+  if (limit) return `This would exceed your ${limit.window} limit of $${limit.limit.toLocaleString()}.`;
+  const blocked = steps.find((s) => s.status === "blocked" || s.status === "needs_info");
+  if (blocked) return blocked.detail ?? "Some steps need attention.";
+  const writes = steps.filter((s) => s.status === "ok").length;
+  const reads = steps.filter((s) => s.status === "read_only").length;
+  if (writes === 0 && reads > 0) return "Ready to show your info.";
+  if (total > 0) return `Ready to confirm — $${total.toFixed(2)} total, gasless.`;
+  return "Ready to confirm — gasless.";
+}
