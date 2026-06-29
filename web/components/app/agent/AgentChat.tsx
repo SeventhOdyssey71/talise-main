@@ -5,7 +5,9 @@
  * iOS `ChatTabView` + `ChatViewModel`), styled to feel like ChatGPT mobile.
  *
  * Layout (top → bottom):
- *   1. Header — hamburger (opens the history drawer), mascot badge + greeting.
+ *   1. Header — mascot badge + greeting + a New-chat button. (No history
+ *      sidebar: the app already has a left nav, so a second drawer just fought
+ *      it. Each chat still persists; "New chat" starts a fresh one.)
  *   2. Scrollable transcript — assistant turns render as clean, full-width
  *      LEFT-aligned prose (no bubble); user turns are a compact right-aligned
  *      accent-green pill. A "thinking" indicator stands in where the assistant
@@ -25,9 +27,9 @@
  * carries renders an <AgentIntentCard> beneath the prose.
  *
  * History: each completed turn is persisted to localStorage via
- * `conversationsStore`, surfaced in the <AgentHistory> drawer. Opening a thread
- * rehydrates its transcript (incl. parsed intents, which re-validate — never
- * re-execute — through the same plan endpoint). "New chat" starts fresh.
+ * `conversationsStore` so a refresh restores the current thread; "New chat"
+ * starts fresh. (We dropped the slide-out history drawer — it overlapped the
+ * app's own left nav.)
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -35,7 +37,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowUp01Icon,
   AiMagicIcon,
-  Menu01Icon,
   Add01Icon,
   Copy01Icon,
   ArrowReloadHorizontalIcon,
@@ -44,7 +45,6 @@ import {
 import { useMe, useToast } from "@/components/app";
 import { parseAssistantMessage, type ChatIntent } from "@/lib/chat/intent";
 import { AgentIntentCard } from "./AgentIntentCard";
-import { AgentHistory } from "./AgentHistory";
 import {
   loadConversation,
   saveConversation,
@@ -78,7 +78,6 @@ export function AgentChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [convId, setConvId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
@@ -128,25 +127,6 @@ export function AgentChat() {
     setConvId(null);
     setInput("");
     inputRef.current?.focus();
-  }
-
-  function openConversation(id: string) {
-    if (id === convId) return;
-    abortRef.current?.abort();
-    setStreaming(false);
-    const conv = loadConversation(id);
-    if (!conv) return;
-    setConvId(id);
-    setMessages(
-      conv.messages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        raw: m.raw,
-        intent: m.intent ?? null,
-        streaming: false,
-      }))
-    );
   }
 
   // ── Sending ─────────────────────────────────────────────────────────────
@@ -311,25 +291,8 @@ export function AgentChat() {
 
   return (
     <div className="flex h-[calc(100vh-9rem)] flex-col lg:h-[calc(100vh-8rem)]">
-      <AgentHistory
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        activeId={convId}
-        onSelect={openConversation}
-        onNew={newChat}
-      />
-
       {/* Header */}
       <div className="flex shrink-0 items-start gap-3 pb-3">
-        <button
-          type="button"
-          onClick={() => setHistoryOpen(true)}
-          aria-label="Open chat history"
-          className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full border border-[#15300c]/12 bg-white/60 text-[#15300c] backdrop-blur-sm transition-colors hover:border-[#15300c]/30"
-        >
-          <HugeiconsIcon icon={Menu01Icon} size={18} strokeWidth={2} />
-        </button>
-
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2.5">
             <span className="flex size-8 items-center justify-center rounded-full bg-[#CAFFB8]">
