@@ -60,6 +60,7 @@ struct HomeView: View {
     // Home card carousel: page 0 = account card, page 1 = token bucket.
     @State private var homeCardPage = 0
     @State private var tokenBucketVisible = false
+    @State private var agentVisible = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -181,6 +182,18 @@ struct HomeView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 24, height: 22)
             Spacer()
+            // Talise Agent — the lego-style mascot is the agent's entry point.
+            // (The chat tab was removed from the nav; this brings it back as a
+            // top affordance.) Sits left of Scan-to-Pay.
+            Button {
+                agentVisible = true
+            } label: {
+                AgentMascot(size: 30)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Talise Agent")
             // Scan-to-Pay is the single top affordance now — History moved off
             // the top into the on-page "Recent activity → View all". Glass chip
             // (the one place we use glass): an ultra-thin material disc with a
@@ -217,6 +230,9 @@ struct HomeView: View {
                 onSwap: { coin in await swapSingleCoin(coin) },
                 onDone: { tokenBucketVisible = false }
             )
+        }
+        .fullScreenCover(isPresented: $agentVisible) {
+            ChatTabView(onClose: { agentVisible = false })
         }
     }
 

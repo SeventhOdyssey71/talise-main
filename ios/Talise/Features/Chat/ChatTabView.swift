@@ -19,6 +19,9 @@ struct ChatTabView: View {
     @Environment(AppSession.self) private var session
     @State private var vm = ChatViewModel()
     @FocusState private var inputFocused: Bool
+    /// Set when presented modally (e.g. from the Home mascot) — shows a close
+    /// affordance and drops the floating-nav bottom padding. nil = tab usage.
+    var onClose: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,22 +39,41 @@ struct ChatTabView: View {
 
             inputPill
                 .padding(.horizontal, 24)
-                // Float above the bottom nav pill (≈ 84pt tall incl. shadow).
-                .padding(.bottom, 110)
+                // Float above the bottom nav pill (≈ 84pt) when used as a tab;
+                // when presented modally there's no nav pill, so sit lower.
+                .padding(.bottom, onClose != nil ? 28 : 110)
         }
+        .padding(.top, onClose != nil ? 12 : 0)
         .background(TaliseColor.bg.ignoresSafeArea())
     }
 
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(greeting)
-                .font(TaliseFont.heading(26, weight: .medium))
-                .foregroundStyle(TaliseColor.fg)
-            Text("Let's make sense of your numbers.")
-                .font(TaliseFont.body(14, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
+        HStack(alignment: .center, spacing: 12) {
+            AgentMascot(size: 34)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(greeting)
+                    .font(TaliseFont.heading(23, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                Text("Let's make sense of your numbers.")
+                    .font(TaliseFont.body(13.5, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+            }
+            Spacer(minLength: 8)
+            if let onClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .frame(width: 34, height: 34)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -116,11 +138,9 @@ struct ChatTabView: View {
     private let scrollAnchorId = "chat-bottom"
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-                .font(.system(size: 28, weight: .regular))
-                .foregroundStyle(TaliseColor.fgDim)
-            Text("Ask anything about your money.")
+        VStack(spacing: 16) {
+            AgentMascot(size: 76, animated: true)
+            Text("Ask me anything about your money.")
                 .font(TaliseFont.body(14, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
         }
