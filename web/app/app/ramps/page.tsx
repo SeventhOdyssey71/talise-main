@@ -35,13 +35,18 @@ const OFFRAMP_LOCKED = false;
 // Per-day cash-out cap, mirrored for a subtle UI note (keep in sync with
 // OFFRAMP_MAX_USD in lib/linq.ts — that server value is the real enforcement).
 const OFFRAMP_CAP_USD = 200;
-// On-ramp is gated independently until a card processor is wired.
-const ONRAMP_ENABLED = process.env.NEXT_PUBLIC_ONRAMP_ENABLED === "true";
+// On-ramp (card top-up via Transak) is NOT live yet — keep it hard OFF so the
+// top-up card stays the grey "notify me" state and never opens a checkout that
+// can't complete. Restore the env check once the processor actually works:
+//   const ONRAMP_ENABLED = process.env.NEXT_PUBLIC_ONRAMP_ENABLED === "true";
+const ONRAMP_ENABLED = false;
 
 /** Queued off-ramp corridors — rendered as one overlapped grey flag stack. */
 const COMING_SOON_CORRIDORS: { cc: string; country: string }[] = [
   { cc: "ke", country: "Kenya" },
   { cc: "gh", country: "Ghana" },
+  { cc: "id", country: "Indonesia" },
+  { cc: "ph", country: "Philippines" },
 ];
 
 export default function RampsPage() {
