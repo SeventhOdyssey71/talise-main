@@ -19,63 +19,82 @@ struct ChatTabView: View {
     @Environment(AppSession.self) private var session
     @State private var vm = ChatViewModel()
     @FocusState private var inputFocused: Bool
+    @State private var historyOpen = false
     /// Set when presented modally (e.g. from the Home mascot) — shows a close
     /// affordance and drops the floating-nav bottom padding. nil = tab usage.
     var onClose: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                .padding(.horizontal, 30)
-                .padding(.top, 8)
-
-            transcript
-
-            if vm.messages.isEmpty && !vm.streaming {
-                suggestedPrompts
+        ZStack {
+            VStack(spacing: 0) {
+                header
                     .padding(.horizontal, 24)
-                    .padding(.bottom, 8)
-            }
+                    .padding(.top, 8)
 
-            inputPill
-                .padding(.horizontal, 24)
-                // Float above the bottom nav pill (≈ 84pt) when used as a tab;
-                // when presented modally there's no nav pill, so sit lower.
-                .padding(.bottom, onClose != nil ? 28 : 110)
+                transcript
+
+                if vm.messages.isEmpty && !vm.streaming {
+                    suggestedPrompts
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 8)
+                }
+
+                inputPill
+                    .padding(.horizontal, 24)
+                    // Float above the bottom nav pill (≈ 84pt) when used as a tab;
+                    // when presented modally there's no nav pill, so sit lower.
+                    .padding(.bottom, onClose != nil ? 28 : 110)
+            }
+            .padding(.top, onClose != nil ? 12 : 0)
+            .background(TaliseColor.bg.ignoresSafeArea())
+
+            // History drawer overlays everything when open.
+            ChatHistoryDrawer(vm: vm, isOpen: $historyOpen)
         }
-        .padding(.top, onClose != nil ? 12 : 0)
-        .background(TaliseColor.bg.ignoresSafeArea())
     }
 
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            AgentMascot(size: 34)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(greeting)
-                    .font(TaliseFont.heading(23, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                Text("Let's make sense of your numbers.")
-                    .font(TaliseFont.body(13.5, weight: .light))
-                    .foregroundStyle(TaliseColor.fgMuted)
-            }
-            Spacer(minLength: 8)
-            if let onClose {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                        .frame(width: 34, height: 34)
-                        .background(.ultraThinMaterial, in: Circle())
-                        .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
-                        .contentShape(Circle())
+        VStack(alignment: .leading, spacing: 14) {
+            // Toolbar row: history (left) · new chat + close (right).
+            HStack(spacing: 8) {
+                toolbarButton("line.3.horizontal", label: "Chat history") { historyOpen = true }
+                Spacer()
+                toolbarButton("square.and.pencil", label: "New chat") { vm.newChat() }
+                if let onClose {
+                    toolbarButton("xmark", label: "Close", action: onClose)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
+            }
+            // Greeting block.
+            HStack(alignment: .center, spacing: 12) {
+                AgentMascot(size: 34)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(greeting)
+                        .font(TaliseFont.heading(23, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                    Text("Let's make sense of your numbers.")
+                        .font(TaliseFont.body(13.5, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                }
+                Spacer(minLength: 8)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func toolbarButton(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: systemName == "line.3.horizontal" ? 16 : 14, weight: .medium))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .frame(width: 34, height: 34)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private var greeting: String {

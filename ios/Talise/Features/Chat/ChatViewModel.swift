@@ -22,6 +22,12 @@ final class ChatViewModel {
     /// Surface-level error banner. Cleared on the next submit.
     var lastError: String?
 
+    /// All saved conversations (newest-first), shown in the history drawer.
+    var conversations: [ChatConversation] = []
+    /// The conversation currently on screen. A fresh chat uses a new id that
+    /// is only persisted once it has a real (user) message.
+    private(set) var currentId: UUID = UUID()
+
     private var streamTask: Task<Void, Never>?
 
     /// Un-stripped accumulator per in-flight assistant message. We keep the
@@ -32,7 +38,13 @@ final class ChatViewModel {
     private var streamRaw: [UUID: String] = [:]
 
     init() {
-        self.messages = ChatHistoryStore.shared.load()
+        conversations = ChatConversationStore.shared.loadAll()
+        // Open the most recent conversation; otherwise start a fresh, empty one
+        // (so the app doesn't reload an endless single transcript every launch).
+        if let newest = conversations.first {
+            currentId = newest.id
+            messages = newest.messages
+        }
     }
 
     /// User tapped a suggested-prompt chip. Drop the prompt into the
@@ -42,13 +54,52 @@ final class ChatViewModel {
         input = text
     }
 
-    func clearTranscript() {
+    /// Start a fresh chat. The current one is already saved in `conversations`
+    /// (once it had a message), so this just clears the screen.
+    func newChat() {
         streamTask?.cancel()
         streamTask = nil
         streaming = false
+        currentId = UUID()
         messages = []
         streamRaw = [:]
-        ChatHistoryStore.shared.clear()
+        lastError = nil
+    }
+
+    /// Open a saved conversation from the history drawer.
+    func open(_ id: UUID) {
+        streamTask?.cancel()
+        streamTask = nil
+        streaming = false
+        streamRaw = [:]
+        lastError = nil
+        if let c = conversations.first(where: { $0.id == id }) {
+            currentId = c.id
+            messages = c.messages
+        }
+    }
+
+    /// Delete a saved conversation; if it was open, fall back to the newest
+    /// remaining one (or a fresh chat).
+    func deleteConversation(_ id: UUID) {
+        conversations.removeAll { $0.id == id }
+        ChatConversationStore.shared.saveAll(conversations)
+        if id == currentId {
+            if let newest = conversations.first { open(newest.id) } else { newChat() }
+        }
+    }
+
+    /// Upsert the current transcript into `conversations` + persist. No-op for a
+    /// blank chat — we never save empty "New chat" entries.
+    private func persistCurrent() {
+        let real = messages.filter { !($0.role == .assistant && $0.streaming) }
+        guard let firstUser = real.first(where: { $0.role == .user }) else { return }
+        let raw = firstUser.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = raw.isEmpty ? "New chat" : String(raw.prefix(48))
+        let convo = ChatConversation(id: currentId, title: title, messages: real, updatedAt: Date())
+        conversations.removeAll { $0.id == currentId }
+        conversations.insert(convo, at: 0)
+        ChatConversationStore.shared.saveAll(conversations)
     }
 
     /// Submit the current input. No-op if empty or already streaming.
@@ -69,7 +120,7 @@ final class ChatViewModel {
         )
         // Persist the prompt eagerly so a crash doesn't lose the user's
         // half of the turn. The assistant half is persisted on completion.
-        ChatHistoryStore.shared.save(messages)
+        persistCurrent()
 
         streaming = true
         streamTask = Task { [weak self] in
@@ -90,6 +141,10 @@ final class ChatViewModel {
         }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
+        // Generous timeout: the model can take a few seconds to first token, and
+        // SSE holds the connection open. The default 60s was tripping "request
+        // timed out" before the fast non-thinking model landed.
+        req.timeoutInterval = 120
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         if let bearer = SecureSessionStore.shared.read() {
@@ -234,14 +289,14 @@ final class ChatViewModel {
             if let raw = streamRaw[assistantId] {
                 messages[idx].intent = AgentIntentParser.parse(raw)
             }
-            if messages[idx].content.isEmpty {
-                // A pure-intent turn (no prose) shouldn't read as "(no
-                // reply)" — the action card carries the meaning.
-                messages[idx].content = messages[idx].intent == nil ? "(no reply)" : ""
+            // An empty turn with no action card is noise — drop it instead of
+            // leaving a "(no reply)" ghost that piles up across sessions.
+            if messages[idx].content.isEmpty && messages[idx].intent == nil {
+                messages.remove(at: idx)
             }
         }
         streamRaw[assistantId] = nil
-        ChatHistoryStore.shared.save(messages)
+        persistCurrent()
     }
 
     private func finalizeWithError(assistantId: UUID, message: String) {
@@ -253,6 +308,6 @@ final class ChatViewModel {
         }
         lastError = message
         streamRaw[assistantId] = nil
-        ChatHistoryStore.shared.save(messages)
+        persistCurrent()
     }
 }
