@@ -42,6 +42,7 @@ import {
   StatusPill,
   Sheet,
   Field,
+  Segmented,
   Eyebrow,
   EmptyState,
   Spinner,
@@ -531,16 +532,17 @@ function CreateRuleSheet({
           </Field>
 
           <Field label="How often" hint="When this rule runs">
-            <select
+            <Segmented<Cadence>
+              ariaLabel="How often"
               value={cadence}
-              onChange={(e) => setCadence(e.target.value as Cadence)}
-              className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm focus:ring-2 focus:ring-[#3d7a29]/45"
-            >
-              <option value="monthly" className="bg-[#f7fcf2] text-[#15300c]">Monthly</option>
-              <option value="weekly" className="bg-[#f7fcf2] text-[#15300c]">Weekly</option>
-              <option value="daily" className="bg-[#f7fcf2] text-[#15300c]">Daily</option>
-              <option value="hourly" className="bg-[#f7fcf2] text-[#15300c]">Hourly</option>
-            </select>
+              onChange={setCadence}
+              options={[
+                { value: "monthly", label: "Monthly" },
+                { value: "weekly", label: "Weekly" },
+                { value: "daily", label: "Daily" },
+                { value: "hourly", label: "Hourly" },
+              ]}
+            />
           </Field>
         </div>
 
@@ -561,17 +563,12 @@ function CreateRuleSheet({
         )}
 
         <Field label="Load the pot" hint="How much to fund up front — the rule pays from its own pot">
-          <select
+          <Segmented<number>
+            ariaLabel="How many payments to fund up front"
             value={payments}
-            onChange={(e) => setPayments(parseInt(e.target.value, 10))}
-            className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-3.5 py-2.5 text-[15px] text-[#15300c] outline-none backdrop-blur-sm focus:ring-2 focus:ring-[#3d7a29]/45"
-          >
-            {[1, 3, 6, 12].map((n) => (
-              <option key={n} value={n} className="bg-[#f7fcf2] text-[#15300c]">
-                {n} payment{n === 1 ? "" : "s"}
-              </option>
-            ))}
-          </select>
+            onChange={setPayments}
+            options={[1, 3, 6, 12].map((n) => ({ value: n, label: `${n}×` }))}
+          />
         </Field>
 
         {amountUsd != null && prefundUsd != null && (
