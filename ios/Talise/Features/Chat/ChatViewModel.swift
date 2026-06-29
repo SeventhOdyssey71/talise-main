@@ -108,9 +108,14 @@ final class ChatViewModel {
         do {
             let (bytes, response) = try await URLSession.shared.bytes(for: req)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                // Surface the real reason (status + body snippet) instead of a
+                // bare code — so a 401/500/etc. is never an invisible "nothing".
+                var bodySnippet = ""
+                if let lines = try? await collectLines(bytes, max: 200) { bodySnippet = lines }
+                let detail = bodySnippet.isEmpty ? "" : " — \(bodySnippet)"
                 finalizeWithError(
                     assistantId: assistantId,
-                    message: "Chat HTTP \(http.statusCode)"
+                    message: "server returned \(http.statusCode)\(detail)"
                 )
                 return
             }
@@ -227,13 +232,26 @@ final class ChatViewModel {
             if let raw = streamRaw[assistantId] {
                 messages[idx].intent = AgentIntentParser.parse(raw)
             }
-            // An empty turn with no action card is noise — drop it instead of
-            // leaving a "(no reply)" ghost that piles up across sessions.
+            // An empty turn with no action card means the stream closed with no
+            // text + no intent. Show an honest, visible note rather than silently
+            // removing it (which reads as a broken "nothing").
             if messages[idx].content.isEmpty && messages[idx].intent == nil {
-                messages.remove(at: idx)
+                messages[idx].content = "I didn't get a reply that time — please try again."
             }
         }
         streamRaw[assistantId] = nil
+    }
+
+    /// Read up to `max` characters of a (usually small error) body off an
+    /// `AsyncBytes` stream — used to surface a non-2xx response's reason.
+    private func collectLines(_ bytes: URLSession.AsyncBytes, max: Int) async throws -> String {
+        var out = ""
+        for try await line in bytes.lines {
+            if !out.isEmpty { out += " " }
+            out += line
+            if out.count >= max { break }
+        }
+        return String(out.prefix(max)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func finalizeWithError(assistantId: UUID, message: String) {
