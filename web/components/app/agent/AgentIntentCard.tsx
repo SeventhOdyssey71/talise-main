@@ -7,8 +7,8 @@
  *   • Read-only intents (balance / yield / activity) auto-run inline on mount
  *     and show their result lines — no slide, no signing.
  *   • Write intents POST `/api/agent/plan` to validate + price, render a
- *     per-step preview, and gate execution behind a `SlideToConfirm` that the
- *     server only lets through when the plan is `confirmable`.
+ *     per-step preview, and gate execution behind simple Accept / Decline
+ *     buttons — the server only marks a plan `confirmable` when it's safe.
  *
  * "Agent proposes → server validates → human confirms." Execution NEVER trusts
  * the model's proposed amount/recipient: send legs use the SERVER-resolved
@@ -27,7 +27,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import {
   api,
-  SlideToConfirm,
+  PrimaryButton,
   Spinner,
   useToast,
   useCurrency,
@@ -60,7 +60,7 @@ type AgentPlanDTO = {
   summary: string;
 };
 
-type Stage = "loading" | "readOnly" | "plan" | "running" | "done" | "failed";
+type Stage = "loading" | "readOnly" | "plan" | "running" | "done" | "failed" | "declined";
 
 export function AgentIntentCard({ intent }: { intent: ChatIntent }) {
   const { toast } = useToast();
@@ -72,7 +72,6 @@ export function AgentIntentCard({ intent }: { intent: ChatIntent }) {
   const [plan, setPlan] = useState<AgentPlanDTO | null>(null);
   const [resultLines, setResultLines] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [resetSignal, setResetSignal] = useState(0);
   const started = useRef(false);
 
   const readOnlyOnly =
@@ -170,10 +169,16 @@ export function AgentIntentCard({ intent }: { intent: ChatIntent }) {
       toast("Done", "success");
     } catch (e) {
       setError(friendlyError(e, "Couldn't complete that. Please try again."));
-      // Keep the plan visible so the user can slide to retry.
+      // Keep the plan visible so the user can tap Accept to retry.
       setStage("plan");
-      setResetSignal((s) => s + 1);
     }
+  }
+
+  // Decline — dismiss the proposed plan without touching money.
+  function decline() {
+    if (stage === "running") return;
+    setError(null);
+    setStage("declined");
   }
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -213,25 +218,33 @@ export function AgentIntentCard({ intent }: { intent: ChatIntent }) {
 
           {plan.confirmable && (
             <>
-              <SlideToConfirm
-                label={
-                  stage === "running"
-                    ? "Working…"
-                    : plan.totalSendUsd > 0
-                      ? `Slide to send ${formatUsd(plan.totalSendUsd)}`
-                      : "Slide to confirm"
-                }
-                tint="#3d7a29"
-                disabled={stage === "running"}
-                resetSignal={resetSignal}
-                onConfirm={confirm}
-              />
+              <div className="flex items-center gap-2.5">
+                <PrimaryButton
+                  variant="ghost"
+                  full
+                  onClick={decline}
+                  disabled={stage === "running"}
+                >
+                  Decline
+                </PrimaryButton>
+                <PrimaryButton
+                  full
+                  loading={stage === "running"}
+                  onClick={confirm}
+                >
+                  {plan.totalSendUsd > 0 ? `Accept · ${formatUsd(plan.totalSendUsd)}` : "Accept"}
+                </PrimaryButton>
+              </div>
               <p className="text-center font-mono text-[10px] tracking-[0.02em] text-[#3d7a29]">
                 No network fee — Talise sponsors the gas.
               </p>
             </>
           )}
         </div>
+      )}
+
+      {stage === "declined" && (
+        <p className="text-[13px] text-[#3a5230]">Okay — I didn&apos;t run that. Tell me what to change.</p>
       )}
 
       {stage === "done" && (

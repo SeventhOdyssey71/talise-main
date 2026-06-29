@@ -153,53 +153,69 @@ struct ChatTabView: View {
     @ViewBuilder
     private func row(for msg: ChatMessage) -> some View {
         VStack(alignment: msg.role == .user ? .trailing : .leading, spacing: 8) {
-            if !msg.content.isEmpty || msg.streaming {
+            if msg.role == .assistant && msg.streaming && msg.content.isEmpty {
+                // Proper "thinking" loader — staggered pulsing dots where the
+                // reply will land (the model reasons/streams with a real pause).
+                TypingDots()
+            } else if !msg.content.isEmpty || msg.streaming {
                 bubble(for: msg)
             }
             if let intent = msg.intent, !msg.streaming {
                 AgentIntentCard(intent: intent)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.trailing, 36)
             }
         }
         .frame(maxWidth: .infinity, alignment: msg.role == .user ? .trailing : .leading)
     }
 
+    /// User turns are a compact right-aligned accent pill (brand "your turn").
+    /// Assistant turns render as clean, full-width left-aligned PROSE — no
+    /// bubble plate — the ChatGPT-style read.
+    @ViewBuilder
     private func bubble(for msg: ChatMessage) -> some View {
-        HStack {
-            if msg.role == .user { Spacer(minLength: 36) }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(msg.content + (msg.streaming ? "▍" : ""))
+        if msg.role == .user {
+            HStack {
+                Spacer(minLength: 40)
+                Text(msg.content)
                     .font(TaliseFont.body(15, weight: .regular))
-                    .foregroundStyle(msg.role == .user ? Color.black : TaliseColor.fg)
+                    .foregroundStyle(Color.black)
                     .multilineTextAlignment(.leading)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 14)
+                    .background(TaliseColor.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 14)
-            .modifier(BubbleBackground(role: msg.role))
-            if msg.role == .assistant { Spacer(minLength: 36) }
+        } else {
+            Text(msg.content + (msg.streaming ? " ▍" : ""))
+                .font(TaliseFont.body(15.5, weight: .regular))
+                .foregroundStyle(TaliseColor.fg)
+                .lineSpacing(3)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
         }
     }
 
-    /// User bubbles keep their accent-green fill (brand voice, "your turn");
-    /// assistant bubbles get a flat solid surface plate — clean Apple-system
-    /// gray, no material/blur.
-    private struct BubbleBackground: ViewModifier {
-        let role: ChatMessage.Role
-        func body(content: Content) -> some View {
-            switch role {
-            case .user:
-                content
-                    .background(TaliseColor.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            case .assistant:
-                content
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(TaliseColor.surface)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    /// Three staggered pulsing dots — the assistant "thinking" indicator.
+    private struct TypingDots: View {
+        @State private var animating = false
+        var body: some View {
+            HStack(spacing: 5) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle()
+                        .fill(TaliseColor.fgMuted)
+                        .frame(width: 6, height: 6)
+                        .scaleEffect(animating ? 1 : 0.55)
+                        .opacity(animating ? 1 : 0.4)
+                        .animation(
+                            .easeInOut(duration: 0.6).repeatForever().delay(Double(i) * 0.2),
+                            value: animating
+                        )
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+            .onAppear { animating = true }
         }
     }
 

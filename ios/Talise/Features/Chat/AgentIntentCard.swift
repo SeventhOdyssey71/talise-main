@@ -5,23 +5,22 @@ import SwiftUI
 ///   • Read-only intents (balance / yield / activity) auto-run inline on
 ///     appear and show their results — no slide, no signing.
 ///   • Write intents call `POST /api/agent/plan` to validate + price, render a
-///     per-step preview, and gate execution behind a `SlideToConfirm` that is
-///     enabled only when the server says the plan is `confirmable`.
+///     per-step preview, and gate execution behind simple Accept / Decline
+///     buttons — enabled only when the server says the plan is `confirmable`.
 ///
 /// "Agent proposes → server validates → human confirms." Styling mirrors
-/// `PayTeamView` (rampCard, mint slide, honest error copy).
+/// `PayTeamView` (rampCard, mint accept button, honest error copy).
 struct AgentIntentCard: View {
     let intent: AgentIntent
 
     @Environment(AppSession.self) private var session
 
-    private enum Stage { case loading, plan, running, done, readOnly, failed }
+    private enum Stage { case loading, plan, running, done, readOnly, failed, declined }
 
     @State private var stage: Stage = .loading
     @State private var plan: AgentPlanDTO?
     @State private var resultLines: [String] = []
     @State private var error: String?
-    @State private var resetSlider = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -34,6 +33,8 @@ struct AgentIntentCard: View {
                 planBody
             case .done:
                 doneBody
+            case .declined:
+                declinedBody
             }
         }
         .padding(16)
@@ -101,20 +102,54 @@ struct AgentIntentCard: View {
             }
 
             if plan.confirmable {
-                SlideToConfirm(
-                    title: stage == .running ? "Working…" : slideTitle(plan),
-                    tint: TaliseColor.greenMint,
-                    reset: $resetSlider
-                ) {
-                    await confirm()
-                }
-                .disabled(stage == .running)
-                .opacity(stage == .running ? 0.5 : 1)
-                .padding(.top, 2)
-
+                confirmButtons(plan)
+                    .padding(.top, 2)
                 gaslessNote
             }
         }
+    }
+
+    /// Accept / Decline — simple buttons (the user asked for these over a slide).
+    /// Accept runs the validated plan; Decline dismisses it without moving money.
+    private func confirmButtons(_ plan: AgentPlanDTO) -> some View {
+        HStack(spacing: 10) {
+            Button { decline() } label: {
+                Text("Decline")
+                    .font(TaliseFont.body(15, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .frame(maxWidth: .infinity).frame(height: 48)
+                    .background(Capsule().fill(TaliseColor.surface2))
+            }
+            .buttonStyle(.plain)
+            .disabled(stage == .running)
+
+            Button { Task { await confirm() } } label: {
+                Group {
+                    if stage == .running {
+                        HStack(spacing: 7) {
+                            ProgressView().controlSize(.mini).tint(.black)
+                            Text("Working…")
+                        }
+                    } else {
+                        Text(acceptTitle(plan))
+                    }
+                }
+                .font(TaliseFont.body(15, weight: .semibold))
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity).frame(height: 48)
+                .background(Capsule().fill(TaliseColor.greenMint))
+                .opacity(stage == .running ? 0.7 : 1)
+            }
+            .buttonStyle(.plain)
+            .disabled(stage == .running)
+        }
+    }
+
+    private var declinedBody: some View {
+        Text("Okay — I didn't run that. Tell me what to change.")
+            .font(TaliseFont.body(14, weight: .regular))
+            .foregroundStyle(TaliseColor.fgMuted)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var doneBody: some View {
@@ -181,10 +216,16 @@ struct AgentIntentCard: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    private func slideTitle(_ plan: AgentPlanDTO) -> String {
+    private func acceptTitle(_ plan: AgentPlanDTO) -> String {
         plan.totalSendUsd > 0
-            ? "Slide to send \(TaliseFormat.usd2(plan.totalSendUsd))"
-            : "Slide to confirm"
+            ? "Accept · \(TaliseFormat.usd2(plan.totalSendUsd))"
+            : "Accept"
+    }
+
+    private func decline() {
+        guard stage != .running else { return }
+        error = nil
+        stage = .declined
     }
 
     // MARK: - Actions
@@ -225,13 +266,11 @@ struct AgentIntentCard: View {
             error = "Sign in again — your session needs a refresh."
             session.signOut()
             stage = .failed
-            resetSlider = true
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = APIError.honestMoneyError(error, fallback: "Couldn't complete that. Please try again.")
-            // Keep the plan visible so the user can slide to retry.
+            // Keep the plan visible so the user can tap Accept to retry.
             stage = .plan
-            resetSlider = true
         }
     }
 }
