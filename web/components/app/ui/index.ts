@@ -47,3 +47,6 @@ export type { FlagProps } from "./Flag";
 
 export { Segmented } from "./Segmented";
 export type { SegmentedProps, SegmentedOption } from "./Segmented";
+
+export { BackButton } from "./BackButton";
+export type { BackButtonProps } from "./BackButton";
