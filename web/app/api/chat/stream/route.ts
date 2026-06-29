@@ -29,6 +29,7 @@ import { getRecentActivity } from "@/lib/activity";
 import {
   buildMessages,
   streamDeepSeek,
+  deepSeekConfig,
   type ChatContext,
 } from "@/lib/chat/ai";
 
@@ -129,14 +130,11 @@ export async function POST(req: Request) {
   // Lets the iOS client exercise the SSE plumbing without a real
   // provider key. Used by the test-app.mts smoke suite + first-run
   // dev environments. Will not fire in prod since the env is set.
-  if (
-    !process.env.ZG_DEEPSEEK_V4_PROVIDER_URL ||
-    !process.env.ZG_DEEPSEEK_V4_API_KEY
-  ) {
+  if (!deepSeekConfig()) {
     const stub =
       "Chat is configured but the AI provider keys aren't set in this " +
-      "environment — set ZG_DEEPSEEK_V4_PROVIDER_URL and " +
-      "ZG_DEEPSEEK_V4_API_KEY to enable Talise's agent.";
+      "environment — set DEEPSEEK_API_KEY and DEEPSEEK_BASE_URL to enable " +
+      "Talise's agent.";
     const sseStream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(encodeSse({ type: "text", value: stub }));

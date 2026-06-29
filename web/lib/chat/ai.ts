@@ -1,15 +1,38 @@
 /**
- * DeepSeek V4 Pro via the 0G Compute network (OpenAI-compatible proxy).
+ * DeepSeek (OpenAI-compatible) — powers the Talise Agent.
  *
- * Same provider Talise's sibling project deeplens uses for its on-chain
- * agent. Configured via:
- *   ZG_DEEPSEEK_V4_PROVIDER_URL  — proxy base URL
- *   ZG_DEEPSEEK_V4_API_KEY       — bearer token
+ * Prefers the OFFICIAL DeepSeek API:
+ *   DEEPSEEK_BASE_URL  — e.g. https://api.deepseek.com
+ *   DEEPSEEK_API_KEY   — bearer token
+ *   DEEPSEEK_MODEL     — optional, defaults to "deepseek-v4-pro"
+ * Falls back to the legacy 0G Compute proxy vars (ZG_DEEPSEEK_V4_PROVIDER_URL /
+ * ZG_DEEPSEEK_V4_API_KEY) so existing deploys keep working.
  *
- * If either is missing, callers should fall back to an "AI is currently
+ * NOTE: deepseek-v4-pro is a REASONING model — it spends "reasoning_content"
+ * tokens (which we never surface to the user) before the visible answer, so
+ * max_tokens budgets must leave headroom for reasoning + the reply + the
+ * ---INTENT--- JSON, or the content channel comes back truncated/empty.
+ *
+ * If neither config is present, callers fall back to an "AI is currently
  * unavailable" message — never crash the page.
  */
-export const AI_MODEL = "deepseek-v4-pro";
+export const AI_MODEL = process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-pro";
+
+/**
+ * Resolve the DeepSeek endpoint + key (official DEEPSEEK_* first, then the
+ * legacy ZG_* proxy). Returns null when neither is configured.
+ */
+export function deepSeekConfig(): { baseUrl: string; apiKey: string } | null {
+  const baseUrl = (process.env.DEEPSEEK_BASE_URL || process.env.ZG_DEEPSEEK_V4_PROVIDER_URL || "").trim();
+  const apiKey = (process.env.DEEPSEEK_API_KEY || process.env.ZG_DEEPSEEK_V4_API_KEY || "").trim();
+  if (!baseUrl || !apiKey) return null;
+  return { baseUrl, apiKey };
+}
+
+/** Normalize a base URL into the full chat-completions endpoint. */
+function chatCompletionsUrl(baseUrl: string): string {
+  return `${baseUrl.replace(/\/$/, "").replace(/\/chat\/completions\/?$/, "")}/chat/completions`;
+}
 
 export const SYSTEM_PROMPT = `You are Talise — the agentic finance assistant for a borderless money app built on the Sui Dollar (USDsui). lowercase, concise, direct. you compose **Payment Intents**: short multi-step plans the user signs once.
 
@@ -150,24 +173,24 @@ export function buildMessages(
  * can surface a graceful message.
  */
 export async function callDeepSeek(messages: AiMessage[]): Promise<string> {
-  const url = process.env.ZG_DEEPSEEK_V4_PROVIDER_URL;
-  const key = process.env.ZG_DEEPSEEK_V4_API_KEY;
-  if (!url || !key) {
-    throw new Error("DeepSeek not configured (ZG_DEEPSEEK_V4_PROVIDER_URL / ZG_DEEPSEEK_V4_API_KEY missing)");
+  const cfg = deepSeekConfig();
+  if (!cfg) {
+    throw new Error("DeepSeek not configured (set DEEPSEEK_API_KEY + DEEPSEEK_BASE_URL)");
   }
 
-  const res = await fetch(`${url.replace(/\/$/, "")}/chat/completions`, {
+  const res = await fetch(chatCompletionsUrl(cfg.baseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
+      Authorization: `Bearer ${cfg.apiKey}`,
     },
     body: JSON.stringify({
       model: AI_MODEL,
       messages,
       stream: false,
       temperature: 0.4,
-      max_tokens: 800,
+      // Reasoning headroom: v4-pro spends tokens thinking before the answer.
+      max_tokens: 1500,
     }),
   });
 
@@ -197,31 +220,29 @@ export async function* streamDeepSeek(
   messages: AiMessage[],
   signal?: AbortSignal
 ): AsyncGenerator<string, void, void> {
-  const url = process.env.ZG_DEEPSEEK_V4_PROVIDER_URL;
-  const key = process.env.ZG_DEEPSEEK_V4_API_KEY;
-  if (!url || !key) {
-    throw new Error("DeepSeek not configured (ZG_DEEPSEEK_V4_PROVIDER_URL / ZG_DEEPSEEK_V4_API_KEY missing)");
+  const cfg = deepSeekConfig();
+  if (!cfg) {
+    throw new Error("DeepSeek not configured (set DEEPSEEK_API_KEY + DEEPSEEK_BASE_URL)");
   }
 
-  const res = await fetch(
-    `${url.replace(/\/$/, "").replace(/\/chat\/completions\/?$/, "")}/chat/completions`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-        Accept: "text/event-stream",
-      },
-      body: JSON.stringify({
-        model: AI_MODEL,
-        messages,
-        stream: true,
-        temperature: 0.4,
-        max_tokens: 1200,
-      }),
-      signal,
-    }
-  );
+  const res = await fetch(chatCompletionsUrl(cfg.baseUrl), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${cfg.apiKey}`,
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      messages,
+      stream: true,
+      temperature: 0.4,
+      // Reasoning headroom: v4-pro burns tokens on hidden reasoning_content
+      // before the visible answer + the ---INTENT--- JSON.
+      max_tokens: 2048,
+    }),
+    signal,
+  });
 
   if (!res.ok || !res.body) {
     const t = await res.text().catch(() => "");
