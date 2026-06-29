@@ -24,6 +24,10 @@ final class ChatViewModel {
 
     private var streamTask: Task<Void, Never>?
 
+    /// Bytes received on the last stream — used to distinguish a transport
+    /// failure (0 bytes) from a parse failure (>0 bytes) when a turn comes back empty.
+    private var lastStreamBytes = 0
+
     /// Un-stripped accumulator per in-flight assistant message. We keep the
     /// FULL raw stream (including the `---INTENT---…---END---` fence) here and
     /// derive the displayed `content` from it each delta — both so a fence
@@ -120,33 +124,30 @@ final class ChatViewModel {
                 return
             }
 
-            // SSE accumulator. A single event ends at the first blank
-            // line. Lines starting with `data:` carry the payload —
-            // we concatenate them across multi-line frames per the SSE
-            // spec, then JSON-decode.
-            var dataBuffer = ""
-            for try await line in bytes.lines {
-                if line.isEmpty {
-                    if !dataBuffer.isEmpty {
-                        await handleEventJSON(dataBuffer, assistantId: assistantId)
-                        dataBuffer = ""
-                    }
+            // Read the SSE body as RAW BYTES and split on the `\n\n` frame
+            // boundary — the same approach the working web client uses. The
+            // previous `bytes.lines` reader could silently miss every frame
+            // depending on how the response was chunked/buffered upstream
+            // (which is exactly what we saw: 200 OK but zero text extracted).
+            var frameBuf = Data()
+            var prev: UInt8 = 0
+            var byteCount = 0
+            let newline: UInt8 = 0x0A
+            for try await b in bytes {
+                byteCount += 1
+                if b == newline && prev == newline {
+                    await handleSseFrame(frameBuf, assistantId: assistantId)
+                    frameBuf.removeAll(keepingCapacity: true)
+                    prev = 0
                     continue
                 }
-                if line.hasPrefix("data:") {
-                    // Strip "data:" + at most one leading space.
-                    let after = line.index(line.startIndex, offsetBy: 5)
-                    var slice = line[after...]
-                    if slice.first == " " { slice = slice.dropFirst() }
-                    if !dataBuffer.isEmpty { dataBuffer += "\n" }
-                    dataBuffer += slice
-                }
-                // Other SSE field types (event:, id:, retry:) are not
-                // emitted by our backend; ignore them gracefully.
+                frameBuf.append(b)
+                prev = b
             }
-            if !dataBuffer.isEmpty {
-                await handleEventJSON(dataBuffer, assistantId: assistantId)
+            if !frameBuf.isEmpty {
+                await handleSseFrame(frameBuf, assistantId: assistantId)
             }
+            lastStreamBytes = byteCount
         } catch {
             if Task.isCancelled { return }
             finalizeWithError(assistantId: assistantId, message: error.localizedDescription)
@@ -155,6 +156,24 @@ final class ChatViewModel {
 
         // Stream ended cleanly (either via `done` event or EOF) ---------
         finalize(assistantId: assistantId)
+    }
+
+    /// Parse one SSE frame: take its `data:` lines, strip the prefix (+ one
+    /// optional space, + a trailing `\r`), concatenate, and JSON-decode.
+    private func handleSseFrame(_ frameData: Data, assistantId: UUID) async {
+        guard let frame = String(data: frameData, encoding: .utf8) else { return }
+        var datas: [String] = []
+        for raw in frame.split(separator: "\n", omittingEmptySubsequences: false) {
+            var line = String(raw)
+            if line.hasSuffix("\r") { line.removeLast() }
+            guard line.hasPrefix("data:") else { continue }
+            var payload = String(line.dropFirst(5))
+            if payload.first == " " { payload.removeFirst() }
+            datas.append(payload)
+        }
+        let payload = datas.joined(separator: "\n")
+        guard !payload.isEmpty, payload != "[DONE]" else { return }
+        await handleEventJSON(payload, assistantId: assistantId)
     }
 
     private func handleEventJSON(_ raw: String, assistantId: UUID) async {
@@ -236,7 +255,9 @@ final class ChatViewModel {
             // text + no intent. Show an honest, visible note rather than silently
             // removing it (which reads as a broken "nothing").
             if messages[idx].content.isEmpty && messages[idx].intent == nil {
-                messages[idx].content = "I didn't get a reply that time — please try again."
+                messages[idx].content = lastStreamBytes == 0
+                    ? "I didn't get a reply — nothing came back from the server. Try again."
+                    : "I got a response but couldn't read it. Try again."
             }
         }
         streamRaw[assistantId] = nil
