@@ -151,6 +151,34 @@ enum AgentExecutor {
                     line: "Claimed your \(displayVenue(venue)) rewards.",
                     kind: "claim_rewards", digest: sub.digest))
 
+            case "cash_out":
+                // Server loads the user's linked bank, creates the Linq order,
+                // and hands back the deposit wallet + exact amount to send. We
+                // sign a normal sponsored send to it; Linq pays the bank.
+                guard let amount = planned.amountUsd, amount > 0 else { continue }
+                struct CashoutBody: Encodable { let amountUsd: Double }
+                struct CashoutPrep: Decodable {
+                    let walletAddress: String
+                    let amountUsdsui: Double
+                    let amountNgn: Double?
+                    let bankLast4: String?
+                }
+                let prep: CashoutPrep = try await APIClient.shared.post(
+                    "/api/agent/cashout/prepare", body: CashoutBody(amountUsd: amount)
+                )
+                let sub = try await ZkLoginCoordinator.shared.signAndSubmitSend(
+                    to: prep.walletAddress,
+                    amountUsd: prep.amountUsdsui,
+                    intent: "Cash out \(TaliseFormat.usd2(prep.amountUsdsui)) to your bank"
+                )
+                postCompleted(direction: "sent", amountUsd: prep.amountUsdsui,
+                              counterparty: prep.walletAddress, counterpartyName: "Bank cash-out",
+                              venue: nil, digest: sub.digest)
+                let dest = prep.bankLast4.map { "your bank ••\($0)" } ?? "your bank"
+                results.append(AgentActionResult(
+                    line: "Cashed out \(TaliseFormat.usd2(prep.amountUsdsui)) to \(dest).",
+                    kind: "cash_out", amountUsd: prep.amountUsdsui, recipient: dest, digest: sub.digest))
+
             default:
                 // swap and any future kinds aren't executable from chat yet,
                 // skip rather than fail the whole plan.

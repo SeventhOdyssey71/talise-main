@@ -19,6 +19,7 @@ export type ChatStep =
   | { kind: "save"; amount: number; venue?: YieldVenueId }
   | { kind: "withdraw"; amount: number; venue?: YieldVenueId }
   | { kind: "claim_rewards" }
+  | { kind: "cash_out"; amount: number }
   | { kind: "check_balance" }
   | { kind: "check_yield" }
   | { kind: "show_activity"; limit?: number };
@@ -78,6 +79,8 @@ export function stepLabel(step: ChatStep): string {
     }
     case "claim_rewards":
       return "Claim rewards";
+    case "cash_out":
+      return `Cash out $${step.amount.toFixed(2)} to your bank`;
     case "check_balance":
       return "Show balance";
     case "check_yield":

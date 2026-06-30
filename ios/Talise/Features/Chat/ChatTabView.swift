@@ -224,7 +224,9 @@ struct ChatTabView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         } else {
-            Text(msg.content + (msg.streaming ? " ▍" : ""))
+            // Render the assistant's markdown so **bold**, links, and arrows
+            // show cleanly instead of literal asterisks.
+            Text(markdown(msg.content + (msg.streaming ? " ▍" : "")))
                 .font(TaliseFont.body(15.5, weight: .regular))
                 .foregroundStyle(TaliseColor.fg)
                 .lineSpacing(3)
@@ -232,6 +234,15 @@ struct ChatTabView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
+    }
+
+    /// Parse the assistant's inline markdown (bold/italic/links) while keeping
+    /// line breaks. Falls back to plain text if parsing fails.
+    private func markdown(_ s: String) -> AttributedString {
+        (try? AttributedString(
+            markdown: s,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )) ?? AttributedString(s)
     }
 
     /// Three staggered pulsing dots — the assistant "thinking" indicator.

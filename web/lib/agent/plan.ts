@@ -5,6 +5,8 @@ import { stepLabel, isReadOnly } from "@/lib/chat/intent";
 import { resolveRecipient } from "@/lib/suins";
 import { screenTransfer } from "@/lib/screening";
 import { checkSendAllowed } from "@/lib/send-limits";
+import { cashoutFeatureOpen, checkDailyOfframpCap } from "@/lib/linq";
+import { getPrimaryBankAccount, last4 } from "@/lib/bank-accounts";
 import type { User } from "@/lib/db";
 
 /**
@@ -118,6 +120,38 @@ export async function planIntent(user: User, steps: ChatStep[]): Promise<AgentPl
         status: "ok",
         resolved: r,
         amountUsd: amt,
+      });
+      continue;
+    }
+
+    // cash_out — move USDsui to the user's linked NGN bank (Linq off-ramp).
+    // Gated on the feature flag, a linked primary bank, and the daily cap.
+    if (step.kind === "cash_out") {
+      const amt = Number(step.amount);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        planned.push({ kind: step.kind, label, status: "needs_info", detail: "Enter a positive amount." });
+        continue;
+      }
+      if (!cashoutFeatureOpen()) {
+        planned.push({ kind: step.kind, label, status: "blocked", detail: "Cash out is paused right now." });
+        continue;
+      }
+      const bank = await getPrimaryBankAccount(user.id).catch(() => null);
+      if (!bank) {
+        planned.push({ kind: step.kind, label, status: "needs_info", detail: "Link a bank account first: Ramps, then Cash out." });
+        continue;
+      }
+      const cap = await checkDailyOfframpCap(user.id, amt).catch(() => null);
+      if (cap && !cap.ok) {
+        planned.push({ kind: step.kind, label, status: "blocked", detail: cap.error ?? `Capped at $${cap.max} a day.` });
+        continue;
+      }
+      planned.push({
+        kind: step.kind,
+        label: `Cash out $${amt.toFixed(2)} to your bank`,
+        status: "ok",
+        amountUsd: amt,
+        detail: `To your bank account ending ${last4(bank.account_number)}`,
       });
       continue;
     }

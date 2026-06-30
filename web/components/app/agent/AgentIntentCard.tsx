@@ -158,6 +158,20 @@ export function AgentIntentCard({ intent }: { intent: ChatIntent }) {
             lines.push("Claimed your NAVI rewards.");
             break;
           }
+          case "cash_out": {
+            const amount = p.amountUsd;
+            if (!amount || amount <= 0) continue;
+            // Server loads the linked bank + creates the Linq order; we sign a
+            // sponsored send to the deposit wallet and Linq pays the bank.
+            const prep = await api<{ walletAddress: string; amountUsdsui: number; bankLast4?: string }>(
+              "/api/agent/cashout/prepare",
+              { method: "POST", body: { amountUsd: amount } }
+            );
+            await send({ to: prep.walletAddress, amountUsd: prep.amountUsdsui });
+            const dest = prep.bankLast4 ? `your bank ending ${prep.bankLast4}` : "your bank";
+            lines.push(`Cashed out ${formatUsd(prep.amountUsdsui)} to ${dest}.`);
+            break;
+          }
           default:
             // swap (and any future kind) isn't executable from chat yet — skip
             // rather than fail the whole plan.
