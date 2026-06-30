@@ -89,6 +89,14 @@ final class ChatViewModel {
         ChatConversationStore.shared.saveAll(conversations)
     }
 
+    /// Record a confirmed intent's outcome on its assistant turn and persist,
+    /// so reopening this chat shows the receipt rather than re-prompting.
+    func recordExecution(messageId: UUID, results: [AgentActionResult]) {
+        guard let idx = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        messages[idx].executed = results
+        persistCurrent()
+    }
+
     /// User tapped a suggested-prompt chip. Drop the prompt into the
     /// input field rather than auto-submitting — gives the user a chance
     /// to edit the wording before sending.

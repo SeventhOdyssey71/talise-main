@@ -28,18 +28,26 @@ struct ChatMessage: Identifiable, Codable, Hashable {
     /// plain conversational turns. Decoded as nil for older persisted history.
     var intent: AgentIntent?
 
+    /// Outcome of an executed intent (one entry per money step). Set once the
+    /// user confirms and the plan runs; persisted with the transcript so
+    /// reopening a saved chat shows the "Done" receipt rather than re-prompting
+    /// to confirm a transfer that already happened. Nil until executed.
+    var executed: [AgentActionResult]?
+
     init(
         id: UUID = UUID(),
         role: Role,
         content: String,
         streaming: Bool = false,
-        intent: AgentIntent? = nil
+        intent: AgentIntent? = nil,
+        executed: [AgentActionResult]? = nil
     ) {
         self.id = id
         self.role = role
         self.content = content
         self.streaming = streaming
         self.intent = intent
+        self.executed = executed
     }
 }
 

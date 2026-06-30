@@ -12,6 +12,13 @@ import SwiftUI
 /// `PayTeamView` (rampCard, mint accept button, honest error copy).
 struct AgentIntentCard: View {
     let intent: AgentIntent
+    /// Persisted outcome from a prior run of this same turn. When present, the
+    /// card opens straight to the "Done" receipt instead of re-fetching a plan
+    /// and re-prompting to confirm a transfer that already happened.
+    var executed: [AgentActionResult]? = nil
+    /// Called once a fresh confirmation completes so the transcript can persist
+    /// the outcome (and show the receipt on the next reopen).
+    var onExecuted: ([AgentActionResult]) -> Void = { _ in }
 
     @Environment(AppSession.self) private var session
 
@@ -269,6 +276,13 @@ struct AgentIntentCard: View {
     // MARK: - Actions
 
     private func start() async {
+        // Already ran in a prior session — open straight to the receipt and
+        // never re-fetch a plan or re-prompt for a transfer that's done.
+        if let executed, !executed.isEmpty {
+            actionResults = executed
+            stage = .done
+            return
+        }
         if intent.isReadOnlyOnly {
             do {
                 resultLines = try await AgentExecutor.runReadOnly(intent.steps)
@@ -300,6 +314,9 @@ struct AgentIntentCard: View {
         do {
             actionResults = try await AgentExecutor.execute(plan: plan, intent: intent)
             stage = .done
+            // Persist the outcome on the transcript so a reopen shows this
+            // receipt instead of the confirm buttons again.
+            if !actionResults.isEmpty { onExecuted(actionResults) }
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
             error = "Sign in again. Your session needs a refresh."
             session.signOut()

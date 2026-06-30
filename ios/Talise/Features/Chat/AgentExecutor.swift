@@ -1,9 +1,11 @@
 import Foundation
 
 /// One executed step's outcome: a human line plus the structured bits needed to
-/// render a shareable receipt (amount, who, on-chain digest).
-struct AgentActionResult: Identifiable, Hashable {
-    let id = UUID()
+/// render a shareable receipt (amount, who, on-chain digest). `Codable` so a
+/// completed turn persists with its conversation — reopening a saved chat shows
+/// the receipt again instead of re-prompting to confirm.
+struct AgentActionResult: Identifiable, Hashable, Codable {
+    var id = UUID()
     let line: String
     var kind: String = ""
     var amountUsd: Double? = nil
