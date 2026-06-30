@@ -62,11 +62,14 @@ struct AgentReceiptSheet: View {
     private var slip: some View {
         VStack(spacing: 0) {
             VStack(spacing: 14) {
-                Text("TALISE")
-                    .font(.system(size: 20, weight: .heavy, design: .monospaced))
-                    .tracking(6)
+                // Brand mark (tinted to the receipt ink) instead of a text wordmark.
+                Image("TaliseLogo")
+                    .resizable()
+                    .renderingMode(.template)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 34, height: 31)
                     .foregroundStyle(ink)
-                    .padding(.top, 26)
+                    .padding(.top, 28)
                 Text("PAYMENT RECEIPT")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .tracking(3)

@@ -234,7 +234,7 @@ struct ChatTabView: View {
             // Render the assistant's markdown so **bold**, links, and arrows
             // show cleanly instead of literal asterisks.
             Text(markdown(msg.content + (msg.streaming ? " ▍" : "")))
-                .font(TaliseFont.body(15.5, weight: .regular))
+                .font(TaliseFont.body(15.5, weight: .light))
                 .foregroundStyle(TaliseColor.fg)
                 .lineSpacing(3)
                 .multilineTextAlignment(.leading)
