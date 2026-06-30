@@ -167,7 +167,7 @@ final class ChatViewModel {
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 let snippet = String(data: data.prefix(240), encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let detail = snippet.isEmpty ? "" : " — \(snippet)"
+                let detail = snippet.isEmpty ? "" : ": \(snippet)"
                 finalizeWithError(
                     assistantId: assistantId,
                     message: "server returned \(http.statusCode)\(detail)"
@@ -289,7 +289,7 @@ final class ChatViewModel {
             // removing it (which reads as a broken "nothing").
             if messages[idx].content.isEmpty && messages[idx].intent == nil {
                 messages[idx].content = lastStreamBytes == 0
-                    ? "I didn't get a reply — nothing came back from the server. Try again."
+                    ? "I didn't get a reply. Nothing came back from the server, try again."
                     : "I got a response but couldn't read it. Try again."
             }
         }
@@ -302,7 +302,7 @@ final class ChatViewModel {
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             messages[idx].streaming = false
             if messages[idx].content.isEmpty {
-                messages[idx].content = "Couldn't reach the assistant — \(message)."
+                messages[idx].content = "Couldn't reach the assistant. \(message)"
             }
         }
         lastError = message

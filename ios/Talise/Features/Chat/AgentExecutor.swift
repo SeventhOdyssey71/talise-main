@@ -27,7 +27,7 @@ enum AgentExecutor {
                     if earned > 0 { s += " · \(TaliseFormat.usd2(earned)) earned so far" }
                     lines.append(s)
                 } else if let best = cmp.best {
-                    lines.append("Nothing saved yet — best rate is \(String(format: "%.1f", best.apy))% APY.")
+                    lines.append("Nothing saved yet. Best rate is \(String(format: "%.1f", best.apy))% APY.")
                 } else {
                     lines.append("Nothing saved yet.")
                 }

@@ -59,13 +59,17 @@ struct ChatTabView: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             AgentMascot(size: 34)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(greeting)
-                    .font(TaliseFont.heading(23, weight: .medium))
+                    .font(TaliseFont.heading(19, weight: .medium))
                     .foregroundStyle(TaliseColor.fg)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 Text("Let's make sense of your numbers.")
-                    .font(TaliseFont.body(13.5, weight: .light))
+                    .font(TaliseFont.body(13, weight: .light))
                     .foregroundStyle(TaliseColor.fgMuted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             Spacer(minLength: 8)
             // A little history (recent chats) + close.
@@ -190,12 +194,12 @@ struct ChatTabView: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(msg.content)
-                    .font(TaliseFont.body(15, weight: .regular))
-                    .foregroundStyle(Color.black)
+                    .font(TaliseFont.body(15, weight: .medium))
+                    .foregroundStyle(TaliseColor.bg)
                     .multilineTextAlignment(.leading)
                     .padding(.vertical, 10)
                     .padding(.horizontal, 14)
-                    .background(TaliseColor.accent)
+                    .background(TaliseColor.greenMint)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         } else {

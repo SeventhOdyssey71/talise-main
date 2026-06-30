@@ -236,7 +236,7 @@ export function AgentIntentCard({ intent }: { intent: ChatIntent }) {
                 </PrimaryButton>
               </div>
               <p className="text-center font-mono text-[10px] tracking-[0.02em] text-[#3d7a29]">
-                No network fee — Talise sponsors the gas.
+                No network fee. Talise sponsors the gas.
               </p>
             </>
           )}
@@ -244,7 +244,7 @@ export function AgentIntentCard({ intent }: { intent: ChatIntent }) {
       )}
 
       {stage === "declined" && (
-        <p className="text-[13px] text-[#3a5230]">Okay — I didn&apos;t run that. Tell me what to change.</p>
+        <p className="text-[13px] text-[#3a5230]">Okay, I didn&apos;t run that. Tell me what to change.</p>
       )}
 
       {stage === "done" && (
@@ -333,7 +333,7 @@ async function runReadOnly(
           if (cmp.best) s += ` up to ${cmp.best.apy.toFixed(1)}% APY`;
           lines.push(s);
         } else if (cmp.best) {
-          lines.push(`Nothing saved yet — best rate is ${cmp.best.apy.toFixed(1)}% APY.`);
+          lines.push(`Nothing saved yet. Best rate is ${cmp.best.apy.toFixed(1)}% APY.`);
         } else {
           lines.push("Nothing saved yet.");
         }

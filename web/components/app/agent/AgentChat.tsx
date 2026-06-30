@@ -250,7 +250,7 @@ export function AgentChat() {
       finalize(assistantId, raw, convoId);
     } catch {
       if (ctrl.signal.aborted) return;
-      finalizeError(assistantId, "I lost the connection mid-thought — try that again.");
+      finalizeError(assistantId, "I lost the connection mid-thought, try that again.");
     } finally {
       if (abortRef.current === ctrl) abortRef.current = null;
       setStreaming(false);
@@ -335,7 +335,7 @@ export function AgentChat() {
               Ask anything about your money
             </p>
             <p className="mt-1.5 max-w-xs text-[14px] text-[#3a5230]">
-              Check balances, send a payment, or move cash into savings — just type it.
+              Check balances, send a payment, or move cash into savings. Just type it.
             </p>
           </div>
         ) : (

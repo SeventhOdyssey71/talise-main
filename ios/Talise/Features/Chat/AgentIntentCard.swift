@@ -146,7 +146,7 @@ struct AgentIntentCard: View {
     }
 
     private var declinedBody: some View {
-        Text("Okay — I didn't run that. Tell me what to change.")
+        Text("Okay, I didn't run that. Tell me what to change.")
             .font(TaliseFont.body(14, weight: .regular))
             .foregroundStyle(TaliseColor.fgMuted)
             .fixedSize(horizontal: false, vertical: true)
@@ -209,7 +209,7 @@ struct AgentIntentCard: View {
         HStack(spacing: 7) {
             Image(systemName: "bolt.fill")
                 .font(.system(size: 10, weight: .medium)).foregroundStyle(TaliseColor.greenMint)
-            Text("No network fee — Talise sponsors the gas.")
+            Text("No network fee. Talise sponsors the gas.")
                 .font(TaliseFont.mono(10, weight: .light)).kerning(0.2)
                 .foregroundStyle(TaliseColor.fgDim)
         }
@@ -263,7 +263,7 @@ struct AgentIntentCard: View {
             resultLines = try await AgentExecutor.execute(plan: plan, intent: intent)
             stage = .done
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
-            error = "Sign in again — your session needs a refresh."
+            error = "Sign in again. Your session needs a refresh."
             session.signOut()
             stage = .failed
         } catch {

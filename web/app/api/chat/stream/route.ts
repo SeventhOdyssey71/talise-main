@@ -32,6 +32,7 @@ import {
   deepSeekConfig,
   type ChatContext,
 } from "@/lib/chat/ai";
+import { FX, defaultCurrency } from "@/lib/fx";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,6 +101,8 @@ export async function POST(req: Request) {
     getRecentActivity(user.sui_address, 5, { includeNonTalise: true })
       .catch(() => []),
   ]);
+  // The user's display currency (geo/settings later; NGN default for now).
+  const agentCurrency = defaultCurrency();
   const context: ChatContext = {
     address: user.sui_address,
     usdsui: usd.usdsui,
@@ -113,6 +116,10 @@ export async function POST(req: Request) {
     })),
     bestVenue: yields?.best?.id,
     recentTxDigests: recentTxs.map((e) => e.digest).slice(0, 5),
+    // Talise's own FX rate so the agent never guesses a market rate when a user
+    // talks in their local currency ("send 1000 naira").
+    localCurrency: agentCurrency,
+    localPerUsd: FX[agentCurrency],
   };
 
   const conversation = incoming
