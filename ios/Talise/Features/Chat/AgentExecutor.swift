@@ -12,6 +12,8 @@ struct AgentActionResult: Identifiable, Hashable, Codable {
     var recipient: String? = nil
     var venue: String? = nil
     var digest: String? = nil
+    /// Shareable payment link (for a `request` step). nil for money steps.
+    var link: String? = nil
 }
 
 /// Runs a confirmed Talise Agent plan — the ONLY place the agent path moves
@@ -180,6 +182,22 @@ enum AgentExecutor {
                 results.append(AgentActionResult(
                     line: "Cashed out \(TaliseFormat.usd2(prep.amountUsdsui)) to \(dest).",
                     kind: "cash_out", amountUsd: prep.amountUsdsui, recipient: dest, digest: sub.digest))
+
+            case "request":
+                // Mint a shareable payment link. No signing, no money moves —
+                // we just hit the request rail and hand back the public link.
+                let amount = planned.amountUsd ?? step?.amount ?? 0
+                guard amount > 0 else { continue }
+                struct ReqBody: Encodable { let amountUsd: Double; let requesterNote: String? }
+                struct ReqResp: Decodable { let payUrl: String? }
+                let resp: ReqResp = try await APIClient.shared.post(
+                    "/api/requests", body: ReqBody(amountUsd: amount, requesterNote: step?.note)
+                )
+                let url = resp.payUrl ?? ""
+                results.append(AgentActionResult(
+                    line: url.isEmpty ? "Created a payment link for \(TaliseFormat.usd2(amount))."
+                                      : "Payment link ready for \(TaliseFormat.usd2(amount)).",
+                    kind: "request", amountUsd: amount, link: url.isEmpty ? nil : url))
 
             default:
                 // swap and any future kinds aren't executable from chat yet,

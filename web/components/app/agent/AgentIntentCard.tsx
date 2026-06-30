@@ -172,6 +172,21 @@ export function AgentIntentCard({ intent }: { intent: ChatIntent }) {
             lines.push(`Cashed out ${formatUsd(prep.amountUsdsui)} to ${dest}.`);
             break;
           }
+          case "request": {
+            const amount = p.amountUsd;
+            if (!amount || amount <= 0) continue;
+            // No signing — just mint a shareable payment link via the existing
+            // request rail. Copy it to the clipboard for an easy share.
+            const note = step && step.kind === "request" ? step.note : undefined;
+            const res = await api<{ payUrl?: string }>(
+              "/api/requests",
+              { method: "POST", body: { amountUsd: amount, requesterNote: note } }
+            );
+            const url = res.payUrl ?? "";
+            if (url) { try { await navigator.clipboard.writeText(url); } catch { /* clipboard blocked */ } }
+            lines.push(url ? `Payment link ready (copied): ${url}` : `Created a payment link for ${formatUsd(amount)}.`);
+            break;
+          }
           default:
             // swap (and any future kind) isn't executable from chat yet — skip
             // rather than fail the whole plan.

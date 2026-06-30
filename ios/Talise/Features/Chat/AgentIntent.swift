@@ -17,6 +17,13 @@ struct AgentStep: Codable, Hashable {
     var to: String?
     var venue: String?
     var limit: Int?
+    /// Optional note on a `request` (payment-link) step.
+    var note: String?
+    /// The exact amount the user said in their LOCAL currency + its ISO code.
+    /// When present, the server computes the precise usd so "1000 naira" lands
+    /// back at ~₦1000 (mirrors web ChatStep). Round-trips through /api/agent/plan.
+    var localAmount: Double?
+    var localCurrency: String?
 
     /// Read-only steps need no signature — the client runs them inline.
     /// Matches `isReadOnly` in `web/lib/chat/intent.ts`.

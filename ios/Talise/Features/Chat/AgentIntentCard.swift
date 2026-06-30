@@ -189,6 +189,19 @@ struct AgentIntentCard: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    // A payment-link (request) step gets a "Share link" chip.
+                    if let link = r.link, let url = URL(string: link) {
+                        ShareLink(item: url) {
+                            HStack(spacing: 7) {
+                                Image(systemName: "link").font(.system(size: 12, weight: .semibold))
+                                Text("Share link").font(TaliseFont.body(13, weight: .semibold))
+                            }
+                            .foregroundStyle(TaliseColor.bg)
+                            .padding(.horizontal, 14).padding(.vertical, 9)
+                            .background(Capsule().fill(TaliseColor.greenMint))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
         }

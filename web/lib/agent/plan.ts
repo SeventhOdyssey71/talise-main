@@ -7,7 +7,18 @@ import { screenTransfer } from "@/lib/screening";
 import { checkSendAllowed } from "@/lib/send-limits";
 import { cashoutFeatureOpen, checkDailyOfframpCap } from "@/lib/linq";
 import { getPrimaryBankAccount, last4 } from "@/lib/bank-accounts";
+import { displayRatePerUsd } from "@/lib/display-fx";
+import { FX, type Currency } from "@/lib/fx";
 import type { User } from "@/lib/db";
+
+const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/** Compact local-currency label, e.g. "₦1,000". */
+function localLabel(amount: number, currency: string): string {
+  const sym: Record<string, string> = { NGN: "₦", USD: "$", GHS: "₵", KES: "KSh", ZAR: "R" };
+  const s = sym[currency.toUpperCase()] ?? "";
+  return `${s}${Math.round(amount).toLocaleString()}${s ? "" : " " + currency.toUpperCase()}`;
+}
 
 /**
  * The Talise Agent's safety brain: take a PROPOSED intent (steps the LLM emitted)
@@ -85,6 +96,36 @@ export async function planIntent(user: User, steps: ChatStep[]): Promise<AgentPl
   const screenByAddr = new Map<string, boolean>();
   screenInputs.forEach((r, k) => screenByAddr.set(r.address.toLowerCase(), screens[k].allow));
 
+  // Resolve a live rate for every local currency the agent attached, so we can
+  // compute the EXACT usd from what the user actually said ("1000 naira"),
+  // instead of trusting a cents-rounded `amount` that drifts on the round-trip.
+  const localCcys = new Set<string>();
+  for (const s of steps) {
+    const la = (s as { localAmount?: number }).localAmount;
+    const lc = (s as { localCurrency?: string }).localCurrency;
+    if (typeof la === "number" && la > 0 && lc) localCcys.add(lc.toUpperCase());
+  }
+  const rateByCcy = new Map<string, number>();
+  await Promise.all(
+    [...localCcys].map(async (ccy) => {
+      if (!(ccy in FX)) return; // only known Talise currencies
+      const rate = await displayRatePerUsd(ccy as Currency).catch(() => null);
+      if (rate && rate > 0) rateByCcy.set(ccy, rate);
+    })
+  );
+
+  /** Exact usd for a step: localAmount/rate at full precision when present, else `amount`. */
+  function resolveUsd(step: ChatStep): { usd: number; local?: { amount: number; currency: string } } {
+    const la = (step as { localAmount?: number }).localAmount;
+    const lc = (step as { localCurrency?: string }).localCurrency?.toUpperCase();
+    const fallback = Number((step as { amount?: number }).amount);
+    if (typeof la === "number" && la > 0 && lc) {
+      const rate = rateByCcy.get(lc);
+      if (rate && rate > 0) return { usd: r6(la / rate), local: { amount: la, currency: lc } };
+    }
+    return { usd: fallback };
+  }
+
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     const label = stepLabel(step);
@@ -95,7 +136,7 @@ export async function planIntent(user: User, steps: ChatStep[]): Promise<AgentPl
     }
 
     if (step.kind === "send") {
-      const amt = Number(step.amount);
+      const { usd: amt, local } = resolveUsd(step);
       if (!Number.isFinite(amt) || amt <= 0) {
         planned.push({ kind: step.kind, label, status: "needs_info", detail: "Enter a positive amount." });
         continue;
@@ -116,7 +157,9 @@ export async function planIntent(user: User, steps: ChatStep[]): Promise<AgentPl
       totalSendUsd += amt;
       planned.push({
         kind: step.kind,
-        label: `Send $${amt.toFixed(2)} → ${r.displayName}`,
+        label: local
+          ? `Send ${localLabel(local.amount, local.currency)} (~$${amt.toFixed(2)}) → ${r.displayName}`
+          : `Send $${amt.toFixed(2)} → ${r.displayName}`,
         status: "ok",
         resolved: r,
         amountUsd: amt,
@@ -127,7 +170,7 @@ export async function planIntent(user: User, steps: ChatStep[]): Promise<AgentPl
     // cash_out — move USDsui to the user's linked NGN bank (Linq off-ramp).
     // Gated on the feature flag, a linked primary bank, and the daily cap.
     if (step.kind === "cash_out") {
-      const amt = Number(step.amount);
+      const { usd: amt, local } = resolveUsd(step);
       if (!Number.isFinite(amt) || amt <= 0) {
         planned.push({ kind: step.kind, label, status: "needs_info", detail: "Enter a positive amount." });
         continue;
@@ -148,7 +191,9 @@ export async function planIntent(user: User, steps: ChatStep[]): Promise<AgentPl
       }
       planned.push({
         kind: step.kind,
-        label: `Cash out $${amt.toFixed(2)} to your bank`,
+        label: local
+          ? `Cash out ${localLabel(local.amount, local.currency)} (~$${amt.toFixed(2)}) to your bank`
+          : `Cash out $${amt.toFixed(2)} to your bank`,
         status: "ok",
         amountUsd: amt,
         detail: `To your bank account ending ${last4(bank.account_number)}`,
@@ -156,8 +201,27 @@ export async function planIntent(user: User, steps: ChatStep[]): Promise<AgentPl
       continue;
     }
 
+    // request — create a shareable payment link (no signing, no money moves).
+    if (step.kind === "request") {
+      const { usd: amt, local } = resolveUsd(step);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        planned.push({ kind: step.kind, label, status: "needs_info", detail: "How much should the link be for?" });
+        continue;
+      }
+      planned.push({
+        kind: step.kind,
+        label: local
+          ? `Request ${localLabel(local.amount, local.currency)} (~$${amt.toFixed(2)})${step.note ? ` for ${step.note}` : ""}`
+          : `Request $${amt.toFixed(2)}${step.note ? ` for ${step.note}` : ""}`,
+        status: "ok",
+        amountUsd: amt,
+        detail: "Creates a shareable payment link.",
+      });
+      continue;
+    }
+
     // save / withdraw / swap / claim_rewards — amount sanity only (signed client-side).
-    const amt = "amount" in step ? Number((step as { amount?: number }).amount) : 0;
+    const { usd: amt } = resolveUsd(step);
     if (step.kind !== "claim_rewards" && (!Number.isFinite(amt) || amt <= 0)) {
       planned.push({ kind: step.kind, label, status: "needs_info", detail: "Enter a positive amount." });
       continue;
