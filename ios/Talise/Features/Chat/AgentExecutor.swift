@@ -1,5 +1,17 @@
 import Foundation
 
+/// One executed step's outcome: a human line plus the structured bits needed to
+/// render a shareable receipt (amount, who, on-chain digest).
+struct AgentActionResult: Identifiable, Hashable {
+    let id = UUID()
+    let line: String
+    var kind: String = ""
+    var amountUsd: Double? = nil
+    var recipient: String? = nil
+    var venue: String? = nil
+    var digest: String? = nil
+}
+
 /// Runs a confirmed Talise Agent plan — the ONLY place the agent path moves
 /// money. Read-only steps fetch + format inline (no signature); write steps
 /// (`ok` only) call the same prepare + sign endpoints the manual flows use, so
@@ -51,8 +63,8 @@ enum AgentExecutor {
     /// the venue / recipient fallback from it since the plan response doesn't
     /// echo those. Returns one confirmation line per executed step. Throws on
     /// the first failure (the card surfaces it via `honestMoneyError`).
-    static func execute(plan: AgentPlanDTO, intent: AgentIntent) async throws -> [String] {
-        var lines: [String] = []
+    static func execute(plan: AgentPlanDTO, intent: AgentIntent) async throws -> [AgentActionResult] {
+        var results: [AgentActionResult] = []
         let steps = intent.steps
         for (idx, planned) in plan.steps.enumerated() {
             guard planned.isOk else { continue }
@@ -62,7 +74,7 @@ enum AgentExecutor {
             case "send":
                 // Defense-in-depth: a send executes ONLY against the
                 // server-resolved, screened recipient + the server-validated
-                // amount from the plan — never the model's raw proposal
+                // amount from the plan, never the model's raw proposal
                 // (step.recipient / step.amount). If the server didn't resolve
                 // both for an "ok" step, skip it rather than sign LLM-supplied
                 // money movement.
@@ -77,7 +89,9 @@ enum AgentExecutor {
                 postCompleted(direction: "sent", amountUsd: amount,
                               counterparty: to, counterpartyName: name, venue: nil,
                               digest: sub.digest)
-                lines.append("Sent \(TaliseFormat.usd2(amount)) to \(name ?? shortAddr(to)).")
+                results.append(AgentActionResult(
+                    line: "Sent \(TaliseFormat.usd2(amount)) to \(name ?? shortAddr(to)).",
+                    kind: "send", amountUsd: amount, recipient: name ?? shortAddr(to), digest: sub.digest))
 
             case "save":
                 let amount = planned.amountUsd ?? step?.amount ?? 0
@@ -95,7 +109,9 @@ enum AgentExecutor {
                 postCompleted(direction: "invest", amountUsd: amount,
                               counterparty: nil, counterpartyName: nil, venue: venue,
                               digest: sub.digest)
-                lines.append("Saved \(TaliseFormat.usd2(amount)) into \(displayVenue(venue)).")
+                results.append(AgentActionResult(
+                    line: "Saved \(TaliseFormat.usd2(amount)) into \(displayVenue(venue)).",
+                    kind: "save", amountUsd: amount, recipient: displayVenue(venue), digest: sub.digest))
 
             case "withdraw":
                 let amount = planned.amountUsd ?? step?.amount ?? 0
@@ -113,7 +129,9 @@ enum AgentExecutor {
                 postCompleted(direction: "withdraw", amountUsd: amount,
                               counterparty: nil, counterpartyName: nil, venue: venue,
                               digest: sub.digest)
-                lines.append("Withdrew \(TaliseFormat.usd2(amount)) from \(displayVenue(venue)).")
+                results.append(AgentActionResult(
+                    line: "Withdrew \(TaliseFormat.usd2(amount)) from \(displayVenue(venue)).",
+                    kind: "withdraw", amountUsd: amount, recipient: displayVenue(venue), digest: sub.digest))
 
             case "claim_rewards":
                 let venue = step?.venue ?? "navi"
@@ -129,15 +147,17 @@ enum AgentExecutor {
                 postCompleted(direction: "withdraw", amountUsd: 0,
                               counterparty: nil, counterpartyName: nil, venue: venue,
                               digest: sub.digest)
-                lines.append("Claimed your \(displayVenue(venue)) rewards.")
+                results.append(AgentActionResult(
+                    line: "Claimed your \(displayVenue(venue)) rewards.",
+                    kind: "claim_rewards", digest: sub.digest))
 
             default:
-                // swap and any future kinds aren't executable from chat yet —
+                // swap and any future kinds aren't executable from chat yet,
                 // skip rather than fail the whole plan.
                 break
             }
         }
-        return lines
+        return results
     }
 
     // MARK: - Helpers

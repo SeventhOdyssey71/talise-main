@@ -19,7 +19,9 @@ struct AgentIntentCard: View {
 
     @State private var stage: Stage = .loading
     @State private var plan: AgentPlanDTO?
-    @State private var resultLines: [String] = []
+    @State private var resultLines: [String] = []      // read-only result lines
+    @State private var actionResults: [AgentActionResult] = []  // executed money steps
+    @State private var receiptFor: AgentActionResult?  // which result's receipt is open
     @State private var error: String?
 
     var body: some View {
@@ -153,7 +155,7 @@ struct AgentIntentCard: View {
     }
 
     private var doneBody: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 18)).foregroundStyle(TaliseColor.greenMint)
@@ -161,12 +163,48 @@ struct AgentIntentCard: View {
                     .font(TaliseFont.heading(16, weight: .medium))
                     .foregroundStyle(TaliseColor.fg)
             }
-            ForEach(Array(resultLines.enumerated()), id: \.offset) { _, line in
-                Text(line)
-                    .font(TaliseFont.body(14, weight: .regular))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+            ForEach(actionResults) { r in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(r.line)
+                        .font(TaliseFont.body(14, weight: .regular))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    // A confirmed on-chain money step gets a "Share receipt" chip.
+                    if r.digest != nil, let amt = r.amountUsd, amt > 0 {
+                        Button { receiptFor = r } label: {
+                            HStack(spacing: 7) {
+                                Image(systemName: "square.and.arrow.up").font(.system(size: 12, weight: .semibold))
+                                Text("Share receipt").font(TaliseFont.body(13, weight: .semibold))
+                            }
+                            .foregroundStyle(TaliseColor.bg)
+                            .padding(.horizontal, 14).padding(.vertical, 9)
+                            .background(Capsule().fill(TaliseColor.greenMint))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
+        }
+        .sheet(item: $receiptFor) { r in
+            AgentReceiptSheet(
+                amountUsd: r.amountUsd ?? 0,
+                recipient: r.recipient ?? "",
+                digest: r.digest ?? "",
+                title: receiptTitle(r.kind)
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(TaliseColor.bg)
+        }
+    }
+
+    private func receiptTitle(_ kind: String) -> String {
+        switch kind {
+        case "send": return "Sent"
+        case "save": return "Saved"
+        case "withdraw": return "Withdrew"
+        case "claim_rewards": return "Claimed"
+        default: return "Done"
         }
     }
 
@@ -260,7 +298,7 @@ struct AgentIntentCard: View {
         stage = .running
         error = nil
         do {
-            resultLines = try await AgentExecutor.execute(plan: plan, intent: intent)
+            actionResults = try await AgentExecutor.execute(plan: plan, intent: intent)
             stage = .done
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
             error = "Sign in again. Your session needs a refresh."
