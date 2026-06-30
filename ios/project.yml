@@ -12,7 +12,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "4"
+    CURRENT_PROJECT_VERSION: "5"
     # Signing — automatic, tied to the developer's Team. Xcode generates the
     # distribution cert + provisioning profiles on Archive → Distribute when
     # signed in with this Team (requires an active Apple Developer Program

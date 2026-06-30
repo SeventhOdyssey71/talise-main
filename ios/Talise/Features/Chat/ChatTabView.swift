@@ -144,6 +144,9 @@ struct ChatTabView: View {
                 // Newest tokens trickling in — keep the tail pinned.
                 proxy.scrollTo(scrollAnchorId, anchor: .bottom)
             }
+            // Tap anywhere in the transcript, or drag it, to dismiss the keyboard.
+            .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(TapGesture().onEnded { inputFocused = false })
         }
     }
 
@@ -325,12 +328,19 @@ struct ChatTabView: View {
     }
 
     /// Parse the assistant's inline markdown (bold/italic/links) while keeping
-    /// line breaks. Falls back to plain text if parsing fails.
+    /// line breaks. Falls back to plain text if parsing fails. Also strips any
+    /// em/en dashes the model still slips in (brand rule: no — or –) so they
+    /// never reach the screen, regardless of the prompt.
     private func markdown(_ s: String) -> AttributedString {
-        (try? AttributedString(
-            markdown: s,
+        let cleaned = s
+            .replacingOccurrences(of: " — ", with: ", ")
+            .replacingOccurrences(of: " – ", with: ", ")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+        return (try? AttributedString(
+            markdown: cleaned,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )) ?? AttributedString(s)
+        )) ?? AttributedString(cleaned)
     }
 
     /// Three staggered pulsing dots — the assistant "thinking" indicator.
