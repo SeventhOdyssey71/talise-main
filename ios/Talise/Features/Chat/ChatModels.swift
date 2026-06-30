@@ -34,13 +34,18 @@ struct ChatMessage: Identifiable, Codable, Hashable {
     /// to confirm a transfer that already happened. Nil until executed.
     var executed: [AgentActionResult]?
 
+    /// When the turn was created — shown as a small timestamp under the bubble.
+    /// Optional so older persisted history (without the field) still decodes.
+    var date: Date?
+
     init(
         id: UUID = UUID(),
         role: Role,
         content: String,
         streaming: Bool = false,
         intent: AgentIntent? = nil,
-        executed: [AgentActionResult]? = nil
+        executed: [AgentActionResult]? = nil,
+        date: Date? = Date()
     ) {
         self.id = id
         self.role = role
@@ -48,6 +53,7 @@ struct ChatMessage: Identifiable, Codable, Hashable {
         self.streaming = streaming
         self.intent = intent
         self.executed = executed
+        self.date = date
     }
 }
 
