@@ -44,7 +44,6 @@ import {
 } from "@hugeicons/core-free-icons";
 import { useMe, useToast } from "@/components/app";
 import { parseAssistantMessage, type ChatIntent } from "@/lib/chat/intent";
-import { recallLines, captureMemoryBlock, captureAndPersist, stripMemoryBlock } from "@/lib/agent/memory-client";
 import { AgentIntentCard } from "./AgentIntentCard";
 import {
   loadConversation,
@@ -208,15 +207,11 @@ export function AgentChat() {
     abortRef.current = ctrl;
     let raw = "";
     try {
-      // Recall private memory client-side (decrypted locally) and send the
-      // fact lines so the server can ground the reply without ever reading
-      // memory at rest. Degrades to no memory on any failure.
-      const memory = await recallLines(30).catch(() => [] as string[]);
       const res = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "content-type": "application/json", accept: "text/event-stream" },
         credentials: "include",
-        body: JSON.stringify({ messages: history, memory }),
+        body: JSON.stringify({ messages: history }),
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) {
@@ -240,7 +235,7 @@ export function AgentChat() {
           const evt = parseSseFrame(frame);
           if (evt?.type === "text" && typeof evt.value === "string") {
             raw += evt.value;
-            const display = stripMemoryBlock(stripIntentBlocks(raw));
+            const display = stripIntentBlocks(raw);
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, content: display, raw } : m))
             );
@@ -265,18 +260,13 @@ export function AgentChat() {
   // Stream closed cleanly — parse the prose + any intent block from the raw.
   function finalize(assistantId: string, raw: string, convoId: string) {
     const { text, intent } = parseAssistantMessage(raw);
-    // Strip any ---MEMORY--- block from what the user sees, and persist the
-    // facts client-side (encrypted) so future turns recall them.
-    const cleanText = stripMemoryBlock(text);
-    const facts = captureMemoryBlock(raw);
-    if (facts.length > 0) captureAndPersist(facts).catch(() => {});
     const updated = messagesRef.current.map((m) =>
       m.id === assistantId
         ? {
             ...m,
             streaming: false,
             raw,
-            content: cleanText || (intent ? "" : "(no reply)"),
+            content: text || (intent ? "" : "(no reply)"),
             intent: intent ?? null,
           }
         : m
