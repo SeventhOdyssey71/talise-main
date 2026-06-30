@@ -166,6 +166,6 @@ function buildSummary(steps: PlannedStep[], total: number, limit: AgentPlan["lim
   const writes = steps.filter((s) => s.status === "ok").length;
   const reads = steps.filter((s) => s.status === "read_only").length;
   if (writes === 0 && reads > 0) return "Ready to show your info.";
-  if (total > 0) return `Ready to confirm — $${total.toFixed(2)} total, gasless.`;
-  return "Ready to confirm — gasless.";
+  if (total > 0) return `Ready to confirm: $${total.toFixed(2)} total, gasless.`;
+  return "Ready to confirm. Gasless.";
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Plan 12 — the AI finance chat tab.
 ///
@@ -181,8 +182,28 @@ struct ChatTabView: View {
                 AgentIntentCard(intent: intent)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // Quiet copy / regenerate row under a finished assistant reply.
+            if msg.role == .assistant, !msg.streaming, !msg.content.isEmpty {
+                HStack(spacing: 2) {
+                    rowAction("doc.on.doc", "Copy") { UIPasteboard.general.string = msg.content }
+                    rowAction("arrow.clockwise", "Regenerate") { vm.regenerate(messageId: msg.id) }
+                }
+                .padding(.top, 1)
+            }
         }
         .frame(maxWidth: .infinity, alignment: msg.role == .user ? .trailing : .leading)
+    }
+
+    private func rowAction(_ systemName: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(TaliseColor.fgDim)
+                .frame(width: 30, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     /// User turns are a compact right-aligned accent pill (brand "your turn").
@@ -239,17 +260,16 @@ struct ChatTabView: View {
     // MARK: - Suggested prompts
 
     private var suggestedPrompts: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(Self.suggested, id: \.self) { prompt in
-                    LiquidGlassPill(title: prompt) {
-                        vm.fillPrompt(prompt)
-                        inputFocused = true
-                    }
+        // Stacked (not a horizontal slider) so every prompt is visible at once.
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Self.suggested, id: \.self) { prompt in
+                LiquidGlassPill(title: prompt) {
+                    vm.fillPrompt(prompt)
+                    inputFocused = true
                 }
             }
-            .padding(.horizontal, 6)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private static let suggested: [String] = [

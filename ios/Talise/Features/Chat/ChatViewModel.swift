@@ -96,6 +96,22 @@ final class ChatViewModel {
         input = text
     }
 
+    /// Re-run the user prompt that produced this assistant turn: drop that turn
+    /// (and anything after it) and stream a fresh reply.
+    func regenerate(messageId: UUID) {
+        guard !streaming,
+              let idx = messages.firstIndex(where: { $0.id == messageId }),
+              messages[idx].role == .assistant,
+              messages[..<idx].contains(where: { $0.role == .user })
+        else { return }
+        lastError = nil
+        messages.removeSubrange(idx..<messages.count)
+        let assistantId = UUID()
+        messages.append(ChatMessage(id: assistantId, role: .assistant, content: "", streaming: true))
+        streaming = true
+        streamTask = Task { [weak self] in await self?.runStream(assistantId: assistantId) }
+    }
+
     /// Submit the current input. No-op if empty or already streaming.
     func send() {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
