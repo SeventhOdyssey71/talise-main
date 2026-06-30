@@ -534,6 +534,15 @@ async function doEnsureSchema(): Promise<void> {
       created_at BIGINT NOT NULL,
       fulfilled_at BIGINT
     )`,
+    // ─── agent memory: pointer to the user's client-encrypted memory blob ──
+    // Server-blind: we store ONLY the Walrus blob id. The ciphertext lives on
+    // Walrus and the encryption key never leaves the client, so this row is
+    // useless without the user's device key. One row per user.
+    `CREATE TABLE IF NOT EXISTS agent_memory_pointers (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id),
+      blob_id TEXT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
     `CREATE INDEX IF NOT EXISTS idx_rewards_user ON rewards_events(user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_rewards_created ON rewards_events(created_at DESC)`,
     // Covers `SELECT … FROM rewards_events WHERE user_id = ? ORDER BY

@@ -65,9 +65,9 @@ export async function POST(req: Request) {
   }
 
   // ---- Input --------------------------------------------------------
-  let body: { messages?: IncomingMessage[] };
+  let body: { messages?: IncomingMessage[]; memory?: string[] };
   try {
-    body = (await req.json()) as { messages?: IncomingMessage[] };
+    body = (await req.json()) as { messages?: IncomingMessage[]; memory?: string[] };
   } catch {
     return new Response(JSON.stringify({ error: "bad json" }), {
       status: 400,
@@ -124,6 +124,13 @@ export async function POST(req: Request) {
     // their local currency ("send 1000 naira").
     localCurrency: agentCurrency,
     localPerUsd: agentRate,
+    // Recalled memory facts, decrypted client-side and sent in the request.
+    // The server stays blind to memory at rest — it only sees these lines
+    // transiently to build the prompt, and never persists them. Default-on.
+    memory:
+      process.env.FEATURE_AGENT_MEMORY?.trim().toLowerCase() === "false"
+        ? undefined
+        : (Array.isArray(body.memory) ? body.memory.filter((s) => typeof s === "string").slice(0, 30) : undefined),
   };
 
   const conversation = incoming

@@ -1,6 +1,5 @@
 import { streamText, type UIMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { withMemWal } from "@mysten-incubation/memwal/ai";
 import { readSessionEntryId } from "@/lib/session";
 import { userById } from "@/lib/db";
 import { getSuiBalance, getUsdsuiBalance } from "@/lib/sui";
@@ -20,24 +19,15 @@ export const runtime = "nodejs";
  * Per request:
  *   1. Hydrate live user context (balance, yield venues, username).
  *   2. Build the system prompt + recent turns via `buildMessages`.
- *   3. Wrap the DeepSeek-via-OpenAI provider with `withMemWal` — per-wallet
- *      namespace, so the agent recalls the user's prior facts on every
- *      message and auto-saves new ones after the reply.
- *   4. Stream the result back.
+ *   3. Stream the result back.
  *
- * Memwal degrades cleanly: if MEMWAL_DELEGATE_KEY or MEMWAL_ACCOUNT_ID
- * are missing, we fall through to the raw provider — chat still works,
- * just without persistent memory.
+ * Persistent memory is handled by Talise's own client-side-encrypted,
+ * server-blind memory layer (see web/lib/agent/memory*), NOT by a third
+ * party. The earlier MemWal relayer wrap was removed.
  */
 
 const PROVIDER_URL = process.env.ZG_DEEPSEEK_V4_PROVIDER_URL || "";
 const API_KEY = process.env.ZG_DEEPSEEK_V4_API_KEY || "";
-const MEMWAL_KEY = process.env.MEMWAL_DELEGATE_KEY || "";
-const MEMWAL_ACCOUNT_ID = process.env.MEMWAL_ACCOUNT_ID || "";
-const MEMWAL_SERVER_URL =
-  process.env.MEMWAL_SERVER_URL || "https://relayer.memwal.ai";
-
-const memwalConfigured = Boolean(MEMWAL_KEY && MEMWAL_ACCOUNT_ID);
 
 /** Strip a trailing `/chat/completions` if env mistakenly includes it —
  *  createOpenAI appends that path itself. */
@@ -138,22 +128,7 @@ export async function POST(req: Request) {
   const provider = createOpenAI({ apiKey: API_KEY, baseURL: baseURL() });
   // The proxy only implements /v1/chat/completions, not the newer
   // /v1/responses API. Pin to chat() so the SDK doesn't probe.
-  const baseModel = provider.chat(AI_MODEL);
-
-  // Wrap with Memwal when configured. Namespace per wallet so memories
-  // never bleed between users.
-  const model =
-    memwalConfigured && context.address !== "0x0"
-      ? withMemWal(baseModel, {
-          key: MEMWAL_KEY,
-          accountId: MEMWAL_ACCOUNT_ID,
-          serverUrl: MEMWAL_SERVER_URL,
-          namespace: `talise:${context.address.toLowerCase()}`,
-          maxMemories: 5,
-          autoSave: true,
-          minRelevance: 0.3,
-        })
-      : baseModel;
+  const model = provider.chat(AI_MODEL);
 
   try {
     const result = streamText({

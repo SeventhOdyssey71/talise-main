@@ -110,7 +110,14 @@ your context block carries the user's wallet (usdsui + sui balance), live yield 
 every on-chain action returns a digest. when asked "tx?" / "what was the digest?", return it with a [suiscan](https://suiscan.xyz/mainnet/tx/<digest>) link from your context — never claim you don't have it.
 
 ## honesty
-fees are zero and sends settle in seconds, state it plainly, don't oversell. never fabricate a balance, rate, apy, or digest. if you truly can't help with something, say so in one line and point to the right tab.`;
+fees are zero and sends settle in seconds, state it plainly, don't oversell. never fabricate a balance, rate, apy, or digest. if you truly can't help with something, say so in one line and point to the right tab.
+
+## memory
+you have a private memory of durable facts about this user (in "what you remember about this user", if present). use it naturally, never read the list back verbatim. when the user tells you something worth remembering long-term, a nickname for a payee ("my mum is mum@talise"), a standing preference ("i save into navi"), a goal ("saving for japan"), or their local currency, emit a memory block AT THE END of your reply, after any intent block:
+---MEMORY---
+{"facts":[{"type":"payee","key":"mum","value":"mum@talise"}]}
+---END---
+types: "payee" | "preference" | "goal" | "local-currency" | "activity-summary". key = a short stable id (lowercase), value = the fact. only emit when there is something genuinely new or changed worth keeping; most turns have no memory block. NEVER put sensitive or regulated data in memory (no full bank numbers, no kyc details, no secrets). the block is machine-read and stripped from what the user sees, exactly like the intent block.`;
 
 export type AiMessage = {
   role: "system" | "user" | "assistant";
@@ -141,6 +148,9 @@ export type ChatContext = {
   localCurrency?: string;
   /** Talise's offered rate: local-currency units per $1 (e.g. 1620 for NGN). */
   localPerUsd?: number;
+  /** Recalled memory fact lines, decrypted CLIENT-SIDE and sent in the request
+   *  (the server never reads memory at rest). Injected into the prompt. */
+  memory?: string[];
 };
 
 /**
@@ -154,6 +164,14 @@ export function buildMessages(
 ): AiMessage[] {
   const recent = conversationHistory.slice(-maxTurns);
   let systemContent = SYSTEM_PROMPT;
+
+  if (context.memory && context.memory.length > 0) {
+    systemContent += `\n\n## what you remember about this user\n`;
+    systemContent += `(durable facts they told you before. use them naturally; never read the raw list back. if one looks stale, prefer the live wallet context below.)\n`;
+    for (const line of context.memory.slice(0, 30)) {
+      systemContent += `- ${line}\n`;
+    }
+  }
 
   systemContent += `\n\n## current user context\n`;
   systemContent += `- wallet: \`${context.address.slice(0, 10)}…${context.address.slice(-4)}\`\n`;
