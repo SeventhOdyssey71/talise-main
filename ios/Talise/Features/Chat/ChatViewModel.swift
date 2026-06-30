@@ -35,10 +35,59 @@ final class ChatViewModel {
     /// parse the intent once the stream completes. Cleared on finalize.
     private var streamRaw: [UUID: String] = [:]
 
-    // The agent opens fresh every time (a new view-model per presentation), so
-    // old sessions never pile up. We deliberately don't persist or reload a
-    // transcript — it's an ephemeral, in-the-moment assistant.
-    init() {}
+    /// Saved past chats, newest-first — shown in the compact history sheet.
+    var conversations: [ChatConversation] = []
+    /// The chat currently on screen. A fresh chat gets a new id, only saved
+    /// once it has a real message.
+    private(set) var currentId = UUID()
+
+    // The agent always OPENS on a fresh chat (no auto-reload of the last
+    // transcript, so nothing piles up), but completed chats are saved to the
+    // history list so they're one tap away.
+    init() {
+        conversations = ChatConversationStore.shared.loadAll()
+    }
+
+    /// Start a fresh chat (the previous one is already in `conversations`).
+    func newChat() {
+        streamTask?.cancel(); streamTask = nil
+        streaming = false
+        currentId = UUID()
+        messages = []
+        streamRaw = [:]
+        lastError = nil
+    }
+
+    /// Open a saved chat from the history sheet.
+    func open(_ id: UUID) {
+        streamTask?.cancel(); streamTask = nil
+        streaming = false
+        streamRaw = [:]
+        lastError = nil
+        if let c = conversations.first(where: { $0.id == id }) {
+            currentId = c.id
+            messages = c.messages
+        }
+    }
+
+    /// Delete a saved chat.
+    func deleteConversation(_ id: UUID) {
+        conversations.removeAll { $0.id == id }
+        ChatConversationStore.shared.saveAll(conversations)
+        if id == currentId { newChat() }
+    }
+
+    /// Upsert the current transcript into history. No-op for a blank chat.
+    private func persistCurrent() {
+        let real = messages.filter { !($0.role == .assistant && $0.streaming) }
+        guard let firstUser = real.first(where: { $0.role == .user }) else { return }
+        let raw = firstUser.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = raw.isEmpty ? "New chat" : String(raw.prefix(48))
+        let convo = ChatConversation(id: currentId, title: title, messages: real, updatedAt: Date())
+        conversations.removeAll { $0.id == currentId }
+        conversations.insert(convo, at: 0)
+        ChatConversationStore.shared.saveAll(conversations)
+    }
 
     /// User tapped a suggested-prompt chip. Drop the prompt into the
     /// input field rather than auto-submitting — gives the user a chance
@@ -108,53 +157,37 @@ final class ChatViewModel {
             return
         }
 
-        // Stream --------------------------------------------------------
+        // Fetch --------------------------------------------------------
+        // We read the WHOLE response body at once via `data(for:)` rather than
+        // iterating the byte stream. On device the incremental SSE reader was
+        // silently dropping every frame (200 OK, zero text). The route finishes
+        // fast (non-thinking model, ~1s), and the "thinking" dots cover the wait.
         do {
-            let (bytes, response) = try await URLSession.shared.bytes(for: req)
+            let (data, response) = try await URLSession.shared.data(for: req)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                // Surface the real reason (status + body snippet) instead of a
-                // bare code — so a 401/500/etc. is never an invisible "nothing".
-                var bodySnippet = ""
-                if let lines = try? await collectLines(bytes, max: 200) { bodySnippet = lines }
-                let detail = bodySnippet.isEmpty ? "" : " — \(bodySnippet)"
+                let snippet = String(data: data.prefix(240), encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let detail = snippet.isEmpty ? "" : " — \(snippet)"
                 finalizeWithError(
                     assistantId: assistantId,
                     message: "server returned \(http.statusCode)\(detail)"
                 )
                 return
             }
-
-            // Read the SSE body as RAW BYTES and split on the `\n\n` frame
-            // boundary — the same approach the working web client uses. The
-            // previous `bytes.lines` reader could silently miss every frame
-            // depending on how the response was chunked/buffered upstream
-            // (which is exactly what we saw: 200 OK but zero text extracted).
-            var frameBuf = Data()
-            var prev: UInt8 = 0
-            var byteCount = 0
-            let newline: UInt8 = 0x0A
-            for try await b in bytes {
-                byteCount += 1
-                if b == newline && prev == newline {
-                    await handleSseFrame(frameBuf, assistantId: assistantId)
-                    frameBuf.removeAll(keepingCapacity: true)
-                    prev = 0
-                    continue
-                }
-                frameBuf.append(b)
-                prev = b
+            lastStreamBytes = data.count
+            // The body is Server-Sent Events: `data: {json}\n\n` frames. Split on
+            // the blank-line boundary and handle each frame (text deltas append;
+            // intent is parsed in finalize).
+            let body = String(data: data, encoding: .utf8) ?? ""
+            for frame in body.components(separatedBy: "\n\n") where !frame.isEmpty {
+                await handleSseFrame(Data(frame.utf8), assistantId: assistantId)
             }
-            if !frameBuf.isEmpty {
-                await handleSseFrame(frameBuf, assistantId: assistantId)
-            }
-            lastStreamBytes = byteCount
         } catch {
             if Task.isCancelled { return }
             finalizeWithError(assistantId: assistantId, message: error.localizedDescription)
             return
         }
 
-        // Stream ended cleanly (either via `done` event or EOF) ---------
         finalize(assistantId: assistantId)
     }
 
@@ -261,19 +294,9 @@ final class ChatViewModel {
             }
         }
         streamRaw[assistantId] = nil
+        persistCurrent()
     }
 
-    /// Read up to `max` characters of a (usually small error) body off an
-    /// `AsyncBytes` stream — used to surface a non-2xx response's reason.
-    private func collectLines(_ bytes: URLSession.AsyncBytes, max: Int) async throws -> String {
-        var out = ""
-        for try await line in bytes.lines {
-            if !out.isEmpty { out += " " }
-            out += line
-            if out.count >= max { break }
-        }
-        return String(out.prefix(max)).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 
     private func finalizeWithError(assistantId: UUID, message: String) {
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
@@ -284,5 +307,6 @@ final class ChatViewModel {
         }
         lastError = message
         streamRaw[assistantId] = nil
+        persistCurrent()
     }
 }

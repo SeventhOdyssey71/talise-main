@@ -19,6 +19,7 @@ struct ChatTabView: View {
     @Environment(AppSession.self) private var session
     @State private var vm = ChatViewModel()
     @FocusState private var inputFocused: Bool
+    @State private var historyOpen = false
     /// Set when presented modally (e.g. from the Home mascot) — shows a close
     /// affordance and drops the floating-nav bottom padding. nil = tab usage.
     var onClose: (() -> Void)? = nil
@@ -45,6 +46,12 @@ struct ChatTabView: View {
         }
         .padding(.top, onClose != nil ? 12 : 0)
         .background(TaliseColor.bg.ignoresSafeArea())
+        .sheet(isPresented: $historyOpen) {
+            ChatHistorySheet(vm: vm, onPick: { historyOpen = false })
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(TaliseColor.bg)
+        }
     }
 
     // MARK: - Header
@@ -61,22 +68,27 @@ struct ChatTabView: View {
                     .foregroundStyle(TaliseColor.fgMuted)
             }
             Spacer(minLength: 8)
-            // Just a close button — nothing else (per the design ask).
+            // A little history (recent chats) + close.
+            circleButton("clock", label: "History") { historyOpen = true }
             if let onClose {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                        .frame(width: 34, height: 34)
-                        .background(.ultraThinMaterial, in: Circle())
-                        .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
+                circleButton("xmark", label: "Close", action: onClose)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func circleButton(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: systemName == "xmark" ? 14 : 15, weight: .semibold))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .frame(width: 34, height: 34)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private var greeting: String {
@@ -237,9 +249,10 @@ struct ChatTabView: View {
     }
 
     private static let suggested: [String] = [
-        "Am I undercharging on fees?",
-        "Where's most of my money going?",
-        "Should I move more to earnings?",
+        "What's my balance?",
+        "Where's the best yield right now?",
+        "Show my recent activity",
+        "Move $50 into savings",
     ]
 
     // MARK: - Input pill
