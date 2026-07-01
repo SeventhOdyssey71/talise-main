@@ -1,0 +1,51 @@
+name: Web build gate
+
+# Build gate: runs the real `next build` over web/ on every PR and on pushes to
+# main that touch web/. `tsc --noEmit` (the separate typecheck gate) catches type
+# errors, but NOT build-time failures — bad route segment config, server/client
+# boundary violations, a module that throws at import, or a broken dynamic import.
+# A green typecheck with a red build is exactly how a deploy breaks silently.
+# The build runs with NO app secrets (verified to succeed clean), so it needs no
+# environment configuration and can never leak one.
+#
+# To make it BLOCK merges, add "Web build gate / build" as a required status
+# check in the repo's branch-protection rules for `main`.
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-build.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-build.yml'
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: 'web/pnpm-lock.yaml'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (next build)
+        run: pnpm build
