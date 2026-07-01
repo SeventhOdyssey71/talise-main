@@ -1,6 +1,7 @@
 import SwiftUI
 import WebKit
 import Security
+import UIKit
 
 /// Top-level Withdraw flow. Replaces the old direct-to-Send sheet the
 /// paper-plane button used to open. Now lands on a full-page options
@@ -1818,7 +1819,13 @@ enum ShieldKeyStore {
     /// + fresh-device restore is smoke-tested on a real device against prod; the
     /// crypto itself is already KAT-verified (ShieldEscrowEnvelopeTests). When
     /// false the behavior is exactly the original plaintext escrow (unchanged).
-    static let nonCustodialEscrow = false
+    ///
+    /// ENABLED: new mints no longer write a plaintext master to the server. The
+    /// automatic recovery rail is the iCloud-synchronizable Keychain (kSecAttr-
+    /// Synchronizable — survives reinstall + new-device migration); the recovery
+    /// code is the belt-and-suspenders for users who have iCloud Keychain off.
+    /// Legacy plaintext escrow rows still auto-restore (backward compatible).
+    static let nonCustodialEscrow = true
 
     /// Hex of the note master, creating + persisting one on first use. Returns ""
     /// when a non-custodial escrow exists but the master isn't on this device yet
@@ -2216,6 +2223,7 @@ struct ShieldRecoveryCodeView: View {
     @State private var busy = false
     @State private var error: String?
     @State private var confirmedSaved = false
+    @State private var copied = false
 
     var body: some View {
         VStack(spacing: 22) {
@@ -2267,6 +2275,18 @@ struct ShieldRecoveryCodeView: View {
                     .background(RoundedRectangle(cornerRadius: 16).fill(TaliseColor.fg.opacity(0.06)))
                     .padding(.horizontal, 24)
                     .textSelection(.enabled)
+                Button {
+                    UIPasteboard.general.string = code
+                    copied = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(copied ? "Copied" : "Copy code").font(TaliseFont.body(13, weight: .medium))
+                    }
+                    .foregroundStyle(TaliseColor.greenMint)
+                }
+                .buttonStyle(.plain)
             }
             Toggle(isOn: $confirmedSaved) {
                 Text("I’ve saved this code somewhere safe.")
@@ -2497,6 +2517,15 @@ struct ShieldedBalanceView: View {
         }
         let seed = await ShieldKeyStore.noteMasterHex()
         shieldedMicros = (try? await prover.shieldedBalanceMicros(seedHex: seed)) ?? 0
+        // Contextual nudge: the first time a user actually has private money but
+        // hasn't set a recovery code, offer it once. They can still reach it via
+        // the "Set up recovery code" button later; we prompt once to avoid nagging.
+        if ShieldKeyStore.nonCustodialEscrow, escrow != .wrapped, shieldedMicros > 0,
+           !UserDefaults.standard.bool(forKey: "shieldRecoveryPrompted") {
+            UserDefaults.standard.set(true, forKey: "shieldRecoveryPrompted")
+            recoveryMode = .setup
+            showRecovery = true
+        }
     }
 
     private func unshield() async {
