@@ -67,6 +67,7 @@ ALLOWLIST=(
   "web/scripts/sweep-now.mjs"
   "web/scripts/test-resolve.mts"
   "web/scripts/test-suins.mts"
+  "web/scripts/verify-navi-decimals.mjs"
   "web/scripts/zk-speed-test.mjs"
 )
 
