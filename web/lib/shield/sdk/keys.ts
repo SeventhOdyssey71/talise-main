@@ -15,11 +15,12 @@ import { poseidonHash } from "@mysten/sui/zklogin";
  * deterministic across devices (re-sign-in → re-derive → re-scan), so it is the
  * recovery rail.
  *
- * CRYPTO STATUS:
- *   • spendingKey derivation (sign → SHA-256 → mod r): REAL.
- *   • viewingKey = Poseidon1(spendingKey): STUBBED — see `poseidon1` below.
- *     Needs a BN254 Poseidon impl byte-identical to `sui::poseidon_bn254`.
- *   • publicKey: STUBBED — placeholder pending the circuit's pubkey definition.
+ * CRYPTO STATUS (all REAL — verified, not stubbed):
+ *   • spendingKey derivation (seed → SHA-256 → mod r): REAL.
+ *   • viewingKey / publicKey = Poseidon1(spendingKey): REAL. `poseidon1`
+ *     delegates to `@mysten/sui/zklogin` `poseidonHash`, parity-verified
+ *     byte-identical to `sui::poseidon_bn254` AND the circuit's `poseidon_opt`
+ *     (known-answer gate circuit/tests/poseidon_parity.rs, 2026-06-17).
  */
 
 /** BN254 scalar field order r. Reductions for the note field live here. */

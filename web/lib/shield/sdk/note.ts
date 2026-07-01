@@ -9,8 +9,9 @@
  *
  * (Matches the Workstream-B circuit + Workstream-A `proof.move` 8-input order.)
  *
- * CRYPTO STATUS: the Poseidon hashes are STUBBED (see keys.ts `poseidonStub`).
- * Real impl must be byte-identical to `sui::poseidon_bn254`.
+ * CRYPTO STATUS: the Poseidon hashes are REAL (keys.ts `poseidonStub` delegates
+ * to `@mysten/sui/zklogin` `poseidonHash`, parity-verified byte-identical to
+ * `sui::poseidon_bn254` and the circuit's `poseidon_opt`, 2026-06-17).
  */
 
 import { BN254_SCALAR_FIELD, poseidonStub } from "./keys";
@@ -50,7 +51,7 @@ export function makeNote(params: {
 
 /**
  * commitment = Poseidon4(amount, pubkey, blinding, pool).
- * STUBBED Poseidon — see keys.ts.
+ * Real Poseidon — see keys.ts.
  */
 export function noteCommitment(note: Note): bigint {
   return poseidonStub([note.amount, note.pubkey, note.blinding, note.pool]);
@@ -59,7 +60,7 @@ export function noteCommitment(note: Note): bigint {
 /**
  * nullifier = Poseidon3(commitment, pathIndex, sig).
  * `sig` binds the spending key so only the owner can derive the nullifier.
- * STUBBED Poseidon — see keys.ts.
+ * Real Poseidon — see keys.ts.
  */
 export function noteNullifier(params: {
   commitment: bigint;
