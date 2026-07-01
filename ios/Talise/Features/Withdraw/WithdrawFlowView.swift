@@ -1690,6 +1690,31 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
         }
     }
 
+    /// Deposit into the shielded balance WITHOUT a send (pre-fund). Makes later
+    /// sends fast (spend an existing note — no deposit/sign/index round-trip) and
+    /// more private (no per-send public deposit to correlate). Returns the deposit
+    /// digest. `micros` = USDsui base units; `seedHex` = the note master.
+    func topUp(micros: UInt64, seedHex: String) async throws -> String {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
+            self.continuation = cont
+            self.beginTiming("topup")
+            let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
+            let js = "if(!window.taliseShieldTopUp){throw new Error('Private balance isn’t ready yet — try again.')}; window.taliseShieldTopUp('\(micros)','\(safeSeed)')"
+            webView.evaluateJavaScript(js) { _, err in
+                if let err { self.finish(.failure(ShieldError.message(err.localizedDescription))) }
+            }
+            // Deposit-only (prove + sign) — no index poll or second proof, so a
+            // tighter ceiling than a full send.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 120 * 1_000_000_000)
+                if self.continuation != nil {
+                    self.finish(.failure(ShieldError.message(
+                        "Top-up timed out. Check your balance — any shielded funds are safe and recoverable.")))
+                }
+            }
+        }
+    }
+
     /// Read-only: the user's shielded balance in micros (sum of unspent notes).
     func shieldedBalanceMicros(seedHex: String) async throws -> UInt64 {
         let raw = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
@@ -2388,6 +2413,7 @@ struct ShieldedBalanceView: View {
     @State private var escrow: ShieldKeyStore.EscrowState = .none
     @State private var showRecovery = false
     @State private var recoveryMode: ShieldRecoveryCodeView.Mode = .restore
+    @State private var showTopUp = false
 
     private var shieldedDisplay: String { String(format: "$%.2f", Double(shieldedMicros) / 1_000_000) }
 
@@ -2485,6 +2511,21 @@ struct ShieldedBalanceView: View {
         VStack(spacing: 12) {
             Button { showSend = true } label: { actionLabel("Send privately", filled: true) }
                 .buttonStyle(TilePress())
+            // Pre-fund the shielded balance. This is what makes sends fast (spend
+            // an existing note — no deposit/sign/index round-trip) AND more private
+            // (no per-send deposit to correlate). Round top-up, not the send amount.
+            Button { showTopUp = true } label: {
+                actionLabel(busy ? "Working…" : "Add to private balance", filled: false)
+            }
+            .buttonStyle(TilePress())
+            .disabled(busy)
+            .confirmationDialog("Add to your private balance", isPresented: $showTopUp, titleVisibility: .visible) {
+                Button("$5") { Task { await topUp(5) } }
+                Button("$10") { Task { await topUp(10) } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Move dollars into your private balance now, so your sends are instant and unlinkable.")
+            }
             // Only offer "move to wallet" when there's actually a balance to move —
             // a dead/disabled button at $0.00 is what made this screen confusing.
             if shieldedMicros > 0 {
@@ -2546,6 +2587,26 @@ struct ShieldedBalanceView: View {
             recoveryMode = .setup
             showRecovery = true
         }
+    }
+
+    private func topUp(_ usd: Double) async {
+        busy = true
+        status = "Adding to your private balance…"
+        let micros = UInt64((usd * 1_000_000).rounded())
+        do {
+            let seed = await ShieldKeyStore.noteMasterHex()
+            guard !seed.isEmpty else {
+                status = "Set up your recovery code first to restore your private key."
+                busy = false
+                return
+            }
+            _ = try await prover.topUp(micros: micros, seedHex: seed)
+            status = "Added to your private balance. Sends are now instant and private."
+            await load()
+        } catch {
+            status = error.localizedDescription
+        }
+        busy = false
     }
 
     private func unshield() async {

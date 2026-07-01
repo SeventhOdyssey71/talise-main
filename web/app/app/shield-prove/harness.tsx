@@ -49,6 +49,8 @@ declare global {
     // recipient's published shield identity. When present + the sender holds a
     // covering note, the send becomes a HIDDEN-AMOUNT shielded transfer.
     taliseShieldSend?: (micros: string, recipient: string, seedHex: string, recipientShieldJson?: string) => void;
+    // Deposit-only: pre-fund the shielded balance so later sends are fast + private.
+    taliseShieldTopUp?: (micros: string, seedHex: string) => void;
     taliseShieldRecover?: (seedHex: string, destination: string) => void;
     // Reports the shielded balance back via { type:"result", digest:"<micros>" }.
     taliseShieldBalance?: (seedHex: string) => void;
@@ -367,6 +369,63 @@ export function ShieldProveHarness({
       })();
     };
 
+    // ── TOP UP PRIVATE BALANCE (deposit only) ─────────────────────────────
+    // Deposit funds into the shielded pool WITHOUT a send. This is the deposit
+    // leg of taliseShieldSend, on its own: prove → build sponsor PTB → native
+    // sign. It exists so users can PRE-FUND a shielded balance, which then makes
+    // sends both FAST (spend an existing note — one proof, no deposit/sign/index
+    // round-trip) and MORE PRIVATE (no per-send public deposit to correlate with
+    // the send amount + timing). The deposited amount is the round top-up, not
+    // the send amount, so it doesn't fingerprint any individual payment.
+    window.taliseShieldTopUp = (micros: string, seedHex: string) => {
+      void (async () => {
+        try {
+          post({ type: "progress", message: "Preparing your top-up…" });
+          if (!live || !packageId || !poolObjectId) throw new Error("Private balance isn’t switched on yet.");
+          const amount = BigInt(micros);
+          if (amount <= 0n) throw new Error("Enter an amount.");
+          if (!/^[0-9a-f]{32,128}$/i.test(seedHex)) {
+            throw new Error("Couldn’t unlock your private key on this device.");
+          }
+          const keypair = await deriveShieldKeypairFromSeed(seedFromHex(seedHex));
+          if (keypair.spendingKey <= 0n) throw new Error("Key derivation failed.");
+          void ensureIdentityPublished(keypair); // become addressable for private transfers
+
+          const rootRes = await postJson("/api/shield/merkle-path", { coinType, dummy: true });
+          if (!rootRes.ok) throw new Error("The shielded pool is busy. Try again shortly.");
+          const currentRoot = rootRes.body.currentRoot as string | undefined;
+          if (!currentRoot) throw new Error("The shielded pool is syncing. Try again shortly.");
+
+          post({ type: "progress", message: "Sealing your deposit…" });
+          const prepared = await proveShieldDeposit({ cfg, keypair, amount, root: BigInt(currentRoot) });
+
+          const prep = await postJson("/api/shield/deposit/prepare", {
+            amountMicros: micros,
+            proof: prepared.proof,
+            enc0B64: prepared.enc0B64,
+            enc1B64: prepared.enc1B64,
+          });
+          if (prep.status === 503 && prep.body.code === "SHIELD_INAPP_OFF") {
+            post({ type: "error", message: "Private balance is finalizing — your funds are untouched." });
+            return;
+          }
+          if (prep.status === 409 && prep.body.code === "ROOT_STALE") {
+            throw new Error("The pool just updated — please try again.");
+          }
+          if (!prep.ok || typeof prep.body.bytes !== "string") {
+            throw new Error((prep.body.error as string) || "Couldn’t prepare the top-up.");
+          }
+
+          post({ type: "progress", message: "Confirm on your device…" });
+          const depositDigest = await signDepositNative(prep.body.bytes as string);
+          // Deposit landed → the funds are now shielded balance. No withdraw leg.
+          post({ type: "result", digest: depositDigest });
+        } catch (e) {
+          post({ type: "error", message: (e as Error).message || "Top-up failed." });
+        }
+      })();
+    };
+
     // ── ONE-TAP RECOVERY SWEEP ────────────────────────────────────────────
     // Scan every UNSPENT shielded note the user owns and withdraw each back to
     // their own wallet — reclaims a balance stranded by earlier failed withdraws.
@@ -438,6 +497,7 @@ export function ShieldProveHarness({
 
     return () => {
       delete window.taliseShieldSend;
+      delete window.taliseShieldTopUp;
       delete window.taliseShieldRecover;
       delete window.taliseShieldBalance;
       delete window.__taliseDepositSigned;
