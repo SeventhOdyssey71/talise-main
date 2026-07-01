@@ -34,6 +34,7 @@ import {
 } from "@/lib/chat/ai";
 import { defaultCurrency } from "@/lib/fx";
 import { displayRatePerUsd } from "@/lib/display-fx";
+import { recallMemories, rememberTurn } from "@/lib/memwal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -134,7 +135,19 @@ export async function POST(req: Request) {
     }))
     .filter((m) => m.content.length > 0);
 
+  // Walrus Memory: recall the most relevant memories for this turn and fold
+  // them into the system prompt. Best-effort — recallMemories never throws and
+  // returns [] when the memory service is down or unconfigured, so chat is
+  // unaffected either way. Touches no DB.
+  const lastUser = [...conversation].reverse().find((m) => m.role === "user")?.content ?? "";
+  const recalled = await recallMemories(user.sui_address, lastUser);
   const messages = buildMessages(conversation, context);
+  if (recalled.length > 0 && messages[0]?.role === "system") {
+    messages[0].content +=
+      `\n\n## what you remember about this user\n` +
+      `(durable memories from past chats, most relevant first. use them naturally; never read them back verbatim.)\n` +
+      recalled.map((m) => `- ${m}`).join("\n");
+  }
 
   // ---- Stub fallback (no DeepSeek key) -----------------------------
   //
@@ -171,14 +184,10 @@ export async function POST(req: Request) {
   // endpoint directly via `streamDeepSeek()` and re-emit each delta
   // as a compact `{type:"text",value:"…"}` SSE event.
   //
-  // Memwal memory wrap is intentionally NOT applied here. It hooks
-  // into the AI SDK's middleware layer, and that layer isn't on this
-  // path. Adding it would require either porting the wrap into our
-  // raw streaming loop or routing the iOS path back through
-  // `streamText` + parsing UI message parts on the client — both
-  // are larger lifts. Memory remains a web-tab feature for now;
-  // iOS chat is stateless per session (the on-device transcript
-  // store in `ChatHistoryStore` carries the last 20 messages).
+  // Memory is applied here directly via `lib/memwal` (the MemWal client), not
+  // the AI-SDK `withMemWal` middleware — recall injected into the prompt above,
+  // and we persist this user turn after a successful reply (below). Both legs
+  // are best-effort and namespaced per wallet.
   const sseStream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
@@ -190,6 +199,8 @@ export async function POST(req: Request) {
           }
         }
         controller.enqueue(encodeSse({ type: "done" }));
+        // Persist the user's turn to memory (fire-and-forget, never blocks).
+        rememberTurn(user.sui_address, lastUser);
       } catch (err) {
         console.error("[chat/stream] DeepSeek loop crashed:", err);
         controller.enqueue(
