@@ -18,6 +18,21 @@ import "server-only";
 const DEFAULT_PUBLISHER = "https://publisher.walrus-testnet.walrus.space";
 const DEFAULT_AGGREGATOR = "https://aggregator.walrus-testnet.walrus.space";
 
+// Loud misconfig guard: a MAINNET app that leaves WALRUS_* unset falls back to
+// the TESTNET endpoints above. Testnet blobs are pruned aggressively, so an
+// encrypted money-link note stored there can silently vanish. We keep the
+// testnet default (mainnet Walrus needs a funded publisher, so we don't guess
+// an endpoint), but warn once at load so the misconfiguration is visible in
+// prod logs instead of degrading silently. Set WALRUS_PUBLISHER / WALRUS_AGGREGATOR.
+if (
+  (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "mainnet").toLowerCase() === "mainnet" &&
+  (!process.env.WALRUS_PUBLISHER || !process.env.WALRUS_AGGREGATOR)
+) {
+  console.warn(
+    "[walrus] MAINNET app is using the TESTNET Walrus default — set WALRUS_PUBLISHER/WALRUS_AGGREGATOR to a mainnet endpoint; testnet blobs (cheque notes) may be pruned."
+  );
+}
+
 function publisher(): string {
   return (process.env.WALRUS_PUBLISHER || DEFAULT_PUBLISHER).replace(/\/+$/, "");
 }
