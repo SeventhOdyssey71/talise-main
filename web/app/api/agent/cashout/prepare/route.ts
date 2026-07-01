@@ -116,7 +116,18 @@ export async function POST(req: Request) {
       args: [id, order.id, String(userId), sendUsdsui, creditNgn, lockedRate, bank.bank_code, accountNumber, accountName, order.walletAddress, now, now],
     });
   } catch (e) {
-    console.warn("[agent/cashout] persist failed:", (e as Error).message);
+    // FAIL CLOSED (mirrors /api/offramp/linq/create): the Linq order exists but
+    // we could not record it. Returning the deposit wallet anyway would let the
+    // user fund an order we cannot reconcile, refund, or cap. Refuse — no funds
+    // have moved, and the orphaned Linq order (logged) can be cancelled ops-side.
+    console.error(
+      `[agent/cashout] persist failed — refusing to return deposit wallet. Orphaned Linq order=${order.id} user=${userId}:`,
+      (e as Error).message
+    );
+    return NextResponse.json(
+      { error: "Could not record your cash-out. No funds were moved — please try again." },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({
