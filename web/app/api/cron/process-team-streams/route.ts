@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireCron } from "@/lib/cron-auth";
 import { teamStreamsEnabled, releaseDueTeamStreams } from "@/lib/team-streams";
 
 export const runtime = "nodejs";
@@ -14,13 +15,8 @@ export const maxDuration = 60;
  * Auth: Vercel injects `Authorization: Bearer $CRON_SECRET` on scheduled runs.
  */
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (secret) {
-    const auth = req.headers.get("authorization") ?? "";
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-  }
+  const denied = requireCron(req);
+  if (denied) return denied;
 
   if (!teamStreamsEnabled()) {
     return NextResponse.json({ ok: true, skipped: "team streaming disabled" });
