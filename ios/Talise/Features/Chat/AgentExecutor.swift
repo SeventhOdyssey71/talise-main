@@ -98,8 +98,9 @@ enum AgentExecutor {
                     kind: "send", amountUsd: amount, recipient: name ?? shortAddr(to), digest: sub.digest))
 
             case "save":
-                let amount = planned.amountUsd ?? step?.amount ?? 0
-                guard amount > 0 else { continue }
+                // Trust ONLY the server-validated amount — never fall back to
+                // the model's raw proposal (step.amount). Matches send/cash_out.
+                guard let amount = planned.amountUsd, amount > 0 else { continue }
                 let venue = step?.venue ?? "navi"
                 struct Body: Encodable { let venue: String; let amount: Double }
                 let built: BuildKindResponse = try await APIClient.shared.post(
@@ -118,8 +119,9 @@ enum AgentExecutor {
                     kind: "save", amountUsd: amount, recipient: displayVenue(venue), digest: sub.digest))
 
             case "withdraw":
-                let amount = planned.amountUsd ?? step?.amount ?? 0
-                guard amount > 0 else { continue }
+                // Trust ONLY the server-validated amount — never fall back to
+                // the model's raw proposal (step.amount). Matches send/cash_out.
+                guard let amount = planned.amountUsd, amount > 0 else { continue }
                 let venue = step?.venue ?? "navi"
                 struct Body: Encodable { let venue: String; let amount: Double? }
                 let built: BuildKindResponse = try await APIClient.shared.post(
@@ -186,8 +188,9 @@ enum AgentExecutor {
             case "request":
                 // Mint a shareable payment link. No signing, no money moves —
                 // we just hit the request rail and hand back the public link.
-                let amount = planned.amountUsd ?? step?.amount ?? 0
-                guard amount > 0 else { continue }
+                // Trust ONLY the server-validated amount — never fall back to
+                // the model's raw proposal (step.amount). Matches send/cash_out.
+                guard let amount = planned.amountUsd, amount > 0 else { continue }
                 struct ReqBody: Encodable { let amountUsd: Double; let requesterNote: String? }
                 struct ReqResp: Decodable { let payUrl: String? }
                 let resp: ReqResp = try await APIClient.shared.post(
