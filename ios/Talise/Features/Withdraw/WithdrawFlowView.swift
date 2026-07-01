@@ -2170,13 +2170,28 @@ struct PrivateReviewView: View {
         .padding(.vertical, 15)
     }
 
+    /// A send is FULLY private (note→note, amount + recipient hidden) only when
+    /// the recipient has published a shield identity. Otherwise it exits as a
+    /// public withdraw — the payout amount + their address are visible on-chain
+    /// (your identity still stays hidden). We tell the user the truth up front.
+    private var isFullyPrivate: Bool { draft.resolved?.shieldIdentity != nil }
+
     private var privacyNote: some View {
         HStack(alignment: .top, spacing: 10) {
-            HugeIcon(name: "hi.lock", size: 15, tint: TaliseColor.greenMint).padding(.top, 1)
-            Text("Sent shielded — the link between you and the recipient stays private on-chain, and your money never leaves your control. Early pilot, capped at $10.")
-                .font(TaliseFont.body(12.5, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
-                .fixedSize(horizontal: false, vertical: true)
+            HugeIcon(name: isFullyPrivate ? "hi.lock" : "hi.globe", size: 15,
+                     tint: isFullyPrivate ? TaliseColor.greenMint : TaliseColor.danger)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(isFullyPrivate ? "Fully private" : "Visible on-chain")
+                    .font(TaliseFont.body(12.5, weight: .semibold))
+                    .foregroundStyle(isFullyPrivate ? TaliseColor.greenMint : TaliseColor.danger)
+                Text(isFullyPrivate
+                     ? "The amount and the link between you and \(recipientName) stay hidden on-chain. Early pilot, capped at $10."
+                     : "\(recipientName) isn’t on Talise’s private layer, so this payout — the amount and their address — will be visible on-chain. Your identity stays hidden. For a fully private send, pay another Talise user.")
+                    .font(TaliseFont.body(12.5, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 16).fill(TaliseColor.surface2.opacity(0.5)))
@@ -2479,13 +2494,18 @@ struct ShieldedBalanceView: View {
                 .buttonStyle(TilePress())
                 .disabled(busy)
             }
-            // Non-custodial recovery setup — offered once, until the master is
-            // wrapped in escrow. Hidden entirely when the flag is off.
+            // Non-custodial recovery setup — a quiet link (not a second heavy
+            // button) so "Send privately" stays the one clear action. Shown until
+            // the master is wrapped; hidden entirely when the flag is off.
             if ShieldKeyStore.nonCustodialEscrow && escrow != .wrapped {
                 Button { recoveryMode = .setup; showRecovery = true } label: {
-                    actionLabel("Set up recovery code", filled: false)
+                    Text("Set up recovery code")
+                        .font(TaliseFont.body(13, weight: .medium))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                        .underline()
                 }
-                .buttonStyle(TilePress())
+                .buttonStyle(.plain)
+                .padding(.top, 2)
             }
             Text("Up to $10 per send during the pilot.")
                 .font(TaliseFont.mono(10, weight: .regular)).tracking(1.2)
