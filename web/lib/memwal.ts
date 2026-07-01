@@ -44,6 +44,24 @@ function clientFor(address: string): MemWal {
   });
 }
 
+/**
+ * Recalled memories are folded into the agent's system prompt, so treat their
+ * text as UNTRUSTED: strip intent/memory control fences, neutralize any leading
+ * markdown heading/quote/bullet that could impersonate a prompt section, flatten
+ * newlines, and cap length. Namespaces isolate users (so a crafted memory can
+ * only reach that same user's agent, and money guardrails are server-side
+ * regardless), but this keeps recalled text from hijacking the instructions.
+ */
+function sanitizeMemory(text: string): string {
+  return text
+    .replace(/---[A-Z_]{2,}---/g, " ") // drop ---INTENT--- / ---MEMORY--- fences
+    .replace(/[\x00-\x1f]+/g, " ") // control chars + newlines -> single space
+    .replace(/\s+/g, " ")
+    .replace(/^[>#*\-\s]+/, "") // no leading heading / quote / bullet marker
+    .trim()
+    .slice(0, 300);
+}
+
 /** Recall the most relevant memories for this user's message. Never throws. */
 export async function recallMemories(address: string, query: string, max = 5): Promise<string[]> {
   if (!memwalConfigured() || !query.trim()) return [];
@@ -53,8 +71,8 @@ export async function recallMemories(address: string, query: string, max = 5): P
       .slice()
       .sort((a, b) => a.distance - b.distance)
       .slice(0, max)
-      .map((m) => m.text)
-      .filter((t): t is string => typeof t === "string" && t.trim().length > 0);
+      .map((m) => (typeof m.text === "string" ? sanitizeMemory(m.text) : ""))
+      .filter((t) => t.length > 0);
   } catch {
     return [];
   }
