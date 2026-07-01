@@ -20,7 +20,8 @@ import { MemWal } from "@mysten-incubation/memwal";
  *   MEMWAL_ACCOUNT_ID, MEMWAL_DELEGATE_KEY, (optional) MEMWAL_SERVER_URL.
  */
 
-const SERVER_URL = process.env.MEMWAL_SERVER_URL?.trim() || "https://memory.walrus.xyz";
+// The API relayer (memory.walrus.xyz is the product landing page, not the API).
+const SERVER_URL = process.env.MEMWAL_SERVER_URL?.trim() || "https://relayer.memwal.ai";
 const ACCOUNT_ID = process.env.MEMWAL_ACCOUNT_ID?.trim() || "";
 const DELEGATE_KEY = process.env.MEMWAL_DELEGATE_KEY?.trim() || "";
 const DISABLED = process.env.FEATURE_AGENT_MEMORY?.trim().toLowerCase() === "false";
