@@ -1,0 +1,12 @@
+ios
+move
+marketing
+docs
+scratchpad
+.git
+node_modules
+web/node_modules
+web/.next
+web/.vercel
+**/node_modules
+**/.next

@@ -35,6 +35,7 @@ import {
 import { defaultCurrency } from "@/lib/fx";
 import { displayRatePerUsd } from "@/lib/display-fx";
 import { recallMemories, rememberFact } from "@/lib/memwal";
+import { after } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -179,6 +180,23 @@ export async function POST(req: Request) {
   //
   // Raw OpenAI-compatible streaming (iOS parses these compact SSE frames). We
   // accumulate the reply so we can persist the exchange to memory after.
+  //
+  // The MEMORY WRITE runs in `after()` (Vercel keeps the function alive via
+  // waitUntil), NOT inside the stream: iOS closes the SSE connection the instant
+  // it sees the "done" frame, and Vercel would kill an in-stream await the moment
+  // the client disconnects — dropping the write. `after()` survives that, so the
+  // exchange (user turn + the reply, incl. any handle the agent resolved) lands
+  // on Walrus and is recallable in future chats.
+  let capturedReply = "";
+  after(async () => {
+    if (lastUser.trim() && capturedReply.trim()) {
+      await rememberFact(
+        user.sui_address,
+        `User: ${lastUser}\nTalise: ${capturedReply.slice(0, 900)}`
+      );
+    }
+  });
+
   const sseStream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let reply = "";
@@ -199,21 +217,8 @@ export async function POST(req: Request) {
           })
         );
         controller.enqueue(encodeSse({ type: "done" }));
-      }
-      // PERSIST this exchange to Walrus BEFORE closing the stream. The function
-      // stays alive while the stream is open, so this write actually completes
-      // (a fire-and-forget after the response would be killed by the platform).
-      // We store the user turn + the reply, so a fact stated OR resolved in the
-      // exchange (e.g. a recipient handle the agent looked up) is recallable in
-      // future chats. Best-effort + time-bounded; the reply is already delivered.
-      try {
-        if (lastUser.trim() && reply.trim()) {
-          await rememberFact(
-            user.sui_address,
-            `User: ${lastUser}\nTalise: ${reply.slice(0, 900)}`
-          );
-        }
       } finally {
+        capturedReply = reply; // hand the reply to the after() memory write
         controller.close();
       }
     },
