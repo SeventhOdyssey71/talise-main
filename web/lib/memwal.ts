@@ -72,23 +72,40 @@ export async function recallMemories(address: string, query: string, max = 6): P
 }
 
 /**
- * Persist a memory and WAIT for it to be stored on Walrus (so a later chat can
- * recall it). Bounded so a slow write never hangs the request past `timeoutMs`;
- * the reply is already delivered by the time this runs. Never throws.
+ * Persist a memory to Walrus so a later chat can recall it. The hosted relayer's
+ * Walrus upload occasionally fails transiently (Enoki gas-estimation blips:
+ * "could not determine a budget / balance::destroy_zero"), so we RETRY with
+ * backoff. This runs in the route's `after()` (background, off the user's
+ * critical path), so retries never slow the reply. Never throws.
  */
-export async function rememberFact(address: string, text: string, timeoutMs = 12_000): Promise<void> {
+export async function rememberFact(
+  address: string,
+  text: string,
+  { attempts = 4, timeoutMs = 20_000 }: { attempts?: number; timeoutMs?: number } = {}
+): Promise<void> {
   if (!memwalConfigured() || !text.trim()) {
     console.log("[memwal] save skipped (configured=%s, empty=%s)", memwalConfigured(), !text.trim());
     return;
   }
   const t = text.slice(0, 1500);
-  try {
-    const r = (await Promise.race([
-      clientFor(address).rememberAndWait(t, undefined, { timeoutMs }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs + 500)),
-    ])) as { blob_id?: string } | undefined;
-    console.log("[memwal] saved memory blob=%s ns=talise:%s", r?.blob_id ?? "(ok)", address.toLowerCase());
-  } catch (e) {
-    console.warn("[memwal] save FAILED:", (e as Error).message);
+  const client = clientFor(address);
+  const ns = address.toLowerCase();
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const r = (await Promise.race([
+        client.rememberAndWait(t, undefined, { timeoutMs }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("client timeout")), timeoutMs + 1_000)),
+      ])) as { blob_id?: string } | undefined;
+      console.log("[memwal] saved memory blob=%s attempt=%d ns=talise:%s", r?.blob_id ?? "(ok)", attempt, ns);
+      return;
+    } catch (e) {
+      const msg = (e as Error).message?.slice(0, 200) ?? String(e);
+      console.warn("[memwal] save attempt %d/%d failed: %s", attempt, attempts, msg);
+      if (attempt < attempts) {
+        // Backoff: 3s, 6s, 9s — long enough for a transient relayer blip to clear.
+        await new Promise((r) => setTimeout(r, attempt * 3_000));
+      }
+    }
   }
+  console.warn("[memwal] save gave up after %d attempts ns=talise:%s", attempts, ns);
 }
