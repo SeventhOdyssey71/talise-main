@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Figma node 42-1819 — Home, dark mode. Real data: balance from
 /// /api/balances, activity from /api/activity. Empty state matches the
@@ -7,6 +8,8 @@ struct HomeView: View {
     @Environment(AppSession.self) private var session
     @State private var balance: BalancesDTO?
     @State private var activity: [ActivityEntryDTO] = []
+    /// Brief "copied" state for the tap-to-copy handle on the account card.
+    @State private var copiedHandle = false
     /// False only when there is a cached snapshot to show immediately —
     /// in that case we skip the placeholder/skeleton on first render so
     /// the user sees real numbers instead of grey blobs.
@@ -486,13 +489,29 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity, alignment: .topTrailing)
             VStack(alignment: .leading, spacing: 0) {
                 if let handle = currentHandle {
-                    Text(handle)
-                        .font(TaliseFont.heading(20, weight: .medium))
-                        .kerning(-0.8)
-                        .foregroundStyle(TaliseColor.fgSubtle)
-                        .padding(.top, 27)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    HStack(spacing: 9) {
+                        Text(handle)
+                            .font(TaliseFont.heading(20, weight: .medium))
+                            .kerning(-0.8)
+                            .foregroundStyle(TaliseColor.fgSubtle)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        // Tap to copy the Talise username so people can share it.
+                        Button {
+                            UIPasteboard.general.string = handle
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            withAnimation { copiedHandle = true }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                                withAnimation { copiedHandle = false }
+                            }
+                        } label: {
+                            Image(systemName: copiedHandle ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(TaliseColor.greenMint)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 27)
                 } else {
                     claimCTA
                         .padding(.top, 24)

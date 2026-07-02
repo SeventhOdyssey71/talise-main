@@ -42,9 +42,6 @@ struct ProfileView: View {
     /// the stats-strip KYC cell.
     @State private var showIdentity = false
     @State private var kyc: KYCStatus?
-    /// Drives the `PayrollView` presentation — create reusable teams and pay
-    /// everyone in one sponsored transaction.
-    @State private var showPayroll = false
     /// LOCKED for now: Bridge identity verification (KYC) is paused. Flip to
     /// true to restore the Profile entry, the loader, and the stats chip.
     private let kycEnabled = false
@@ -61,7 +58,6 @@ struct ProfileView: View {
                 hero
                 statsStrip
                 walletSection
-                payrollSection
                 if kycEnabled { verificationSection }
                 // Bank-account linking deferred — entry removed for now.
                 preferencesSection
@@ -80,18 +76,6 @@ struct ProfileView: View {
         .taliseScreenBackground()
         .task { await loadRewards() }
         .task { if kycEnabled { await loadKyc() } }
-        .sheet(isPresented: $showPayroll) {
-            NavigationStack {
-                PayrollView()
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showPayroll = false }
-                                .foregroundStyle(TaliseColor.accent)
-                        }
-                    }
-            }
-            .environment(session)
-        }
         .sheet(isPresented: $showIdentity) {
             NavigationStack {
                 IdentityVerificationView()
@@ -201,29 +185,6 @@ struct ProfileView: View {
     //
     // Create reusable teams and pay everyone in one sponsored transaction.
 
-    private var payrollSection: some View {
-        section(title: "Payroll") {
-            Button {
-                showPayroll = true
-            } label: {
-                HStack {
-                    Image(systemName: "person.2")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                        .frame(width: 22)
-                    rowLabel(title: "Team payments")
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(TaliseColor.fgDim)
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-    }
 
     // MARK: - Verification section
     //
@@ -927,7 +888,7 @@ struct ProfileView: View {
     /// something instead of feeling broken.
     private func openSupport() {
         let subject = "Talise support".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Talise%20support"
-        if let mail = URL(string: "mailto:hello@talise.io?subject=\(subject)"),
+        if let mail = URL(string: "mailto:support@talise.io?subject=\(subject)"),
            UIApplication.shared.canOpenURL(mail) {
             UIApplication.shared.open(mail) { ok in
                 if !ok, let web = URL(string: "https://talise.io") {
