@@ -31,7 +31,7 @@ import {
   UserGroupIcon,
   BarcodeScanIcon,
   MoneyReceive01Icon,
-  AiChat02Icon,
+  SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { CurrencyProvider, useCurrency } from "./data/currency";
 import { Flag } from "./ui";
@@ -85,7 +85,7 @@ const PRIMARY: NavItem[] = [
       { label: "Stream", href: "/app/pay/stream" },
     ],
   },
-  { label: "Ask Talise", href: "/app/agent", icon: AiChat02Icon as IconSvgElement },
+  { label: "Copilot", href: "/app/agent", icon: SparklesIcon as IconSvgElement },
   { label: "Earn", href: "/app/earn", icon: Plant02Icon as IconSvgElement },
   { label: "Work", href: "/app/work", icon: Briefcase01Icon as IconSvgElement },
   { label: "Activity", href: "/app/activity", icon: Analytics01Icon as IconSvgElement },
@@ -97,7 +97,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/app/pay/request": "Request",
   "/app/pay/cheques": "Cheques",
   "/app/pay/stream": "Stream",
-  "/app/agent": "Ask Talise",
+  "/app/agent": "Copilot",
   "/app/requests": "Requests",
   "/app/rules": "Automations",
   "/app/earn": "Earn",

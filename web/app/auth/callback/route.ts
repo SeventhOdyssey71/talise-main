@@ -114,7 +114,11 @@ export async function GET(req: Request) {
         }
       }
     }
-    jar.delete("talise_m1_binding");
+    // Clear with the SAME Domain/path the binding cookie was set with in
+    // /api/auth/mobile/start; a name-only delete won't clear a domain-scoped
+    // cookie, leaving a stale binding to shadow the next sign-in.
+    const { cookieDomain } = await import("@/lib/session");
+    jar.delete({ name: "talise_m1_binding", domain: cookieDomain(), path: "/" });
 
     const bearer = await issueMobileBearer(user.id, {
       jwt: idToken,
