@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -58,12 +59,27 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = viewModel()) {
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 110.dp),
     ) {
         item {
-            // Top bar
+            // Top bar — wordmark + Copilot entry (mirrors the iOS Home agent button).
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("talise", style = TaliseType.heading(20.sp, FontWeight.SemiBold), color = TaliseColors.fg)
+                Spacer(Modifier.weight(1f))
+                Box(
+                    Modifier
+                        .size(38.dp)
+                        .background(TaliseColors.greenDeep.copy(alpha = 0.18f), CircleShape)
+                        .clickable { nav.navigate(Routes.COPILOT) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.AutoAwesome,
+                        contentDescription = "Copilot",
+                        tint = TaliseColors.accent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
 

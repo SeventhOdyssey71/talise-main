@@ -13,6 +13,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.talise.app.core.session.AppSession
+import io.talise.app.feature.chat.ChatScreen
 import io.talise.app.feature.deposit.DepositScreen
 import io.talise.app.feature.movemoney.MoveMoneyScreen
 import io.talise.app.feature.onboarding.SignInScreen
@@ -47,6 +48,7 @@ private fun MainNavHost() {
         composable(Routes.DEPOSIT) { DepositScreen(onClose = { nav.popBackStack() }) }
         composable(Routes.PAYROLL) { PayrollScreen(onClose = { nav.popBackStack() }) }
         composable(Routes.SEND) { SendFlow(onClose = { nav.popBackStack() }) }
+        composable(Routes.COPILOT) { ChatScreen(onClose = { nav.popBackStack() }) }
     }
 }
 

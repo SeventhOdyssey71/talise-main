@@ -20,6 +20,12 @@ Done and structured to compile in Android Studio (Giraffe+ / AGP 8.7):
 - **Screens** — Home (live `/api/balances` + `/api/activity`, activity rows incl.
   team/cash-out treatment), SignIn, Earn, Rewards, Profile, the Move-money hub,
   Deposit, Payroll (live `/api/payouts/teams`), Send (amount + SlideToConfirm).
+- **Copilot** (`feature/chat`, `core/net/ChatClient`) — the money assistant, streamed
+  live from `POST /api/chat/stream` over Server-Sent Events (the same wire the iOS
+  Chat tab consumes). Greeting + 2x2 starter grid on an empty thread, growing reply
+  bubbles as tokens arrive, "Ask anything" input pill. Launches from the Home header.
+  Recall + persistence to Walrus Memory are server-side per turn, so the client stays
+  thin — no on-device transcript store.
 
 ## Phase 1 — zkLogin sign-in (done)
 
@@ -38,8 +44,10 @@ Native Google sign-in is wired end-to-end against the live backend:
 
 ## Setup
 
-1. Open the `android/` folder in Android Studio. It will fetch the Gradle wrapper
-   (`gradle 8.11.1`) and sync.
+1. Open the `android/` folder in Android Studio and sync. The Gradle wrapper
+   (`gradle 8.11.1`) is committed, so `./gradlew assembleDebug` works from the CLI too
+   (needs a JDK 17 + the Android SDK; set `ANDROID_HOME` or a `local.properties` with
+   `sdk.dir`).
 2. Set the OAuth client id for sign-in (phase 1): in `app/build.gradle.kts`,
    `GOOGLE_WEB_CLIENT_ID` — use the **same web client id** the iOS app + web use
    (required for zkLogin address parity).
