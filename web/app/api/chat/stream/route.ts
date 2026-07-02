@@ -27,32 +27,17 @@ import { getSuiBalance, getUsdsuiBalance } from "@/lib/sui";
 import { getYieldComparison } from "@/lib/yield";
 import { getRecentActivity } from "@/lib/activity";
 import {
-  AI_MODEL,
   buildMessages,
+  streamDeepSeek,
   deepSeekConfig,
   type ChatContext,
 } from "@/lib/chat/ai";
 import { defaultCurrency } from "@/lib/fx";
 import { displayRatePerUsd } from "@/lib/display-fx";
-import { streamText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
-import { withMemWal } from "@mysten-incubation/memwal/ai";
+import { recallMemories, rememberFact } from "@/lib/memwal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-// Official Walrus Memory (MemWal). Configured in prod (MEMWAL_* env). The
-// middleware recalls the user's relevant facts before each call and extracts +
-// encrypts + stores new ones on Walrus after it — per-wallet namespace, no DB.
-const MEMWAL_KEY = process.env.MEMWAL_DELEGATE_KEY || "";
-const MEMWAL_ACCOUNT_ID = process.env.MEMWAL_ACCOUNT_ID || "";
-const MEMWAL_SERVER_URL = process.env.MEMWAL_SERVER_URL || "https://relayer.memwal.ai";
-const memwalConfigured = Boolean(MEMWAL_KEY && MEMWAL_ACCOUNT_ID);
-
-/** createOpenAI appends `/chat/completions` itself — strip it if env includes it. */
-function deepseekBaseURL(raw: string): string {
-  return raw.replace(/\/chat\/completions\/?$/, "").replace(/\/+$/, "");
-}
 
 type IncomingMessage = {
   role: "user" | "assistant" | "system";
@@ -150,11 +135,19 @@ export async function POST(req: Request) {
     }))
     .filter((m) => m.content.length > 0);
 
-  // Memory is handled entirely by the official Walrus Memory middleware
-  // (`withMemWal`, wired below): it recalls the user's relevant facts into the
-  // prompt before the call and extract-saves new ones after — encrypted on
-  // Walrus, per-wallet namespace. No manual recall/store here, no DB.
+  // Walrus Memory: RECALL the user's relevant facts for this turn and fold them
+  // into the system prompt. Awaited (so they're in the prompt before we answer);
+  // never throws. The matching WRITE happens after the reply streams (below),
+  // awaited before the stream closes so it reliably lands on Walrus.
+  const lastUser = [...conversation].reverse().find((m) => m.role === "user")?.content ?? "";
+  const recalled = await recallMemories(user.sui_address, lastUser);
   const messages = buildMessages(conversation, context);
+  if (recalled.length > 0 && messages[0]?.role === "system") {
+    messages[0].content +=
+      `\n\n## what you remember about this user\n` +
+      `(durable memories recalled from Walrus, most relevant first. use them naturally to answer; never read them back verbatim.)\n` +
+      recalled.map((m) => `- ${m}`).join("\n");
+  }
 
   // ---- Stub fallback (no DeepSeek key) -----------------------------
   //
@@ -182,68 +175,44 @@ export async function POST(req: Request) {
     });
   }
 
-  // ---- Real provider path: stream the model through SSE ------------
+  // ---- Real provider path: stream DeepSeek deltas through SSE ------
   //
-  // We run the AI SDK's `streamText` (so the official `withMemWal` memory
-  // middleware can wrap the model) but re-emit its `textStream` deltas as the
-  // compact `{type:"text",value:"…"}` SSE frames the iOS client parses — rather
-  // than the AI SDK's `useChat` UI-message-stream format.
-  //
-  // Build the DeepSeek model through the AI SDK, wrapped with the official
-  // Walrus Memory middleware (per-wallet namespace). `withMemWal` recalls the
-  // user's relevant memories into the prompt before the call and extract-saves
-  // new facts (encrypted on Walrus) after it — fire-and-forget, never blocks.
-  // Degrades cleanly to the bare model when MEMWAL_* isn't set.
-  const cfg = deepSeekConfig()!; // non-null: the stub above returned if unset
-  const provider = createOpenAI({
-    apiKey: cfg.apiKey,
-    baseURL: deepseekBaseURL(cfg.baseUrl),
-  });
-  const baseModel = provider.chat(AI_MODEL);
-  const model = memwalConfigured
-    ? withMemWal(baseModel, {
-        key: MEMWAL_KEY,
-        accountId: MEMWAL_ACCOUNT_ID,
-        serverUrl: MEMWAL_SERVER_URL,
-        namespace: `talise:${user.sui_address.toLowerCase()}`,
-        maxMemories: 5,
-        autoSave: true,
-        minRelevance: 0.3,
-      })
-    : baseModel;
-
-  const systemPrompt = messages[0]?.role === "system" ? messages[0].content : "";
-  const convoOnly = messages.filter((m) => m.role !== "system") as Array<{
-    role: "user" | "assistant";
-    content: string;
-  }>;
-
+  // Raw OpenAI-compatible streaming (iOS parses these compact SSE frames). We
+  // accumulate the reply so we can persist the exchange to memory after.
   const sseStream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let reply = "";
       try {
-        const result = streamText({
-          model,
-          system: systemPrompt,
-          messages: convoOnly,
-          temperature: 0.4,
-          maxOutputTokens: 4096,
-          abortSignal: req.signal,
-          onError: ({ error }) =>
-            console.error("[chat/stream] streamText error:", error),
-        });
-        for await (const delta of result.textStream) {
-          if (delta) controller.enqueue(encodeSse({ type: "text", value: delta }));
+        for await (const delta of streamDeepSeek(messages, req.signal)) {
+          if (delta) {
+            reply += delta;
+            controller.enqueue(encodeSse({ type: "text", value: delta }));
+          }
         }
         controller.enqueue(encodeSse({ type: "done" }));
       } catch (err) {
-        console.error("[chat/stream] stream crashed:", err);
+        console.error("[chat/stream] DeepSeek loop crashed:", err);
         controller.enqueue(
           encodeSse({
             type: "text",
-            value: "\n\n(I lost the connection mid-thought — try that again.)",
+            value: "\n\n(I lost the connection mid-thought, try that again.)",
           })
         );
         controller.enqueue(encodeSse({ type: "done" }));
+      }
+      // PERSIST this exchange to Walrus BEFORE closing the stream. The function
+      // stays alive while the stream is open, so this write actually completes
+      // (a fire-and-forget after the response would be killed by the platform).
+      // We store the user turn + the reply, so a fact stated OR resolved in the
+      // exchange (e.g. a recipient handle the agent looked up) is recallable in
+      // future chats. Best-effort + time-bounded; the reply is already delivered.
+      try {
+        if (lastUser.trim() && reply.trim()) {
+          await rememberFact(
+            user.sui_address,
+            `User: ${lastUser}\nTalise: ${reply.slice(0, 900)}`
+          );
+        }
       } finally {
         controller.close();
       }
