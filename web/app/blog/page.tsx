@@ -9,11 +9,31 @@ type Post = {
   date: string;
   readTime: string;
   tag: string;
-  cover: string;
+  // Image cover for the featured card. Posts without one render a branded
+  // gradient panel (so we never ship a placeholder screenshot).
+  cover?: string;
 };
 
-// Single source of truth for the index. Add new posts here.
+// Single source of truth for the index. Newest first (first item is featured).
 const POSTS: Post[] = [
+  {
+    slug: "copilot-walrus-memory",
+    title: "Copilot + Walrus memory",
+    excerpt:
+      "Talise Copilot now remembers across chats. It keeps the facts that matter, encrypted and stored on Walrus, Sui's decentralized storage, and private to you alone.",
+    date: "July 2, 2026",
+    readTime: "7 min read",
+    tag: "Engineering",
+  },
+  {
+    slug: "talise-copilot",
+    title: "Meet Talise Copilot",
+    excerpt:
+      "Copilot is the assistant built into Talise. Tell it what you want in plain words, send money, check your balance, move into yield, and it does the work.",
+    date: "July 2, 2026",
+    readTime: "6 min read",
+    tag: "Product",
+  },
   {
     slug: "introducing-talise",
     title: "Introducing Talise",
@@ -56,12 +76,29 @@ export default function BlogIndex() {
           className="group mt-12 block overflow-hidden rounded-[28px] border border-[#15300c]/10 bg-white/55 backdrop-blur-sm transition-transform hover:-translate-y-1 md:grid md:grid-cols-[1.1fr_1fr]"
         >
           <div className="relative aspect-[16/10] overflow-hidden md:aspect-auto md:h-full">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={featured.cover}
-              alt={featured.title}
-              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-            />
+            {featured.cover ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={featured.cover}
+                alt={featured.title}
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+              />
+            ) : (
+              <div className="flex h-full min-h-[220px] w-full flex-col justify-between bg-gradient-to-br from-[#15300c] via-[#1d420f] to-[#3d7a29] p-8 md:p-10">
+                <svg width="30" height="30" viewBox="0 0 583 533" aria-hidden>
+                  <path
+                    d="M375.231 85.2803C375.232 120.604 403.867 149.24 439.191 149.24H582.036V195.141C582.036 275.133 517.696 340.098 437.943 341.108L435.271 341.125C402.04 341.546 375.232 368.614 375.231 401.944V533H345.384C260.606 533 191.88 464.274 191.88 379.496V341.12H0V303.18C8.18875e-05 219.067 67.6907 150.62 151.798 149.686L191.875 149.24V341.119H427.871C396.135 332.728 367.039 316.441 343.293 293.774L191.876 149.24H191.88V63.96C191.88 28.6358 220.516 0 255.84 0H375.231V85.2803Z"
+                    fill="#CAFFB8"
+                  />
+                </svg>
+                <div
+                  className="text-[clamp(24px,4vw,38px)] font-[800] uppercase leading-[0.98] tracking-[-0.01em] text-[#f7fcf2] transition-transform duration-500 group-hover:translate-x-1"
+                  style={{ fontFamily: "var(--font-display-v2)" }}
+                >
+                  {featured.title}
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex flex-col justify-center gap-4 p-7 md:p-10">
             <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.18em] text-[#3d7a29]">

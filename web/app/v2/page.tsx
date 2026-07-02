@@ -26,13 +26,16 @@ export default function LandingV2() {
         <div className="flex items-center gap-2.5">
           <a
             href="/blog"
-            className="rounded-full px-4 py-2 text-[13px] font-semibold text-[#15300c] transition-colors hover:bg-[#15300c]/[0.06]"
+            className="rounded-full border border-[#15300c]/15 px-5 py-2 text-[13px] font-semibold text-[#15300c] transition-colors hover:bg-[#15300c]/[0.06]"
           >
             Blog
           </a>
-          <span aria-disabled="true" title="Waitlist closed" className="cursor-not-allowed select-none rounded-full border border-[#15300c]/15 px-5 py-2 text-[13px] font-semibold text-[#15300c]/35">
-            Waitlist closed
-          </span>
+          <a
+            href="https://app.talise.io"
+            className="rounded-full bg-[#15300c] px-5 py-2 text-[13px] font-semibold text-[#f7fcf2] transition-colors hover:bg-[#1d420f]"
+          >
+            Explore Web
+          </a>
         </div>
       </div>
 
