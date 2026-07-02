@@ -45,6 +45,7 @@ struct WithdrawFlowView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         // ── Primary actions: a clean 2×2 grid ──
+                        sectionLabel("Send")
                         LazyVGrid(
                             columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)],
                             spacing: 14
@@ -84,6 +85,9 @@ struct WithdrawFlowView: View {
                             .buttonStyle(TilePress())
                         }
                         .zIndex(3)
+
+                        // ── Everything else, grouped under one quiet header ──
+                        sectionLabel("More").padding(.top, 6)
 
                         // ── Cheques group: full-width dropdown row (like Work) ──
                         Button {
@@ -217,6 +221,16 @@ struct WithdrawFlowView: View {
         .padding(.horizontal, 20)
         .padding(.top, 18)
         .padding(.bottom, 14)
+    }
+
+    /// A quiet, kerned section header that chunks the hub into "Send" / "More"
+    /// so nine same-weight rows don't read as one overwhelming wall.
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(TaliseFont.mono(10, weight: .regular))
+            .tracking(2.0)
+            .foregroundStyle(TaliseColor.fgDim)
+            .padding(.leading, 2)
     }
 }
 
