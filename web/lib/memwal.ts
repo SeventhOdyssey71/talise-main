@@ -77,14 +77,18 @@ export async function recallMemories(address: string, query: string, max = 6): P
  * the reply is already delivered by the time this runs. Never throws.
  */
 export async function rememberFact(address: string, text: string, timeoutMs = 12_000): Promise<void> {
-  if (!memwalConfigured() || !text.trim()) return;
+  if (!memwalConfigured() || !text.trim()) {
+    console.log("[memwal] save skipped (configured=%s, empty=%s)", memwalConfigured(), !text.trim());
+    return;
+  }
   const t = text.slice(0, 1500);
   try {
-    await Promise.race([
-      clientFor(address).rememberAndWait(t, undefined, { timeoutMs }).then(() => {}),
-      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs + 500)),
-    ]);
-  } catch {
-    /* memory is best-effort; never surface to the chat path */
+    const r = (await Promise.race([
+      clientFor(address).rememberAndWait(t, undefined, { timeoutMs }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs + 500)),
+    ])) as { blob_id?: string } | undefined;
+    console.log("[memwal] saved memory blob=%s ns=talise:%s", r?.blob_id ?? "(ok)", address.toLowerCase());
+  } catch (e) {
+    console.warn("[memwal] save FAILED:", (e as Error).message);
   }
 }
