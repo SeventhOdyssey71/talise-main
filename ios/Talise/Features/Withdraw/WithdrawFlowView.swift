@@ -195,7 +195,8 @@ struct WithdrawFlowView: View {
             .background(TaliseColor.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(isPresented: $showPrivateSoon) {
-                ShieldedBalanceView(onDone: { showPrivateSoon = false })
+                // Straight to the private-send keypad — skip the intro page.
+                PrivateSendFlowView(onDone: { showPrivateSoon = false })
             }
         }
         .tint(TaliseColor.fg)
@@ -1934,23 +1935,10 @@ struct PrivateAmountView: View {
             shieldedPill.padding(.bottom, 18)
             SendNumpad(input: $draft.rawAmount)
                 .padding(.horizontal, 24).padding(.bottom, 12)
-            reviewButton.padding(.horizontal, 24).padding(.bottom, 8)
-            recoverButton.padding(.bottom, 16)
+            reviewButton.padding(.horizontal, 24).padding(.bottom, 20)
         }
         .taliseScreenBackground()
         .toolbar(.hidden, for: .navigationBar)
-    }
-
-    /// Reclaims any shielded balance stranded by an earlier failed transfer —
-    /// sweeps every unspent note back to the user's own wallet.
-    private var recoverButton: some View {
-        Button(action: onRecover) {
-            Text("Recover your private balance")
-                .font(TaliseFont.body(13, weight: .medium))
-                .foregroundStyle(TaliseColor.fgMuted)
-                .underline()
-        }
-        .buttonStyle(.plain)
     }
 
     private var header: some View {
