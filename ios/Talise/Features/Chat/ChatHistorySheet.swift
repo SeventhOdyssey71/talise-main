@@ -7,6 +7,14 @@ struct ChatHistorySheet: View {
     let vm: ChatViewModel
     var onPick: () -> Void
 
+    @State private var query = ""
+
+    private var filtered: [ChatConversation] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return vm.conversations }
+        return vm.conversations.filter { $0.title.localizedCaseInsensitiveContains(q) }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -29,6 +37,31 @@ struct ChatHistorySheet: View {
             .padding(.top, 20)
             .padding(.bottom, 12)
 
+            // Search — filter past chats by title.
+            if !vm.conversations.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13))
+                        .foregroundStyle(TaliseColor.fgDim)
+                    TextField("Search chats", text: $query)
+                        .font(TaliseFont.body(14))
+                        .foregroundStyle(TaliseColor.fg)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    if !query.isEmpty {
+                        Button { query = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(TaliseColor.fgDim)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(TaliseColor.surface))
+                .padding(.horizontal, 20).padding(.bottom, 10)
+            }
+
             if vm.conversations.isEmpty {
                 Spacer()
                 VStack(spacing: 8) {
@@ -44,10 +77,23 @@ struct ChatHistorySheet: View {
             } else {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 2) {
-                        ForEach(vm.conversations) { c in row(c) }
+                        ForEach(filtered) { c in row(c) }
+                        if filtered.isEmpty {
+                            Text("No chats match that search.")
+                                .font(TaliseFont.body(13, weight: .light))
+                                .foregroundStyle(TaliseColor.fgMuted)
+                                .padding(.top, 24)
+                        }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 8)
+                    // Trust note: deleting a chat clears the local transcript only.
+                    // The durable memory lives on Walrus (append-only) and stays.
+                    Text("Deleting a chat only clears it from here. What Talise has learned stays saved on Walrus.")
+                        .font(TaliseFont.mono(10, weight: .light))
+                        .foregroundStyle(TaliseColor.fgDim)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 16)
                 }
             }
         }
