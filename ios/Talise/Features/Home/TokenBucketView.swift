@@ -28,6 +28,13 @@ struct TokenBucketView: View {
 
     @State private var coins: [WalletCoinBalance]
     @State private var swappingType: String?
+    /// Set on a successful swap → drives the coin-stack success screen.
+    @State private var swapSuccess: SwapSuccess?
+
+    private struct SwapSuccess: Identifiable {
+        let id = UUID()
+        let amountText: String
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,6 +58,15 @@ struct TokenBucketView: View {
             }
         }
         .taliseScreenBackground()
+        // Same coin-stack celebration a send shows — pops up on a successful swap.
+        .fullScreenCover(item: $swapSuccess) { s in
+            SuccessfulTxView(
+                amountText: s.amountText,
+                title: "Swapped to USDsui",
+                subtitle: "gas cost = 0 · added to your balance",
+                onDone: { swapSuccess = nil }
+            )
+        }
     }
 
     // MARK: - Header
@@ -153,7 +169,14 @@ struct TokenBucketView: View {
                 let ok = await onSwap(coin)
                 swappingType = nil
                 if ok {
+                    // Celebrate with the received USDsui value (fall back to the
+                    // coin amount when there's no trustworthy price).
+                    let received: String = {
+                        if let v = coin.usdValue, v > 0 { return usdText(v) }
+                        return "\(amountText(coin)) \(coin.symbol ?? symbolFor(coin))"
+                    }()
                     withAnimation { coins.removeAll { $0.coinType == coin.coinType } }
+                    swapSuccess = SwapSuccess(amountText: received)
                 }
             }
         } label: {
