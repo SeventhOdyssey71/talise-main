@@ -31,7 +31,6 @@ import {
   UserGroupIcon,
   BarcodeScanIcon,
   MoneyReceive01Icon,
-  RepeatIcon,
   AiChat02Icon,
 } from "@hugeicons/core-free-icons";
 import { CurrencyProvider, useCurrency } from "./data/currency";
@@ -417,11 +416,6 @@ function AccountMenu({
                 <HugeiconsIcon icon={MoneyReceive01Icon} size={18} strokeWidth={1.8} /> Requests
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/app/rules">
-                <HugeiconsIcon icon={RepeatIcon} size={18} strokeWidth={1.8} /> Automations
-              </Link>
-            </DropdownMenuItem>
           </>
         )}
         <DropdownMenuSeparator />
@@ -489,18 +483,14 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
             );
           })}
           <div className="my-3 h-px bg-[#15300c]/10" />
-          {/* Secondary money tools — Requests (track who owes you) and
-              Automations (scheduled sends). Consumer surface only; the business
-              nav has its own primary set so these stay out of it. */}
+          {/* Secondary money tools — Requests (track who owes you). Consumer
+              surface only; the business nav has its own primary set so these
+              stay out of it. (Automations hidden for now.) */}
           {nav === CONSUMER_NAV && (
             <>
               <SidebarItem
                 item={{ label: "Requests", href: "/app/requests", icon: MoneyReceive01Icon as IconSvgElement }}
                 active={isActive(pathname, "/app/requests", nav.brandHref)}
-              />
-              <SidebarItem
-                item={{ label: "Automations", href: "/app/rules", icon: RepeatIcon as IconSvgElement }}
-                active={isActive(pathname, "/app/rules", nav.brandHref)}
               />
             </>
           )}
