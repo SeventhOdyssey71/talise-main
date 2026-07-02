@@ -1,7 +1,6 @@
 import SwiftUI
 import WebKit
 import Security
-import UIKit
 
 /// Top-level Withdraw flow. Replaces the old direct-to-Send sheet the
 /// paper-plane button used to open. Now lands on a full-page options
@@ -1690,31 +1689,6 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
         }
     }
 
-    /// Deposit into the shielded balance WITHOUT a send (pre-fund). Makes later
-    /// sends fast (spend an existing note — no deposit/sign/index round-trip) and
-    /// more private (no per-send public deposit to correlate). Returns the deposit
-    /// digest. `micros` = USDsui base units; `seedHex` = the note master.
-    func topUp(micros: UInt64, seedHex: String) async throws -> String {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
-            self.continuation = cont
-            self.beginTiming("topup")
-            let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
-            let js = "if(!window.taliseShieldTopUp){throw new Error('Private balance isn’t ready yet — try again.')}; window.taliseShieldTopUp('\(micros)','\(safeSeed)')"
-            webView.evaluateJavaScript(js) { _, err in
-                if let err { self.finish(.failure(ShieldError.message(err.localizedDescription))) }
-            }
-            // Deposit-only (prove + sign) — no index poll or second proof, so a
-            // tighter ceiling than a full send.
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 120 * 1_000_000_000)
-                if self.continuation != nil {
-                    self.finish(.failure(ShieldError.message(
-                        "Top-up timed out. Check your balance — any shielded funds are safe and recoverable.")))
-                }
-            }
-        }
-    }
-
     /// Read-only: the user's shielded balance in micros (sum of unspent notes).
     func shieldedBalanceMicros(seedHex: String) async throws -> UInt64 {
         let raw = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
@@ -1838,100 +1812,29 @@ enum ShieldKeyStore {
     private static let service = "io.talise.shield"
     private static let account = "note-master.v1"
 
-    /// Non-custodial recovery-code escrow. When true, the note master is escrowed
-    /// WRAPPED under a user-held recovery code (ShieldEscrowEnvelope) instead of
-    /// plaintext, so the operator can't read it. OFF until the wrapped round-trip
-    /// + fresh-device restore is smoke-tested on a real device against prod; the
-    /// crypto itself is already KAT-verified (ShieldEscrowEnvelopeTests). When
-    /// false the behavior is exactly the original plaintext escrow (unchanged).
-    ///
-    /// ENABLED: new mints no longer write a plaintext master to the server. The
-    /// automatic recovery rail is the iCloud-synchronizable Keychain (kSecAttr-
-    /// Synchronizable — survives reinstall + new-device migration); the recovery
-    /// code is the belt-and-suspenders for users who have iCloud Keychain off.
-    /// Legacy plaintext escrow rows still auto-restore (backward compatible).
-    static let nonCustodialEscrow = true
-
-    /// Hex of the note master, creating + persisting one on first use. Returns ""
-    /// when a non-custodial escrow exists but the master isn't on this device yet
-    /// — the caller must run a recovery-code restore first (see ShieldedBalanceView).
+    /// Hex of the note master, creating + persisting one on first use.
     static func noteMasterHex() async -> String {
         let data = await loadOrCreate()
         return data.map { String(format: "%02x", $0) }.joined()
     }
 
-    /// True iff the master is already on THIS device's Keychain.
-    static func hasLocalMaster() -> Bool { readKeychain() != nil }
-
-    enum EscrowState { case none, plaintext, wrapped }
-
-    /// What the recovery escrow currently holds for this account.
-    static func escrowState() async -> EscrowState {
-        guard let raw = await fetchEscrowRaw(), !raw.isEmpty else { return .none }
-        return ShieldEscrowEnvelope.isWrapped(raw) ? .wrapped : .plaintext
-    }
-
-    /// Wrap the local master under a fresh recovery code and upload the envelope
-    /// (the route CAS-upgrades a legacy plaintext row in place). Returns the code
-    /// to SHOW the user exactly once — the only secret that can restore the master
-    /// on a device without the iCloud Keychain.
-    static func setUpRecoveryCode() async -> String? {
-        // Never re-wrap an existing envelope: the route won't overwrite a wrapped
-        // row (CAS), so a freshly generated code wouldn't match what's stored —
-        // handing the user a code that can't open their escrow. Only set up when
-        // the escrow is absent or still legacy plaintext.
-        if await escrowState() == .wrapped { return nil }
-        let master = await loadOrCreate()
-        guard master.count >= 16 else { return nil }
-        let code = ShieldEscrowEnvelope.generateRecoveryCode()
-        guard let env = try? ShieldEscrowEnvelope.wrap(noteMaster: master, recoveryCode: code),
-              await postEscrow(env) else { return nil }
-        return code
-    }
-
-    /// Fresh-device restore: unwrap the escrow envelope with the user's recovery
-    /// code and pin the master to the Keychain. Returns true on success.
-    static func restoreWithRecoveryCode(_ code: String) async -> Bool {
-        guard let raw = await fetchEscrowRaw(), ShieldEscrowEnvelope.isWrapped(raw),
-              let master = try? ShieldEscrowEnvelope.unwrap(envelope: raw, recoveryCode: code),
-              master.count >= 16 else { return false }
-        writeKeychain(master)
-        return true
-    }
-
     private static func loadOrCreate() async -> Data {
         if let d = readKeychain() { return d }
-        // Fresh device / first use → consult the recovery escrow before minting.
-        let raw = await fetchEscrowRaw()
-        if let raw, !raw.isEmpty {
-            if ShieldEscrowEnvelope.isWrapped(raw) {
-                // Non-custodial escrow: only the user's recovery code can open it.
-                // We CANNOT restore silently, and minting a fresh master here would
-                // ORPHAN the user's existing notes. Return empty so the UI runs
-                // restoreWithRecoveryCode() first. (Only reachable when the flag is
-                // on, since no wrapped envelope is ever written otherwise.)
-                return Data()
-            }
-            if let restored = dataFromHex(raw) {  // legacy plaintext auto-restore
-                writeKeychain(restored)
-                return restored
-            }
+        // Fresh device / first use → try the recovery escrow before minting.
+        if let restored = await restoreFromEscrow() {
+            writeKeychain(restored)
+            return restored
         }
         var bytes = [UInt8](repeating: 0, count: 32)
         _ = SecRandomCopyBytes(kSecRandomDefault, 32, &bytes)
         let data = Data(bytes)
         writeKeychain(data)
-        if !nonCustodialEscrow {
-            // Legacy plaintext escrow (operator-readable) — unchanged behavior.
-            // Escrow is authoritative on a two-device race: the server echoes the
-            // stored master, so we adopt + re-pin it locally.
-            if let adopted = await backupPlaintext(data), adopted != data {
-                writeKeychain(adopted)
-                return adopted
-            }
+        // Escrow is authoritative if one already existed (two-device race): the
+        // server echoes the stored master, and we adopt + re-pin it locally.
+        if let adopted = await backupToEscrow(data), adopted != data {
+            writeKeychain(adopted)
+            return adopted
         }
-        // Non-custodial: mint WITHOUT auto-escrow — the user sets up a recovery
-        // code explicitly (setUpRecoveryCode) so the code can be SHOWN once.
         return data
     }
 
@@ -1966,25 +1869,13 @@ enum ShieldKeyStore {
     private struct EscrowResp: Decodable { let noteMaster: String? }
     private struct EscrowBody: Encodable { let noteMaster: String }
 
-    /// Raw stored escrow value: a `tsw1:` envelope, a legacy plaintext-hex master,
-    /// or nil. Never interpreted here — callers branch on the shape.
-    private static func fetchEscrowRaw() async -> String? {
-        let r: EscrowResp? = try? await APIClient.shared.get("/api/shield/key-escrow")
-        return r?.noteMaster
+    private static func restoreFromEscrow() async -> Data? {
+        guard let r: EscrowResp = try? await APIClient.shared.get("/api/shield/key-escrow"),
+              let hex = r.noteMaster else { return nil }
+        return dataFromHex(hex)
     }
 
-    /// Upload a value (wrapped envelope or plaintext hex) to the escrow. Returns
-    /// true iff the request succeeded.
-    private static func postEscrow(_ value: String) async -> Bool {
-        let r: EscrowResp? = try? await APIClient.shared.post(
-            "/api/shield/key-escrow", body: EscrowBody(noteMaster: value)
-        )
-        return r != nil
-    }
-
-    /// Legacy plaintext backup (flag-off path). Returns the authoritative stored
-    /// master the server echoes back (so a two-device race converges).
-    private static func backupPlaintext(_ d: Data) async -> Data? {
+    private static func backupToEscrow(_ d: Data) async -> Data? {
         let hex = d.map { String(format: "%02x", $0) }.joined()
         guard let r: EscrowResp = try? await APIClient.shared.post(
             "/api/shield/key-escrow", body: EscrowBody(noteMaster: hex)
@@ -2195,28 +2086,13 @@ struct PrivateReviewView: View {
         .padding(.vertical, 15)
     }
 
-    /// A send is FULLY private (note→note, amount + recipient hidden) only when
-    /// the recipient has published a shield identity. Otherwise it exits as a
-    /// public withdraw — the payout amount + their address are visible on-chain
-    /// (your identity still stays hidden). We tell the user the truth up front.
-    private var isFullyPrivate: Bool { draft.resolved?.shieldIdentity != nil }
-
     private var privacyNote: some View {
         HStack(alignment: .top, spacing: 10) {
-            HugeIcon(name: isFullyPrivate ? "hi.lock" : "hi.globe", size: 15,
-                     tint: isFullyPrivate ? TaliseColor.greenMint : TaliseColor.danger)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(isFullyPrivate ? "Fully private" : "Visible on-chain")
-                    .font(TaliseFont.body(12.5, weight: .semibold))
-                    .foregroundStyle(isFullyPrivate ? TaliseColor.greenMint : TaliseColor.danger)
-                Text(isFullyPrivate
-                     ? "The amount and the link between you and \(recipientName) stay hidden on-chain. Early pilot, capped at $10."
-                     : "\(recipientName) isn’t on Talise’s private layer, so this payout — the amount and their address — will be visible on-chain. Your identity stays hidden. For a fully private send, pay another Talise user.")
-                    .font(TaliseFont.body(12.5, weight: .light))
-                    .foregroundStyle(TaliseColor.fgMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            HugeIcon(name: "hi.lock", size: 15, tint: TaliseColor.greenMint).padding(.top, 1)
+            Text("Sent shielded — the link between you and the recipient stays private on-chain, and your money never leaves your control. Early pilot, capped at $10.")
+                .font(TaliseFont.body(12.5, weight: .light))
+                .foregroundStyle(TaliseColor.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 16).fill(TaliseColor.surface2.opacity(0.5)))
@@ -2245,161 +2121,6 @@ struct PrivateReviewView: View {
 /// SHIELDED BALANCE hub — your private pocket (sum of unspent notes, amount
 /// hidden on-chain) + the actions. "Send private" routes the hidden-amount
 /// transfer; "Unshield" sweeps the shielded balance back to your public wallet.
-/// Recovery-code setup + restore for the NON-CUSTODIAL shielded escrow.
-///
-/// Setup: wraps the note master under a freshly generated code and uploads the
-/// envelope, then shows the code the user MUST save (the only secret that can
-/// restore their private balance on a device without the iCloud Keychain).
-/// Restore: takes the code and unwraps the escrow onto this device.
-struct ShieldRecoveryCodeView: View {
-    enum Mode { case setup, restore }
-    let mode: Mode
-    /// Called with true when the operation completed (code saved / restore done).
-    var onFinish: (Bool) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var code = ""
-    @State private var entered = ""
-    @State private var busy = false
-    @State private var error: String?
-    @State private var confirmedSaved = false
-    @State private var copied = false
-
-    var body: some View {
-        VStack(spacing: 22) {
-            header
-            Spacer(minLength: 8)
-            switch mode {
-            case .setup: setupBody
-            case .restore: restoreBody
-            }
-            Spacer()
-        }
-        .taliseScreenBackground()
-        .task { if mode == .setup && code.isEmpty { await generate() } }
-    }
-
-    private var header: some View {
-        HStack {
-            Button { onFinish(false) } label: {
-                Image(systemName: "xmark").font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(TaliseColor.fgMuted).frame(width: 38, height: 38).glassCircle()
-            }
-            Spacer()
-            HStack(spacing: 6) {
-                HugeIcon(name: "hi.lock", size: 13, tint: TaliseColor.greenMint)
-                MicroLabel(text: "Recovery code", color: TaliseColor.fgMuted).kerning(2.0)
-            }
-            Spacer()
-            Color.clear.frame(width: 38, height: 38)
-        }
-        .padding(.horizontal, 20).padding(.top, 12)
-    }
-
-    // MARK: setup
-
-    private var setupBody: some View {
-        VStack(spacing: 20) {
-            Text("Save your recovery code")
-                .font(TaliseFont.heading(24, weight: .medium)).foregroundStyle(TaliseColor.fg)
-            Text("This is the only way to recover your private balance on a new phone. We can’t recover it for you — write it down.")
-                .font(TaliseFont.body(14, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
-                .multilineTextAlignment(.center).padding(.horizontal, 30)
-            if busy && code.isEmpty {
-                ProgressView().padding(.vertical, 20)
-            } else {
-                Text(code)
-                    .font(TaliseFont.mono(20, weight: .medium)).tracking(1.5)
-                    .foregroundStyle(TaliseColor.fg).multilineTextAlignment(.center)
-                    .padding(.vertical, 18).frame(maxWidth: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 16).fill(TaliseColor.fg.opacity(0.06)))
-                    .padding(.horizontal, 24)
-                    .textSelection(.enabled)
-                Button {
-                    UIPasteboard.general.string = code
-                    copied = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text(copied ? "Copied" : "Copy code").font(TaliseFont.body(13, weight: .medium))
-                    }
-                    .foregroundStyle(TaliseColor.greenMint)
-                }
-                .buttonStyle(.plain)
-            }
-            Toggle(isOn: $confirmedSaved) {
-                Text("I’ve saved this code somewhere safe.")
-                    .font(TaliseFont.body(13)).foregroundStyle(TaliseColor.fgMuted)
-            }
-            .tint(TaliseColor.greenMint).padding(.horizontal, 30)
-            if let error { errorText(error) }
-            Button { onFinish(true) } label: {
-                actionLabel("Done", filled: true)
-            }
-            .buttonStyle(TilePress()).disabled(code.isEmpty || !confirmedSaved).opacity(code.isEmpty || !confirmedSaved ? 0.5 : 1)
-            .padding(.horizontal, 24)
-        }
-    }
-
-    private func generate() async {
-        busy = true; error = nil
-        if let c = await ShieldKeyStore.setUpRecoveryCode() {
-            code = c
-        } else {
-            error = "Couldn’t set up recovery right now. Try again."
-        }
-        busy = false
-    }
-
-    // MARK: restore
-
-    private var restoreBody: some View {
-        VStack(spacing: 20) {
-            Text("Restore your private balance")
-                .font(TaliseFont.heading(24, weight: .medium)).foregroundStyle(TaliseColor.fg)
-            Text("Enter the recovery code you saved when you set up private sends.")
-                .font(TaliseFont.body(14, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
-                .multilineTextAlignment(.center).padding(.horizontal, 30)
-            TextField("XXXX-XXXX-XXXX-…", text: $entered)
-                .font(TaliseFont.mono(16, weight: .regular))
-                .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                .multilineTextAlignment(.center)
-                .padding(.vertical, 16).frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 16).fill(TaliseColor.fg.opacity(0.06)))
-                .padding(.horizontal, 24)
-            if let error { errorText(error) }
-            Button { Task { await restore() } } label: {
-                actionLabel(busy ? "Restoring…" : "Restore", filled: true)
-            }
-            .buttonStyle(TilePress()).disabled(busy || entered.count < 8).opacity(busy || entered.count < 8 ? 0.5 : 1)
-            .padding(.horizontal, 24)
-        }
-    }
-
-    private func restore() async {
-        busy = true; error = nil
-        let ok = await ShieldKeyStore.restoreWithRecoveryCode(entered)
-        busy = false
-        if ok { onFinish(true) } else { error = "That code didn’t work. Check it and try again." }
-    }
-
-    // MARK: shared
-
-    private func errorText(_ t: String) -> some View {
-        Text(t).font(TaliseFont.body(13)).foregroundStyle(TaliseColor.danger)
-            .multilineTextAlignment(.center).padding(.horizontal, 30)
-    }
-
-    private func actionLabel(_ t: String, filled: Bool) -> some View {
-        Text(t)
-            .font(TaliseFont.body(16, weight: .semibold))
-            .foregroundStyle(filled ? TaliseColor.bg : TaliseColor.fg)
-            .frame(maxWidth: .infinity).padding(.vertical, 16)
-            .background(RoundedRectangle(cornerRadius: 16).fill(filled ? TaliseColor.greenMint : TaliseColor.fg.opacity(0.08)))
-    }
-}
-
 struct ShieldedBalanceView: View {
     var onDone: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
@@ -2409,11 +2130,6 @@ struct ShieldedBalanceView: View {
     @State private var busy = false
     @State private var status: String?
     @State private var showSend = false
-    // Non-custodial escrow (gated by ShieldKeyStore.nonCustodialEscrow).
-    @State private var escrow: ShieldKeyStore.EscrowState = .none
-    @State private var showRecovery = false
-    @State private var recoveryMode: ShieldRecoveryCodeView.Mode = .restore
-    @State private var showTopUp = false
 
     private var shieldedDisplay: String { String(format: "$%.2f", Double(shieldedMicros) / 1_000_000) }
 
@@ -2434,12 +2150,6 @@ struct ShieldedBalanceView: View {
         .task { await load() }
         .fullScreenCover(isPresented: $showSend) {
             PrivateSendFlowView(onDone: { showSend = false; Task { await load() } })
-        }
-        .sheet(isPresented: $showRecovery) {
-            ShieldRecoveryCodeView(mode: recoveryMode) { ok in
-                showRecovery = false
-                if ok { Task { await load() } }
-            }
         }
         .background(
             ShieldProverHost(controller: prover)
@@ -2511,21 +2221,6 @@ struct ShieldedBalanceView: View {
         VStack(spacing: 12) {
             Button { showSend = true } label: { actionLabel("Send privately", filled: true) }
                 .buttonStyle(TilePress())
-            // Pre-fund the shielded balance. This is what makes sends fast (spend
-            // an existing note — no deposit/sign/index round-trip) AND more private
-            // (no per-send deposit to correlate). Round top-up, not the send amount.
-            Button { showTopUp = true } label: {
-                actionLabel(busy ? "Working…" : "Add to private balance", filled: false)
-            }
-            .buttonStyle(TilePress())
-            .disabled(busy)
-            .confirmationDialog("Add to your private balance", isPresented: $showTopUp, titleVisibility: .visible) {
-                Button("$5") { Task { await topUp(5) } }
-                Button("$10") { Task { await topUp(10) } }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Move dollars into your private balance now, so your sends are instant and unlinkable.")
-            }
             // Only offer "move to wallet" when there's actually a balance to move —
             // a dead/disabled button at $0.00 is what made this screen confusing.
             if shieldedMicros > 0 {
@@ -2534,19 +2229,6 @@ struct ShieldedBalanceView: View {
                 }
                 .buttonStyle(TilePress())
                 .disabled(busy)
-            }
-            // Non-custodial recovery setup — a quiet link (not a second heavy
-            // button) so "Send privately" stays the one clear action. Shown until
-            // the master is wrapped; hidden entirely when the flag is off.
-            if ShieldKeyStore.nonCustodialEscrow && escrow != .wrapped {
-                Button { recoveryMode = .setup; showRecovery = true } label: {
-                    Text("Set up recovery code")
-                        .font(TaliseFont.body(13, weight: .medium))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                        .underline()
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 2)
             }
             Text("Up to $10 per send during the pilot.")
                 .font(TaliseFont.mono(10, weight: .regular)).tracking(1.2)
@@ -2565,48 +2247,8 @@ struct ShieldedBalanceView: View {
     }
 
     private func load() async {
-        if ShieldKeyStore.nonCustodialEscrow {
-            escrow = await ShieldKeyStore.escrowState()
-            // Fresh device: a wrapped escrow exists but the master isn't here yet.
-            // Prompt for the recovery code BEFORE reading the master — otherwise
-            // noteMasterHex() returns "" (it won't mint over a wrapped escrow).
-            if escrow == .wrapped && !ShieldKeyStore.hasLocalMaster() {
-                recoveryMode = .restore
-                showRecovery = true
-                return
-            }
-        }
         let seed = await ShieldKeyStore.noteMasterHex()
         shieldedMicros = (try? await prover.shieldedBalanceMicros(seedHex: seed)) ?? 0
-        // Contextual nudge: the first time a user actually has private money but
-        // hasn't set a recovery code, offer it once. They can still reach it via
-        // the "Set up recovery code" button later; we prompt once to avoid nagging.
-        if ShieldKeyStore.nonCustodialEscrow, escrow != .wrapped, shieldedMicros > 0,
-           !UserDefaults.standard.bool(forKey: "shieldRecoveryPrompted") {
-            UserDefaults.standard.set(true, forKey: "shieldRecoveryPrompted")
-            recoveryMode = .setup
-            showRecovery = true
-        }
-    }
-
-    private func topUp(_ usd: Double) async {
-        busy = true
-        status = "Adding to your private balance…"
-        let micros = UInt64((usd * 1_000_000).rounded())
-        do {
-            let seed = await ShieldKeyStore.noteMasterHex()
-            guard !seed.isEmpty else {
-                status = "Set up your recovery code first to restore your private key."
-                busy = false
-                return
-            }
-            _ = try await prover.topUp(micros: micros, seedHex: seed)
-            status = "Added to your private balance. Sends are now instant and private."
-            await load()
-        } catch {
-            status = error.localizedDescription
-        }
-        busy = false
     }
 
     private func unshield() async {

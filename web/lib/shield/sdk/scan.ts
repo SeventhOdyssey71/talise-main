@@ -14,9 +14,9 @@
  * scalar (see keys.ts `deriveShieldEncScalar` + encrypt.ts) — the bigint key
  * that trial-decrypts the `encrypted_output` blobs.
  *
- * CRYPTO STATUS: all REAL. Note ENCRYPTION is P-256 ECIES + AES-256-GCM (see
- * encrypt.ts); the commitment recompute uses the parity-verified Poseidon (see
- * keys.ts); the scan LOOP (fetch, paginate, match) is real.
+ * CRYPTO STATUS: note ENCRYPTION is REAL (P-256 ECIES + AES-256-GCM, see
+ * encrypt.ts). The commitment recompute still uses the STUBBED Poseidon (see
+ * keys.ts). The scan LOOP itself (fetch, paginate, match) is real.
  */
 
 import { decryptNote } from "./encrypt";
