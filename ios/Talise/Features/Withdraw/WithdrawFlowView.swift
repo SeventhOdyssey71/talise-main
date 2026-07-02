@@ -1931,7 +1931,7 @@ struct PrivateAmountView: View {
     /// sweeps every unspent note back to the user's own wallet.
     private var recoverButton: some View {
         Button(action: onRecover) {
-            Text("Recover shielded balance")
+            Text("Recover your private balance")
                 .font(TaliseFont.body(13, weight: .medium))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .underline()
@@ -1967,7 +1967,7 @@ struct PrivateAmountView: View {
                     .font(TaliseFont.display(72, weight: .medium)).kerning(-1)
                     .foregroundStyle(TaliseColor.fg)
             }
-            Text(overCap ? "Pilot limit is $10 per private send" : "USDsui · shielded")
+            Text(overCap ? "Pilot limit is $10 per private send" : "Kept private")
                 .font(TaliseFont.body(13, weight: .light))
                 .foregroundStyle(overCap ? TaliseColor.danger : TaliseColor.fgMuted)
         }
@@ -1976,7 +1976,7 @@ struct PrivateAmountView: View {
     private var shieldedPill: some View {
         HStack(spacing: 8) {
             Circle().fill(TaliseColor.greenMint).frame(width: 7, height: 7)
-            Text("SHIELDED · UP TO $10")
+            Text("PRIVATE · UP TO $10")
                 .font(TaliseFont.mono(11, weight: .regular)).tracking(1.5)
                 .foregroundStyle(TaliseColor.fgMuted)
         }
@@ -2089,7 +2089,7 @@ struct PrivateReviewView: View {
     private var privacyNote: some View {
         HStack(alignment: .top, spacing: 10) {
             HugeIcon(name: "hi.lock", size: 15, tint: TaliseColor.greenMint).padding(.top, 1)
-            Text("Sent shielded — the link between you and the recipient stays private on-chain, and your money never leaves your control. Early pilot, capped at $10.")
+            Text("Only you and the person you pay ever see the amount, and your money never leaves your control. Early pilot, capped at $10.")
                 .font(TaliseFont.body(12.5, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2187,18 +2187,18 @@ struct ShieldedBalanceView: View {
                 Text("Private sends")
                     .font(TaliseFont.heading(26, weight: .medium)).kerning(-0.4)
                     .foregroundStyle(TaliseColor.fg)
-                Text("Send dollars so only you and the person you pay ever know the amount.")
+                Text("Pay someone without the amount showing up anywhere public.")
                     .font(TaliseFont.body(14, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
                     .multilineTextAlignment(.center).padding(.horizontal, 34)
             }
             VStack(alignment: .leading, spacing: 15) {
-                point("The amount is hidden on-chain.")
-                point("Sender and recipient stay unlinked.")
-                point("Real zero-knowledge, live on Sui.")
+                point("Only you and the person you pay see the amount.")
+                point("It’s kept private from everyone else.")
+                point("Your money never leaves your control.")
             }
             .padding(.horizontal, 34)
             if shieldedMicros > 0 {
-                Text("You have \(shieldedDisplay) shielded.")
+                Text("You have \(shieldedDisplay) in your private balance.")
                     .font(TaliseFont.body(12, weight: .light)).foregroundStyle(TaliseColor.fgMuted)
             }
         }
