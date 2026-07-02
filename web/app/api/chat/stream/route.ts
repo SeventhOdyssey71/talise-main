@@ -27,17 +27,32 @@ import { getSuiBalance, getUsdsuiBalance } from "@/lib/sui";
 import { getYieldComparison } from "@/lib/yield";
 import { getRecentActivity } from "@/lib/activity";
 import {
+  AI_MODEL,
   buildMessages,
-  streamDeepSeek,
   deepSeekConfig,
   type ChatContext,
 } from "@/lib/chat/ai";
 import { defaultCurrency } from "@/lib/fx";
 import { displayRatePerUsd } from "@/lib/display-fx";
-import { recallMemories, rememberTurn } from "@/lib/memwal";
+import { streamText } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { withMemWal } from "@mysten-incubation/memwal/ai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Official Walrus Memory (MemWal). Configured in prod (MEMWAL_* env). The
+// middleware recalls the user's relevant facts before each call and extracts +
+// encrypts + stores new ones on Walrus after it — per-wallet namespace, no DB.
+const MEMWAL_KEY = process.env.MEMWAL_DELEGATE_KEY || "";
+const MEMWAL_ACCOUNT_ID = process.env.MEMWAL_ACCOUNT_ID || "";
+const MEMWAL_SERVER_URL = process.env.MEMWAL_SERVER_URL || "https://relayer.memwal.ai";
+const memwalConfigured = Boolean(MEMWAL_KEY && MEMWAL_ACCOUNT_ID);
+
+/** createOpenAI appends `/chat/completions` itself — strip it if env includes it. */
+function deepseekBaseURL(raw: string): string {
+  return raw.replace(/\/chat\/completions\/?$/, "").replace(/\/+$/, "");
+}
 
 type IncomingMessage = {
   role: "user" | "assistant" | "system";
@@ -135,19 +150,11 @@ export async function POST(req: Request) {
     }))
     .filter((m) => m.content.length > 0);
 
-  // Walrus Memory: recall the most relevant memories for this turn and fold
-  // them into the system prompt. Best-effort — recallMemories never throws and
-  // returns [] when the memory service is down or unconfigured, so chat is
-  // unaffected either way. Touches no DB.
-  const lastUser = [...conversation].reverse().find((m) => m.role === "user")?.content ?? "";
-  const recalled = await recallMemories(user.sui_address, lastUser);
+  // Memory is handled entirely by the official Walrus Memory middleware
+  // (`withMemWal`, wired below): it recalls the user's relevant facts into the
+  // prompt before the call and extract-saves new ones after — encrypted on
+  // Walrus, per-wallet namespace. No manual recall/store here, no DB.
   const messages = buildMessages(conversation, context);
-  if (recalled.length > 0 && messages[0]?.role === "system") {
-    messages[0].content +=
-      `\n\n## what you remember about this user\n` +
-      `(durable memories from past chats, most relevant first. use them naturally; never read them back verbatim.)\n` +
-      recalled.map((m) => `- ${m}`).join("\n");
-  }
 
   // ---- Stub fallback (no DeepSeek key) -----------------------------
   //
@@ -175,39 +182,65 @@ export async function POST(req: Request) {
     });
   }
 
-  // ---- Real provider path: stream DeepSeek deltas through SSE ------
+  // ---- Real provider path: stream the model through SSE ------------
   //
-  // The web `/api/chat` route uses Vercel AI SDK's `streamText` which
-  // emits a UI-message-stream format (multi-part JSONL designed for
-  // the `useChat` hook). iOS can't easily parse that, so we go one
-  // level lower: call the 0G proxy's OpenAI-compatible streaming
-  // endpoint directly via `streamDeepSeek()` and re-emit each delta
-  // as a compact `{type:"text",value:"…"}` SSE event.
+  // We run the AI SDK's `streamText` (so the official `withMemWal` memory
+  // middleware can wrap the model) but re-emit its `textStream` deltas as the
+  // compact `{type:"text",value:"…"}` SSE frames the iOS client parses — rather
+  // than the AI SDK's `useChat` UI-message-stream format.
   //
-  // Memory is applied here directly via `lib/memwal` (the MemWal client), not
-  // the AI-SDK `withMemWal` middleware — recall injected into the prompt above,
-  // and we persist this user turn after a successful reply (below). Both legs
-  // are best-effort and namespaced per wallet.
+  // Build the DeepSeek model through the AI SDK, wrapped with the official
+  // Walrus Memory middleware (per-wallet namespace). `withMemWal` recalls the
+  // user's relevant memories into the prompt before the call and extract-saves
+  // new facts (encrypted on Walrus) after it — fire-and-forget, never blocks.
+  // Degrades cleanly to the bare model when MEMWAL_* isn't set.
+  const cfg = deepSeekConfig()!; // non-null: the stub above returned if unset
+  const provider = createOpenAI({
+    apiKey: cfg.apiKey,
+    baseURL: deepseekBaseURL(cfg.baseUrl),
+  });
+  const baseModel = provider.chat(AI_MODEL);
+  const model = memwalConfigured
+    ? withMemWal(baseModel, {
+        key: MEMWAL_KEY,
+        accountId: MEMWAL_ACCOUNT_ID,
+        serverUrl: MEMWAL_SERVER_URL,
+        namespace: `talise:${user.sui_address.toLowerCase()}`,
+        maxMemories: 5,
+        autoSave: true,
+        minRelevance: 0.3,
+      })
+    : baseModel;
+
+  const systemPrompt = messages[0]?.role === "system" ? messages[0].content : "";
+  const convoOnly = messages.filter((m) => m.role !== "system") as Array<{
+    role: "user" | "assistant";
+    content: string;
+  }>;
+
   const sseStream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const delta of streamDeepSeek(messages, req.signal)) {
-          if (delta) {
-            controller.enqueue(
-              encodeSse({ type: "text", value: delta })
-            );
-          }
+        const result = streamText({
+          model,
+          system: systemPrompt,
+          messages: convoOnly,
+          temperature: 0.4,
+          maxOutputTokens: 4096,
+          abortSignal: req.signal,
+          onError: ({ error }) =>
+            console.error("[chat/stream] streamText error:", error),
+        });
+        for await (const delta of result.textStream) {
+          if (delta) controller.enqueue(encodeSse({ type: "text", value: delta }));
         }
         controller.enqueue(encodeSse({ type: "done" }));
-        // Persist the user's turn to memory (fire-and-forget, never blocks).
-        rememberTurn(user.sui_address, lastUser);
       } catch (err) {
-        console.error("[chat/stream] DeepSeek loop crashed:", err);
+        console.error("[chat/stream] stream crashed:", err);
         controller.enqueue(
           encodeSse({
             type: "text",
-            value:
-              "\n\n(I lost the connection mid-thought — try that again.)",
+            value: "\n\n(I lost the connection mid-thought — try that again.)",
           })
         );
         controller.enqueue(encodeSse({ type: "done" }));
