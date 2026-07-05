@@ -1,0 +1,28 @@
+{
+  "name": "@talise/cli",
+  "version": "0.1.0",
+  "description": "Talise wallet in your terminal — payments, natural language, agent-to-agent money on Sui.",
+  "type": "module",
+  "bin": {
+    "talise": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --experimental-strip-types src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@mysten/sui": "^2.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
