@@ -257,6 +257,97 @@ export async function executeCashOut(
   };
 }
 
+export type BatchLeg = { to: string; amount: number; label?: string };
+
+/**
+ * Pay many recipients in ONE sponsored PTB ("pay your whole team in one
+ * signature"). prepare (server resolves + screens all legs) → local sign →
+ * sponsor-execute → record the digest against the batch.
+ */
+export async function executeBatch(
+  api: Api,
+  session: Session,
+  args: { recipients: BatchLeg[]; teamName?: string; teamId?: string },
+): Promise<TxResult & { batchId: string; recipientCount: number; totalUsd: number }> {
+  if (args.recipients.length === 0) throw new Error("batch needs at least one recipient");
+  const prep = await api.post<{
+    batchId?: string;
+    bytes?: string;
+    recipientCount?: number;
+    totalUsd?: number;
+    error?: string;
+  }>("/api/payouts/batch/prepare", {
+    recipients: args.recipients,
+    asset: "USDsui",
+    ...(args.teamName ? { teamName: args.teamName } : {}),
+    ...(args.teamId ? { teamId: args.teamId } : {}),
+  });
+  if (!prep.bytes || !prep.batchId) throw new Error(prep.error || "batch prepare returned no bytes");
+  const digest = await signExecute(api, session, prep.bytes, {
+    kind: "send",
+    amountUsd: prep.totalUsd,
+  });
+  // Mark the batch broadcast with the confirmed digest (best-effort; the money
+  // already moved, so a record failure must not surface as a failed payout).
+  await api.post(`/api/payouts/batch/${prep.batchId}/record`, { digest }).catch(() => undefined);
+  return {
+    ok: true,
+    kind: "batch",
+    digest,
+    suiscan: suiscan(digest),
+    batchId: prep.batchId,
+    recipientCount: prep.recipientCount ?? args.recipients.length,
+    totalUsd: prep.totalUsd ?? 0,
+  };
+}
+
+/**
+ * Create a team payroll STREAM: split a total into N tranches released over
+ * time. create-prepare opens the escrow → we fund it with a Talise-sponsored
+ * send of the total → record links the funding digest. Gated server-side on the
+ * stream escrow key (surfaces a clean "not available yet" when off).
+ */
+export async function executeStreamCreate(
+  api: Api,
+  session: Session,
+  args: { teamId: string; totalUsd: number; numTranches: number; intervalMinutes: number },
+): Promise<TxResult & { streamId: string; numTranches: number; totalUsd: number }> {
+  const order = await api.post<{
+    streamId?: string;
+    escrowAddress?: string;
+    totalUsd?: number;
+    numTranches?: number;
+    error?: string;
+  }>("/api/payouts/streams/create-prepare", {
+    teamId: args.teamId,
+    totalUsd: args.totalUsd,
+    numTranches: args.numTranches,
+    intervalMinutes: args.intervalMinutes,
+  });
+  if (!order.streamId || !order.escrowAddress) {
+    throw new Error(order.error || "could not create the stream");
+  }
+  // Fund the escrow with the full amount (Talise-sponsored money-out).
+  const funded = await executeSend(api, session, {
+    recipient: order.escrowAddress,
+    amount: order.totalUsd ?? args.totalUsd,
+    asset: "USDsui",
+    sponsorFallback: true,
+  });
+  await api
+    .post("/api/payouts/streams/record", { streamId: order.streamId, digest: funded.digest })
+    .catch(() => undefined);
+  return {
+    ok: true,
+    kind: "stream",
+    digest: funded.digest,
+    suiscan: funded.suiscan,
+    streamId: order.streamId,
+    numTranches: order.numTranches ?? args.numTranches,
+    totalUsd: order.totalUsd ?? args.totalUsd,
+  };
+}
+
 /** Mint a shareable payment link (no signing — no money moves). */
 export async function executeRequest(
   api: Api,

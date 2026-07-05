@@ -19,6 +19,7 @@ import { send, request } from "./commands/send.js";
 import { swap, save, withdraw, cashout } from "./commands/earn.js";
 import { ask, chat } from "./commands/ask.js";
 import { agentWhoami, agentPay, agentRecv } from "./commands/agent.js";
+import { batch, teams, streamCreate, streamList, streamCancel } from "./commands/payouts.js";
 import { fail, note, disableColor, type OutputMode } from "./format.js";
 import { existsSync, statSync } from "node:fs";
 
@@ -43,14 +44,20 @@ type Flags = {
   venue?: string;
   memo?: string;
   to?: string;
+  toList: string[];
   amount?: string;
   note?: string;
   since?: number;
+  team?: string;
+  file?: string;
+  total?: string;
+  tranches?: string;
+  interval?: string;
   _: string[];
 };
 
 function parseArgs(argv: string[]): Flags {
-  const f: Flags = { json: false, quiet: false, yes: false, help: false, noColor: false, asset: "USDsui", _: [] };
+  const f: Flags = { json: false, quiet: false, yes: false, help: false, noColor: false, asset: "USDsui", toList: [], _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--") { f._.push(...argv.slice(i + 1)); break; }
@@ -65,10 +72,15 @@ function parseArgs(argv: string[]): Flags {
       case "--asset": f.asset = argv[++i] ?? "USDsui"; break;
       case "--venue": f.venue = argv[++i]; break;
       case "--memo": f.memo = argv[++i]; break;
-      case "--to": f.to = argv[++i]; break;
+      case "--to": { const v = argv[++i]; if (v) { f.toList.push(v); f.to ??= v; } break; }
       case "--amount": f.amount = argv[++i]; break;
       case "--note": f.note = argv[++i]; break;
       case "--since": f.since = Number(argv[++i]); break;
+      case "--team": f.team = argv[++i]; break;
+      case "--file": f.file = argv[++i]; break;
+      case "--total": f.total = argv[++i]; break;
+      case "--tranches": f.tranches = argv[++i]; break;
+      case "--interval": f.interval = argv[++i]; break;
       default:
         if (a.startsWith("-")) throw new Error(`unknown flag: ${a}  (run \`talise help\`)`);
         f._.push(a);
@@ -190,6 +202,43 @@ const COMMANDS: Command[] = [
     name: "chat", group: "Assistant", usage: "chat", summary: "interactive assistant",
     help: "Opens an interactive session with the Talise assistant. Type /exit to leave.",
     run: ({ baseUrl, mode }) => chat(baseUrl, mode),
+  },
+  {
+    name: "teams", group: "Money", usage: "teams", summary: "list saved payout teams",
+    help: "Lists your saved payout teams and their member counts (pay one with\n`talise batch --team <id>`).",
+    run: ({ baseUrl, mode }) => teams(baseUrl, mode),
+  },
+  {
+    name: "batch", aliases: ["payroll"], group: "Money", usage: "batch (--team <id> | --file <path> | --to a=5 --to b=3)",
+    summary: "pay many recipients in one signature",
+    help:
+      "Pays many recipients in ONE sponsored transaction. Recipients come from one of:\n" +
+      "  --team <id>        a saved team (uses each member's default amount)\n" +
+      "  --file <path>      JSON array [{\"to\",\"amount\",\"label\"?}] (or `-` for stdin)\n" +
+      "  --to name=amount   repeatable inline legs\n\n" +
+      "Examples:\n" +
+      "  talise batch --team tm_abc\n" +
+      "  talise batch --to @alice=5 --to @bob=3 --yes\n" +
+      "  talise batch --file payroll.json --json",
+    run: ({ baseUrl, mode, flags }) => batch(baseUrl, mode, { team: flags.team, file: flags.file, toList: flags.toList }),
+  },
+  {
+    name: "stream", group: "Money", usage: "stream <create|list|cancel>", summary: "team payroll streams",
+    help:
+      "Split a total into tranches released to a team over time.\n\n" +
+      "  stream create --team <id> --total <usd> --tranches <n> --interval <min>\n" +
+      "  stream list\n" +
+      "  stream cancel <id>\n\n" +
+      "Examples:\n" +
+      "  talise stream create --team tm_abc --total 100 --tranches 4 --interval 1440\n" +
+      "  talise stream list --json",
+    run: ({ baseUrl, mode, flags }) => {
+      const sub = flags._[0];
+      if (sub === "create") return streamCreate(baseUrl, mode, { team: flags.team, total: flags.total, tranches: flags.tranches, interval: flags.interval });
+      if (sub === "list") return streamList(baseUrl, mode);
+      if (sub === "cancel") return streamCancel(baseUrl, mode, flags._[1] ?? "");
+      throw usage("stream <create|list|cancel>");
+    },
   },
   {
     name: "agent", group: "Agent", usage: "agent <whoami|pay|recv>", summary: "agent-to-agent money",
