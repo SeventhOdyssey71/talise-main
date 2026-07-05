@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { redirectUriFromRequest } from "@/lib/auth";
+import { redirectUriFromRequest, verify } from "@/lib/auth";
 import { clearStateCookie, readStateCookie, cookieDomain } from "@/lib/session";
 import { completeSignIn } from "@/lib/auth-exchange";
 import { issueMobileBearer } from "@/lib/mobile-sessions";
+import { createAgentWallet, agentWalletsEnabled } from "@/lib/agent-wallets";
 
 export const runtime = "nodejs";
 
@@ -26,8 +27,8 @@ export const runtime = "nodejs";
  *     user's machine — only the maxEpoch/randomness it was bound to travel back.
  */
 function redirectAuthError(req: Request, state: string | null, err: string): NextResponse {
-  if (state && state.startsWith("cli.")) {
-    const parsed = parseCliState(state);
+  if (state && (state.startsWith("cli.") || state.startsWith("agw."))) {
+    const parsed = parseLoopbackState(state);
     if (parsed) {
       const cb = new URL(`http://127.0.0.1:${parsed.port}/cb`);
       cb.searchParams.set("err", err);
@@ -43,12 +44,11 @@ function redirectAuthError(req: Request, state: string | null, err: string): Nex
   return NextResponse.redirect(new URL(`/?err=${encodeURIComponent(err)}`, req.url));
 }
 
-/** Parse `cli.<port>.<csrf>.<rand>` — port + csrf to build the loopback redirect. */
-function parseCliState(state: string): { port: number; csrf: string } | null {
+/** Parse `<cli|agw>.<port>.<csrf>.<rand>` — port + csrf to build the loopback redirect. */
+function parseLoopbackState(state: string): { port: number; csrf: string } | null {
   const parts = state.split(".");
-  // ["cli", "<port>", "<csrf>", "<rand…>"] — csrf is base64url (no dots), rand may
-  // itself be dot-free base64url, so exactly 4 segments.
-  if (parts.length < 4 || parts[0] !== "cli") return null;
+  // [prefix, "<port>", "<csrf>", "<rand…>"] — csrf + rand are dot-free base64url.
+  if (parts.length < 4 || (parts[0] !== "cli" && parts[0] !== "agw")) return null;
   const port = Number(parts[1]);
   const csrf = parts[2] ?? "";
   if (!Number.isInteger(port) || port < 1024 || port > 65535) return null;
@@ -70,11 +70,27 @@ export async function GET(req: Request) {
     return redirectAuthError(req, state, "missing_code");
   }
 
+  // ── AGENT WALLET provisioning: complete sign-in, then create a custodial
+  // agent wallet (server holds the ephemeral key) and hand the scoped token to
+  // the loopback. Before the web branch for the same routing reason as CLI.
+  if (state.startsWith("agw.")) {
+    const parsed = parseLoopbackState(state);
+    if (!parsed) return redirectAuthError(req, state, "bad_state");
+    const done = await completeAgentProvision(req, state);
+    if (!done.ok) return redirectAuthError(req, state, done.err);
+    const cb = new URL(`http://127.0.0.1:${parsed.port}/cb`);
+    cb.searchParams.set("agentToken", done.token);
+    cb.searchParams.set("agentId", done.id);
+    cb.searchParams.set("address", done.address);
+    cb.searchParams.set("csrf", parsed.csrf);
+    return NextResponse.redirect(cb.toString());
+  }
+
   // ── CLI: run the full exchange, then redirect the bearer + binding to the
   // loopback server. Handled BEFORE the web branch because a `cli.` state does
   // not start with `m1.` and would otherwise be misrouted to /auth/finish.
   if (state.startsWith("cli.")) {
-    const parsed = parseCliState(state);
+    const parsed = parseLoopbackState(state);
     if (!parsed) return redirectAuthError(req, state, "bad_state");
     const done = await completeMobileExchange(req, state);
     if (!done.ok) return redirectAuthError(req, state, done.err);
@@ -184,4 +200,71 @@ async function completeMobileExchange(req: Request, state: string): Promise<Exch
     maxEpoch: bindingMaxEpoch,
     randomness: bindingRandomness,
   };
+}
+
+type ProvisionResult =
+  | { ok: true; token: string; id: string; address: string }
+  | { ok: false; err: string };
+
+/**
+ * Agent-wallet provisioning leg: validate state, read the signed binding cookie
+ * (which carries the server-generated ephemeral SECRET + cap + name), complete
+ * the Google sign-in, and persist a custodial agent wallet (secrets encrypted
+ * at rest). Returns the one-time agent token for the loopback.
+ */
+async function completeAgentProvision(req: Request, state: string): Promise<ProvisionResult> {
+  if (!agentWalletsEnabled()) return { ok: false, err: "agent_wallets_off" };
+
+  const expected = await readStateCookie();
+  if (!expected || expected !== state) return { ok: false, err: "bad_state" };
+  await clearStateCookie();
+
+  const { cookies: cookieJar } = await import("next/headers");
+  const jar = await cookieJar();
+  const bindingRaw = jar.get("talise_agw_binding")?.value;
+  jar.delete({ name: "talise_agw_binding", domain: cookieDomain(), path: "/" });
+  if (!bindingRaw) return { ok: false, err: "missing_binding" };
+  const verified = verify(bindingRaw);
+  if (!verified) return { ok: false, err: "bad_binding" };
+
+  let b: {
+    ephemeralPubKey?: string;
+    ephemeralSecretB64?: string;
+    maxEpoch?: number;
+    randomness?: string;
+    dailyCapUsd?: number;
+    name?: string | null;
+  };
+  try {
+    b = JSON.parse(Buffer.from(verified, "base64url").toString("utf8"));
+  } catch {
+    return { ok: false, err: "bad_binding" };
+  }
+  if (!b.ephemeralPubKey || !b.ephemeralSecretB64 || typeof b.maxEpoch !== "number" || !b.randomness || !b.dailyCapUsd) {
+    return { ok: false, err: "bad_binding" };
+  }
+
+  const url = new URL(req.url);
+  const code = url.searchParams.get("code")!;
+  const result = await completeSignIn({
+    code,
+    redirectUri: redirectUriFromRequest(req),
+    country: req.headers.get("x-vercel-ip-country"),
+  });
+  if (!result.ok) return { ok: false, err: result.err };
+  const { user, idToken } = result;
+
+  const { id, token } = await createAgentWallet({
+    userId: Number(user.id),
+    name: b.name ?? null,
+    suiAddress: user.sui_address,
+    jwt: idToken,
+    salt: user.salt,
+    ephemeralSkB64: b.ephemeralSecretB64,
+    ephemeralPubKeyB64: b.ephemeralPubKey,
+    maxEpoch: b.maxEpoch,
+    randomness: b.randomness,
+    dailyCapUsd: b.dailyCapUsd,
+  });
+  return { ok: true, token, id, address: user.sui_address };
 }
