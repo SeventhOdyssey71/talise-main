@@ -11,6 +11,70 @@ import type { IntentStep } from "./stream.js";
 
 const ADDRESS_RE = /^0x[a-f0-9]{64}$/i;
 
+/** Swap sources (destination is always USDsui). Mirrors the server allowlist. */
+const SWAP_TOKENS: Record<string, { type: string; decimals: number }> = {
+  SUI: { type: "0x2::sui::SUI", decimals: 9 },
+  USDC: {
+    type: "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
+    decimals: 6,
+  },
+  DEEP: {
+    type: "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
+    decimals: 6,
+  },
+};
+
+export type TxResult = {
+  ok: true;
+  kind: string;
+  digest: string;
+  suiscan: string;
+  [k: string]: unknown;
+};
+
+/**
+ * Sponsored execution: a prepared transaction KIND → Onara sets gasOwner/gasPrice
+ * and returns sponsor-ready bytes → we sign locally → sponsor-execute broadcasts.
+ * This is the rail for save / withdraw (anything needing sponsored gas).
+ */
+async function sponsorSignExecute(
+  api: Api,
+  session: Session,
+  transactionKindB64: string,
+  meta?: Record<string, unknown>,
+): Promise<string> {
+  const sponsored = await api.post<{ bytes?: string; error?: string }>("/api/zk/sponsor", {
+    transactionKindB64,
+  });
+  if (!sponsored.bytes) throw new Error(sponsored.error || "sponsor returned no bytes");
+  return signExecute(api, session, sponsored.bytes, meta);
+}
+
+/** Sign sponsor-ready bytes and broadcast via zk/sponsor-execute. Used directly
+ *  by swap (whose prepare already returns sponsor-ready bytes). */
+async function signExecute(
+  api: Api,
+  session: Session,
+  bytesB64: string,
+  meta?: Record<string, unknown>,
+): Promise<string> {
+  const signed = await signPreparedTx(session, bytesB64);
+  const res = await api.post<{ digest?: string; error?: string }>("/api/zk/sponsor-execute", {
+    bytesB64,
+    ephemeralPubKeyB64: signed.ephemeralPubKeyB64,
+    maxEpoch: signed.maxEpoch,
+    randomness: signed.randomness,
+    userSignature: signed.userSignature,
+    ...(meta ? { meta } : {}),
+  });
+  if (!res.digest) throw new Error(res.error || "execute returned no digest");
+  return res.digest;
+}
+
+function suiscan(digest: string): string {
+  return `https://suiscan.xyz/mainnet/tx/${digest}`;
+}
+
 export type SendResult = {
   ok: true;
   kind: string;
@@ -29,7 +93,7 @@ export type RequestResult = {
   amount: number;
 };
 
-export type StepResult = SendResult | RequestResult | { ok: true; kind: string; note: string };
+export type StepResult = SendResult | RequestResult | TxResult;
 
 /** Resolve any recipient form (@handle, name.sui, 0x…) to a 0x address.
  *  Passed VERBATIM to the resolver — never rewritten (per the agent rules). */
@@ -50,7 +114,7 @@ export async function resolveRecipient(api: Api, recipient: string): Promise<{ a
 export async function executeSend(
   api: Api,
   session: Session,
-  args: { recipient: string; amount: number; asset?: string },
+  args: { recipient: string; amount: number; asset?: string; sponsorFallback?: boolean },
 ): Promise<SendResult> {
   const asset = args.asset ?? "USDsui";
   const { address, label } = await resolveRecipient(api, args.recipient);
@@ -60,6 +124,8 @@ export async function executeSend(
     to: address,
     amount: args.amount,
     asset,
+    // Talise-sponsored money-out flows (cash-out) opt into the sponsored fallback.
+    ...(args.sponsorFallback ? { sponsorFallback: true } : {}),
   });
   if (!prep.bytes) throw new Error(prep.error || "prepare returned no transaction bytes");
 
@@ -89,6 +155,108 @@ export async function executeSend(
   };
 }
 
+/** Swap SUI/USDC/DEEP → USDsui: prepare (sponsor-ready bytes) → sign → execute. */
+export async function executeSwap(
+  api: Api,
+  session: Session,
+  args: { from: string; amount: number },
+): Promise<TxResult> {
+  const token = SWAP_TOKENS[args.from.toUpperCase()];
+  if (!token) throw new Error(`can't swap "${args.from}" — supported: SUI, USDC, DEEP`);
+  const micros = BigInt(Math.round(args.amount * 10 ** token.decimals)).toString();
+  const prep = await api.post<{ bytes?: string; error?: string }>("/api/swap/prepare", {
+    fromCoinType: token.type,
+    fromAmountMicros: micros,
+  });
+  if (!prep.bytes) throw new Error(prep.error || "swap prepare returned no bytes");
+  const digest = await signExecute(api, session, prep.bytes, {
+    kind: "swap",
+    amountUsd: undefined,
+  });
+  return { ok: true, kind: "swap", digest, suiscan: suiscan(digest), from: args.from.toUpperCase(), to: "USDsui", amount: args.amount };
+}
+
+/** Save (supply) USDsui into a yield venue: prepare (kind) → sponsor → sign → execute. */
+export async function executeSave(
+  api: Api,
+  session: Session,
+  args: { amount: number; venue?: string },
+): Promise<TxResult> {
+  const venue = (args.venue ?? "best").toLowerCase();
+  const prep = await api.post<{ transactionKindB64?: string; error?: string }>(
+    "/api/earn/supply/prepare",
+    { venue, amount: args.amount },
+  );
+  if (!prep.transactionKindB64) throw new Error(prep.error || "supply prepare returned no bytes");
+  const digest = await sponsorSignExecute(api, session, prep.transactionKindB64, {
+    kind: "invest",
+    amountUsd: args.amount,
+    venue,
+  });
+  return { ok: true, kind: "save", digest, suiscan: suiscan(digest), amount: args.amount, venue };
+}
+
+/** Withdraw from a yield venue: prepare (kind) → sponsor → sign → execute.
+ *  `amount` omitted = withdraw the full position. */
+export async function executeWithdraw(
+  api: Api,
+  session: Session,
+  args: { amount?: number; venue?: string },
+): Promise<TxResult> {
+  const venue = (args.venue ?? "deepbook").toLowerCase();
+  const prep = await api.post<{ transactionKindB64?: string; error?: string }>(
+    "/api/earn/withdraw/prepare",
+    { venue, amount: args.amount ?? null },
+  );
+  if (!prep.transactionKindB64) throw new Error(prep.error || "withdraw prepare returned no bytes");
+  const digest = await sponsorSignExecute(api, session, prep.transactionKindB64, {
+    kind: "withdraw",
+    amountUsd: args.amount,
+    venue,
+  });
+  return { ok: true, kind: "withdraw", digest, suiscan: suiscan(digest), amount: args.amount ?? null, venue };
+}
+
+/**
+ * Cash out USDsui to the linked NGN bank. The server opens a Linq off-ramp order
+ * and returns the wallet to fund; we send `amountUsdsui` there (Talise-sponsored).
+ * If the off-ramp is closed (feature flag) the prepare returns a clear 503 which
+ * surfaces as a clean error — no funds move.
+ */
+export async function executeCashOut(
+  api: Api,
+  session: Session,
+  args: { amount: number },
+): Promise<TxResult & { amountNgn?: number; bankLast4?: string }> {
+  const order = await api.post<{
+    orderId?: string;
+    walletAddress?: string;
+    amountUsdsui?: number;
+    amountNgn?: number;
+    bankLast4?: string;
+    error?: string;
+  }>("/api/agent/cashout/prepare", { amountUsd: args.amount });
+  if (!order.walletAddress || !order.amountUsdsui) {
+    throw new Error(order.error || "could not start the cash-out");
+  }
+  // Fund the Linq order wallet with a Talise-sponsored send.
+  const send = await executeSend(api, session, {
+    recipient: order.walletAddress,
+    amount: order.amountUsdsui,
+    asset: "USDsui",
+    sponsorFallback: true,
+  });
+  return {
+    ok: true,
+    kind: "cash_out",
+    digest: send.digest,
+    suiscan: send.suiscan,
+    amount: args.amount,
+    amountNgn: order.amountNgn,
+    bankLast4: order.bankLast4,
+  };
+}
+
 /** Mint a shareable payment link (no signing — no money moves). */
 export async function executeRequest(
   api: Api,
@@ -114,15 +282,21 @@ export async function executeStep(api: Api, session: Session, step: IntentStep):
       if (step.amount == null) throw new Error("request step missing amount");
       return executeRequest(api, { amount: step.amount, note: step.note });
     }
-    // swap / save / withdraw / cash_out: prepare→sign→execute endpoints, wired
-    // in Phase 5 (see PLAN.md). Fail clearly rather than pretending success.
-    case "swap":
-    case "save":
-    case "withdraw":
-    case "cash_out":
-      throw new Error(
-        `"${step.kind}" isn't wired into the CLI yet — run it in the app for now (send + request are live)`,
-      );
+    case "swap": {
+      if (!step.from || step.amount == null) throw new Error("swap step missing from or amount");
+      return executeSwap(api, session, { from: step.from, amount: step.amount });
+    }
+    case "save": {
+      if (step.amount == null) throw new Error("save step missing amount");
+      return executeSave(api, session, { amount: step.amount, venue: step.venue });
+    }
+    case "withdraw": {
+      return executeWithdraw(api, session, { amount: step.amount, venue: step.venue });
+    }
+    case "cash_out": {
+      if (step.amount == null) throw new Error("cash_out step missing amount");
+      return executeCashOut(api, session, { amount: step.amount });
+    }
     default:
       throw new Error(`unknown intent step "${(step as IntentStep).kind}"`);
   }

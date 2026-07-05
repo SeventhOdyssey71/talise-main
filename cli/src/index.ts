@@ -9,6 +9,7 @@ import { resolveBaseUrl, loadSession, saveSession, sessionPath, type Session } f
 import { login, logout } from "./auth.js";
 import { whoami, balance, activity, resolve } from "./commands/read.js";
 import { send, request } from "./commands/send.js";
+import { swap, save, withdraw, cashout } from "./commands/earn.js";
 import { ask, chat } from "./commands/ask.js";
 import { agentWhoami, agentPay, agentRecv } from "./commands/agent.js";
 import { fail, note, type OutputMode } from "./format.js";
@@ -71,6 +72,10 @@ Money
   resolve <name|@handle>       resolve a recipient to a 0x address
   send <amount> <recipient>    send money            [--asset USDsui|SUI] [--yes]
   request <amount> [--note …]  mint a payment link
+  swap <amount> <SUI|USDC|DEEP>   swap to USDsui
+  save <amount> [--venue …]    supply to a yield venue
+  withdraw [amount] [--venue …]   pull from a yield venue (no amount = all)
+  cashout <amount>             cash out to your linked bank
 
 Natural language (DeepSeek)
   ask "<text>"                 one-shot: reply + run the intent on confirm
@@ -128,6 +133,29 @@ async function main(): Promise<void> {
       const amount = flags._[0];
       if (!amount) throw new Error("usage: talise request <amount> [--note …]");
       await request(baseUrl, mode, amount, flags.note);
+      break;
+    }
+    case "swap": {
+      const [amount, from] = flags._;
+      if (!amount || !from) throw new Error("usage: talise swap <amount> <SUI|USDC|DEEP>");
+      await swap(baseUrl, mode, amount, from);
+      break;
+    }
+    case "save": {
+      const amount = flags._[0];
+      if (!amount) throw new Error("usage: talise save <amount> [--venue navi|deepbook]");
+      await save(baseUrl, mode, amount, flags.venue);
+      break;
+    }
+    case "withdraw": {
+      // amount optional: `talise withdraw` or `withdraw all` = full position.
+      await withdraw(baseUrl, mode, flags._[0], flags.venue);
+      break;
+    }
+    case "cashout": {
+      const amount = flags._[0];
+      if (!amount) throw new Error("usage: talise cashout <amount>");
+      await cashout(baseUrl, mode, amount);
       break;
     }
     case "ask": {

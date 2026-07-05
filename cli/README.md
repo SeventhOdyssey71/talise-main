@@ -38,7 +38,16 @@ talise resolve @alice
 talise send 5 @alice                 # confirm, then sign locally + submit
 talise send 5 0xabc…def --asset SUI
 talise request 20 --note "lunch"     # mint a shareable payment link
+talise swap 2 SUI                    # swap SUI/USDC/DEEP → USDsui
+talise save 10 --venue navi          # supply to a yield venue
+talise withdraw --venue navi         # pull your position (or: withdraw 5)
+talise cashout 20                    # cash out to your linked NGN bank
 ```
+
+Every money verb resolves + confirms, signs **locally** with your ephemeral
+key, and submits through the sponsored rail — `send` uses the gasless rail,
+`swap`/`save`/`withdraw`/`cashout` use the Onara-sponsored rail. The natural
+language layer (`ask`/`chat`) runs the exact same executors.
 
 ## Natural language (DeepSeek)
 

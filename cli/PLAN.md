@@ -246,8 +246,12 @@ a clean primitive for metered, pay-per-call agent economies.
   `send` (+ `request`); `--json` money output. *(this repo)*
 - **Phase 4 — agent-to-agent**: `agent pay|recv|whoami`, `session export|import`,
   non-interactive guards. *(this repo)*
-- **Phase 5 — full parity**: `swap`, `save`, `withdraw`, `cashout` executors;
-  streams/payroll batch; server-signed agent wallets (§3c).
+- **Phase 5 — full money parity**: `swap`, `save`, `withdraw`, `cashout`
+  executors over the Onara-sponsored rail (kind → `/api/zk/sponsor` → local sign
+  → `/api/zk/sponsor-execute`); direct commands + intent-executor wiring.
+  *(this repo)*
+- **Phase 6 — remaining parity**: streams / payroll batch; server-signed agent
+  wallets (§3c).
 
 ---
 
