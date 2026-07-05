@@ -21,7 +21,15 @@ function color(on: boolean, c: keyof typeof C, s: string): string {
   return on ? `${C[c]}${s}${C.reset}` : s;
 }
 
-const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+// Color is on only for an interactive terminal, and off when the user opts out.
+// Follows the NO_COLOR convention (https://no-color.org) + a --no-color flag.
+let colorDisabled = false;
+export function disableColor(): void {
+  colorDisabled = true;
+}
+function colorEnabled(): boolean {
+  return Boolean(process.stdout.isTTY) && !process.env.NO_COLOR && !colorDisabled;
+}
 
 /** Emit a machine result. In --json mode: one JSON line on stdout. Otherwise a
  *  human render (via the provided renderer). */
@@ -41,32 +49,32 @@ export function note(mode: OutputMode, msg: string): void {
 }
 
 export function ok(mode: OutputMode, msg: string): void {
-  note(mode, color(useColor, "green", "✓ ") + msg);
+  note(mode, color(colorEnabled(), "green", "✓ ") + msg);
 }
 
 export function warn(msg: string): void {
-  process.stderr.write(color(useColor, "yellow", "! ") + msg + "\n");
+  process.stderr.write(color(colorEnabled(), "yellow", "! ") + msg + "\n");
 }
 
 export function fail(mode: OutputMode, msg: string, code?: string): never {
   if (mode.json) {
     process.stdout.write(JSON.stringify({ ok: false, error: msg, code }) + "\n");
   } else {
-    process.stderr.write(color(useColor, "red", "✗ ") + msg + "\n");
+    process.stderr.write(color(colorEnabled(), "red", "✗ ") + msg + "\n");
   }
   process.exit(1);
 }
 
 export function heading(s: string): string {
-  return color(useColor, "bold", s);
+  return color(colorEnabled(), "bold", s);
 }
 
 export function dim(s: string): string {
-  return color(useColor, "dim", s);
+  return color(colorEnabled(), "dim", s);
 }
 
 export function money(s: string): string {
-  return color(useColor, "green", s);
+  return color(colorEnabled(), "green", s);
 }
 
 /**
@@ -86,7 +94,7 @@ export async function confirm(mode: OutputMode, prompt: string): Promise<boolean
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   try {
     const answer = await new Promise<string>((resolve) =>
-      rl.question(prompt + color(useColor, "dim", " [y/N] "), resolve),
+      rl.question(prompt + color(colorEnabled(), "dim", " [y/N] "), resolve),
     );
     return /^y(es)?$/i.test(answer.trim());
   } finally {

@@ -2,7 +2,7 @@
 
 `talise` — the Talise wallet in your terminal. Everything the mobile app can do
 (hold dollars, send to a name, earn, cash out), driven either by explicit
-commands or by plain English through the same DeepSeek agent the app uses. Built
+commands or by plain English through the same assistant the app uses. Built
 so that **autonomous agents can hold a Talise identity and pay each other**
 without a human in the loop.
 
@@ -49,7 +49,7 @@ facts read out of the codebase, not assumptions:
 - **App-access allowlist.** Every value-moving call runs `denyUnlessAppApproved`.
   A brand-new account can read but not send until allowlisted. The CLI surfaces
   that 403 clearly rather than looking broken.
-- **The agent already speaks intents.** `POST /api/chat/stream` (DeepSeek, SSE)
+- **The agent already speaks intents.** `POST /api/chat/stream` (the Talise assistant, SSE)
   answers in natural language AND emits a single-line JSON **Payment Intent**:
   `{"steps":[{"kind":"send","amount":50,"recipient":"alice@talise"}],"rationale":"…"}`.
   Step kinds: `send`, `swap`, `save`, `withdraw`, `cash_out`, `request`. The CLI
@@ -139,7 +139,7 @@ Global flags: `--json` (machine output on stdout, logs on stderr), `--yes`
 
 ---
 
-## 5. Natural language (DeepSeek)
+## 5. Natural language
 
 `talise ask` / `talise chat` POST the conversation to `/api/chat/stream` and
 render the streamed reply. The agent grounds itself in the caller's real

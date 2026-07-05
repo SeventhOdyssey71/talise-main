@@ -2,13 +2,31 @@
 
 `talise` — the Talise wallet in your terminal. Hold dollars, send to a name,
 earn, and cash out; drive it with explicit commands or plain English through the
-same DeepSeek agent the app uses. Built so autonomous **agents can pay each
-other** in real dollars on Sui, settling in under a second, gasless.
+same assistant the app uses. Built so autonomous **agents can pay each other**
+in real dollars on Sui, settling in under a second, gasless.
 
 Same backend as the mobile app (`app.talise.io`), same non-custodial zkLogin —
 your signing key lives on your machine, never on a server.
 
 See **[PLAN.md](PLAN.md)** for the architecture and roadmap.
+
+## Why a CLI
+
+A wallet with a great app still can't be *scripted*. The CLI exists because
+money should be programmable the way everything else in a terminal is:
+
+- **Devs move money without leaving the shell** — check a balance, pay a
+  contractor, mint a payment link, all pipeable and `--json`-friendly.
+- **Backends pay out programmatically** — payroll runs, refunds, and rebates
+  from a provisioned session, no browser, no human tapping Accept.
+- **AI agents transact.** This is the headline: an agent with a Talise identity
+  can pay another agent for a service — an API call, a compute job, a dataset —
+  in real dollars that settle on Sui in under a second, gasless. That turns
+  "agents that talk" into "agents that trade." The mobile app can't do this; a
+  CLI is the natural home for machine-to-machine money.
+
+Everything the app can do, the terminal can now do too — and a few things the
+app can't.
 
 ## Install
 
@@ -49,14 +67,14 @@ key, and submits through the sponsored rail — `send` uses the gasless rail,
 `swap`/`save`/`withdraw`/`cashout` use the Onara-sponsored rail. The natural
 language layer (`ask`/`chat`) runs the exact same executors.
 
-## Natural language (DeepSeek)
+## Natural language
 
 ```bash
 talise ask "send 5 dollars to alice and make me a link for 20"
 talise chat                          # interactive assistant
 ```
 
-The agent answers in plain English and, for money asks, proposes a plan you
+The assistant answers in plain English and, for money asks, proposes a plan you
 confirm before anything signs — exactly like the app.
 
 ## Agent-to-agent

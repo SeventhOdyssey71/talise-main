@@ -1,10 +1,10 @@
 /**
- * Natural language over the DeepSeek agent.
+ * Natural language over the Talise assistant.
  *   talise ask "send 5 dollars to alice"   — one-shot: reply, show intent, run on confirm
  *   talise chat                             — interactive REPL, streamed replies
  *
- * Same brain as the app: the agent answers AND emits a Payment Intent, which the
- * CLI parses and executes (with confirmation) through the intent executor.
+ * Same brain as the app: the assistant answers AND emits a Payment Intent, which
+ * the CLI parses and executes (with confirmation) through the intent executor.
  */
 import { createInterface } from "node:readline";
 import { makeApi } from "../http.js";

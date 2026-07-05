@@ -36,7 +36,21 @@ export type Session = {
   createdAt: number;
 };
 
-const DIR = join(homedir(), ".talise");
+/**
+ * Config directory, in order of precedence (standard CLI convention):
+ *   1. TALISE_CONFIG_DIR   — explicit override
+ *   2. $XDG_CONFIG_HOME/talise  — XDG Base Directory spec
+ *   3. ~/.talise           — fallback
+ */
+function configDir(): string {
+  const explicit = process.env.TALISE_CONFIG_DIR?.trim();
+  if (explicit) return explicit;
+  const xdg = process.env.XDG_CONFIG_HOME?.trim();
+  if (xdg) return join(xdg, "talise");
+  return join(homedir(), ".talise");
+}
+
+const DIR = configDir();
 const FILE = join(DIR, "session.json");
 
 const DEFAULT_BASE_URL = "https://app.talise.io";
