@@ -94,15 +94,28 @@ An agent is just a headless CLI with a session already on disk:
 - The agent then runs `talise pay …`, `talise agent pay …` fully
   non-interactively with `--json`. No browser, no prompts.
 
-### 3c. (Phase 2, optional) Server-signed agent wallets
+### 3c. Server-signed agent wallets — BUILT (gated OFF by default)
 
-For agents that must run with **no local key at all**, add a server-side agent
-signer: an `agent_session` where the backend also generates and custodies the
-ephemeral key, exposing `POST /api/agent/pay` that does prepare→sign→submit
-entirely server-side from a scoped, revocable agent API token. Custodial, so
-gated behind explicit provisioning + per-token spend caps. Speced here, built
-later — the local-key model (3b) covers agent-to-agent today without new money
-endpoints.
+For agents that run with **no local key at all**: the backend generates and
+CUSTODIES the ephemeral key (encrypted at rest via `crypto-at-rest`), bound to
+the user's Google identity, and signs server-side.
+
+- **Provision** (`talise agent provision --cap <usd/day>`): browser OAuth
+  (`/api/auth/agent/start` + the `agw.` callback branch) where the SERVER makes
+  and keeps the ephemeral key; mints a scoped token (`tak_…`), stores the wallet
+  with a per-day USD cap.
+- **Pay** (`POST /api/agent/pay`, token auth): resolves + screens + limit-gates
+  + reserves against the daily cap, then builds the gasless send, signs with the
+  custodied key, assembles the zkLogin proof, and broadcasts. Cap is released if
+  the send fails (no funds moved).
+- **Manage**: `agent wallets` (list), `agent revoke <id>` (instant).
+- **CLI `agent pay`** uses `TALISE_AGENT_TOKEN`/`--token` for the custodial path,
+  else falls back to the local-key session (3b).
+
+Custodial, so **feature-gated OFF** by `FEATURE_AGENT_WALLETS` (must equal
+`"true"`). Every route 503s until enabled. This keeps the custodial surface dark
+in production until explicitly turned on and reviewed. Requires
+`DB_ENCRYPTION_KEY` (already set) so the stored keys are encrypted at rest.
 
 ---
 

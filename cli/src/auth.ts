@@ -20,13 +20,6 @@ import { note, ok, type OutputMode } from "./format.js";
 const b64url = (b: Buffer | Uint8Array) =>
   Buffer.from(b).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
-type CallbackParams = {
-  token: string;
-  userId: string;
-  maxEpoch: number;
-  randomness: string;
-};
-
 export async function login(baseUrl: string, mode: OutputMode): Promise<Session> {
   const eph = newEphemeralKey();
   const csrf = b64url(randomBytes(18));
@@ -44,8 +37,16 @@ export async function login(baseUrl: string, mode: OutputMode): Promise<Session>
 
   void port;
 
+  const token = params.token;
+  const userId = params.userId;
+  const maxEpoch = Number(params.maxEpoch);
+  const randomness = params.randomness;
+  if (!token || !userId || !Number.isFinite(maxEpoch) || !randomness) {
+    throw new Error("sign-in callback missing required fields");
+  }
+
   // Fetch identity (address + @handle) with the fresh bearer.
-  const api = makeApi(baseUrl, params.token);
+  const api = makeApi(baseUrl, token);
   let address: string | undefined;
   let handle: string | undefined;
   try {
@@ -57,20 +58,48 @@ export async function login(baseUrl: string, mode: OutputMode): Promise<Session>
   }
 
   const session: Session = {
-    bearer: params.token,
-    userId: params.userId,
+    bearer: token,
+    userId,
     address,
     handle,
     ephemeralSecretB64: eph.secretB64,
     ephemeralPubKeyB64: eph.pubKeyB64,
-    maxEpoch: params.maxEpoch,
-    randomness: params.randomness,
+    maxEpoch,
+    randomness,
     baseUrl,
     createdAt: Date.now(),
   };
   saveSession(session);
   ok(mode, `signed in${handle ? " as @" + handle : ""}${address ? " (" + short(address) + ")" : ""}`);
   return session;
+}
+
+/**
+ * Provision a CUSTODIAL agent wallet via the browser. The server generates and
+ * holds the signing key; the loopback receives only a scoped agent token (shown
+ * once). Requires the account to be signed in and the feature enabled server-side.
+ */
+export async function provisionAgent(
+  baseUrl: string,
+  mode: OutputMode,
+  opts: { name?: string; cap: number },
+): Promise<{ agentToken: string; agentId: string; address: string }> {
+  const csrf = b64url(randomBytes(18));
+  const { params } = await runLoopback(async (port) => {
+    const url =
+      `${baseUrl}/api/auth/agent/start` +
+      `?port=${port}&csrf=${encodeURIComponent(csrf)}&cap=${encodeURIComponent(String(opts.cap))}` +
+      (opts.name ? `&name=${encodeURIComponent(opts.name)}` : "");
+    note(mode, "Opening your browser to authorize the agent wallet…");
+    note(mode, "If it doesn't open, visit:\n  " + url);
+    openBrowser(url);
+  }, csrf);
+
+  const agentToken = params.agentToken;
+  const agentId = params.agentId;
+  const address = params.address ?? "";
+  if (!agentToken || !agentId) throw new Error("provisioning callback missing the agent token");
+  return { agentToken, agentId, address };
 }
 
 export function logout(mode: OutputMode): void {
@@ -88,15 +117,16 @@ function short(addr: string): string {
 }
 
 /** Start a one-shot loopback server, invoke `onReady(port)`, resolve when the
- *  browser redirects back with a valid (csrf-checked) callback. */
+ *  browser redirects back with a valid (csrf-checked) callback. Returns the raw
+ *  query params so different flows (login, agent provision) extract their own. */
 function runLoopback(
   onReady: (port: number) => void | Promise<void>,
   expectedCsrf: string,
-): Promise<{ params: CallbackParams; port: number }> {
+): Promise<{ params: Record<string, string>; port: number }> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       server.close();
-      reject(new Error("login timed out after 3 minutes"));
+      reject(new Error("timed out after 3 minutes"));
     }, 3 * 60_000);
 
     const server = createServer((req, res) => {
@@ -108,30 +138,22 @@ function runLoopback(
       const q = u.searchParams;
       const err = q.get("err") || q.get("error");
       if (err) {
-        respond(res, "Sign-in failed", `Talise sign-in failed: ${escapeHtml(err)}. You can close this tab.`);
+        respond(res, "Failed", `Talise authorization failed: ${escapeHtml(err)}. You can close this tab.`);
         cleanup();
-        reject(new Error(`sign-in failed: ${err}`));
+        reject(new Error(`authorization failed: ${err}`));
         return;
       }
       if (q.get("csrf") !== expectedCsrf) {
         res.writeHead(400).end("bad csrf");
         return; // ignore — could be a stray/forged hit; keep waiting
       }
-      const token = q.get("token");
-      const userId = q.get("userId");
-      const maxEpoch = Number(q.get("maxEpoch"));
-      const randomness = q.get("randomness");
-      if (!token || !userId || !Number.isFinite(maxEpoch) || !randomness) {
-        res.writeHead(400).end("missing fields");
-        cleanup();
-        reject(new Error("callback missing required fields"));
-        return;
-      }
-      respond(res, "Signed in", "You're signed in to the Talise CLI. You can close this tab and return to your terminal.");
+      respond(res, "Done", "Authorized. You can close this tab and return to your terminal.");
       const address = server.address();
       const port = typeof address === "object" && address ? address.port : 0;
+      const params: Record<string, string> = {};
+      for (const [k, v] of q.entries()) params[k] = v;
       cleanup();
-      resolve({ params: { token, userId, maxEpoch, randomness }, port });
+      resolve({ params, port });
     });
 
     function cleanup() {

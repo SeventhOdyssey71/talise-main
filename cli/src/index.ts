@@ -18,7 +18,7 @@ import { whoami, balance, activity, resolve } from "./commands/read.js";
 import { send, request } from "./commands/send.js";
 import { swap, save, withdraw, cashout } from "./commands/earn.js";
 import { ask, chat } from "./commands/ask.js";
-import { agentWhoami, agentPay, agentRecv } from "./commands/agent.js";
+import { agentWhoami, agentPay, agentRecv, agentProvision, agentWallets, agentRevoke } from "./commands/agent.js";
 import { batch, teams, streamCreate, streamList, streamCancel } from "./commands/payouts.js";
 import { fail, note, disableColor, type OutputMode } from "./format.js";
 import { existsSync, statSync } from "node:fs";
@@ -53,6 +53,9 @@ type Flags = {
   total?: string;
   tranches?: string;
   interval?: string;
+  token?: string;
+  cap?: string;
+  name?: string;
   _: string[];
 };
 
@@ -81,6 +84,9 @@ function parseArgs(argv: string[]): Flags {
       case "--total": f.total = argv[++i]; break;
       case "--tranches": f.tranches = argv[++i]; break;
       case "--interval": f.interval = argv[++i]; break;
+      case "--token": f.token = argv[++i]; break;
+      case "--cap": f.cap = argv[++i]; break;
+      case "--name": f.name = argv[++i]; break;
       default:
         if (a.startsWith("-")) throw new Error(`unknown flag: ${a}  (run \`talise help\`)`);
         f._.push(a);
@@ -241,23 +247,33 @@ const COMMANDS: Command[] = [
     },
   },
   {
-    name: "agent", group: "Agent", usage: "agent <whoami|pay|recv>", summary: "agent-to-agent money",
+    name: "agent", group: "Agent", usage: "agent <whoami|pay|recv|provision|wallets|revoke>", summary: "agent-to-agent money",
     help:
       "Non-interactive money for autonomous agents.\n\n" +
       "  agent whoami                     machine identity block for discovery\n" +
-      "  agent pay --to <r> --amount <n> [--memo …]   pay another agent\n" +
+      "  agent pay --to <r> --amount <n> [--memo …] [--token …]   pay another agent\n" +
       "  agent recv [--since <ms>]        print inbound settlements\n\n" +
-      "Money moves need --yes when there's no TTY.\n\n" +
+      "Custodial agent wallets (server holds the key, daily cap, revocable):\n" +
+      "  agent provision --cap <usd/day> [--name …]   create one (browser auth)\n" +
+      "  agent wallets                    list your agent wallets\n" +
+      "  agent revoke <id>                revoke one instantly\n\n" +
+      "`agent pay` signs locally with your session, OR — if TALISE_AGENT_TOKEN\n" +
+      "(or --token) is set — via a custodial wallet (no local key). Money moves\n" +
+      "need --yes when there's no TTY.\n\n" +
       "Examples:\n" +
       "  talise agent whoami --json\n" +
       "  talise agent pay --to @serviceB --amount 0.25 --memo \"job:1\" --yes --json\n" +
-      "  talise agent recv --json",
+      "  talise agent provision --cap 5 --name ci-bot\n" +
+      "  TALISE_AGENT_TOKEN=tak_… talise agent pay --to @svc --amount 0.1 --yes --json",
     run: ({ baseUrl, mode, flags }) => {
       const sub = flags._[0];
       if (sub === "whoami") return agentWhoami(baseUrl, mode);
       if (sub === "pay") return agentPay(baseUrl, mode, flags);
       if (sub === "recv") return agentRecv(baseUrl, mode, flags.since ?? 0);
-      throw usage("agent <whoami|pay|recv>");
+      if (sub === "provision") return agentProvision(baseUrl, mode, { name: flags.name, cap: flags.cap });
+      if (sub === "wallets") return agentWallets(baseUrl, mode);
+      if (sub === "revoke") return agentRevoke(baseUrl, mode, flags._[1] ?? "");
+      throw usage("agent <whoami|pay|recv|provision|wallets|revoke>");
     },
   },
   {

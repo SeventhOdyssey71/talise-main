@@ -39,15 +39,18 @@ export function makeApi(baseUrl: string, auth?: Pick<Session, "bearer"> | string
 
   async function handle<T>(res: Response): Promise<T> {
     const text = await res.text();
+    const looksJson = text.trimStart().startsWith("{") || text.trimStart().startsWith("[");
     let json: unknown;
     try {
-      json = text ? JSON.parse(text) : {};
+      json = text && looksJson ? JSON.parse(text) : {};
     } catch {
-      json = { error: text };
+      json = {};
     }
     if (!res.ok) {
       const body = json as { error?: string; code?: string };
-      throw mapError(res.status, body.error, body.code);
+      // Non-JSON body (e.g. a 404 HTML page) → concise error, not the raw page.
+      const fallback = looksJson ? undefined : `unexpected response (HTTP ${res.status}) — endpoint not found or not deployed`;
+      throw mapError(res.status, body.error ?? fallback, body.code);
     }
     return json as T;
   }
