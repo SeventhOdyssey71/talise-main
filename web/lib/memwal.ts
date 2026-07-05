@@ -46,13 +46,31 @@ function clientFor(address: string): MemWal {
  * leading markdown heading/quote/bullet that could impersonate a prompt section.
  */
 function sanitizeMemory(text: string): string {
-  return text
-    .replace(/---[A-Z_]{2,}---/g, " ")
-    .replace(/[\x00-\x1f]+/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/^[>#*\-\s]+/, "")
-    .trim()
-    .slice(0, 400);
+  return (
+    text
+      // Strip intent/section fences (---INTENT---, ---END---, etc.).
+      .replace(/---[A-Z_]{2,}---/g, " ")
+      // Neutralize an intent-JSON shape (`{"steps":[…]}`) smuggled into a
+      // memory, so it can never be echoed back and parsed as a real intent.
+      // Precise enough to leave casual "steps:" prose alone.
+      .replace(/\{\s*"?steps"?\s*:/gi, "{ blocked_steps:")
+      // Control chars → space.
+      .replace(/[\x00-\x1f]+/g, " ")
+      // Strip markdown headings ANYWHERE (not just line-start): a mid-string
+      // "## SYSTEM (verified)" must not impersonate a prompt section.
+      .replace(/(^|\s)#{1,6}(?=\s)/g, " ")
+      // Defang shouty authority cues (ALL-CAPS only, so normal prose is
+      // untouched) that injected "memories" use to fake system directives.
+      .replace(
+        /\b(SYSTEM|DEVELOPER|DEVMODE|ADMIN|SECURITY|VERIFIED|POLICY|OVERRIDE|NOTICE|INSTRUCTIONS?|SUDO|ROOT)\b/g,
+        (m) => m.toLowerCase(),
+      )
+      .replace(/\s+/g, " ")
+      // Strip any leading markdown/quote/bullet that could open a fake section.
+      .replace(/^[>#*\-\s]+/, "")
+      .trim()
+      .slice(0, 400)
+  );
 }
 
 /** Recall the most relevant memories for this user's message. Never throws. */
