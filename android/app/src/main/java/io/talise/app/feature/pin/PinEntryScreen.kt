@@ -43,7 +43,7 @@ import io.talise.app.ui.theme.TaliseType
 import kotlinx.coroutines.delay
 
 /**
- * PIN entry — Android port of iOS `PinEntrySheet`.
+ * PIN entry, Android port of iOS `PinEntrySheet`.
  *
  * Apple-lockscreen feel: a tight title block, four filled/hollow dots that fill
  * white as you type, and a chrome-less numeric keypad (0-9 + backspace). Fires
@@ -107,7 +107,7 @@ fun PinEntryScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Title block — tight top padding so the eye lands on the dots.
+            // Title block, tight top padding so the eye lands on the dots.
             Text(
                 text = title,
                 style = TaliseType.heading(22.sp, FontWeight.Medium),
@@ -118,7 +118,7 @@ fun PinEntryScreen(
                     .padding(top = 22.dp, start = 36.dp, end = 36.dp),
             )
 
-            // PIN dots — four circles that fill white as you type.
+            // PIN dots, four circles that fill white as you type.
             PinDots(
                 filledCount = entry.length,
                 modifier = Modifier.padding(top = 24.dp),

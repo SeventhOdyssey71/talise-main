@@ -25,6 +25,10 @@ import io.talise.app.feature.scan.ScanScreen
 import io.talise.app.feature.cheques.ChequesScreen
 import io.talise.app.feature.stream.StreamScreen
 import io.talise.app.feature.pin.PinEntryScreen
+import io.talise.app.feature.invoices.InvoicesScreen
+import io.talise.app.feature.contracts.ContractsScreen
+import io.talise.app.feature.requests.RequestsScreen
+import io.talise.app.feature.rules.RulesScreen
 import io.talise.app.feature.payroll.PayrollScreen
 import io.talise.app.feature.send.SendFlow
 import io.talise.app.ui.theme.TaliseColors
@@ -65,6 +69,10 @@ private fun MainNavHost() {
         composable(Routes.CHEQUES) { ChequesScreen(onClose = { nav.popBackStack() }) }
         composable(Routes.STREAM) { StreamScreen(onClose = { nav.popBackStack() }) }
         composable(Routes.PIN) { PinEntryScreen(onComplete = { nav.popBackStack() }, onClose = { nav.popBackStack() }) }
+        composable(Routes.INVOICES) { InvoicesScreen(onClose = { nav.popBackStack() }) }
+        composable(Routes.CONTRACTS) { ContractsScreen(onClose = { nav.popBackStack() }) }
+        composable(Routes.REQUESTS) { RequestsScreen(onClose = { nav.popBackStack() }) }
+        composable(Routes.RULES) { RulesScreen(onClose = { nav.popBackStack() }) }
     }
 }
 

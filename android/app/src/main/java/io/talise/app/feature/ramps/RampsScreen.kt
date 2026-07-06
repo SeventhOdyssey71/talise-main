@@ -44,7 +44,7 @@ import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
 
 /**
- * Ramps hub — the Android port of iOS Ramps (BridgeOnrampView / BridgeCashOutView /
+ * Ramps hub, the Android port of iOS Ramps (BridgeOnrampView / BridgeCashOutView /
  * CorridorPickerView). A hub (add money / cash out) → a corridor picker (country +
  * currency, circular flag; available rows tappable, "soon" rows dimmed) → an amount
  * form. Corridor catalogue mirrors RampCorridor.all.

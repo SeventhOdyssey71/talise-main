@@ -23,6 +23,10 @@ object Routes {
     const val CHEQUES = "cheques"
     const val STREAM = "stream"
     const val PIN = "pin"
+    const val INVOICES = "invoices"
+    const val CONTRACTS = "contracts"
+    const val REQUESTS = "requests"
+    const val RULES = "rules"
 }
 
 /** The four bottom-nav tabs — Home / Invest / Rewards / Profile, mirroring iOS `MainTabView`. */

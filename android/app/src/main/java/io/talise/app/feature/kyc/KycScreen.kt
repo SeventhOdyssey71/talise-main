@@ -95,7 +95,7 @@ fun KycScreen(onClose: () -> Unit) {
                 )
             }
 
-            // Country picker — flat card with hairline dividers.
+            // Country picker, flat card with hairline dividers.
             Column(verticalArrangement = Arrangement.spacedBy(TaliseDimens.md)) {
                 Eyebrow("Country", color = TaliseColors.fgDim)
                 Column(
@@ -121,7 +121,7 @@ fun KycScreen(onClose: () -> Unit) {
                 }
             }
 
-            // Account type — two flat tiles.
+            // Account type, two flat tiles.
             Column(verticalArrangement = Arrangement.spacedBy(TaliseDimens.md)) {
                 Eyebrow("Account type", color = TaliseColors.fgDim)
                 Row(horizontalArrangement = Arrangement.spacedBy(TaliseDimens.md)) {
@@ -150,7 +150,7 @@ fun KycScreen(onClose: () -> Unit) {
                 )
             }
 
-            // Flat solid primary CTA — mint fill, dark ink, no glass.
+            // Flat solid primary CTA, mint fill, dark ink, no glass.
             Box(
                 modifier = Modifier
                     .padding(top = TaliseDimens.sm)
@@ -193,13 +193,13 @@ fun KycScreen(onClose: () -> Unit) {
     }
 }
 
-/** Personal vs. business — iOS `AccountType`. */
+/** Personal vs. business, iOS `AccountType`. */
 private enum class AccountType(val raw: String) {
     Personal("personal"),
     Business("business"),
 }
 
-/** A single country row — name + trailing check when selected. */
+/** A single country row, name + trailing check when selected. */
 @Composable
 private fun CountryRow(
     name: String,

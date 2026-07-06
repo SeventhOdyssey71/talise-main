@@ -58,7 +58,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
 
 /**
- * Stream screen — a pixel port of iOS `StreamSetupView`. Set up a payment that
+ * Stream screen, a pixel port of iOS `StreamSetupView`. Set up a payment that
  * drips to a recipient over time: pick a recipient (@handle / 0x address), a total,
  * and a schedule (OVER a window, EVERY interval). An always-visible status block
  * either explains why the stream isn't startable yet or previews the tranches, and
@@ -97,7 +97,7 @@ fun StreamScreen(onClose: () -> Unit) {
     val durationLabel = DURATIONS.firstOrNull { it.second == durationMin }?.first ?: "$durationMin min"
 
     // Resolve the recipient as the user types (debounced ~0.4s) and cancel any
-    // in-flight lookup so the latest query always wins — mirrors iOS.
+    // in-flight lookup so the latest query always wins, mirrors iOS.
     LaunchedEffect(recipientQuery) {
         resolved = null
         resolveFailed = false
@@ -133,7 +133,7 @@ fun StreamScreen(onClose: () -> Unit) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         ) {
-            // Back affordance — iOS relies on the sheet drag indicator; keep onClose reachable.
+            // Back affordance, iOS relies on the sheet drag indicator; keep onClose reachable.
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 18.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,

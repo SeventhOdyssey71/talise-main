@@ -44,7 +44,7 @@ import io.talise.app.ui.components.Eyebrow
 import io.talise.app.ui.theme.TaliseColors
 
 /**
- * Cheques — claimable money links, ported from iOS ChequesView. Centerpiece is
+ * Cheques, claimable money links, ported from iOS ChequesView. Centerpiece is
  * the skeuomorphic paper-cheque card (cream stock, serif TALISE header, PAY TO
  * THE ORDER OF, boxed figure, amount in words, MEMO + AUTHORIZED SIGNATURE, and
  * a rotated status stamp). Two segments: Write and My cheques.
