@@ -18,6 +18,9 @@ import io.talise.app.feature.deposit.DepositScreen
 import io.talise.app.feature.movemoney.MoveMoneyScreen
 import io.talise.app.feature.onboarding.SignInScreen
 import io.talise.app.feature.receive.ReceiveScreen
+import io.talise.app.feature.wallet.WalletScreen
+import io.talise.app.feature.ramps.RampsScreen
+import io.talise.app.feature.kyc.KycScreen
 import io.talise.app.feature.payroll.PayrollScreen
 import io.talise.app.feature.send.SendFlow
 import io.talise.app.ui.theme.TaliseColors
@@ -51,6 +54,9 @@ private fun MainNavHost() {
         composable(Routes.SEND) { SendFlow(onClose = { nav.popBackStack() }) }
         composable(Routes.COPILOT) { ChatScreen(onClose = { nav.popBackStack() }) }
         composable(Routes.RECEIVE) { ReceiveScreen(onClose = { nav.popBackStack() }) }
+        composable(Routes.WALLET) { WalletScreen(onClose = { nav.popBackStack() }) }
+        composable(Routes.RAMPS) { RampsScreen(onClose = { nav.popBackStack() }) }
+        composable(Routes.KYC) { KycScreen(onClose = { nav.popBackStack() }) }
     }
 }
 

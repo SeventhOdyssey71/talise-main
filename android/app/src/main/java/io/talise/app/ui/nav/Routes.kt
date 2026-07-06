@@ -16,6 +16,9 @@ object Routes {
     const val SEND = "send"
     const val COPILOT = "copilot"
     const val RECEIVE = "receive"
+    const val WALLET = "wallet"
+    const val RAMPS = "ramps"
+    const val KYC = "kyc"
 }
 
 /** The four bottom-nav tabs — Home / Invest / Rewards / Profile, mirroring iOS `MainTabView`. */

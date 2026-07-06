@@ -92,7 +92,7 @@ fun ChatScreen(onClose: () -> Unit, vm: ChatViewModel = viewModel()) {
             ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close", tint = TaliseColors.fg, modifier = Modifier.size(18.dp)) }
             Mascot(size = 32.dp)
             Column {
-                Text("Copilot", style = TaliseType.heading(17.sp, FontWeight.SemiBold), color = TaliseColors.fg)
+                Text(timeGreeting(), style = TaliseType.heading(17.sp, FontWeight.SemiBold), color = TaliseColors.fg)
                 Text("Let's make sense of your numbers.", style = TaliseType.mono(11.sp), color = TaliseColors.fgDim)
             }
         }
@@ -172,17 +172,17 @@ private fun EmptyState(onSuggestion: (String) -> Unit, modifier: Modifier = Modi
             color = TaliseColors.fgMuted,
         )
         Spacer(Modifier.height(24.dp))
-        // 2x2 starter grid, same four the iOS Copilot offers.
+        // 2x2 starter grid, the same four the iOS Copilot offers (title, subtitle, prompt).
         val starters = listOf(
-            "Balance" to "What's my balance?",
-            "Recent activity" to "Show my recent activity",
-            "Save money" to "I'd like to save some money",
-            "Cash out" to "Cash out to my bank account",
+            Triple("Balance", "See your total", "What's my balance?"),
+            Triple("Recent activity", "Your latest moves", "Show my recent activity"),
+            Triple("Save money", "Into your savings", "I'd like to save some money"),
+            Triple("Cash out", "To your bank", "Cash out to my bank account"),
         )
         starters.chunked(2).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEach { (title, prompt) ->
-                    SuggestionCard(title, prompt, onClick = { onSuggestion(prompt) }, modifier = Modifier.weight(1f))
+                row.forEach { (title, subtitle, prompt) ->
+                    SuggestionCard(title, subtitle, onClick = { onSuggestion(prompt) }, modifier = Modifier.weight(1f))
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -255,13 +255,23 @@ private fun InputPill(
     }
 }
 
-/** The Copilot mark, the Talise diamond on a mint dot, standing in for the iOS AgentMascot. */
+/** The Copilot mark, the real Talise app mark (iOS AgentMascot). */
 @Composable
 private fun Mascot(size: androidx.compose.ui.unit.Dp) {
-    Box(
-        Modifier.size(size).background(TaliseColors.greenDeep, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("t", style = TaliseType.display((size.value * 0.5f).sp, FontWeight.Bold), color = TaliseColors.greenMint)
+    androidx.compose.foundation.Image(
+        painter = androidx.compose.ui.res.painterResource(io.talise.app.R.drawable.applogo),
+        contentDescription = "Talise Copilot",
+        modifier = Modifier.size(size),
+    )
+}
+
+/** Time-of-day greeting, matching iOS ChatTabView.greeting. */
+private fun timeGreeting(): String {
+    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+    return when (hour) {
+        in 5..11 -> "Good morning"
+        in 12..16 -> "Good afternoon"
+        in 17..21 -> "Good evening"
+        else -> "Hey"
     }
 }
