@@ -70,7 +70,7 @@ import io.talise.app.ui.theme.TaliseType
 import kotlin.math.abs
 import kotlin.math.pow
 
-// Directional palette — ported verbatim from iOS HistoryRow hex literals.
+// Directional palette, ported verbatim from iOS HistoryRow hex literals.
 private val SENT_RED = Color(0xFFE5484D)
 private val SENT_RED_SOFT = Color(0xFFFF6B6B)
 private val RECEIVED_GREEN = Color(0xFF79D96C)
@@ -79,7 +79,7 @@ private val WITHDRAW_MINT = Color(0xFFCAFFB8)
 private val WITHDRAW_FOREST = Color(0xFF2E5E1F)
 private val AMOUNT_GREEN = Color(0xFF4FB35E)
 
-/** FLAT card — iOS `.flatCard`: solid `surface` fill + clip, NO border/blur/gradient. */
+/** FLAT card, iOS `.flatCard`: solid `surface` fill + clip, NO border/blur/gradient. */
 private fun Modifier.flatCard(radius: androidx.compose.ui.unit.Dp = 25.dp): Modifier {
     val shape = RoundedCornerShape(radius)
     return this.clip(shape).background(TaliseColors.surface, shape)
@@ -272,7 +272,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = viewModel()) {
     }
 }
 
-/** 44dp accent action pill — iOS `actionButton(accented:)`: solid accent fill, near-black ink, radius 13. */
+/** 44dp accent action pill, iOS `actionButton(accented:)`: solid accent fill, near-black ink, radius 13. */
 @Composable
 private fun ActionPill(icon: ImageVector, onClick: () -> Unit) {
     Box(
@@ -283,7 +283,7 @@ private fun ActionPill(icon: ImageVector, onClick: () -> Unit) {
     }
 }
 
-/** Account card (carousel page 0) — handle + copy, or the Claim CTA. */
+/** Account card (carousel page 0), handle + copy, or the Claim CTA. */
 @Composable
 private fun UsernameCard(handle: String?) {
     val clipboard = LocalClipboardManager.current
@@ -401,7 +401,7 @@ private fun TokenBucketCard() {
 
 private enum class RowCategory { SENT, RECEIVED, INVEST, WITHDRAW, AUTOSWAP, CASHOUT, TEAM, NEUTRAL }
 
-/** One history row — mirrors iOS `HistoryRow`: directional badge, category title, signed amount. */
+/** One history row, mirrors iOS `HistoryRow`: directional badge, category title, signed amount. */
 @Composable
 private fun HistoryRow(entry: ActivityEntryDTO, hidden: Boolean) {
     val category = categoryOf(entry)
@@ -426,7 +426,7 @@ private fun HistoryRow(entry: ActivityEntryDTO, hidden: Boolean) {
         RowCategory.RECEIVED -> Icons.Filled.SouthWest
         RowCategory.INVEST, RowCategory.AUTOSWAP -> Icons.Filled.Eco
         RowCategory.WITHDRAW -> Icons.Outlined.Eco
-        RowCategory.TEAM -> Icons.Filled.AccountBalance // unused — team uses hi_team painter
+        RowCategory.TEAM -> Icons.Filled.AccountBalance // unused, team uses hi_team painter
         RowCategory.NEUTRAL -> Icons.Outlined.Circle
     }
 
@@ -574,14 +574,14 @@ private fun amountOf(e: ActivityEntryDTO, category: RowCategory): String {
     return "$prefix-"
 }
 
-/** Raw u64 coin amount scaled by decimals — iOS `ActivityOtherCoin.displayAmount`. */
+/** Raw u64 coin amount scaled by decimals, iOS `ActivityOtherCoin.displayAmount`. */
 private fun coinDisplay(c: ActivityOtherCoin): String {
     val raw = c.amount.toDoubleOrNull() ?: 0.0
     val v = raw / 10.0.pow(c.decimals)
     return if (v < 1) "%.4f".format(v) else "%,.2f".format(v)
 }
 
-/** Balance hero — dollars in `fg`, cents dimmed to `fgMuted` (iOS `balanceHero`). */
+/** Balance hero, dollars in `fg`, cents dimmed to `fgMuted` (iOS `balanceHero`). */
 private fun balanceHero(usdsui: Double, hidden: Boolean): AnnotatedString {
     if (hidden) return buildAnnotatedString {
         withStyle(SpanStyle(color = TaliseColors.fgMuted)) { append("••••••") }

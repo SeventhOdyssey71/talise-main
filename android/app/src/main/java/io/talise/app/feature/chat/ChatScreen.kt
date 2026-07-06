@@ -52,7 +52,7 @@ import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
 
 /**
- * Talise Copilot — the money assistant, a full-screen chat mirroring the iOS
+ * Talise Copilot, the money assistant, a full-screen chat mirroring the iOS
  * Chat tab: greeting + suggestion grid on an empty transcript, streamed replies,
  * and an "Ask anything" input pill. Talks to `POST /api/chat/stream`.
  */
@@ -172,7 +172,7 @@ private fun EmptyState(onSuggestion: (String) -> Unit, modifier: Modifier = Modi
             color = TaliseColors.fgMuted,
         )
         Spacer(Modifier.height(24.dp))
-        // 2x2 starter grid — same four the iOS Copilot offers.
+        // 2x2 starter grid, same four the iOS Copilot offers.
         val starters = listOf(
             "Balance" to "What's my balance?",
             "Recent activity" to "Show my recent activity",
@@ -255,7 +255,7 @@ private fun InputPill(
     }
 }
 
-/** The Copilot mark — the Talise diamond on a mint dot, standing in for the iOS AgentMascot. */
+/** The Copilot mark, the Talise diamond on a mint dot, standing in for the iOS AgentMascot. */
 @Composable
 private fun Mascot(size: androidx.compose.ui.unit.Dp) {
     Box(

@@ -20,7 +20,7 @@ data class HomeUiState(
 )
 
 /**
- * Home data — loads `/api/balances` + `/api/activity`, like iOS `HomeView`.
+ * Home data, loads `/api/balances` + `/api/activity`, like iOS `HomeView`.
  * Refreshes when a money flow emits [TaliseEvents.Event.HomeShouldRefresh] / TxCompleted.
  */
 class HomeViewModel : ViewModel() {

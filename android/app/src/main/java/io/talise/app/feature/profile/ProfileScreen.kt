@@ -56,7 +56,7 @@ import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
 
 /**
- * Profile tab — iOS `ProfileView`. A solid forest hero card (avatar + name + handle
+ * Profile tab, iOS `ProfileView`. A solid forest hero card (avatar + name + handle
  * chip + email), a three-cell stats strip, and flat section cards (Payroll, Wallet,
  * Help) closing on a sign-out button + version footer.
  */
@@ -132,7 +132,7 @@ fun ProfileScreen(nav: NavController) {
     }
 }
 
-/** Solid forest hero card — avatar, name, handle chip, sign-in email. */
+/** Solid forest hero card, avatar, name, handle chip, sign-in email. */
 @Composable
 private fun Hero(name: String?, handle: String?, email: String?, forest: Brush) {
     Column(
@@ -145,7 +145,7 @@ private fun Hero(name: String?, handle: String?, email: String?, forest: Brush) 
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Initials disc — flat fallback avatar (mirrors iOS `initialsDisc`).
+        // Initials disc, flat fallback avatar (mirrors iOS `initialsDisc`).
         Box(
             Modifier.size(88.dp).clip(CircleShape).background(TaliseColors.surface2)
                 .border(2.dp, Color.White.copy(alpha = 0.25f), CircleShape),
@@ -170,7 +170,7 @@ private fun Hero(name: String?, handle: String?, email: String?, forest: Brush) 
     }
 }
 
-/** Three-cell standing strip — KYC, Rewards tier, Points — divided by hairlines. */
+/** Three-cell standing strip, KYC, Rewards tier, Points, divided by hairlines. */
 @Composable
 private fun StatsStrip() {
     Row(

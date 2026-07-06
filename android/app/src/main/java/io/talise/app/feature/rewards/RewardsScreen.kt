@@ -38,7 +38,7 @@ import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
 
 /**
- * Rewards tab — iOS `RewardsView`. Points hero on a solid forest card, a locked
+ * Rewards tab, iOS `RewardsView`. Points hero on a solid forest card, a locked
  * campaign pool, and two stat tiles. Live data (points, tier, referrals) lands in
  * phase 2; for now the surface renders its zero-state exactly like iOS.
  */
@@ -66,7 +66,7 @@ fun RewardsScreen() {
     }
 }
 
-/** Points balance on a solid forest card — tier chip top-right, big count, honest caption. */
+/** Points balance on a solid forest card, tier chip top-right, big count, honest caption. */
 @Composable
 private fun HeroCard(forest: Brush) {
     Column(
@@ -113,7 +113,7 @@ private fun HeroCard(forest: Brush) {
     }
 }
 
-/** Locked $5,000 reward pool — opens later. Join surfaces a quiet "opens soon" affordance. */
+/** Locked $5,000 reward pool, opens later. Join surfaces a quiet "opens soon" affordance. */
 @Composable
 private fun CampaignCard() {
     val ink = Color(0xFF0E1A0D)
@@ -166,7 +166,7 @@ private fun CampaignCard() {
     }
 }
 
-/** Two-up stat tile — icon chip + value + label, on a flat surface card. iOS `statTile`. */
+/** Two-up stat tile, icon chip + value + label, on a flat surface card. iOS `statTile`. */
 @Composable
 private fun StatTile(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier) {
     Column(
@@ -186,7 +186,7 @@ private fun StatTile(icon: ImageVector, value: String, label: String, modifier: 
     }
 }
 
-/** One quiet line on how referrals earn — iOS `infoStrip`. */
+/** One quiet line on how referrals earn, iOS `infoStrip`. */
 @Composable
 private fun InfoStrip() {
     Row(

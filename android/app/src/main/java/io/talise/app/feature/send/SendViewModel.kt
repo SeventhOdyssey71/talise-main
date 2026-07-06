@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Send pipeline — the Android counterpart of the CLI's executeSend and iOS's
+ * Send pipeline, the Android counterpart of the CLI's executeSend and iOS's
  * SendFlow: resolve the recipient, ask the server to build the gasless PTB
  * (`/api/send/sponsor-prepare`), sign the bytes LOCALLY with the ephemeral
  * zkLogin key ([ZkLoginCoordinator.signTransaction]), then broadcast via
@@ -55,7 +55,7 @@ class SendViewModel : ViewModel() {
                     if (addressRe.matches(recipient)) recipient.lowercase()
                     else ApiClient.api.resolveRecipient(recipient).address.lowercase()
 
-                // 2. Prepare — server builds the gasless PTB, returns signable bytes.
+                // 2. Prepare, server builds the gasless PTB, returns signable bytes.
                 _state.value = State.Working("preparing")
                 val prep = ApiClient.api.sponsorPrepare(SponsorPrepareRequest(to = toAddress, amount = amount))
                 val bytes = prep.bytes ?: error(prep.error ?: "could not prepare the send")
@@ -65,7 +65,7 @@ class SendViewModel : ViewModel() {
                 val userSignature = ZkLoginCoordinator.signTransaction(bytes)
                 val randomness = SecureStore.jwtRandomness ?: error("session needs a refresh, sign in again")
 
-                // 4. Submit — server assembles the zkLogin proof and broadcasts.
+                // 4. Submit, server assembles the zkLogin proof and broadcasts.
                 _state.value = State.Working("sending")
                 val res = ApiClient.api.gaslessSubmit(
                     GaslessSubmitRequest(

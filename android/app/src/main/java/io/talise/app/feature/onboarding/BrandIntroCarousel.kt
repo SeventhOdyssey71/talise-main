@@ -33,7 +33,7 @@ import io.talise.app.ui.theme.TaliseType
 import kotlinx.coroutines.launch
 
 /**
- * Three-slide swipeable brand-intro carousel — iOS `BrandIntroCarousel`. Each slide shows a
+ * Three-slide swipeable brand-intro carousel, iOS `BrandIntroCarousel`. Each slide shows a
  * hero illustration slot (the Higgsfield exports drop in later; until then a flat glass
  * placeholder card keeps the layout stable) plus a punchy one-liner. "Continue" advances
  * through the slides and calls [onContinue] once past the third.
@@ -57,7 +57,7 @@ fun BrandIntroCarousel(onContinue: () -> Unit, modifier: Modifier = Modifier) {
                 Slide(headline = headlines[page])
             }
 
-            // Dot indicators — active dot tracks both swipes and the Continue button.
+            // Dot indicators, active dot tracks both swipes and the Continue button.
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 24.dp),
                 horizontalArrangement = Arrangement.Center,
@@ -97,7 +97,7 @@ private fun Slide(headline: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(32.dp),
     ) {
-        // Hero illustration slot — flat glass placeholder until the real PNG lands.
+        // Hero illustration slot, flat glass placeholder until the real PNG lands.
         Box(
             Modifier
                 .fillMaxWidth()

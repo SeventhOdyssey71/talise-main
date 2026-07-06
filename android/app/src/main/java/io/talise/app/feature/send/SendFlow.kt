@@ -60,7 +60,7 @@ private val Mint = Color(0xFFB1F49A)
 private val InkOnGreen = Color(0xFF0A140C)
 
 /**
- * Send flow — a pixel port of iOS `SendFlowView`: amount keypad → recipient →
+ * Send flow, a pixel port of iOS `SendFlowView`: amount keypad → recipient →
  * review (slide to send) → in-flight → success/failure. Wired to [SendViewModel]:
  * resolve → sponsor-prepare → local zkLogin sign → gasless-submit → digest.
  * Only the visual composition changed; the pipeline and its state handling are
@@ -102,7 +102,7 @@ private fun SendFormFlow(
     var recipient by remember { mutableStateOf("") }
     var slideReset by remember { mutableStateOf(false) }
 
-    // Once the pipeline is in flight the ViewModel reports Working — hold on the
+    // Once the pipeline is in flight the ViewModel reports Working, hold on the
     // in-flight screen regardless of which step launched it.
     if (working != null) {
         SendInProgressScreen(onDone = onClose)
@@ -326,7 +326,7 @@ private fun SendRecipientScreen(
             modifier = Modifier.padding(horizontal = 28.dp).padding(top = 26.dp),
         )
         Text(
-            "No recent recipients yet — your first send will appear here.",
+            "No recent recipients yet, your first send will appear here.",
             style = TaliseType.body(13.sp, FontWeight.Light),
             color = TaliseColors.fgDim,
             modifier = Modifier.padding(horizontal = 28.dp).padding(top = 12.dp),
@@ -425,7 +425,7 @@ private fun SendReviewScreen(
                 Spacer(Modifier.weight(1f))
                 Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = TaliseColors.greenMint, modifier = Modifier.size(11.dp))
                 Text(
-                    "Network fee $0.00 — Talise auto-routed the rail and sponsored the gas.",
+                    "Network fee $0.00, Talise auto-routed the rail and sponsored the gas.",
                     style = TaliseType.mono(11.sp, FontWeight.Light),
                     color = TaliseColors.fgMuted,
                     textAlign = TextAlign.Center,
@@ -459,7 +459,7 @@ private fun SendInProgressScreen(onDone: () -> Unit) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Sending…", style = TaliseType.heading(28.sp, FontWeight.Medium), letterSpacing = (-0.5).sp, color = TaliseColors.fg)
                 Text(
-                    "Should take a moment. You can close this now — we'll keep going.",
+                    "Should take a moment. You can close this now, we'll keep going.",
                     style = TaliseType.body(14.sp, FontWeight.Light),
                     color = TaliseColors.fgMuted,
                     textAlign = TextAlign.Center,
@@ -635,7 +635,7 @@ private fun CapsuleButton(title: String, enabled: Boolean, onClick: () -> Unit, 
     }
 }
 
-/** Secondary "Done" capsule — surface2 + hairline (iOS `glassCapsule`). */
+/** Secondary "Done" capsule, surface2 + hairline (iOS `glassCapsule`). */
 @Composable
 private fun GlassCapsuleButton(title: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(

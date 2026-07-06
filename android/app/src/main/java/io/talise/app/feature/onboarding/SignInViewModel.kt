@@ -36,7 +36,7 @@ class SignInViewModel : ViewModel() {
             }.onSuccess {
                 _state.update { it.copy(loading = false) }
             }.onFailure { t ->
-                // User dismissing the Google sheet isn't an error — just stop the spinner.
+                // User dismissing the Google sheet isn't an error, just stop the spinner.
                 if (t is GetCredentialCancellationException) {
                     _state.update { it.copy(loading = false, error = null) }
                 } else {
@@ -48,7 +48,7 @@ class SignInViewModel : ViewModel() {
 
     private fun friendly(t: Throwable): String = when (t) {
         is GoogleSignInService.NotConfigured ->
-            "Sign-in isn't configured yet — set GOOGLE_WEB_CLIENT_ID."
+            "Sign-in isn't configured yet, set GOOGLE_WEB_CLIENT_ID."
         is NoCredentialException ->
             "No Google account available on this device. Add one in Settings and try again."
         else -> t.message ?: "Couldn't sign in. Please try again."

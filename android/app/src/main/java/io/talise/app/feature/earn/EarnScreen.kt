@@ -32,7 +32,7 @@ import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
 
 /**
- * Invest tab — iOS `EarnView`. One consolidated "Earn" row (the SAM router picks the
+ * Invest tab, iOS `EarnView`. One consolidated "Earn" row (the SAM router picks the
  * best venue) under a "Where your money earns" section header, on a flat hero plate,
  * carrying the live BEST rate. Tap → manage sheet (phase 2).
  */

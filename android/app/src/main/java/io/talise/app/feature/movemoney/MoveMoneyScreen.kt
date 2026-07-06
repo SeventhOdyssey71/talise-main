@@ -53,7 +53,7 @@ import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
 
 /**
- * "Move money" hub — a pixel port of iOS `WithdrawFlowView`. A quiet inline
+ * "Move money" hub, a pixel port of iOS `WithdrawFlowView`. A quiet inline
  * header, a "Send" 2×2 primary grid (Cash out / Send / Send abroad / Send
  * privately), then a "More" section with expandable Cheques + Work groups and
  * Payroll / Request money / Rules rows. Locked actions dim and show a "SOON"
@@ -170,7 +170,7 @@ private fun SectionLabel(text: String, topPad: androidx.compose.ui.unit.Dp = 0.d
     )
 }
 
-/** Soft mint squircle chip — iOS `IconChip`. */
+/** Soft mint squircle chip, iOS `IconChip`. */
 @Composable
 private fun IconChip(painter: Painter, side: androidx.compose.ui.unit.Dp = 42.dp, iconSize: androidx.compose.ui.unit.Dp = 20.dp) {
     Box(
@@ -232,7 +232,7 @@ private fun ActionTile(
     }
 }
 
-/** Slim full-width group header row — expands (chevron.down). */
+/** Slim full-width group header row, expands (chevron.down). */
 @Composable
 private fun GroupRow(painter: Painter, title: String, caption: String, isExpanded: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(24.dp)
@@ -273,7 +273,7 @@ private fun NavRow(painter: Painter, title: String, caption: String, onClick: ()
 
 private data class SubAction(val painter: Painter, val title: String)
 
-/** The expanded rows of a group — one rounded container, hairline dividers. */
+/** The expanded rows of a group, one rounded container, hairline dividers. */
 @Composable
 private fun SubActionList(rows: List<SubAction>) {
     val shape = RoundedCornerShape(24.dp)

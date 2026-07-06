@@ -15,6 +15,7 @@ object Routes {
     const val PAYROLL = "payroll"
     const val SEND = "send"
     const val COPILOT = "copilot"
+    const val RECEIVE = "receive"
 }
 
 /** The four bottom-nav tabs — Home / Invest / Rewards / Profile, mirroring iOS `MainTabView`. */

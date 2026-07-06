@@ -26,7 +26,7 @@ data class ChatUiState(
 )
 
 /**
- * Talise Copilot — drives `POST /api/chat/stream`. Mirrors the iOS Chat tab:
+ * Talise Copilot, drives `POST /api/chat/stream`. Mirrors the iOS Chat tab:
  * append the user turn, open the SSE stream, and grow the assistant bubble as
  * deltas arrive. Memory (recall + save to Walrus) is handled server-side per
  * turn, so there is nothing to persist on-device.
@@ -51,7 +51,7 @@ class ChatViewModel : ViewModel() {
         )
 
         // The wire history is every prior turn plus this one (assistant turns
-        // still mid-stream are excluded — they carry no content yet).
+        // still mid-stream are excluded, they carry no content yet).
         val history = _state.value.messages
             .filter { !(it.id == replyId) && it.text.isNotEmpty() }
             .map {

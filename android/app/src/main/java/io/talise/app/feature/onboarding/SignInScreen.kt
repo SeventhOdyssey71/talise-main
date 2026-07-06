@@ -39,7 +39,7 @@ import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
 
 /**
- * Sign-in entry — mirrors iOS `Onboarding/SignInScreen`. Native zkLogin via Google:
+ * Sign-in entry, mirrors iOS `Onboarding/SignInScreen`. Native zkLogin via Google:
  * Credential Manager returns a nonce-bound ID token → `/api/auth/mobile/exchange` →
  * bearer. Layout matches iOS: shared onboarding backdrop (mossy-green wash → black with a
  * top-right bloom), Talise pinwheel hero, welcome copy, a white "Continue with Google"
@@ -64,7 +64,7 @@ fun SignInScreen(vm: SignInViewModel = viewModel()) {
             Spacer(Modifier.height(70.dp))
             Spacer(Modifier.weight(1f))
 
-            // Talise pinwheel hero — the real brand mark (96×96, fit).
+            // Talise pinwheel hero, the real brand mark (96×96, fit).
             Image96Logo()
 
             Text(
@@ -95,7 +95,7 @@ fun SignInScreen(vm: SignInViewModel = viewModel()) {
                 )
             }
 
-            // Provider CTA — white 54dp capsule, Google G leading the label.
+            // Provider CTA, white 54dp capsule, Google G leading the label.
             ContinueWithGoogleButton(
                 loading = loading,
                 onClick = { vm.signInWithGoogle(context) },
@@ -124,7 +124,7 @@ fun SignInScreen(vm: SignInViewModel = viewModel()) {
     }
 }
 
-/** Talise pinwheel brand mark, 96×96 fit — iOS `hero` (`Image("TaliseLogo")`). */
+/** Talise pinwheel brand mark, 96×96 fit, iOS `hero` (`Image("TaliseLogo")`). */
 @Composable
 private fun Image96Logo() {
     androidx.compose.foundation.Image(
@@ -136,7 +136,7 @@ private fun Image96Logo() {
 }
 
 /**
- * White capsule CTA — iOS `continueWithGoogleButton` (54dp tall, white fill, dark ink label,
+ * White capsule CTA, iOS `continueWithGoogleButton` (54dp tall, white fill, dark ink label,
  * 20dp leading Google G). While loading the G is swapped for a dark spinner; label unchanged.
  */
 @Composable
@@ -180,7 +180,7 @@ private fun ContinueWithGoogleButton(
 }
 
 /**
- * Shared onboarding backdrop — iOS `OnboardingBackground`. A mossy-green vertical wash at the
+ * Shared onboarding backdrop, iOS `OnboardingBackground`. A mossy-green vertical wash at the
  * top fading into pure black, plus a soft pastel-green bloom anchored top-right (screen blend)
  * for the frosted-glass highlight from the reference screens.
  */
