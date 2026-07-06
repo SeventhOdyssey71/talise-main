@@ -43,4 +43,11 @@ object TaliseColors {
     // Button label inks
     val inkOnGreen = Color(0xFF0A140C)     // dark ink on bright-green CTAs
     val labelOnDeep = Color(0xFFF2FFEC)    // near-white on forest CTA
+
+    // Exact-match additions from iOS Tokens.swift.
+    val accentSoft = Color(0xFF2A2A2A)
+    val usernameCard = Color(0xFF161616)
+    val live = Color(0xFF79D96C)
+    val success = Color(0xFF79D96C)
+    val warmGoldAlt = Color(0xFFC08A3E)
 }
