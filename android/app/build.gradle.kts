@@ -1,8 +1,16 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+}
+
+// Local, uncommitted config (local.properties is gitignored). Holds the Google
+// WEB OAuth client id used for zkLogin sign-in.
+val localProps = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
 
 android {
@@ -19,7 +27,11 @@ android {
         // Backend + OAuth config surfaced to AppConfig via BuildConfig.
         buildConfigField("String", "API_BASE_URL", "\"https://app.talise.io\"")
         // Same WEB Google OAuth client id the iOS app + web use (zkLogin address parity).
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"\"")
+        // Set GOOGLE_WEB_CLIENT_ID in android/local.properties (gitignored).
+        buildConfigField(
+            "String", "GOOGLE_WEB_CLIENT_ID",
+            "\"${localProps.getProperty("GOOGLE_WEB_CLIENT_ID", "")}\"",
+        )
     }
 
     buildTypes {
