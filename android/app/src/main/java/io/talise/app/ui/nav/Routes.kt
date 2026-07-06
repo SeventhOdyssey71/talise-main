@@ -19,6 +19,10 @@ object Routes {
     const val WALLET = "wallet"
     const val RAMPS = "ramps"
     const val KYC = "kyc"
+    const val SCAN = "scan"
+    const val CHEQUES = "cheques"
+    const val STREAM = "stream"
+    const val PIN = "pin"
 }
 
 /** The four bottom-nav tabs — Home / Invest / Rewards / Profile, mirroring iOS `MainTabView`. */
