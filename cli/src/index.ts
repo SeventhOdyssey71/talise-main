@@ -20,6 +20,7 @@ import { swap, save, withdraw, cashout } from "./commands/earn.js";
 import { ask, chat } from "./commands/ask.js";
 import { agentWhoami, agentPay, agentRecv, agentProvision, agentWallets, agentRevoke } from "./commands/agent.js";
 import { batch, teams, streamCreate, streamList, streamCancel } from "./commands/payouts.js";
+import { runMcp } from "./mcp.js";
 import { fail, note, disableColor, type OutputMode } from "./format.js";
 import { existsSync, statSync } from "node:fs";
 
@@ -275,6 +276,16 @@ const COMMANDS: Command[] = [
       if (sub === "revoke") return agentRevoke(baseUrl, mode, flags._[1] ?? "");
       throw usage("agent <whoami|pay|recv|provision|wallets|revoke>");
     },
+  },
+  {
+    name: "mcp", group: "Other", usage: "mcp", summary: "run as an MCP server (use Talise inside Claude)",
+    help:
+      "Starts a Model Context Protocol server over stdio, exposing Talise as tools\n" +
+      "(balance, activity, resolve, ask, send) to Claude Desktop / Claude Code.\n" +
+      "Sends require confirm:true, so nothing moves money by accident.\n\n" +
+      "Add to Claude Desktop config (claude_desktop_config.json):\n" +
+      '  { "mcpServers": { "talise": { "command": "talise", "args": ["mcp"] } } }',
+    run: ({ baseUrl }) => runMcp(baseUrl),
   },
   {
     name: "session", group: "Agent", usage: "session <export|import [file]>", summary: "move a provisioned session",
