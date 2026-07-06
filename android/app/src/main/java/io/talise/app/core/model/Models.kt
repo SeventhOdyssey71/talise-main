@@ -162,3 +162,44 @@ data class NonceRequest(
 
 @Serializable
 data class NonceResponse(val nonce: String)
+
+// ── Send (gasless USDsui) ───────────────────────────────────────────────────
+// prepare → sign (SuiCrypto) → submit. Mirrors the CLI's executeSend and the
+// server contract: /api/send/sponsor-prepare returns `bytes`; /api/send/
+// gasless-submit takes the ephemeral signature + binding and returns a digest.
+
+@Serializable
+data class SponsorPrepareRequest(
+    val to: String,
+    val amount: Double,
+    val asset: String = "USDsui",
+)
+
+@Serializable
+data class SponsorPrepareResponse(
+    val bytes: String? = null,
+    val mode: String? = null,
+    val error: String? = null,
+)
+
+@Serializable
+data class SendMeta(
+    val kind: String = "send",
+    val amountUsd: Double? = null,
+)
+
+@Serializable
+data class GaslessSubmitRequest(
+    val bytesB64: String,
+    val ephemeralPubKeyB64: String,
+    val maxEpoch: Int,
+    val randomness: String,
+    val userSignature: String,
+    val meta: SendMeta? = null,
+)
+
+@Serializable
+data class GaslessSubmitResponse(
+    val digest: String? = null,
+    val error: String? = null,
+)

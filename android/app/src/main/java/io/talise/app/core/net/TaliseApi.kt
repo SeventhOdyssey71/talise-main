@@ -5,9 +5,13 @@ import io.talise.app.core.model.BalancesDTO
 import io.talise.app.core.model.EpochResponse
 import io.talise.app.core.model.ExchangeRequest
 import io.talise.app.core.model.ExchangeResponse
+import io.talise.app.core.model.GaslessSubmitRequest
+import io.talise.app.core.model.GaslessSubmitResponse
 import io.talise.app.core.model.NonceRequest
 import io.talise.app.core.model.NonceResponse
 import io.talise.app.core.model.RecipientResolution
+import io.talise.app.core.model.SponsorPrepareRequest
+import io.talise.app.core.model.SponsorPrepareResponse
 import io.talise.app.core.model.TeamsResponse
 import io.talise.app.core.model.UserDTO
 import io.talise.app.core.model.YieldComparison
@@ -33,6 +37,13 @@ interface TaliseApi {
 
     @GET("api/recipient/resolve")
     suspend fun resolveRecipient(@Query("q") query: String): RecipientResolution
+
+    // Gasless USDsui send: prepare returns signable bytes; submit broadcasts.
+    @POST("api/send/sponsor-prepare")
+    suspend fun sponsorPrepare(@Body body: SponsorPrepareRequest): SponsorPrepareResponse
+
+    @POST("api/send/gasless-submit")
+    suspend fun gaslessSubmit(@Body body: GaslessSubmitRequest): GaslessSubmitResponse
 
     @GET("api/yield/comparison")
     suspend fun yieldComparison(): YieldComparison
