@@ -1,5 +1,8 @@
 package io.talise.app.feature.kyc
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,44 +24,41 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.talise.app.ui.components.Eyebrow
 import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseDimens
 import io.talise.app.ui.theme.TaliseType
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * Identity / onboarding verification, ported 1:1 from iOS `KYCView`.
  *
- * The iOS screen is the final onboarding step after the Google account is verified:
- * the user picks a country and an account type (Personal / Business), then a solid
- * mint "Continue" CTA posts the choice and bootstraps into the app. Nigeria gets an
- * optional Naira bank-link step on iOS; Android has no such endpoint wired yet, so
- * every country continues straight through via [onClose].
+ * The final onboarding step after the Google account is verified: the user
+ * picks a country and an account type (Personal / Business), then a solid mint
+ * "Continue" CTA posts the choice (`/api/onboarding`), best-effort claims the
+ * sponsored SuiNS handle (`/api/username/claim`), and hands back via [onClose]
+ * so the session bootstraps into the app. Nigeria gets the optional
+ * [OnboardingBankLink] step first (gated off until the bank add-flow is
+ * ported, see [KycViewModel]).
  *
- * Layout matches iOS exactly: flat near-black canvas, a header block, a flat country
- * list card with hairline dividers + a trailing check on the selection, two account-type
- * tiles (selected = bright mint with dark ink), and the mint Continue button.
+ * Layout matches iOS exactly: flat near-black canvas, a header block, a flat
+ * country list card with hairline dividers + a trailing check on the selection,
+ * two account-type tiles (selected = bright mint with dark ink), and the mint
+ * Continue button.
  */
 @Composable
 fun KycScreen(onClose: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    var country by remember { mutableStateOf("NG") }
-    var accountType by remember { mutableStateOf(AccountType.Personal) }
-    var submitting by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val vm: KycViewModel = viewModel()
+    val ui by vm.state.collectAsStateWithLifecycle()
 
     val countries = listOf(
         "NG" to "Nigeria",
@@ -81,23 +81,25 @@ fun KycScreen(onClose: () -> Unit) {
         ) {
             // Header block.
             Column(verticalArrangement = Arrangement.spacedBy(TaliseDimens.md)) {
-                Eyebrow("Verify · 1 of 1", color = TaliseColors.fgDim)
+                Eyebrow("Verify · 1 of 1")
                 Text(
                     "Finish setting up\nyour account",
                     style = TaliseType.display(30.sp, FontWeight.Medium),
                     letterSpacing = (-0.8).sp,
+                    lineHeight = 38.sp,
                     color = TaliseColors.fg,
                 )
                 Text(
                     "We verified your Google account. One last step: tell us where you'll be using Talise, and whether this is for you or your business.",
                     style = TaliseType.body(14.sp),
+                    lineHeight = 20.sp,
                     color = TaliseColors.fgMuted,
                 )
             }
 
             // Country picker, flat card with hairline dividers.
             Column(verticalArrangement = Arrangement.spacedBy(TaliseDimens.md)) {
-                Eyebrow("Country", color = TaliseColors.fgDim)
+                Eyebrow("Country")
                 Column(
                     modifier = Modifier
                         .clip(RoundedCornerShape(TaliseDimens.radiusLg))
@@ -106,8 +108,8 @@ fun KycScreen(onClose: () -> Unit) {
                     countries.forEachIndexed { index, (code, name) ->
                         CountryRow(
                             name = name,
-                            selected = country == code,
-                            onClick = { country = code },
+                            selected = ui.country == code,
+                            onClick = { vm.selectCountry(code) },
                         )
                         if (index != countries.lastIndex) {
                             Box(
@@ -123,26 +125,26 @@ fun KycScreen(onClose: () -> Unit) {
 
             // Account type, two flat tiles.
             Column(verticalArrangement = Arrangement.spacedBy(TaliseDimens.md)) {
-                Eyebrow("Account type", color = TaliseColors.fgDim)
+                Eyebrow("Account type")
                 Row(horizontalArrangement = Arrangement.spacedBy(TaliseDimens.md)) {
                     TypeTile(
                         title = "Personal",
                         sub = "Send, receive, earn",
-                        selected = accountType == AccountType.Personal,
-                        onClick = { accountType = AccountType.Personal },
+                        selected = ui.accountType == AccountType.Personal,
+                        onClick = { vm.selectAccountType(AccountType.Personal) },
                         modifier = Modifier.weight(1f),
                     )
                     TypeTile(
                         title = "Business",
                         sub = "Invoices, payroll",
-                        selected = accountType == AccountType.Business,
-                        onClick = { accountType = AccountType.Business },
+                        selected = ui.accountType == AccountType.Business,
+                        onClick = { vm.selectAccountType(AccountType.Business) },
                         modifier = Modifier.weight(1f),
                     )
                 }
             }
 
-            error?.let {
+            ui.error?.let {
                 Text(
                     it,
                     style = TaliseType.body(12.sp),
@@ -156,26 +158,13 @@ fun KycScreen(onClose: () -> Unit) {
                     .padding(top = TaliseDimens.sm)
                     .fillMaxWidth()
                     .height(54.dp)
+                    .alpha(if (ui.submitting) 0.85f else 1f)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        if (submitting) TaliseColors.greenMint.copy(alpha = 0.85f)
-                        else TaliseColors.greenMint,
-                    )
-                    .clickable(enabled = !submitting) {
-                        error = null
-                        submitting = true
-                        scope.launch {
-                            // No /api/onboarding endpoint on Android yet; the choice is
-                            // captured locally and we bootstrap straight through, matching
-                            // the non-Nigeria iOS path. Brief spinner for parity.
-                            delay(400)
-                            submitting = false
-                            onClose()
-                        }
-                    },
+                    .background(TaliseColors.greenMint)
+                    .clickable(enabled = !ui.submitting) { vm.submit(onFinished = onClose) },
                 contentAlignment = Alignment.Center,
             ) {
-                if (submitting) {
+                if (ui.submitting) {
                     CircularProgressIndicator(
                         color = TaliseColors.inkOnGreen,
                         strokeWidth = 2.dp,
@@ -190,13 +179,14 @@ fun KycScreen(onClose: () -> Unit) {
                 }
             }
         }
-    }
-}
 
-/** Personal vs. business, iOS `AccountType`. */
-private enum class AccountType(val raw: String) {
-    Personal("personal"),
-    Business("business"),
+        // Nigeria-only optional bank-link step (iOS fullScreenCover). On
+        // continue/skip we run the handle claim + bootstrap that the non-NG
+        // path runs inline.
+        if (ui.showBankLink) {
+            OnboardingBankLink(onContinue = { vm.continueFromBankLink(onFinished = onClose) })
+        }
+    }
 }
 
 /** A single country row, name + trailing check when selected. */
@@ -231,8 +221,9 @@ private fun CountryRow(
 }
 
 /**
- * Account-type tile. Selected = a flat brand-mint tile (dark ink on the bright mint);
- * unselected = a flat neutral surface. No gradient, no specular sheen.
+ * Account-type tile. Selected = a flat brand-mint tile (dark ink on the bright
+ * mint); unselected = a flat neutral surface. No gradient, no specular sheen.
+ * Selection eases over 0.2s like the iOS `.animation(.easeOut(duration: 0.2))`.
  */
 @Composable
 private fun TypeTile(
@@ -242,11 +233,20 @@ private fun TypeTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val ink: Color = if (selected) TaliseColors.inkOnGreen else TaliseColors.fg
+    val fill by animateColorAsState(
+        targetValue = if (selected) TaliseColors.greenMint else TaliseColors.surface,
+        animationSpec = tween(durationMillis = 200, easing = EaseOut),
+        label = "tileFill",
+    )
+    val ink: Color by animateColorAsState(
+        targetValue = if (selected) TaliseColors.inkOnGreen else TaliseColors.fg,
+        animationSpec = tween(durationMillis = 200, easing = EaseOut),
+        label = "tileInk",
+    )
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(TaliseDimens.radiusMd))
-            .background(if (selected) TaliseColors.greenMint else TaliseColors.surface)
+            .background(fill)
             .clickable { onClick() }
             .padding(TaliseDimens.lg),
         verticalArrangement = Arrangement.spacedBy(6.dp),

@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -45,6 +46,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.talise.app.core.model.RecipientResolution
 import io.talise.app.core.net.ApiClient
 import io.talise.app.ui.components.Eyebrow
@@ -56,72 +59,47 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
 /**
- * Contracts hub, a pixel port of iOS `ContractsView`. Recurring contractor pay:
- * a list of contract cards (title, payee, rate/cadence, status pill, funded-vs-total
- * progress, periods-paid), a "New contract" CTA, and the loading / empty / error
- * states iOS renders. Tapping "New contract" opens the create flow (`CreateContract`):
- * resolve a payee (@handle or 0x), set a rate, cadence, and number of periods, preview
- * the schedule, then slide to fund and sign into the "Contract started" confirmation.
+ * Contracts hub — a 1:1 port of iOS `ContractsView`. Recurring contractor
+ * pay: a list of contract cards (title, payee, rate/cadence, status pill,
+ * paid-vs-total progress, periods-paid, cancel-and-refund), a "New contract"
+ * CTA, and the loading / empty / error states iOS renders. "New contract"
+ * opens the create flow (`CreateContract`): resolve a payee (@handle or 0x),
+ * set a rate, cadence, and number of periods, preview the schedule, then
+ * slide to fund and sign into the "Contract started" confirmation.
  *
- * Recipient resolution is wired to `/api/recipient/resolve` via [ApiClient.api]; the
- * list load and the fund/record/contracts rail land with the backend contract endpoints
- * (api/contracts, api/streams) in a later phase, until then the screen renders
- * the exact states iOS shows (a fresh account resolves to the empty state).
+ * Backend rail is REAL: GET/POST /api/contracts + the underlying stream
+ * funding pipeline (/api/streams/create-prepare → local zkLogin sign →
+ * /api/streams/record) via [ContractsViewModel].
  *
- * Nav signature: `ContractsScreen(onClose: () -> Unit)` in package io.talise.app.feature.contracts.
+ * Nav signature: `ContractsScreen(onClose: () -> Unit)`.
  */
-
-/** A Work contract wrapping an underlying stream, mirrors iOS `ContractDTO`. */
-private data class ContractModel(
-    val id: String,
-    val payeeAddress: String,
-    val payeeHandle: String?,
-    val title: String,
-    val rateUsd: Double,
-    val cadence: String,
-    val cadenceLabel: String?,
-    val periods: Int,
-    val totalUsd: Double,
-    val status: String,
-    val createdAt: Double,
-    val paidUsd: Double?,
-    val periodsPaid: Int?,
-)
 
 private val CADENCES = listOf("Hour" to "hourly", "Day" to "daily", "Week" to "weekly", "Month" to "monthly")
 
-private fun usd2(v: Double): String = "$" + "%,.2f".format(v)
+/** cadence → interval in minutes (a month is a flat 30 days). */
+private val CADENCE_MINUTES = mapOf("hourly" to 60, "daily" to 1440, "weekly" to 10080, "monthly" to 43200)
+
+private fun usd2(v: Double): String = "$" + String.format(java.util.Locale.US, "%,.2f", v)
 private fun shortAddr(a: String): String = if (a.length > 10) "${a.take(6)}…${a.takeLast(4)}" else a
 
 @Composable
 fun ContractsScreen(onClose: () -> Unit) {
+    val vm: ContractsViewModel = viewModel()
+    val ui by vm.list.collectAsStateWithLifecycle()
     var creating by remember { mutableStateOf(false) }
-    var reloadKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(Unit) { vm.load() }
 
     if (creating) {
-        CreateContract(onClose = { creating = false; reloadKey++ })
+        CreateContract(
+            vm = vm,
+            onClose = {
+                creating = false
+                vm.resetCreate()
+                vm.load()
+            },
+        )
         return
-    }
-
-    var rows by remember { mutableStateOf<List<ContractModel>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(reloadKey) {
-        loading = true
-        error = null
-        // Backend contract rail (/api/contracts) lands in a later phase; render the
-        // states iOS shows. A fresh account resolves to the empty state.
-        try {
-            delay(500)
-            rows = emptyList()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            error = "Couldn't load your contracts right now."
-        } finally {
-            loading = false
-        }
     }
 
     Box(Modifier.fillMaxSize().background(TaliseColors.bg)) {
@@ -140,11 +118,18 @@ fun ContractsScreen(onClose: () -> Unit) {
             LiquidGlassButton(title = "New contract", onClick = { creating = true }, tint = TaliseColors.greenMint)
 
             when {
-                loading -> LoadingState()
-                error != null -> ErrorState(error!!) { reloadKey++ }
-                rows.isEmpty() -> EmptyState()
+                ui.loading -> LoadingState()
+                ui.error != null -> ErrorState(ui.error!!) { vm.load() }
+                ui.rows.isEmpty() -> EmptyState()
                 else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    rows.forEach { ContractRow(it) }
+                    ui.rows.forEach { c ->
+                        ContractRow(
+                            c = c,
+                            cancelling = ui.cancelling.contains(c.id),
+                            cancelEnabled = ui.cancelling.isEmpty(),
+                            onCancel = { vm.cancel(c) },
+                        )
+                    }
                 }
             }
 
@@ -221,7 +206,12 @@ private fun EmptyState() {
 }
 
 @Composable
-private fun ContractRow(c: ContractModel) {
+private fun ContractRow(
+    c: ContractDTO,
+    cancelling: Boolean,
+    cancelEnabled: Boolean,
+    onCancel: () -> Unit,
+) {
     val paid = c.paidUsd ?: 0.0
     val progress = if (c.totalUsd > 0) minOf(1.0, paid / c.totalUsd).toFloat() else 0f
     Column(
@@ -234,21 +224,21 @@ private fun ContractRow(c: ContractModel) {
                     c.title,
                     style = TaliseType.heading(16.sp, FontWeight.Medium),
                     color = TaliseColors.fg,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     "${c.payeeHandle ?: shortAddr(c.payeeAddress)} · ${usd2(c.rateUsd)} / ${c.cadenceLabel ?: c.cadence}",
                     style = TaliseType.mono(10.sp),
                     color = TaliseColors.fgDim,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
             StatusPill(c.status)
         }
         Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.06f))) {
-            Box(Modifier.fillMaxWidth(progress).height(6.dp).clip(CircleShape).background(TaliseColors.greenMint))
+            if (progress > 0f) {
+                Box(Modifier.fillMaxWidth(progress).height(6.dp).clip(CircleShape).background(TaliseColors.greenMint))
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${usd2(paid)} of ${usd2(c.totalUsd)}", style = TaliseType.mono(10.sp), color = TaliseColors.fgMuted)
@@ -257,7 +247,13 @@ private fun ContractRow(c: ContractModel) {
         }
         if (c.status == "active") {
             Spacer(Modifier.height(4.dp))
-            LiquidGlassButton(title = "Cancel & refund remainder", onClick = { }, tint = null)
+            LiquidGlassButton(
+                title = if (cancelling) "Cancelling…" else "Cancel & refund remainder",
+                onClick = onCancel,
+                tint = null,
+                enabled = cancelEnabled,
+                loading = cancelling,
+            )
         }
     }
 }
@@ -281,7 +277,9 @@ private fun StatusPill(status: String) {
 // MARK: - Create contract
 
 @Composable
-private fun CreateContract(onClose: () -> Unit) {
+private fun CreateContract(vm: ContractsViewModel, onClose: () -> Unit) {
+    val ui by vm.create.collectAsStateWithLifecycle()
+
     var recipientQuery by remember { mutableStateOf("") }
     var resolved by remember { mutableStateOf<RecipientResolution?>(null) }
     var resolving by remember { mutableStateOf(false) }
@@ -292,16 +290,13 @@ private fun CreateContract(onClose: () -> Unit) {
     var cadence by remember { mutableStateOf("weekly") }
     var periodsText by remember { mutableStateOf("4") }
 
-    var creating by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var created by remember { mutableStateOf(false) }
-
     val rateUsd = rateText.toDoubleOrNull() ?: 0.0
     val periods = periodsText.toIntOrNull() ?: 0
     val totalUsd = rateUsd * periods
     val canCreate = resolved != null && title.isNotEmpty() && rateUsd >= 0.01 && periods >= 1 &&
         (totalUsd / maxOf(1, periods)) >= 0.01
 
+    // Debounced payee resolution — mirrors iOS scheduleResolve(debounce:).
     LaunchedEffect(recipientQuery) {
         resolved = null
         resolveFailed = false
@@ -312,9 +307,9 @@ private fun CreateContract(onClose: () -> Unit) {
         try {
             resolved = ApiClient.api.resolveRecipient(q)
             resolveFailed = false
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
+        } catch (t: CancellationException) {
+            throw t
+        } catch (t: Throwable) {
             resolved = null
             resolveFailed = true
         } finally {
@@ -322,8 +317,13 @@ private fun CreateContract(onClose: () -> Unit) {
         }
     }
 
-    if (created) {
-        CreatedView(totalUsd = totalUsd, payee = resolved?.label ?: "payee", periods = periods, onDone = onClose)
+    if (ui.created) {
+        CreatedView(
+            totalUsd = totalUsd,
+            payee = resolved?.label ?: "payee",
+            periods = periods,
+            onDone = onClose,
+        )
         return
     }
 
@@ -352,8 +352,8 @@ private fun CreateContract(onClose: () -> Unit) {
 
             PreviewCard(periods = periods, rateUsd = rateUsd, totalUsd = totalUsd)
 
-            if (error != null) {
-                Text(error!!, style = TaliseType.body(12.sp), color = TaliseColors.danger)
+            if (ui.error != null) {
+                Text(ui.error!!, style = TaliseType.body(12.sp), color = TaliseColors.danger)
             }
 
             Spacer(Modifier.height(90.dp))
@@ -364,20 +364,26 @@ private fun CreateContract(onClose: () -> Unit) {
                 .background(TaliseColors.bg)
                 .padding(horizontal = 22.dp).padding(top = 12.dp, bottom = 24.dp),
         ) {
-            SlideToConfirm(
-                title = if (creating) "Funding…" else "Slide to fund & sign",
-                enabled = canCreate && !creating,
-                tint = TaliseColors.greenMint,
-                onConfirm = {
-                    creating = true
-                    error = null
-                    // Fund stream + record + persist contract rail lands in a later phase;
-                    // render the "Contract started" confirmation the way iOS does on success.
-                    delay(700)
-                    creating = false
-                    created = true
-                },
-            )
+            Box(Modifier.alpha(if (ui.creating || !canCreate) 0.5f else 1f)) {
+                SlideToConfirm(
+                    title = if (ui.creating) "Funding…" else "Slide to fund & sign",
+                    enabled = canCreate && !ui.creating,
+                    tint = TaliseColors.greenMint,
+                    reset = ui.error != null && !ui.creating,
+                    onConfirm = {
+                        val to = resolved?.address ?: return@SlideToConfirm
+                        vm.createContract(
+                            to = to,
+                            toHandle = resolved?.displayName,
+                            title = title,
+                            rateUsd = rateUsd,
+                            cadence = cadence,
+                            periods = periods,
+                            intervalMinutes = CADENCE_MINUTES[cadence] ?: 10080,
+                        )
+                    },
+                )
+            }
         }
     }
 }

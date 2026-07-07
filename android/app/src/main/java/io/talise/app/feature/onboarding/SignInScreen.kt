@@ -1,6 +1,5 @@
 package io.talise.app.feature.onboarding
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,13 +17,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -53,6 +49,12 @@ fun SignInScreen(vm: SignInViewModel = viewModel()) {
     val loading = state.loading
     val error = state.error
 
+    // True once at least one successful sign-in happened on this device — drives the
+    // "Welcome back" copy for returning users (iOS `talise.hasSignedInBefore`).
+    val returningUser = remember {
+        OnboardingPrefs.of(context).getBoolean(OnboardingPrefs.KEY_HAS_SIGNED_IN_BEFORE, false)
+    }
+
     Box(Modifier.fillMaxSize().background(TaliseColors.bg)) {
         OnboardingBackground(Modifier.fillMaxSize())
 
@@ -68,14 +70,15 @@ fun SignInScreen(vm: SignInViewModel = viewModel()) {
             Image96Logo()
 
             Text(
-                "Welcome to Talise",
+                if (returningUser) "Welcome back" else "Welcome to Talise",
                 style = TaliseType.heading(26.sp, FontWeight.SemiBold),
                 letterSpacing = (-0.78).sp,
                 color = TaliseColors.fg,
                 modifier = Modifier.padding(top = 28.dp),
             )
             Text(
-                "One tap with Google.\nNo seed phrase, no setup.",
+                if (returningUser) "Sign in to your Talise account."
+                else "One tap with Google.\nNo seed phrase, no setup.",
                 style = TaliseType.body(14.sp, FontWeight.Light),
                 letterSpacing = (-0.42).sp,
                 color = TaliseColors.fgMuted,
@@ -179,41 +182,6 @@ private fun ContinueWithGoogleButton(
     }
 }
 
-/**
- * Shared onboarding backdrop, iOS `OnboardingBackground`. A mossy-green vertical wash at the
- * top fading into pure black, plus a soft pastel-green bloom anchored top-right (screen blend)
- * for the frosted-glass highlight from the reference screens.
- */
-@Composable
-fun OnboardingBackground(modifier: Modifier = Modifier) {
-    Box(
-        modifier.background(
-            Brush.verticalGradient(
-                0.0f to Color(0xFF6BA85A),
-                0.28f to Color(0xFF355626),
-                0.68f to Color(0xFF000000),
-                1.0f to Color(0xFF000000),
-            )
-        )
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val minWH = minOf(size.width, size.height)
-            val bloomRadius = minWH * 0.55f
-            // Circle centered then shifted top-right: (W/2 + W*0.35, H/2 - H*0.45).
-            val center = Offset(size.width * 0.85f, size.height * 0.05f)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    0.0f to Color(0xFF9BD68A).copy(alpha = 0.55f),
-                    0.5f to Color(0xFF6BA85A).copy(alpha = 0.18f),
-                    1.0f to Color.Transparent,
-                    center = center,
-                    radius = bloomRadius,
-                ),
-                radius = bloomRadius,
-                center = center,
-                blendMode = BlendMode.Screen,
-            )
-        }
-    }
-}
+// OnboardingBackground moved to its own file (OnboardingBackground.kt) to mirror
+// the iOS file layout now that every onboarding step shares it.
 

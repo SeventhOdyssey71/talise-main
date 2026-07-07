@@ -1,5 +1,6 @@
 package io.talise.app.feature.onboarding
 
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,9 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Photo
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,8 +44,10 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun BrandIntroCarousel(onContinue: () -> Unit, modifier: Modifier = Modifier) {
+    // iOS copy verbatim (em dashes dropped per copy rules; "Face ID" reads
+    // "biometrics" on Android hardware).
     val headlines = listOf(
-        "Sub-second sends. Sign in fast, never see a seed phrase.",
+        "Sub-second sends. Sign with biometrics, never see a seed phrase.",
         "A payment that does more. Pay, save, and earn in one tap.",
         "Cash in, cash out. Stripe in, mobile money out, all in one app.",
     )
@@ -78,7 +84,13 @@ fun BrandIntroCarousel(onContinue: () -> Unit, modifier: Modifier = Modifier) {
                 onClick = {
                     val idx = pagerState.currentPage
                     if (idx < headlines.lastIndex) {
-                        scope.launch { pagerState.animateScrollToPage(idx + 1) }
+                        // iOS advances with an easeInOut 0.28s slide.
+                        scope.launch {
+                            pagerState.animateScrollToPage(
+                                page = idx + 1,
+                                animationSpec = tween(durationMillis = 280),
+                            )
+                        }
                     } else {
                         onContinue()
                     }
@@ -108,7 +120,18 @@ private fun Slide(headline: String) {
                 .border(1.dp, TaliseColors.line, RoundedCornerShape(28.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            MicroLabel(text = "ILLUSTRATION COMING", color = TaliseColors.fgDim)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Photo,
+                    contentDescription = null,
+                    tint = TaliseColors.fgDim,
+                    modifier = Modifier.size(28.dp),
+                )
+                MicroLabel(text = "ILLUSTRATION COMING", color = TaliseColors.fgDim)
+            }
         }
 
         Text(

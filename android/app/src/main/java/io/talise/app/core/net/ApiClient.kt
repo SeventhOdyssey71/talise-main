@@ -48,4 +48,7 @@ object ApiClient {
         .build()
 
     val api: TaliseApi = retrofit.create(TaliseApi::class.java)
+
+    /** Feature-scoped Retrofit services (RewardsApi, RampsApi, …) live in their feature package. */
+    fun <T> create(service: Class<T>): T = retrofit.create(service)
 }

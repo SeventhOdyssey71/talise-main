@@ -34,6 +34,12 @@ class SignInViewModel : ViewModel() {
                 val idToken = GoogleSignInService.getIdToken(context, prep.nonce)
                 ZkLoginCoordinator.exchangeGoogle(idToken, prep.maxEpoch, prep.randomness)
             }.onSuccess {
+                // Remember this device has signed in at least once so the next visit
+                // greets returning users with "Welcome back" (iOS `hasSignedInBeforeKey`).
+                OnboardingPrefs.of(context)
+                    .edit()
+                    .putBoolean(OnboardingPrefs.KEY_HAS_SIGNED_IN_BEFORE, true)
+                    .apply()
                 _state.update { it.copy(loading = false) }
             }.onFailure { t ->
                 // User dismissing the Google sheet isn't an error, just stop the spinner.

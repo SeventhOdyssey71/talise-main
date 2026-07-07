@@ -22,21 +22,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowOutward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Hexagon
 import androidx.compose.material.icons.filled.NorthEast
-import androidx.compose.material.icons.filled.SouthWest
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.Circle
-import androidx.compose.material.icons.outlined.Eco
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
@@ -62,22 +58,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import io.talise.app.R
 import io.talise.app.core.model.ActivityEntryDTO
-import io.talise.app.core.model.ActivityOtherCoin
 import io.talise.app.core.session.AppSession
 import io.talise.app.ui.nav.Routes
 import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
-import kotlin.math.abs
-import kotlin.math.pow
-
-// Directional palette, ported verbatim from iOS HistoryRow hex literals.
-private val SENT_RED = Color(0xFFE5484D)
-private val SENT_RED_SOFT = Color(0xFFFF6B6B)
-private val RECEIVED_GREEN = Color(0xFF79D96C)
-private val RECEIVED_MINT = Color(0xFFCAFFB8)
-private val WITHDRAW_MINT = Color(0xFFCAFFB8)
-private val WITHDRAW_FOREST = Color(0xFF2E5E1F)
-private val AMOUNT_GREEN = Color(0xFF4FB35E)
 
 /** FLAT card, iOS `.flatCard`: solid `surface` fill + clip, NO border/blur/gradient. */
 private fun Modifier.flatCard(radius: androidx.compose.ui.unit.Dp = 25.dp): Modifier {
@@ -85,11 +69,16 @@ private fun Modifier.flatCard(radius: androidx.compose.ui.unit.Dp = 25.dp): Modi
     return this.clip(shape).background(TaliseColors.surface, shape)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(nav: NavController, vm: HomeViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val phase by AppSession.phase.collectAsStateWithLifecycle()
-    var hidden by remember { mutableStateOf(false) }
+    val hidden by vm.amountsHidden.collectAsStateWithLifecycle()
+
+    // Sheets, mirroring iOS `.sheet(item: receiptEntry)` + `.sheet(historySheetVisible)`.
+    var receiptEntry by remember { mutableStateOf<ActivityEntryDTO?>(null) }
+    var showHistory by remember { mutableStateOf(false) }
 
     val handle: String? = when (val p = phase) {
         is AppSession.Phase.Ready -> p.user.handle
@@ -147,7 +136,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = viewModel()) {
                             if (hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
                             contentDescription = "Toggle amounts",
                             tint = TaliseColors.fgDim,
-                            modifier = Modifier.size(11.dp).clickable { hidden = !hidden },
+                            modifier = Modifier.size(11.dp).clickable { vm.toggleAmountsHidden() },
                         )
                     }
 
@@ -219,7 +208,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = viewModel()) {
             }
         }
 
-        // ── Recent activity header ────────────────────────────────────────
+        // ── Recent activity header + top-4 rows ───────────────────────────
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp).padding(top = 28.dp)) {
                 Row(
@@ -233,7 +222,11 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = viewModel()) {
                         color = TaliseColors.fgMuted,
                     )
                     Spacer(Modifier.weight(1f))
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        modifier = Modifier.clickable { showHistory = true },
+                    ) {
                         Text("View all", style = TaliseType.body(12.sp, FontWeight.Light), color = TaliseColors.fgMuted)
                         Icon(
                             Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -249,15 +242,17 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = viewModel()) {
                 if (rows.isEmpty()) {
                     Box(Modifier.fillMaxWidth().flatCard(radius = 20.dp).padding(horizontal = 16.dp, vertical = 22.dp)) {
                         Text(
-                            if (state.loading) "Loading" else "No activity yet",
+                            "No activity yet",
                             style = TaliseType.body(13.sp, FontWeight.Light),
                             color = TaliseColors.fgDim,
                         )
                     }
                 } else {
+                    // One flat solid card holding the rows, split by inset hairline
+                    // dividers past the badge — the clean Apple-system list look.
                     Column(Modifier.fillMaxWidth().flatCard(radius = 20.dp)) {
                         rows.forEachIndexed { i, entry ->
-                            HistoryRow(entry, hidden)
+                            HistoryRow(entry = entry, amountsHidden = hidden, onTap = { receiptEntry = entry })
                             if (i < rows.size - 1) {
                                 Box(
                                     Modifier.fillMaxWidth().padding(start = 64.dp).height(0.75.dp)
@@ -268,6 +263,30 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = viewModel()) {
                     }
                 }
             }
+        }
+    }
+
+    // ── Receipt sheet — tapping a row opens its on-chain receipt (iOS TxReceiptView). ──
+    receiptEntry?.let { entry ->
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { receiptEntry = null },
+            sheetState = sheetState,
+            containerColor = TaliseColors.bg,
+        ) {
+            TxReceiptView(entry)
+        }
+    }
+
+    // ── History sheet — "View all" opens the full filterable feed (iOS HistoryView). ──
+    if (showHistory) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showHistory = false },
+            sheetState = sheetState,
+            containerColor = TaliseColors.bg,
+        ) {
+            HistoryScreen(initialEntries = state.activity, amountsHidden = hidden)
         }
     }
 }
@@ -397,196 +416,14 @@ private fun TokenBucketCard() {
     }
 }
 
-// ── Activity row ──────────────────────────────────────────────────────────
-
-private enum class RowCategory { SENT, RECEIVED, INVEST, WITHDRAW, AUTOSWAP, CASHOUT, TEAM, NEUTRAL }
-
-/** One history row, mirrors iOS `HistoryRow`: directional badge, category title, signed amount. */
-@Composable
-private fun HistoryRow(entry: ActivityEntryDTO, hidden: Boolean) {
-    val category = categoryOf(entry)
-
-    val badgeBg: Color = when (category) {
-        RowCategory.SENT, RowCategory.CASHOUT, RowCategory.TEAM -> SENT_RED.copy(alpha = 0.16f)
-        RowCategory.RECEIVED -> RECEIVED_GREEN.copy(alpha = 0.20f)
-        RowCategory.INVEST, RowCategory.AUTOSWAP -> TaliseColors.accent.copy(alpha = 0.20f)
-        RowCategory.WITHDRAW -> WITHDRAW_MINT.copy(alpha = 0.42f)
-        RowCategory.NEUTRAL -> TaliseColors.surface2
-    }
-    val badgeFg: Color = when (category) {
-        RowCategory.SENT, RowCategory.CASHOUT, RowCategory.TEAM -> SENT_RED_SOFT
-        RowCategory.RECEIVED -> RECEIVED_MINT
-        RowCategory.INVEST, RowCategory.AUTOSWAP -> TaliseColors.accent
-        RowCategory.WITHDRAW -> WITHDRAW_FOREST
-        RowCategory.NEUTRAL -> TaliseColors.fg
-    }
-    val icon: ImageVector = when (category) {
-        RowCategory.SENT -> Icons.Filled.ArrowOutward
-        RowCategory.CASHOUT -> Icons.Filled.AccountBalance
-        RowCategory.RECEIVED -> Icons.Filled.SouthWest
-        RowCategory.INVEST, RowCategory.AUTOSWAP -> Icons.Filled.Eco
-        RowCategory.WITHDRAW -> Icons.Outlined.Eco
-        RowCategory.TEAM -> Icons.Filled.AccountBalance // unused, team uses hi_team painter
-        RowCategory.NEUTRAL -> Icons.Outlined.Circle
-    }
-
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Box(Modifier.size(36.dp).clip(CircleShape).background(badgeBg), contentAlignment = Alignment.Center) {
-            if (category == RowCategory.TEAM) {
-                Icon(painterResource(R.drawable.hi_team), contentDescription = null, tint = badgeFg, modifier = Modifier.size(18.dp))
-            } else {
-                Icon(icon, contentDescription = null, tint = badgeFg, modifier = Modifier.size(14.dp))
-            }
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                titleOf(entry, category),
-                style = TaliseType.body(13.sp, FontWeight.Light),
-                letterSpacing = (-0.48).sp,
-                color = TaliseColors.fg,
-            )
-            Text(
-                subtitleOf(entry),
-                style = TaliseType.mono(8.sp),
-                letterSpacing = (-0.32).sp,
-                color = TaliseColors.fgDim,
-            )
-        }
-        Text(
-            if (hidden) "••••" else amountOf(entry, category),
-            style = TaliseType.body(14.sp, FontWeight.Light),
-            letterSpacing = (-0.56).sp,
-            color = if (hidden) TaliseColors.fgMuted else amountColorOf(entry, category),
-        )
-    }
-}
-
-private fun categoryOf(e: ActivityEntryDTO): RowCategory = when {
-    e.offramp != null -> RowCategory.CASHOUT
-    e.direction == "withdraw" && e.venue == "bridge" -> RowCategory.CASHOUT
-    e.team != null -> RowCategory.TEAM
-    e.direction == "received" -> RowCategory.RECEIVED
-    e.direction == "invest" -> RowCategory.INVEST
-    e.direction == "withdraw" -> RowCategory.WITHDRAW
-    e.direction == "autoswap" || e.direction == "swap" -> RowCategory.AUTOSWAP
-    e.direction == "sent" -> RowCategory.SENT
-    else -> RowCategory.NEUTRAL
-}
-
-private fun counterpartyLabel(e: ActivityEntryDTO): String? {
-    e.counterpartyName?.let { if (it.isNotEmpty()) return it }
-    val addr = e.counterparty
-    if (!addr.isNullOrEmpty()) {
-        return if (addr.length > 14) addr.take(6) + "…" + addr.takeLast(4) else addr
-    }
-    return null
-}
-
-private fun venueName(v: String): String = when (v.lowercase()) {
-    "deepbook" -> "DeepBook"
-    "navi" -> "NAVI"
-    "bridge" -> "Bridge"
-    else -> v.replaceFirstChar { it.uppercase() }
-}
-
-private fun titleOf(e: ActivityEntryDTO, category: RowCategory): String {
-    if (category == RowCategory.CASHOUT) {
-        if (e.offramp != null) return "Cash out to Nigeria"
-        if (e.venue == "bridge") return "Cash out to United States"
-        return "Cash out"
-    }
-    e.otherCoin?.let { other ->
-        return if (e.direction == "received") "Received ${other.symbol}" else "Sent ${other.symbol}"
-    }
-    val hasRoundup = (e.roundupUsdsui ?: 0.0) > 0.0
-    return when (category) {
-        RowCategory.SENT -> {
-            val who = counterpartyLabel(e)
-            when {
-                who != null && hasRoundup -> "Sent to $who + saved"
-                who != null -> "Sent to $who"
-                hasRoundup -> "Sent + saved"
-                else -> "Sent"
-            }
-        }
-        RowCategory.TEAM -> e.team?.name?.takeIf { it.isNotEmpty() }?.let { "Paid $it" } ?: "Paid your team"
-        RowCategory.RECEIVED -> counterpartyLabel(e)?.let { "Received from $it" } ?: "Received"
-        RowCategory.INVEST -> e.venue?.takeIf { it.isNotEmpty() }?.let { "Invested in ${venueName(it)}" } ?: "Invested"
-        RowCategory.WITHDRAW -> e.venue?.takeIf { it.isNotEmpty() }?.let { "Withdrew from ${venueName(it)}" } ?: "Withdrew"
-        RowCategory.AUTOSWAP -> when {
-            e.direction == "swap" -> "Swapped"
-            !e.venue.isNullOrEmpty() -> "Auto-swapped ${e.venue!!.uppercase()}"
-            else -> "Auto-swapped to USDsui"
-        }
-        RowCategory.CASHOUT -> "Cash out"
-        RowCategory.NEUTRAL -> "Activity"
-    }
-}
-
-private fun subtitleOf(e: ActivityEntryDTO): String {
-    e.offramp?.let { off ->
-        val bank = off.bankName?.takeIf { it.isNotEmpty() } ?: "Bank"
-        val last4 = off.accountLast4
-        return if (!last4.isNullOrEmpty()) "$bank ••••$last4" else bank
-    }
-    val relative = relativeTime(e.timestampMs)
-    e.team?.let { team ->
-        val people = if (team.recipientCount == 1) "1 person" else "${team.recipientCount} people"
-        return "$people · $relative"
-    }
-    val save = e.roundupUsdsui ?: 0.0
-    if (save > 0) return "Saved ${formatUsd(save)} · $relative"
-    return relative
-}
-
-private fun amountColorOf(e: ActivityEntryDTO, category: RowCategory): Color = when {
-    category == RowCategory.CASHOUT -> SENT_RED
-    category == RowCategory.AUTOSWAP -> TaliseColors.fg
-    e.direction == "received" || e.direction == "withdraw" -> AMOUNT_GREEN
-    else -> TaliseColors.fg
-}
-
-private fun amountOf(e: ActivityEntryDTO, category: RowCategory): String {
-    e.offramp?.let { off -> return "-₦" + "%,.2f".format(off.amountNgn) }
-    if (category == RowCategory.CASHOUT) {
-        e.otherCoin?.let { other -> return "-${coinDisplay(other)} ${other.symbol}" }
-    }
-    if (category == RowCategory.AUTOSWAP) {
-        val legs = mutableListOf<String>()
-        (e.amountSui ?: 0.0).let { if (it > 0) legs.add("%.4f SUI".format(it)) }
-        e.otherCoin?.let { legs.add("${coinDisplay(it)} ${it.symbol}") }
-        (e.amountUsdsui ?: 0.0).let { if (it > 0) legs.add(formatUsd(it)) }
-        return when (legs.size) {
-            0 -> "→ -"
-            1 -> "→ ${legs[0]}"
-            else -> "${legs[0]} → ${legs[1]}"
-        }
-    }
-    val inflow = e.direction == "received" || e.direction == "withdraw"
-    val prefix = if (inflow) "+" else "-"
-    e.otherCoin?.let { return "$prefix${coinDisplay(it)} ${it.symbol}" }
-    e.amountUsdsui?.let { return prefix + formatUsd(abs(it)) }
-    e.amountSui?.let { return prefix + "%.4f SUI".format(abs(it)) }
-    return "$prefix-"
-}
-
-/** Raw u64 coin amount scaled by decimals, iOS `ActivityOtherCoin.displayAmount`. */
-private fun coinDisplay(c: ActivityOtherCoin): String {
-    val raw = c.amount.toDoubleOrNull() ?: 0.0
-    val v = raw / 10.0.pow(c.decimals)
-    return if (v < 1) "%.4f".format(v) else "%,.2f".format(v)
-}
+// ── Balance hero formatting (iOS HomeView.balanceHero / suiusdFormatted) ─────
 
 /** Balance hero, dollars in `fg`, cents dimmed to `fgMuted` (iOS `balanceHero`). */
 private fun balanceHero(usdsui: Double, hidden: Boolean): AnnotatedString {
     if (hidden) return buildAnnotatedString {
         withStyle(SpanStyle(color = TaliseColors.fgMuted)) { append("••••••") }
     }
-    val s = formatUsd(usdsui)
+    val s = usd2(usdsui)
     val dot = s.lastIndexOf('.')
     return buildAnnotatedString {
         if (dot < 0) {
@@ -601,17 +438,4 @@ private fun balanceHero(usdsui: Double, hidden: Boolean): AnnotatedString {
 private fun usdsuiSubline(usdsui: Double, hidden: Boolean): String {
     if (hidden) return "•••• USDsui"
     return if (usdsui < 0.01) "%.4f USDsui".format(usdsui) else "%.2f USDsui".format(usdsui)
-}
-
-private fun formatUsd(v: Double): String = "$" + "%,.2f".format(v)
-
-private fun relativeTime(ms: Double): String {
-    val diff = System.currentTimeMillis() - ms.toLong()
-    val mins = diff / 60_000
-    return when {
-        mins < 1 -> "now"
-        mins < 60 -> "${mins}m ago"
-        mins < 1440 -> "${mins / 60}h ago"
-        else -> "${mins / 1440}d ago"
-    }
 }

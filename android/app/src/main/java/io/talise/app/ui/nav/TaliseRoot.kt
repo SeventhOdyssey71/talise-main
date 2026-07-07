@@ -30,7 +30,10 @@ import io.talise.app.feature.contracts.ContractsScreen
 import io.talise.app.feature.requests.RequestsScreen
 import io.talise.app.feature.rules.RulesScreen
 import io.talise.app.feature.payroll.PayrollScreen
+import io.talise.app.feature.onboarding.OnboardingRoot
 import io.talise.app.feature.send.SendFlow
+import io.talise.app.feature.withdraw.WithdrawFlow
+import io.talise.app.feature.withdraw.WithdrawRoutes
 import io.talise.app.ui.theme.TaliseColors
 
 /**
@@ -44,9 +47,9 @@ fun TaliseRoot() {
     when (phase) {
         is AppSession.Phase.Launching -> Splash()
         is AppSession.Phase.SignedOut -> SignInScreen()
-        // A signed-in but not-yet-onboarded user enters the app and claims their
-        // @handle from Home (matching iOS), rather than bouncing back to SignIn.
-        is AppSession.Phase.Onboarding -> MainNavHost()
+        // A signed-in but not-yet-onboarded user runs the onboarding flow
+        // (handle picker, PIN setup, permissions) before entering the app.
+        is AppSession.Phase.Onboarding -> OnboardingRoot((phase as AppSession.Phase.Onboarding).user)
         is AppSession.Phase.Ready -> MainNavHost()
     }
 }
@@ -73,6 +76,7 @@ private fun MainNavHost() {
         composable(Routes.CONTRACTS) { ContractsScreen(onClose = { nav.popBackStack() }) }
         composable(Routes.REQUESTS) { RequestsScreen(onClose = { nav.popBackStack() }) }
         composable(Routes.RULES) { RulesScreen(onClose = { nav.popBackStack() }) }
+        composable(WithdrawRoutes.WITHDRAW) { WithdrawFlow(onClose = { nav.popBackStack() }) }
     }
 }
 

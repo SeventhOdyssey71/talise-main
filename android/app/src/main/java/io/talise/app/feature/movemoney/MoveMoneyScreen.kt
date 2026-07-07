@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import io.talise.app.R
+import io.talise.app.core.net.ApiClient
+import io.talise.app.core.session.AppSession
+import io.talise.app.feature.withdraw.WithdrawRoutes
 import io.talise.app.ui.components.TaliseIcons
 import io.talise.app.ui.nav.Routes
 import io.talise.app.ui.theme.TaliseColors
@@ -56,12 +60,30 @@ import io.talise.app.ui.theme.TaliseType
  * "Move money" hub, a pixel port of iOS `WithdrawFlowView`. A quiet inline
  * header, a "Send" 2×2 primary grid (Cash out / Send / Send abroad / Send
  * privately), then a "More" section with expandable Cheques + Work groups and
- * Payroll / Request money / Rules rows. Locked actions dim and show a "SOON"
- * pill until their flow lands.
+ * Payroll / Request money / Rules rows.
+ *
+ * Destinations mirror iOS:
+ *   • Cash out → the unified cash-out flow (Routes.WITHDRAW → `WithdrawFlow`),
+ *     shown only when the server flag `features.cashout` is on (fail-closed
+ *     until /api/me loads, exactly like iOS `cashoutEnabled`).
+ *   • Send → SendFlow. Cheques / Work rows / Payroll / Requests / Rules → their
+ *     screens. Send abroad + Send privately have no Android flow yet → locked
+ *     "SOON" (iOS opens CrossBorder / PrivateSend covers; see parity notes).
  */
 @Composable
 fun MoveMoneyScreen(nav: NavController) {
     var expanded by remember { mutableStateOf<String?>(null) }
+
+    // Cash-out is server-gated (FEATURE_CASHOUT). Fail-closed: hidden until
+    // `me` confirms the flag, mirroring iOS `session.currentUser?.cashoutEnabled`.
+    var cashoutEnabled by remember {
+        mutableStateOf(AppSession.currentUser?.features?.cashout == true)
+    }
+    LaunchedEffect(Unit) {
+        runCatching { ApiClient.api.me() }.onSuccess { me ->
+            cashoutEnabled = me.features?.cashout == true
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(TaliseColors.bg)) {
         // ── Inline header ──
@@ -92,14 +114,26 @@ fun MoveMoneyScreen(nav: NavController) {
         ) {
             SectionLabel("Send")
 
-            // 2×2 primary grid.
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                ActionTile(painterResource(R.drawable.hi_bank), "Cash out", "To your bank", locked = true, onClick = {}, modifier = Modifier.weight(1f))
-                ActionTile(painterResource(R.drawable.hi_send), "Send", "@handle or address", onClick = { nav.navigate(Routes.SEND) }, modifier = Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                ActionTile(painterResource(R.drawable.hi_globe), "Send abroad", "Paid in their currency", locked = true, onClick = {}, modifier = Modifier.weight(1f))
-                ActionTile(rememberVectorPainter(TaliseIcons.lock), "Send privately", "Amount stays hidden", locked = true, onClick = {}, modifier = Modifier.weight(1f))
+            // 2×2 primary grid, iOS LazyVGrid order: [Cash out], Send,
+            // Send abroad, Send privately. Hiding Cash out reflows the rest.
+            if (cashoutEnabled) {
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ActionTile(painterResource(R.drawable.hi_bank), "Cash out", "To your bank", onClick = { nav.navigate(WithdrawRoutes.WITHDRAW) }, modifier = Modifier.weight(1f))
+                    ActionTile(painterResource(R.drawable.hi_send), "Send", "@handle or address", onClick = { nav.navigate(Routes.SEND) }, modifier = Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ActionTile(painterResource(R.drawable.hi_globe), "Send abroad", "Paid in their currency", locked = true, onClick = {}, modifier = Modifier.weight(1f))
+                    ActionTile(rememberVectorPainter(TaliseIcons.lock), "Send privately", "Amount stays hidden", locked = true, onClick = {}, modifier = Modifier.weight(1f))
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ActionTile(painterResource(R.drawable.hi_send), "Send", "@handle or address", onClick = { nav.navigate(Routes.SEND) }, modifier = Modifier.weight(1f))
+                    ActionTile(painterResource(R.drawable.hi_globe), "Send abroad", "Paid in their currency", locked = true, onClick = {}, modifier = Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ActionTile(rememberVectorPainter(TaliseIcons.lock), "Send privately", "Amount stays hidden", locked = true, onClick = {}, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.weight(1f))
+                }
             }
 
             SectionLabel("More", topPad = 6.dp)
@@ -119,9 +153,9 @@ fun MoveMoneyScreen(nav: NavController) {
             ) {
                 SubActionList(
                     listOf(
-                        SubAction(rememberVectorPainter(TaliseIcons.write), "Write a cheque"),
-                        SubAction(painterResource(R.drawable.hi_cash), "Cash a cheque"),
-                        SubAction(rememberVectorPainter(TaliseIcons.list), "My cheques"),
+                        SubAction(rememberVectorPainter(TaliseIcons.write), "Write a cheque") { nav.navigate(Routes.CHEQUES) },
+                        SubAction(painterResource(R.drawable.hi_cash), "Cash a cheque") { nav.navigate(Routes.CHEQUES) },
+                        SubAction(rememberVectorPainter(TaliseIcons.list), "My cheques") { nav.navigate(Routes.CHEQUES) },
                     ),
                 )
             }
@@ -141,18 +175,18 @@ fun MoveMoneyScreen(nav: NavController) {
             ) {
                 SubActionList(
                     listOf(
-                        SubAction(painterResource(R.drawable.hi_stream), "Stream a payment"),
-                        SubAction(rememberVectorPainter(TaliseIcons.list), "My streams"),
-                        SubAction(painterResource(R.drawable.hi_invoice), "Invoices"),
-                        SubAction(painterResource(R.drawable.hi_contract), "Contracts"),
+                        SubAction(painterResource(R.drawable.hi_stream), "Stream a payment") { nav.navigate(Routes.STREAM) },
+                        SubAction(rememberVectorPainter(TaliseIcons.list), "My streams") { nav.navigate(Routes.STREAM) },
+                        SubAction(painterResource(R.drawable.hi_invoice), "Invoices") { nav.navigate(Routes.INVOICES) },
+                        SubAction(painterResource(R.drawable.hi_contract), "Contracts") { nav.navigate(Routes.CONTRACTS) },
                     ),
                 )
             }
 
             // ── Single-destination rows ──
             NavRow(painterResource(R.drawable.hi_cash), "Payroll", "Pay a team in one tap", onClick = { nav.navigate(Routes.PAYROLL) })
-            NavRow(painterResource(R.drawable.hi_qr), "Request money", "Ask anyone with a link", onClick = {})
-            NavRow(painterResource(R.drawable.hi_stream), "Rules", "Money that runs itself", onClick = {})
+            NavRow(painterResource(R.drawable.hi_qr), "Request money", "Ask anyone with a link", onClick = { nav.navigate(Routes.REQUESTS) })
+            NavRow(painterResource(R.drawable.hi_stream), "Rules", "Money that runs itself", onClick = { nav.navigate(Routes.RULES) })
         }
     }
 }
@@ -271,7 +305,7 @@ private fun NavRow(painter: Painter, title: String, caption: String, onClick: ()
     }
 }
 
-private data class SubAction(val painter: Painter, val title: String)
+private data class SubAction(val painter: Painter, val title: String, val onClick: () -> Unit)
 
 /** The expanded rows of a group, one rounded container, hairline dividers. */
 @Composable
@@ -283,7 +317,7 @@ private fun SubActionList(rows: List<SubAction>) {
     ) {
         rows.forEachIndexed { i, row ->
             Row(
-                Modifier.fillMaxWidth().clickable { }.padding(horizontal = 18.dp, vertical = 13.dp),
+                Modifier.fillMaxWidth().clickable { row.onClick() }.padding(horizontal = 18.dp, vertical = 13.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {

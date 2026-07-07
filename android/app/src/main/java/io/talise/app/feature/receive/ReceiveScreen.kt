@@ -1,6 +1,7 @@
 package io.talise.app.feature.receive
 
 import android.content.Intent
+import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,60 +29,60 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.talise.app.R
-import io.talise.app.core.session.AppSession
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import io.talise.app.core.model.UserDTO
 import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import java.util.Locale
 
 /**
  * Receive ("Get paid"), a faithful port of iOS `ReceiveView`.
  *
- * Shows the user's @handle (or short address), a QR presentation, and copy/share
+ * Shows the user's @handle (or short address), a scannable QR, and copy/share
  * affordances. An optional amount field turns the plain receive code into a
  * payment REQUEST link (`talise://pay/<handle>?amount=` or `sui:<address>?amount=`).
  * Copy/Share emit the request link when an amount is set, else the raw address.
  */
 @Composable
 fun ReceiveScreen(onClose: () -> Unit) {
+    val viewModel: ReceiveViewModel = viewModel()
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
-    var amountText by remember { mutableStateOf("") }
-    var copied by remember { mutableStateOf(false) }
+    val user by viewModel.user.collectAsStateWithLifecycle()
+    val amountText by viewModel.amountText.collectAsStateWithLifecycle()
+    val copied by viewModel.copied.collectAsStateWithLifecycle()
 
-    // Bare on-chain handle (e.g. "alice"), null until the user claims one.
-    val user = AppSession.currentUser
     val address = user?.suiAddress ?: ""
+    // Bare on-chain handle (e.g. "alice"), null until the user claims one.
     val taliseHandle = user?.taliseHandle?.takeIf { it.isNotEmpty() }
 
     // Parsed requested amount in USD, if a positive value was entered.
     val requestedAmount = amountText.trim().toDoubleOrNull()?.takeIf { it > 0 }
 
-    // What the QR encodes. With an amount -> a payable request link (handle-first;
-    // address fallback). Without an amount -> the plain `sui:<address>` receive code.
+    // What the QR encodes. With an amount -> a payable request link (handle-first
+    // so the payer sees the @handle; address fallback). Without an amount -> the
+    // plain `sui:<address>` receive code that external Sui wallets also understand.
     val qrContent = when {
         requestedAmount != null -> {
             val a = formatAmount(requestedAmount)
@@ -92,12 +93,10 @@ fun ReceiveScreen(onClose: () -> Unit) {
     // What Copy/Share emit, the request link when an amount is set, else the raw address.
     val shareContent = if (requestedAmount != null) qrContent else address
 
-    // Receive card title. Prefers the on-chain handle; else the short address.
-    val handleLine = when {
-        taliseHandle != null -> "$taliseHandle@talise.sui"
-        address.isNotEmpty() -> short(address)
-        else -> "your wallet"
-    }
+    // Receive card title. Prefers the on-chain handle; if the user hasn't claimed
+    // one yet we show the canonical short address so the QR card still identifies
+    // the wallet (the QR encodes the full address regardless).
+    val handleLine = user?.let { displayHandle(it) ?: short(it.suiAddress ?: "") } ?: "your wallet"
 
     Column(
         modifier = Modifier
@@ -128,11 +127,12 @@ fun ReceiveScreen(onClose: () -> Unit) {
             )
         }
 
-        // Optional "request a specific amount" input.
+        // Optional "request a specific amount" input. Empty -> the card is a
+        // plain receive code; a value turns it into a payment request.
         AmountField(
             amountText = amountText,
-            onAmountChange = { amountText = it },
-            onClear = { amountText = "" },
+            onAmountChange = viewModel::onAmountChange,
+            onClear = viewModel::clearAmount,
             modifier = Modifier.padding(horizontal = 24.dp),
         )
 
@@ -140,6 +140,7 @@ fun ReceiveScreen(onClose: () -> Unit) {
         QrCard(
             handleLine = handleLine,
             requestedAmount = requestedAmount,
+            qrContent = qrContent,
             address = address,
             modifier = Modifier.padding(horizontal = 24.dp),
         )
@@ -163,11 +164,7 @@ fun ReceiveScreen(onClose: () -> Unit) {
                 modifier = Modifier.weight(1f),
             ) {
                 clipboard.setText(AnnotatedString(shareContent))
-                copied = true
-                scope.launch {
-                    delay(1_500)
-                    copied = false
-                }
+                viewModel.markCopied()
             }
             ActionButton(
                 icon = Icons.Filled.IosShare,
@@ -188,6 +185,18 @@ fun ReceiveScreen(onClose: () -> Unit) {
     }
 }
 
+/**
+ * iOS `User.displayHandle()` — canonical display only when the user owns a
+ * resolvable handle, else null so callers can fall back to the short address.
+ * (iOS also honors `businessHandle` for business accounts; UserDTO does not
+ * carry that field yet.)
+ */
+private fun displayHandle(user: UserDTO): String? {
+    val h = user.taliseHandle
+    if (!h.isNullOrEmpty()) return "$h@talise.sui"
+    return null
+}
+
 @Composable
 private fun AmountField(
     amountText: String,
@@ -195,6 +204,7 @@ private fun AmountField(
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val focusManager = LocalFocusManager.current
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             "Request a specific amount (optional)",
@@ -229,12 +239,7 @@ private fun AmountField(
                     onValueChange = onAmountChange,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    textStyle = TextStyle(
-                        fontFamily = TaliseType.sansFamily,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TaliseColors.fg,
-                    ),
+                    textStyle = TaliseType.heading(20.sp, FontWeight.Medium).copy(color = TaliseColors.fg),
                     cursorBrush = SolidColor(TaliseColors.accent),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -247,7 +252,10 @@ private fun AmountField(
                     modifier = Modifier
                         .size(20.dp)
                         .clip(RoundedCornerShape(50))
-                        .clickable(onClick = onClear),
+                        .clickable {
+                            onClear()
+                            focusManager.clearFocus()
+                        },
                 )
             }
         }
@@ -258,6 +266,7 @@ private fun AmountField(
 private fun QrCard(
     handleLine: String,
     requestedAmount: Double?,
+    qrContent: String,
     address: String,
     modifier: Modifier = Modifier,
 ) {
@@ -285,23 +294,16 @@ private fun QrCard(
             )
         }
 
-        // QR presentation, white rounded tile with the QR glyph, matching iOS's
-        // 220x220 white card. Rendered from the bundled hi_qr drawable (no scanner
-        // dependency added); the encoded value is `qrContent` at the call site.
+        // 220x220 QR on an 18-padded white tile, matching iOS `QRView`.
         Box(
             modifier = Modifier
-                .size(220.dp + 36.dp) // 220 QR + 18 padding on each side
+                .size(220.dp + 36.dp)
                 .clip(RoundedCornerShape(20.dp))
-                .background(androidx.compose.ui.graphics.Color.White)
+                .background(Color.White)
                 .padding(18.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Image(
-                painter = qrPainter(),
-                contentDescription = "Receive QR code",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.size(220.dp),
-            )
+            QrView(content = qrContent, modifier = Modifier.size(220.dp))
         }
 
         Text(
@@ -314,9 +316,40 @@ private fun QrCard(
     }
 }
 
+/**
+ * iOS `QRView` — renders [content] as a QR bitmap scaled without interpolation
+ * (one pixel per module, nearest-neighbor upscale); gray fill if encoding fails.
+ */
+@Composable
+private fun QrView(content: String, modifier: Modifier = Modifier) {
+    val bitmap = remember(content) {
+        QrCode.encode(content)?.let { modules ->
+            val n = modules.size
+            val pixels = IntArray(n * n)
+            for (y in 0 until n) {
+                for (x in 0 until n) {
+                    pixels[y * n + x] = if (modules[y][x]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+                }
+            }
+            Bitmap.createBitmap(pixels, n, n, Bitmap.Config.ARGB_8888).asImageBitmap()
+        }
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = "Receive QR code",
+            contentScale = ContentScale.Fit,
+            filterQuality = FilterQuality.None,
+            modifier = modifier,
+        )
+    } else {
+        Box(modifier.background(Color.Gray))
+    }
+}
+
 @Composable
 private fun ActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     checked: Boolean,
     label: String,
     primary: Boolean,
@@ -348,11 +381,8 @@ private fun ActionButton(
     }
 }
 
-@Composable
-private fun qrPainter(): Painter = painterResource(R.drawable.hi_qr)
-
-/** Two-decimal USD string, mirroring iOS `String(format: "%.2f", amt)`. */
-private fun formatAmount(v: Double): String = String.format("%.2f", v)
+/** Two-decimal USD string, mirroring iOS `String(format: "%.2f", amt)` (C locale, always "."). */
+private fun formatAmount(v: Double): String = String.format(Locale.US, "%.2f", v)
 
 /** Middle-truncated address, mirroring iOS `short(_:)`. */
 private fun short(a: String): String {

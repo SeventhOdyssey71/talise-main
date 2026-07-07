@@ -1,9 +1,12 @@
 package io.talise.app.feature.requests
 
+import android.content.Context
 import android.content.Intent
-import androidx.compose.foundation.Image
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,25 +26,32 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -49,112 +59,112 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.talise.app.R
-import io.talise.app.config.AppConfig
-import io.talise.app.core.net.ApiClient
-import io.talise.app.core.store.SecureStore
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.talise.app.ui.components.rampCard
 import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
-import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Response
-import retrofit2.Retrofit
-import retrofit2.converter.kotlinx.serialization.asConverterFactory
-import retrofit2.http.Body
-import retrofit2.http.GET
-import retrofit2.http.POST
-import java.util.concurrent.TimeUnit
+import java.util.Locale
 
 /**
  * Requests, "ask anyone for $X". A faithful Android port of iOS
- * `RequestsListView` + `RequestCreateView` combined into one screen.
+ * `RequestsListView` + `RequestCreateView`.
  *
- * The list shows the payment links you've minted (with status + a share
- * affordance); "New request" opens the create flow (amount + optional note),
- * which mints a shareable link (talise.io/req/<id>) and flips to a share view
- * with a QR, the link, and Copy / Share actions.
+ * The list shows the payment links you've minted (status, share, swipe or
+ * long-press to cancel); "New request" opens the create flow (amount +
+ * optional note), which mints a shareable link (talise.io/req/<id>) and flips
+ * to a share view with a QR, the link, and Copy / Share actions.
  *
- * Wired to the real backend, POST/GET `/api/requests` (same wire as iOS/web),
- * via a self-contained Retrofit service that reuses `ApiClient.json`,
- * `AppConfig.apiBaseUrl`, and the `SecureStore` bearer.
+ * Wired to the real backend, GET/POST/DELETE `/api/requests` (same wire as
+ * iOS/web) via [RequestsApi].
  */
 @Composable
 fun RequestsScreen(onClose: () -> Unit) {
-    var showCreate by remember { mutableStateOf(false) }
-    var reloadKey by remember { mutableIntStateOf(0) }
+    val listVm: RequestsViewModel = viewModel()
+    val createVm: RequestCreateViewModel = viewModel()
+    var showCreate by rememberSaveable { mutableStateOf(false) }
+
+    // System back pops the create flow back to the list, like the iOS
+    // NavigationStack pop.
+    BackHandler(enabled = showCreate) { showCreate = false }
+
+    // Reload on every return to the list, mirroring iOS `.task` re-running on
+    // each appearance (initial load + after create).
+    LaunchedEffect(showCreate) {
+        if (!showCreate) listVm.load()
+    }
 
     if (showCreate) {
-        RequestCreate(onDone = { showCreate = false; reloadKey++ })
+        RequestCreate(vm = createVm, onDone = { showCreate = false })
     } else {
-        RequestsList(reloadKey = reloadKey, onNew = { showCreate = true })
+        RequestsList(
+            vm = listVm,
+            onNew = {
+                createVm.reset()
+                showCreate = true
+            },
+        )
     }
 }
 
 // MARK: - List
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RequestsList(reloadKey: Int, onNew: () -> Unit) {
-    var requests by remember { mutableStateOf<List<RequestDTO>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var loaded by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+private fun RequestsList(vm: RequestsViewModel, onNew: () -> Unit) {
+    val state by vm.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(reloadKey) {
-        loading = true
-        error = null
-        try {
-            requests = RequestsBackend.service.list().requests
-        } catch (t: Throwable) {
-            error = "Couldn't load your requests right now."
-        } finally {
-            loading = false
-            loaded = true
-        }
-    }
-
-    Column(
+    PullToRefreshBox(
+        isRefreshing = state.refreshing,
+        onRefresh = vm::refresh,
         modifier = Modifier
             .fillMaxSize()
-            .background(TaliseColors.bg)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp)
-            .padding(top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+            .background(TaliseColors.bg),
     ) {
-        RequestsHeader(
-            eyebrow = "REQUESTS",
-            title = "Request money",
-            subtitle = "Mint a link to ask anyone for a set amount, share it, and they pay you straight to your wallet.",
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(top = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            RequestsHeader(
+                eyebrow = "REQUESTS",
+                title = "Request money",
+                subtitle = "Mint a link to ask anyone for a set amount, share it, and they pay you straight to your wallet.",
+            )
 
-        NewRequestButton(onClick = onNew)
+            NewRequestButton(onClick = onNew)
 
-        when {
-            loading && !loaded -> LoadingState()
-            error != null -> ErrorState(error!!)
-            requests.isEmpty() -> EmptyState()
-            else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                requests.forEach { RequestRow(it) }
+            when {
+                state.loading && !state.loaded -> LoadingState()
+                state.error != null -> ErrorState(state.error!!, onRetry = vm::load)
+                state.requests.isEmpty() -> EmptyState()
+                else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    state.requests.forEach { req ->
+                        key(req.id) {
+                            RequestRow(
+                                req = req,
+                                busy = state.busyId == req.id,
+                                onCancel = { vm.cancel(req) },
+                            )
+                        }
+                    }
+                }
             }
-        }
 
-        Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(28.dp))
+        }
     }
 }
 
@@ -182,64 +192,130 @@ private fun NewRequestButton(onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
-        Icon(Icons.Filled.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+        Icon(Icons.Filled.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(10.dp))
         Text("New request", style = TaliseType.body(16.sp, FontWeight.SemiBold), color = Color.Black)
     }
 }
 
+// MARK: - Request row
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RequestRow(req: RequestDTO) {
+private fun RequestRow(req: RequestDTO, busy: Boolean, onCancel: () -> Unit) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    var menuOpen by remember { mutableStateOf(false) }
     val tint = statusTint(req.status)
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .rampCard()
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(46.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(tint.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(statusIcon(req.status), contentDescription = null, tint = tint, modifier = Modifier.size(17.dp))
-        }
+    // Swipe left to cancel an open request, the Android take on the iOS
+    // trailing swipe action. The row snaps back and shows the busy state
+    // while the cancel runs.
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart && req.isOpen && !busy) onCancel()
+            false
+        },
+    )
 
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(formatUsd2(req.amountUsd), style = TaliseType.heading(16.sp, FontWeight.Medium), color = TaliseColors.fg)
-            val note = req.requesterNote
-            if (!note.isNullOrEmpty()) {
-                Text(note, style = TaliseType.body(12.5.sp, FontWeight.Light), color = TaliseColors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            } else {
-                Text(
-                    payUrlFor(req.id).replace("https://www.", ""),
-                    style = TaliseType.mono(11.sp),
-                    color = TaliseColors.fgDim,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+    Box {
+        SwipeToDismissBox(
+            state = dismissState,
+            enableDismissFromStartToEnd = false,
+            enableDismissFromEndToStart = req.isOpen,
+            modifier = Modifier.clip(RoundedCornerShape(20.dp)),
+            backgroundContent = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(TaliseColors.sentRed.copy(alpha = 0.85f))
+                        .padding(horizontal = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    Icon(Icons.Outlined.Cancel, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Cancel", style = TaliseType.body(14.sp, FontWeight.Medium), color = Color.White)
+                }
+            },
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(if (busy) 0.5f else 1f)
+                    .rampCard()
+                    .combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(tint.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(statusIcon(req.status), contentDescription = null, tint = tint, modifier = Modifier.size(17.dp))
+                }
+
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(formatUsd2(req.amountUsd), style = TaliseType.heading(16.sp, FontWeight.Medium), color = TaliseColors.fg)
+                    val note = req.requesterNote
+                    if (!note.isNullOrEmpty()) {
+                        Text(note, style = TaliseType.body(12.5.sp, FontWeight.Light), color = TaliseColors.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    } else {
+                        Text(
+                            req.payUrl.replace("https://www.", ""),
+                            style = TaliseType.mono(11.sp),
+                            color = TaliseColors.fgDim,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(req.status.uppercase(), style = TaliseType.mono(10.sp), letterSpacing = 0.8.sp, color = tint)
+                    if (req.isOpen) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(TaliseColors.surface2)
+                                .clickable { shareText(context, req.payUrl) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.IosShare, contentDescription = "Share", tint = TaliseColors.fg, modifier = Modifier.size(13.dp))
+                        }
+                    }
+                }
+
+                if (busy) {
+                    CircularProgressIndicator(color = TaliseColors.fgMuted, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                }
             }
         }
 
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(req.status.uppercase(), style = TaliseType.mono(10.sp), letterSpacing = 0.8.sp, color = tint)
-            if (req.status == "open") {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(TaliseColors.surface2)
-                        .clickable { shareText(context, payUrlFor(req.id)) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Filled.IosShare, contentDescription = "Share", tint = TaliseColors.fg, modifier = Modifier.size(13.dp))
-                }
+        // Long-press menu, the Android take on the iOS context menu.
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text("Copy link", style = TaliseType.body(14.sp)) },
+                leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                onClick = {
+                    clipboard.setText(AnnotatedString(req.payUrl))
+                    menuOpen = false
+                },
+            )
+            if (req.isOpen) {
+                DropdownMenuItem(
+                    text = { Text("Cancel request", style = TaliseType.body(14.sp), color = TaliseColors.sentRed) },
+                    leadingIcon = { Icon(Icons.Outlined.Cancel, contentDescription = null, tint = TaliseColors.sentRed, modifier = Modifier.size(16.dp)) },
+                    onClick = {
+                        menuOpen = false
+                        onCancel()
+                    },
+                )
             }
         }
     }
@@ -252,9 +328,9 @@ private fun statusTint(status: String): Color = when (status) {
 }
 
 private fun statusIcon(status: String): ImageVector = when (status) {
-    "paid" -> Icons.Filled.CheckCircle
+    "paid" -> Icons.Filled.Verified
     "open" -> Icons.Filled.Link
-    "cancelled" -> Icons.Filled.Cancel
+    "cancelled" -> Icons.Outlined.Cancel
     else -> Icons.Filled.Schedule // expired
 }
 
@@ -279,7 +355,7 @@ private fun LoadingState() {
 }
 
 @Composable
-private fun ErrorState(msg: String) {
+private fun ErrorState(msg: String, onRetry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -287,7 +363,23 @@ private fun ErrorState(msg: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(msg, style = TaliseType.body(13.sp, FontWeight.Light), color = TaliseColors.fgMuted)
+        Text(
+            msg,
+            style = TaliseType.body(13.sp, FontWeight.Light),
+            color = TaliseColors.fgMuted,
+            textAlign = TextAlign.Center,
+        )
+        Row(
+            modifier = Modifier
+                .height(46.dp)
+                .clip(CircleShape)
+                .background(TaliseColors.greenMint)
+                .clickable(onClick = onRetry)
+                .padding(horizontal = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Try again", style = TaliseType.body(15.sp, FontWeight.SemiBold), color = Color.Black)
+        }
     }
 }
 
@@ -306,6 +398,7 @@ private fun EmptyState() {
             "Create one to ask someone for a set amount.",
             style = TaliseType.body(13.sp, FontWeight.Light),
             color = TaliseColors.fgMuted,
+            textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 24.dp),
         )
     }
@@ -314,20 +407,12 @@ private fun EmptyState() {
 // MARK: - Create
 
 @Composable
-private fun RequestCreate(onDone: () -> Unit) {
-    var amount by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
-    var creating by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var created by remember { mutableStateOf<RequestCreateResponse?>(null) }
-    val scope = rememberCoroutineScope()
+private fun RequestCreate(vm: RequestCreateViewModel, onDone: () -> Unit) {
+    val state by vm.state.collectAsStateWithLifecycle()
 
-    val amountValue = amount.trim().toDoubleOrNull() ?: 0.0
-    val canCreate = amountValue > 0 && !creating
-
-    val done = created
-    if (done != null) {
-        ShareView(res = done, onDone = onDone)
+    val created = state.created
+    if (created != null) {
+        ShareView(res = created, copied = state.copied, onCopied = vm::markCopied, onDone = onDone)
         return
     }
 
@@ -346,38 +431,14 @@ private fun RequestCreate(onDone: () -> Unit) {
             subtitle = "Ask anyone for a set amount. Share a link or QR, they pay you straight to your wallet.",
         )
 
-        AmountCard(amount = amount, onAmountChange = { amount = it })
-        NoteCard(note = note, onNoteChange = { note = it })
+        AmountCard(amount = state.amount, onAmountChange = vm::setAmount)
+        NoteCard(note = state.note, onNoteChange = vm::setNote)
 
-        error?.let {
+        state.error?.let {
             Text(it, style = TaliseType.body(13.sp, FontWeight.Light), color = TaliseColors.danger)
         }
 
-        CreateButton(
-            enabled = canCreate,
-            creating = creating,
-            onClick = {
-                if (!canCreate) return@CreateButton
-                creating = true
-                error = null
-                scope.launch {
-                    try {
-                        val trimmedNote = note.trim()
-                        created = RequestsBackend.service.create(
-                            CreateRequestBody(
-                                amountUsd = amountValue,
-                                currency = null,
-                                note = if (trimmedNote.isEmpty()) null else trimmedNote,
-                            )
-                        )
-                    } catch (t: Throwable) {
-                        error = "Couldn't create that request. Please try again."
-                    } finally {
-                        creating = false
-                    }
-                }
-            },
-        )
+        CreateButton(enabled = state.canCreate, creating = state.creating, onClick = vm::create)
 
         Text(
             "You'll get a link anyone can open to pay you, no app required.",
@@ -419,12 +480,7 @@ private fun AmountCard(amount: String, onAmountChange: (String) -> Unit) {
                     onValueChange = onAmountChange,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    textStyle = TextStyle(
-                        fontFamily = TaliseType.sansFamily,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TaliseColors.fg,
-                    ),
+                    textStyle = TaliseType.heading(22.sp, FontWeight.Medium).copy(color = TaliseColors.fg),
                     cursorBrush = SolidColor(TaliseColors.accent),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -457,12 +513,7 @@ private fun NoteCard(note: String, onNoteChange: (String) -> Unit) {
                 value = note,
                 onValueChange = onNoteChange,
                 maxLines = 4,
-                textStyle = TextStyle(
-                    fontFamily = TaliseType.sansFamily,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = TaliseColors.fg,
-                ),
+                textStyle = TaliseType.body(15.sp, FontWeight.Normal).copy(color = TaliseColors.fg),
                 cursorBrush = SolidColor(TaliseColors.accent),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -498,11 +549,14 @@ private fun CreateButton(enabled: Boolean, creating: Boolean, onClick: () -> Uni
 // MARK: - Share
 
 @Composable
-private fun ShareView(res: RequestCreateResponse, onDone: () -> Unit) {
+private fun ShareView(
+    res: RequestCreateResponse,
+    copied: Boolean,
+    onCopied: () -> Unit,
+    onDone: () -> Unit,
+) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    val scope = rememberCoroutineScope()
-    var copied by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -522,12 +576,11 @@ private fun ShareView(res: RequestCreateResponse, onDone: () -> Unit) {
             Text(formatUsd2(res.request.amountUsd), style = TaliseType.heading(40.sp, FontWeight.Medium), letterSpacing = (-1).sp, color = TaliseColors.fg)
             val note = res.request.requesterNote
             if (!note.isNullOrEmpty()) {
-                Text(note, style = TaliseType.body(14.sp, FontWeight.Light), color = TaliseColors.fgMuted)
+                Text(note, style = TaliseType.body(14.sp, FontWeight.Light), color = TaliseColors.fgMuted, textAlign = TextAlign.Center)
             }
         }
 
-        // QR card, the payable link, encoded. Rendered from the bundled hi_qr
-        // drawable (no scanner dependency added), matching iOS's 220x220 white card.
+        // QR card, the payable link, encoded.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -539,18 +592,13 @@ private fun ShareView(res: RequestCreateResponse, onDone: () -> Unit) {
         ) {
             Box(
                 modifier = Modifier
-                    .size(220.dp + 36.dp)
+                    .size(256.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(Color.White)
                     .padding(18.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Image(
-                    painter = painterResource(R.drawable.hi_qr),
-                    contentDescription = "Request QR code",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.size(220.dp),
-                )
+                QrView(content = res.payUrl, modifier = Modifier.size(220.dp))
             }
             Text(
                 prettyLink(res.payUrl),
@@ -572,11 +620,7 @@ private fun ShareView(res: RequestCreateResponse, onDone: () -> Unit) {
                 modifier = Modifier.weight(1f),
             ) {
                 clipboard.setText(AnnotatedString(res.payUrl))
-                copied = true
-                scope.launch {
-                    delay(1_500)
-                    copied = false
-                }
+                onCopied()
             }
             ShareActionButton(
                 icon = Icons.Filled.IosShare,
@@ -627,11 +671,8 @@ private fun ShareActionButton(
 
 // MARK: - Helpers
 
-/** Two-decimal USD string, mirroring iOS `TaliseFormat.usd2`. */
-private fun formatUsd2(v: Double): String = "$" + String.format("%,.2f", v)
-
-/** Stable public pay link for a request slug (talise.io/req/<id>). */
-private fun payUrlFor(id: String): String = "https://www.talise.io/req/$id"
+/** Two-decimal USD string, mirroring iOS `TaliseFormat.usd2` (en_US currency). */
+private fun formatUsd2(v: Double): String = "$" + String.format(Locale.US, "%,.2f", v)
 
 /** Drop the scheme for a tidy on-card label ("talise.io/req/…"). */
 private fun prettyLink(url: String): String = url
@@ -639,79 +680,10 @@ private fun prettyLink(url: String): String = url
     .replace("http://", "")
     .replace("www.", "")
 
-private fun shareText(context: android.content.Context, text: String) {
+private fun shareText(context: Context, text: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, text)
     }
     context.startActivity(Intent.createChooser(intent, null))
-}
-
-// MARK: - Backend (self-contained; same wire as iOS/web)
-
-@Serializable
-private data class RequestDTO(
-    val id: String,
-    val amountUsd: Double,
-    val currency: String = "USD",
-    val requesterNote: String? = null,
-    val status: String = "open",
-    val expiresAt: Double? = null,
-    val createdAt: Double? = null,
-    val paidAt: Double? = null,
-    val payDigest: String? = null,
-)
-
-@Serializable
-private data class RequestsListResponse(val requests: List<RequestDTO> = emptyList())
-
-@Serializable
-private data class CreateRequestBody(
-    val amountUsd: Double,
-    val currency: String? = null,
-    val note: String? = null,
-)
-
-@Serializable
-private data class RequestCreateResponse(
-    val ok: Boolean = true,
-    val request: RequestDTO,
-    val payUrl: String,
-)
-
-private interface RequestsService {
-    @GET("api/requests")
-    suspend fun list(): RequestsListResponse
-
-    @POST("api/requests")
-    suspend fun create(@Body body: CreateRequestBody): RequestCreateResponse
-}
-
-/**
- * Self-contained Retrofit stack for the Requests endpoints, reuses
- * `ApiClient.json`, `AppConfig.apiBaseUrl`, and the `SecureStore` bearer,
- * mirroring the shared [ApiClient] (which doesn't expose these routes yet).
- */
-private object RequestsBackend {
-    private val authInterceptor = Interceptor { chain ->
-        val builder = chain.request().newBuilder()
-        SecureStore.bearer?.let { builder.header("Authorization", "Bearer $it") }
-        val response: Response = chain.proceed(builder.build())
-        response
-    }
-
-    private val okhttp: OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(authInterceptor)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
-
-    private val baseUrl: String = AppConfig.apiBaseUrl.let { if (it.endsWith("/")) it else "$it/" }
-
-    val service: RequestsService = Retrofit.Builder()
-        .baseUrl(baseUrl)
-        .client(okhttp)
-        .addConverterFactory(ApiClient.json.asConverterFactory("application/json".toMediaType()))
-        .build()
-        .create(RequestsService::class.java)
 }

@@ -57,6 +57,15 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun DepositScreen(onClose: () -> Unit) {
+    // Onchain deposit pushes the Receive page (QR + Sui address), mirroring
+    // iOS `DepositOnchainView` which embeds `ReceiveView`. A back tap returns
+    // to the deposit hub rather than closing the whole flow.
+    var showOnchain by remember { mutableStateOf(false) }
+    if (showOnchain) {
+        io.talise.app.feature.receive.ReceiveScreen(onClose = { showOnchain = false })
+        return
+    }
+
     var toast by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(toast) {
         if (toast != null) {
@@ -136,7 +145,7 @@ fun DepositScreen(onClose: () -> Unit) {
                         painter = painterResource(R.drawable.hi_qr),
                         title = "Crypto",
                         subtitle = "Receive USDsui to your Talise QR or address",
-                        onClick = {},
+                        onClick = { showOnchain = true },
                     )
 
                     // Bank transfer, Bridge corridors, gated off for now.
