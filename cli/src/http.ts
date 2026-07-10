@@ -49,7 +49,7 @@ export function makeApi(baseUrl: string, auth?: Pick<Session, "bearer"> | string
     if (!res.ok) {
       const body = json as { error?: string; code?: string };
       // Non-JSON body (e.g. a 404 HTML page) → concise error, not the raw page.
-      const fallback = looksJson ? undefined : `unexpected response (HTTP ${res.status}) — endpoint not found or not deployed`;
+      const fallback = looksJson ? undefined : `unexpected response (HTTP ${res.status}) - endpoint not found or not deployed`;
       throw mapError(res.status, body.error ?? fallback, body.code);
     }
     return json as T;
@@ -82,12 +82,12 @@ function mapError(status: number, error?: string, code?: string): ApiError {
   if (status === 401) {
     if (code === "session_rebind_required") {
       return new ApiError(
-        "your session can no longer sign — run `talise login` again",
+        "your session can no longer sign - run `talise login` again",
         401,
         code,
       );
     }
-    return new ApiError(error || "not signed in — run `talise login`", 401, code);
+    return new ApiError(error || "not signed in - run `talise login`", 401, code);
   }
   if (status === 403) {
     if (code === "SCREENING_BLOCK") {
@@ -101,7 +101,7 @@ function mapError(status: number, error?: string, code?: string): ApiError {
     );
   }
   if (status === 429) {
-    return new ApiError("rate limited — slow down and retry shortly", 429, code);
+    return new ApiError("rate limited - slow down and retry shortly", 429, code);
   }
   return new ApiError(error || `request failed (HTTP ${status})`, status, code);
 }

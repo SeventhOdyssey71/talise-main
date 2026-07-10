@@ -10,7 +10,7 @@
  * (so `--json` is pipeable); color is TTY-aware and honors NO_COLOR / --no-color;
  * exit code is 0 on success, non-zero on failure.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolveBaseUrl, loadSession, saveSession, sessionPath, type Session } from "./config.js";
 import { login, logout } from "./auth.js";
@@ -22,7 +22,6 @@ import { agentWhoami, agentPay, agentRecv, agentProvision, agentWallets, agentRe
 import { batch, teams, streamCreate, streamList, streamCancel } from "./commands/payouts.js";
 import { runMcp } from "./mcp.js";
 import { fail, note, disableColor, type OutputMode } from "./format.js";
-import { existsSync, statSync } from "node:fs";
 
 function version(): string {
   try {
@@ -258,8 +257,8 @@ const COMMANDS: Command[] = [
       "  agent provision --cap <usd/day> [--name …]   create one (browser auth)\n" +
       "  agent wallets                    list your agent wallets\n" +
       "  agent revoke <id>                revoke one instantly\n\n" +
-      "`agent pay` signs locally with your session, OR — if TALISE_AGENT_TOKEN\n" +
-      "(or --token) is set — via a custodial wallet (no local key). Money moves\n" +
+      "`agent pay` signs locally with your session, OR, if TALISE_AGENT_TOKEN\n" +
+      "(or --token) is set, via a custodial wallet (no local key). Money moves\n" +
       "need --yes when there's no TTY.\n\n" +
       "Examples:\n" +
       "  talise agent whoami --json\n" +
@@ -292,7 +291,7 @@ const COMMANDS: Command[] = [
     help:
       "Move a signed-in session between machines (e.g. to an agent host).\n\n" +
       "  session export           print the session as base64 (store as TALISE_SESSION)\n" +
-      "  session import [file]     import base64 from a file, an arg, or stdin\n\n" +
+      "  session import [file]    import base64 from a file, an arg, or stdin\n\n" +
       "Examples:\n" +
       "  export TALISE_SESSION=\"$(talise session export)\"\n" +
       "  talise session export | ssh host 'talise session import'",
@@ -319,7 +318,7 @@ function usage(u: string): Error {
 function topHelp(): string {
   const groups: Group[] = ["Account", "Money", "Assistant", "Agent", "Other"];
   const lines: string[] = [
-    "talise — Talise wallet in your terminal",
+    "talise - Talise wallet in your terminal",
     "",
     "Usage",
     "  talise <command> [args] [flags]",
@@ -350,20 +349,25 @@ function topHelp(): string {
 }
 
 function commandHelp(c: Command): string {
-  return [`talise ${c.name} — ${c.summary}`, "", "Usage", `  talise ${c.usage}`, "", c.help].join("\n");
+  return [`talise ${c.name} - ${c.summary}`, "", "Usage", `  talise ${c.usage}`, "", c.help].join("\n");
 }
 
 // ── Session move helpers ────────────────────────────────────────────────────
 function sessionExport(mode: OutputMode): void {
   const s = loadSession();
-  if (!s) throw new Error("no session to export — run `talise login` first");
+  if (!s) throw new Error("no session to export - run `talise login` first");
   process.stdout.write(Buffer.from(JSON.stringify(s)).toString("base64") + "\n");
   note(mode, "set this on the agent host as TALISE_SESSION, or `talise session import`");
 }
 
 function sessionImport(mode: OutputMode, arg?: string): void {
   const raw = arg ? (isFile(arg) ? readFileSync(arg, "utf8") : arg) : readFileSync(0, "utf8");
-  const s = JSON.parse(Buffer.from(raw.trim(), "base64").toString("utf8")) as Session;
+  let s: Session;
+  try {
+    s = JSON.parse(Buffer.from(raw.trim(), "base64").toString("utf8")) as Session;
+  } catch {
+    throw new Error("not a valid Talise session (expected the base64 printed by `talise session export`)");
+  }
   if (!s.bearer || !s.ephemeralSecretB64) throw new Error("not a valid Talise session");
   saveSession(s);
   note(mode, "session imported to " + sessionPath());

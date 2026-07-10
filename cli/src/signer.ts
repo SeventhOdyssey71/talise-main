@@ -24,7 +24,7 @@ export type SignedTx = {
 function keypairFrom(session: Session): Ed25519Keypair {
   const secret = fromBase64(session.ephemeralSecretB64);
   if (secret.length !== 32) {
-    throw new Error("stored ephemeral key is malformed — run `talise login` again");
+    throw new Error("stored ephemeral key is malformed - run `talise login` again");
   }
   return Ed25519Keypair.fromSecretKey(secret);
 }
@@ -41,7 +41,7 @@ export async function signPreparedTx(
   // server's proof won't verify against this ephemeral pubkey.
   if (ephemeralPubKeyB64 !== session.ephemeralPubKeyB64) {
     throw new Error(
-      "ephemeral key mismatch with the bound session — run `talise login` again",
+      "ephemeral key mismatch with the bound session - run `talise login` again",
     );
   }
   return {

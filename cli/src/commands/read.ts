@@ -4,7 +4,7 @@
  */
 import { makeApi } from "../http.js";
 import { requireSession } from "../config.js";
-import { emit, note, heading, dim, usd, type OutputMode } from "../format.js";
+import { emit, note, heading, dim, usd, shortAddr, type OutputMode } from "../format.js";
 import { resolveRecipient } from "../intents.js";
 
 export async function whoami(baseUrl: string, mode: OutputMode): Promise<void> {
@@ -29,7 +29,7 @@ export async function whoami(baseUrl: string, mode: OutputMode): Promise<void> {
     },
     () => {
       note(mode, heading(me.taliseHandle ? `@${me.taliseHandle}` : me.name ?? "Talise account"));
-      note(mode, dim("address ") + (me.suiAddress ?? "—"));
+      note(mode, dim("address ") + (me.suiAddress ?? "-"));
       if (me.taliseSubname) note(mode, dim("suins   ") + me.taliseSubname);
       if (me.email) note(mode, dim("email   ") + me.email);
     },
@@ -74,7 +74,7 @@ export async function activity(baseUrl: string, mode: OutputMode, limit: number)
       const inflow = e.direction === "received" || e.direction === "withdraw";
       const sign = inflow ? "+" : "-";
       const amt = e.amountUsdsui != null ? `${sign}${usd(Math.abs(e.amountUsdsui))}` : "";
-      const who = e.counterpartyName ?? (e.counterparty ? short(e.counterparty) : "");
+      const who = e.counterpartyName ?? (e.counterparty ? shortAddr(e.counterparty) : "");
       note(mode, `${pad(amt, 12)} ${dim(pad(e.direction, 9))} ${who}`);
     }
   });
@@ -97,9 +97,6 @@ type ActivityEntry = {
   counterpartyName?: string;
 };
 
-function short(a: string): string {
-  return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
-}
 function pad(s: string, n: number): string {
   return s.length >= n ? s : s + " ".repeat(n - s.length);
 }

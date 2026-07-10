@@ -5,7 +5,7 @@
 import { makeApi } from "../http.js";
 import { requireSession } from "../config.js";
 import { executeSend, executeRequest, resolveRecipient } from "../intents.js";
-import { emit, note, ok, confirm, money, dim, usd, type OutputMode } from "../format.js";
+import { emit, note, ok, confirm, money, dim, usd, shortAddr, type OutputMode } from "../format.js";
 
 export async function send(
   baseUrl: string,
@@ -25,7 +25,7 @@ export async function send(
   const { address, label } = await resolveRecipient(api, recipient);
   const proceed = await confirm(
     mode,
-    `Send ${money(usd(amount))} (${asset}) to ${label} ${dim(shorten(address))}?`,
+    `Send ${money(usd(amount))} (${asset}) to ${label} ${dim(shortAddr(address))}?`,
   );
   if (!proceed) {
     note(mode, "cancelled");
@@ -54,8 +54,4 @@ export async function request(
     ok(mode, `payment link for ${money(usd(amount))}`);
     note(mode, result.url);
   });
-}
-
-function shorten(a: string): string {
-  return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
 }

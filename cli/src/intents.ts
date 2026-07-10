@@ -105,7 +105,7 @@ export async function resolveRecipient(api: Api, recipient: string): Promise<{ a
   );
   const address = (r.address ?? r.suiAddress ?? "").toLowerCase();
   if (!ADDRESS_RE.test(address)) {
-    throw new Error(`could not resolve recipient "${recipient}" — check the handle or use a 0x address`);
+    throw new Error(`could not resolve recipient "${recipient}" - check the handle or use a 0x address`);
   }
   return { address, label: r.username ?? r.handle ?? raw };
 }
@@ -162,17 +162,14 @@ export async function executeSwap(
   args: { from: string; amount: number },
 ): Promise<TxResult> {
   const token = SWAP_TOKENS[args.from.toUpperCase()];
-  if (!token) throw new Error(`can't swap "${args.from}" — supported: SUI, USDC, DEEP`);
+  if (!token) throw new Error(`can't swap "${args.from}" - supported: SUI, USDC, DEEP`);
   const micros = BigInt(Math.round(args.amount * 10 ** token.decimals)).toString();
   const prep = await api.post<{ bytes?: string; error?: string }>("/api/swap/prepare", {
     fromCoinType: token.type,
     fromAmountMicros: micros,
   });
   if (!prep.bytes) throw new Error(prep.error || "swap prepare returned no bytes");
-  const digest = await signExecute(api, session, prep.bytes, {
-    kind: "swap",
-    amountUsd: undefined,
-  });
+  const digest = await signExecute(api, session, prep.bytes, { kind: "swap" });
   return { ok: true, kind: "swap", digest, suiscan: suiscan(digest), from: args.from.toUpperCase(), to: "USDsui", amount: args.amount };
 }
 
@@ -406,7 +403,7 @@ export function describeStep(step: IntentStep): string {
     case "request":
       return `create a payment link for ${amt}${step.note ? ` (${step.note})` : ""}`;
     case "swap":
-      return `swap ${step.amount} ${step.from} to ${step.to}`;
+      return `swap ${step.amount} ${step.from} to ${step.to ?? "USDsui"}`;
     case "save":
       return `save ${amt}${step.venue ? ` on ${step.venue}` : ""}`;
     case "withdraw":

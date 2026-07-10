@@ -71,7 +71,7 @@ export function resolveBaseUrl(override?: string): string {
   const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
   if (!isTalise && !(insecureOk && isLocal)) {
     throw new Error(
-      `refusing to use base URL host "${host}" — must be a talise.io host ` +
+      `refusing to use base URL host "${host}" - must be a talise.io host ` +
         `(set TALISE_ALLOW_INSECURE=1 to allow localhost for local dev)`,
     );
   }
@@ -101,7 +101,7 @@ export function loadSession(): Session | null {
 export function requireSession(): Session {
   const s = loadSession();
   if (!s || !s.bearer) {
-    throw new Error("not signed in — run `talise login` first");
+    throw new Error("not signed in - run `talise login` first");
   }
   return s;
 }

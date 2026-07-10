@@ -18,7 +18,8 @@ export async function ask(baseUrl: string, mode: OutputMode, prompt: string): Pr
   const api = makeApi(baseUrl, s);
   const messages: WireMessage[] = [{ role: "user", content: prompt }];
 
-  // Stream the reply to stderr (human) so stdout stays clean for --json.
+  // Stream the reply live in human mode; suppressed in --json/--quiet so
+  // stdout stays pure data for the final emit.
   const streamOut = (d: string) => {
     if (!mode.json && !mode.quiet) process.stdout.write(d);
   };
@@ -30,7 +31,7 @@ export async function ask(baseUrl: string, mode: OutputMode, prompt: string): Pr
     return;
   }
 
-  const results = await runIntent(baseUrl, mode, intent, api, s);
+  const results = await runIntent(mode, intent, api, s);
   emit(mode, { reply: stripIntent(text), intent, results }, () => {});
 }
 
@@ -39,7 +40,7 @@ export async function chat(baseUrl: string, mode: OutputMode): Promise<void> {
   const api = makeApi(baseUrl, s);
   const history: WireMessage[] = [];
 
-  note(mode, heading("Talise Copilot") + dim("  — ask about your money, or tell it to send. Ctrl+C to exit."));
+  note(mode, heading("Talise Copilot") + dim("  - ask about your money, or tell it to send. Ctrl+C to exit."));
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "› " });
   rl.prompt();
 
@@ -55,7 +56,7 @@ export async function chat(baseUrl: string, mode: OutputMode): Promise<void> {
       const { text, intent } = await collectReply(api, history, (d) => process.stdout.write(d));
       process.stdout.write("\n");
       history.push({ role: "assistant", content: text });
-      if (intent) await runIntent(baseUrl, mode, intent, api, s);
+      if (intent) await runIntent(mode, intent, api, s);
     } catch (e) {
       note(mode, dim("(error: " + (e as Error).message + ")"));
     }
@@ -66,13 +67,11 @@ export async function chat(baseUrl: string, mode: OutputMode): Promise<void> {
 
 /** Present the agent's plan, confirm, and run each step in order. */
 async function runIntent(
-  baseUrl: string,
   mode: OutputMode,
   intent: Intent,
   api: ReturnType<typeof makeApi>,
   s: ReturnType<typeof requireSession>,
 ): Promise<unknown[]> {
-  void baseUrl;
   const plan = intent.steps.map(describeStep).join("; ");
   const proceed = await confirm(mode, `Run: ${plan}?`);
   if (!proceed) {

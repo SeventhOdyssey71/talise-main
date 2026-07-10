@@ -15,7 +15,7 @@ import { spawn } from "node:child_process";
 import { newEphemeralKey } from "./signer.js";
 import { makeApi } from "./http.js";
 import { saveSession, clearSession, type Session } from "./config.js";
-import { note, ok, type OutputMode } from "./format.js";
+import { note, ok, shortAddr, type OutputMode } from "./format.js";
 
 const b64url = (b: Buffer | Uint8Array) =>
   Buffer.from(b).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -24,7 +24,7 @@ export async function login(baseUrl: string, mode: OutputMode): Promise<Session>
   const eph = newEphemeralKey();
   const csrf = b64url(randomBytes(18));
 
-  const { params, port } = await runLoopback(async (port) => {
+  const { params } = await runLoopback(async (port) => {
     const url =
       `${baseUrl}/api/auth/cli/start` +
       `?ephemeralPubKey=${encodeURIComponent(pubKeyToUrlSafe(eph.pubKeyB64))}` +
@@ -34,8 +34,6 @@ export async function login(baseUrl: string, mode: OutputMode): Promise<Session>
     note(mode, "If it doesn't open, visit:\n  " + url);
     openBrowser(url);
   }, csrf);
-
-  void port;
 
   const token = params.token;
   const userId = params.userId;
@@ -70,7 +68,7 @@ export async function login(baseUrl: string, mode: OutputMode): Promise<Session>
     createdAt: Date.now(),
   };
   saveSession(session);
-  ok(mode, `signed in${handle ? " as @" + handle : ""}${address ? " (" + short(address) + ")" : ""}`);
+  ok(mode, `signed in${handle ? " as @" + handle : ""}${address ? " (" + shortAddr(address) + ")" : ""}`);
   return session;
 }
 
@@ -104,16 +102,12 @@ export async function provisionAgent(
 
 export function logout(mode: OutputMode): void {
   clearSession();
-  ok(mode, "signed out — local session wiped");
+  ok(mode, "signed out - local session wiped");
 }
 
 /** iOS sends the pubkey base64URL (so `+` doesn't get URL-decoded to a space). */
 function pubKeyToUrlSafe(b64: string): string {
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function short(addr: string): string {
-  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
 }
 
 /** Start a one-shot loopback server, invoke `onReady(port)`, resolve when the

@@ -18,7 +18,7 @@ export async function teams(baseUrl: string, mode: OutputMode): Promise<void> {
   const list = r.teams ?? [];
   emit(mode, { teams: list }, () => {
     if (list.length === 0) {
-      note(mode, dim("no saved teams — create one in the app, or use `batch --file`"));
+      note(mode, dim("no saved teams - create one in the app, or use `batch --file`"));
       return;
     }
     for (const t of list) note(mode, `${t.id.padEnd(12)} ${t.name} ${dim(`(${t.members.length} members)`)}`);
@@ -46,10 +46,10 @@ export async function batch(
   if (opts.team) {
     const r = await api.get<{ teams?: Team[] }>("/api/payouts/teams");
     const team = (r.teams ?? []).find((t) => t.id === opts.team);
-    if (!team) throw new Error(`team "${opts.team}" not found — see \`talise teams\``);
+    if (!team) throw new Error(`team "${opts.team}" not found - see \`talise teams\``);
     recipients = team.members.map((m) => {
       if (m.amount == null || m.amount <= 0) {
-        throw new Error(`team member "${m.recipient}" has no default amount — use --file to set amounts`);
+        throw new Error(`team member "${m.recipient}" has no default amount - use --file to set amounts`);
       }
       return { to: m.recipient, amount: m.amount, label: m.label };
     });
@@ -107,7 +107,7 @@ export async function streamCreate(
   }
   const r = await executeStreamCreate(api, s, { teamId: opts.team, totalUsd, numTranches, intervalMinutes });
   emit(mode, r, () => {
-    ok(mode, `stream ${r.streamId} funded — ${money(usd(r.totalUsd))} over ${r.numTranches} tranches`);
+    ok(mode, `stream ${r.streamId} funded: ${money(usd(r.totalUsd))} over ${r.numTranches} tranches`);
     note(mode, dim(r.suiscan));
   });
 }

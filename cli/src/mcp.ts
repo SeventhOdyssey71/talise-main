@@ -86,7 +86,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "talise_send",
     description:
-      "Send USDsui (US dollars) to a Talise @handle, SuiNS name, or 0x address. IRREVERSIBLE and moves real money. Requires confirm:true — without it, returns the resolved plan for review and sends nothing.",
+      "Send USDsui (US dollars) to a Talise @handle, SuiNS name, or 0x address. IRREVERSIBLE and moves real money. Requires confirm:true; without it, returns the resolved plan for review and sends nothing.",
     inputSchema: {
       type: "object",
       properties: {

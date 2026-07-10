@@ -14,7 +14,7 @@ import { makeApi } from "../http.js";
 import { requireSession } from "../config.js";
 import { executeSend, resolveRecipient } from "../intents.js";
 import { provisionAgent } from "../auth.js";
-import { emit, note, ok, confirm, usd, money, dim, heading, type OutputMode } from "../format.js";
+import { emit, note, ok, confirm, usd, money, dim, heading, shortAddr, type OutputMode } from "../format.js";
 
 export async function agentWhoami(baseUrl: string, mode: OutputMode): Promise<void> {
   const s = requireSession();
@@ -58,7 +58,7 @@ export async function agentPay(
       { to: opts.to, amount, memo: opts.memo },
     );
     emit(mode, { ok: true, ...r, memo: opts.memo ?? null }, () => {
-      note(mode, `paid ${money(usd(amount))} to ${r.recipient ?? opts.to} — ${dim(r.suiscan ?? "")}`);
+      note(mode, `paid ${money(usd(amount))} to ${r.recipient ?? opts.to} ${dim(r.suiscan ?? "")}`);
     });
     return;
   }
@@ -68,7 +68,7 @@ export async function agentPay(
   const api = makeApi(baseUrl, s);
   const asset = opts.asset ?? "USDsui";
   const { address, label } = await resolveRecipient(api, opts.to);
-  const proceed = await confirm(mode, `Pay ${money(usd(amount))} to ${label} ${dim(short(address))}?`);
+  const proceed = await confirm(mode, `Pay ${money(usd(amount))} to ${label} ${dim(shortAddr(address))}?`);
   if (!proceed) {
     note(mode, "cancelled");
     return;
@@ -77,7 +77,7 @@ export async function agentPay(
   // The memo rides in the on-chain Payment Kit receipt so the payee can
   // reconcile the payment against the job it settles.
   emit(mode, { ...result, memo: opts.memo ?? null }, () => {
-    note(mode, `paid ${money(usd(amount))} to ${label} — ${dim(result.suiscan)}`);
+    note(mode, `paid ${money(usd(amount))} to ${label} ${dim(result.suiscan)}`);
   });
 }
 
@@ -93,7 +93,7 @@ export async function agentProvision(
   const { agentToken, agentId, address } = await provisionAgent(baseUrl, mode, { name: opts.name, cap });
   emit(mode, { ok: true, agentId, address, dailyCapUsd: cap, token: agentToken }, () => {
     ok(mode, `agent wallet ${agentId} provisioned (cap ${money(usd(cap))}/day)`);
-    note(mode, heading("token (shown once — store it securely):"));
+    note(mode, heading("token (shown once, store it securely):"));
     note(mode, "  " + agentToken);
     note(mode, dim("use it via: export TALISE_AGENT_TOKEN=… ; talise agent pay --to @x --amount 1 --yes"));
   });
@@ -107,7 +107,7 @@ export async function agentWallets(baseUrl: string, mode: OutputMode): Promise<v
   const list = r.wallets ?? [];
   emit(mode, { wallets: list }, () => {
     if (list.length === 0) {
-      note(mode, dim("no agent wallets — provision one with `talise agent provision --cap 5`"));
+      note(mode, dim("no agent wallets - provision one with `talise agent provision --cap 5`"));
       return;
     }
     for (const w of list) {
@@ -166,7 +166,3 @@ type RecvEntry = {
   counterpartyName?: string;
   timestampMs?: number;
 };
-
-function short(a: string): string {
-  return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
-}

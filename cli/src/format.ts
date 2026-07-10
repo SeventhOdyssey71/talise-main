@@ -13,8 +13,6 @@ const C = {
   bold: "\x1b[1m",
   green: "\x1b[32m",
   red: "\x1b[31m",
-  yellow: "\x1b[33m",
-  cyan: "\x1b[36m",
 };
 
 function color(on: boolean, c: keyof typeof C, s: string): string {
@@ -50,10 +48,6 @@ export function note(mode: OutputMode, msg: string): void {
 
 export function ok(mode: OutputMode, msg: string): void {
   note(mode, color(colorEnabled(), "green", "✓ ") + msg);
-}
-
-export function warn(msg: string): void {
-  process.stderr.write(color(colorEnabled(), "yellow", "! ") + msg + "\n");
 }
 
 export function fail(mode: OutputMode, msg: string, code?: string): never {
@@ -100,6 +94,11 @@ export async function confirm(mode: OutputMode, prompt: string): Promise<boolean
   } finally {
     rl.close();
   }
+}
+
+/** Shorten a 0x address for display: 0x1234…abcd. */
+export function shortAddr(a: string): string {
+  return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
 }
 
 export function usd(n: number): string {
