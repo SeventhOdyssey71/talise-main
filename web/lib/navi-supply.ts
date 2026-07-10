@@ -63,24 +63,30 @@ let _naviJsonRpcClient: SuiJsonRpcClient | null = null;
  * fix removes the underlying error itself.
  *
  * IMPORTANT: this is the ONE read path in the codebase that still needs
- * JSON-RPC. It MUST point at a private provider via `SUI_JSONRPC_URL` —
- * the public mainnet JSON-RPC fullnode is being retired (~2026-07-20), so
- * we no longer default to `fullnode.mainnet.sui.io`. If the env var is
- * unset we throw a clear error rather than silently binding to the doomed
- * public endpoint and failing opaquely at request time.
+ * JSON-RPC (the @t2000/sdk NaviAdapter + the on-chain position read call
+ * devInspectTransactionBlock, which has no gRPC equivalent). It PREFERS a
+ * private provider via `SUI_JSONRPC_URL`. The public mainnet JSON-RPC
+ * fullnode is being retired (~2026-07-20); until then we fall back to it,
+ * with a loud warning, so Earn keeps working when the env var is unset
+ * rather than failing every deposit/withdraw. Set `SUI_JSONRPC_URL` to a
+ * private provider (Shinami Node Service / QuickNode) before that date.
  */
+const PUBLIC_JSONRPC_FALLBACK = "https://fullnode.mainnet.sui.io:443";
 function naviJsonRpcClient(): SuiJsonRpcClient {
   if (_naviJsonRpcClient) return _naviJsonRpcClient;
-  const url = process.env.SUI_JSONRPC_URL?.trim();
-  if (!url) {
-    throw new Error(
-      "SUI_JSONRPC_URL is not set — NAVI supply/withdraw needs a private JSON-RPC provider " +
-        "(the @t2000/sdk NaviAdapter + on-chain position read use devInspectTransactionBlock, " +
-        "which has no gRPC equivalent). The public mainnet JSON-RPC fullnode is being retired; " +
-        "point SUI_JSONRPC_URL at a private provider (Shinami/QuickNode/etc.)."
+  const configured = process.env.SUI_JSONRPC_URL?.trim();
+  if (!configured) {
+    console.warn(
+      "[navi] SUI_JSONRPC_URL is not set; falling back to the public mainnet " +
+        "JSON-RPC fullnode. That endpoint is being retired (~2026-07-20). Set " +
+        "SUI_JSONRPC_URL to a private provider (Shinami Node Service / QuickNode) " +
+        "before then or NAVI Earn deposit/withdraw will break."
     );
   }
-  _naviJsonRpcClient = new SuiJsonRpcClient({ url, network: "mainnet" });
+  _naviJsonRpcClient = new SuiJsonRpcClient({
+    url: configured || PUBLIC_JSONRPC_FALLBACK,
+    network: "mainnet",
+  });
   return _naviJsonRpcClient;
 }
 
