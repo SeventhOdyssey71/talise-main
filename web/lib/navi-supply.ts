@@ -54,7 +54,9 @@ let _naviJsonRpcClient: SuiJsonRpcClient | null = null;
  * Dedicated JSON-RPC client for the NAVI SDK. We CANNOT reuse the
  * shared `sui()` (gRPC fallback proxy) here because `@t2000/sdk` 2.11
  * internally calls `client.devInspectTransactionBlock(...)` — a
- * legacy JSON-RPC method that the gRPC proxy doesn't expose. The
+ * legacy JSON-RPC method that has NO gRPC equivalent (gRPC's closest
+ * primitive is `simulateTransaction`, a different API the SDK/adapter
+ * doesn't call) and that the gRPC proxy therefore doesn't expose. The
  * previous code passed `sui() as never` and the NAVI position read
  * threw `TypeError: t.devInspectTransactionBlock is not a function`,
  * which the withdraw route caught and surfaced to iOS as
@@ -62,12 +64,25 @@ let _naviJsonRpcClient: SuiJsonRpcClient | null = null;
  * helper collapsed errors into the timeout fallback). The error
  * mapping in b640a35 already distinguishes timeout vs error; this
  * fix removes the underlying error itself.
+ *
+ * IMPORTANT: this is the ONE read path in the codebase that still needs
+ * JSON-RPC. It MUST point at a private provider via `SUI_JSONRPC_URL` —
+ * the public mainnet JSON-RPC fullnode is being retired (~2026-07-20), so
+ * we no longer default to `fullnode.mainnet.sui.io`. If the env var is
+ * unset we throw a clear error rather than silently binding to the doomed
+ * public endpoint and failing opaquely at request time.
  */
 function naviJsonRpcClient(): SuiJsonRpcClient {
   if (_naviJsonRpcClient) return _naviJsonRpcClient;
-  const url =
-    process.env.SUI_JSONRPC_URL?.trim() ||
-    "https://fullnode.mainnet.sui.io:443";
+  const url = process.env.SUI_JSONRPC_URL?.trim();
+  if (!url) {
+    throw new Error(
+      "SUI_JSONRPC_URL is not set — NAVI supply/withdraw needs a private JSON-RPC provider " +
+        "(the @t2000/sdk NaviAdapter + on-chain position read use devInspectTransactionBlock, " +
+        "which has no gRPC equivalent). The public mainnet JSON-RPC fullnode is being retired; " +
+        "point SUI_JSONRPC_URL at a private provider (Shinami/QuickNode/etc.)."
+    );
+  }
   _naviJsonRpcClient = new SuiJsonRpcClient({ url, network: "mainnet" });
   return _naviJsonRpcClient;
 }
