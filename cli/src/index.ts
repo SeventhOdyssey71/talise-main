@@ -11,7 +11,7 @@
  * exit code is 0 on success, non-zero on failure.
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { pkgVersion as version } from "./version.js";
 import { resolveBaseUrl, loadSession, saveSession, sessionPath, type Session } from "./config.js";
 import { login, logout } from "./auth.js";
 import { whoami, balance, activity, resolve } from "./commands/read.js";
@@ -22,15 +22,6 @@ import { agentWhoami, agentPay, agentRecv, agentProvision, agentWallets, agentRe
 import { batch, teams, streamCreate, streamList, streamCancel } from "./commands/payouts.js";
 import { runMcp } from "./mcp.js";
 import { fail, note, disableColor, type OutputMode } from "./format.js";
-
-function version(): string {
-  try {
-    const pkg = JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"));
-    return String(pkg.version ?? "0.0.0");
-  } catch {
-    return "0.0.0";
-  }
-}
 
 type Flags = {
   json: boolean;
@@ -64,6 +55,16 @@ function parseArgs(argv: string[]): Flags {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--") { f._.push(...argv.slice(i + 1)); break; }
+    // Read a required numeric value for `flag`; reject a missing/non-numeric one
+    // so it never silently becomes NaN (which would hit the API as `?limit=NaN`).
+    const num = (flag: string): number => {
+      const raw = argv[++i];
+      const n = Number(raw);
+      if (raw === undefined || raw.startsWith("-") || !Number.isFinite(n)) {
+        throw new Error(`${flag} needs a number (got ${raw ?? "nothing"})`);
+      }
+      return n;
+    };
     switch (a) {
       case "--json": f.json = true; break;
       case "--quiet": case "-q": f.quiet = true; break;
@@ -71,14 +72,14 @@ function parseArgs(argv: string[]): Flags {
       case "--help": case "-h": f.help = true; break;
       case "--no-color": f.noColor = true; break;
       case "--base-url": f.baseUrl = argv[++i]; break;
-      case "--limit": f.limit = Number(argv[++i]); break;
+      case "--limit": f.limit = num("--limit"); break;
       case "--asset": f.asset = argv[++i] ?? "USDsui"; break;
       case "--venue": f.venue = argv[++i]; break;
       case "--memo": f.memo = argv[++i]; break;
       case "--to": { const v = argv[++i]; if (v) { f.toList.push(v); f.to ??= v; } break; }
       case "--amount": f.amount = argv[++i]; break;
       case "--note": f.note = argv[++i]; break;
-      case "--since": f.since = Number(argv[++i]); break;
+      case "--since": f.since = num("--since"); break;
       case "--team": f.team = argv[++i]; break;
       case "--file": f.file = argv[++i]; break;
       case "--total": f.total = argv[++i]; break;

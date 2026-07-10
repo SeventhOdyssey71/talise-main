@@ -14,6 +14,7 @@
 import { createInterface } from "node:readline";
 import { makeApi } from "./http.js";
 import { requireSession } from "./config.js";
+import { pkgVersion } from "./version.js";
 import { executeSend, resolveRecipient } from "./intents.js";
 import { collectReply, stripIntent } from "./stream.js";
 
@@ -155,7 +156,7 @@ export async function runMcp(baseUrl: string): Promise<void> {
           ok(id, {
             protocolVersion: PROTOCOL_VERSION,
             capabilities: { tools: {} },
-            serverInfo: { name: "talise", version: "0.1.0" },
+            serverInfo: { name: "talise", version: pkgVersion() },
           });
           break;
         case "ping":

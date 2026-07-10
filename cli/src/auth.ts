@@ -10,7 +10,7 @@
  * 4. Persist the full session. The signing key never touches a server.
  */
 import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { newEphemeralKey } from "./signer.js";
 import { makeApi } from "./http.js";
@@ -137,7 +137,7 @@ function runLoopback(
         reject(new Error(`authorization failed: ${err}`));
         return;
       }
-      if (q.get("csrf") !== expectedCsrf) {
+      if (!csrfMatches(q.get("csrf"), expectedCsrf)) {
         res.writeHead(400).end("bad csrf");
         return; // ignore — could be a stray/forged hit; keep waiting
       }
@@ -185,6 +185,15 @@ function respond(res: import("node:http").ServerResponse, title: string, body: s
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] || c);
+}
+
+/** Constant-time CSRF token comparison (avoids a timing side-channel on the
+ *  loopback callback). Length-guarded so timingSafeEqual can't throw. */
+function csrfMatches(got: string | null, expected: string): boolean {
+  if (!got) return false;
+  const a = Buffer.from(got);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** Open a URL in the default browser, cross-platform. Best-effort. */

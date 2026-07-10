@@ -55,27 +55,40 @@ const FILE = join(DIR, "session.json");
 
 const DEFAULT_BASE_URL = "https://app.talise.io";
 
-/** Resolve the API base URL: explicit flag > env > session > default.
- *  Guarded to a talise.io host so a poisoned env can't exfiltrate the bearer. */
-export function resolveBaseUrl(override?: string): string {
-  const raw = (override || process.env.TALISE_BASE_URL || "").trim();
-  if (!raw) return loadSession()?.baseUrl || DEFAULT_BASE_URL;
+/** Assert a base URL points at an allowed host, else throw. The allowlist
+ *  applies to EVERY source (flag, env, and a persisted session.json), so a
+ *  tampered session file can't silently redirect the bearer to an attacker
+ *  host. Only talise.io (and, with TALISE_ALLOW_INSECURE=1, localhost) pass. */
+function assertAllowedBaseUrl(raw: string, label: string): string {
   let host: string;
+  let protocol: string;
   try {
-    host = new URL(raw).host;
+    const u = new URL(raw);
+    host = u.host;
+    protocol = u.protocol;
   } catch {
-    throw new Error(`invalid --base-url: ${raw}`);
+    throw new Error(`invalid ${label}: ${raw}`);
   }
   const insecureOk = process.env.TALISE_ALLOW_INSECURE === "1";
-  const isTalise = host === "talise.io" || host.endsWith(".talise.io");
+  const isTalise = (host === "talise.io" || host.endsWith(".talise.io")) && protocol === "https:";
   const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
   if (!isTalise && !(insecureOk && isLocal)) {
     throw new Error(
-      `refusing to use base URL host "${host}" - must be a talise.io host ` +
+      `refusing to use base URL host "${host}" - must be an https talise.io host ` +
         `(set TALISE_ALLOW_INSECURE=1 to allow localhost for local dev)`,
     );
   }
   return raw.replace(/\/+$/, "");
+}
+
+/** Resolve the API base URL: explicit flag > env > session > default.
+ *  The result is always host-allowlisted (see assertAllowedBaseUrl). */
+export function resolveBaseUrl(override?: string): string {
+  const flagOrEnv = (override || process.env.TALISE_BASE_URL || "").trim();
+  if (flagOrEnv) return assertAllowedBaseUrl(flagOrEnv, "--base-url");
+  const fromSession = loadSession()?.baseUrl?.trim();
+  if (fromSession) return assertAllowedBaseUrl(fromSession, "session base URL");
+  return DEFAULT_BASE_URL;
 }
 
 /** Load the on-disk session, or an env-injected one (for ephemeral agent
