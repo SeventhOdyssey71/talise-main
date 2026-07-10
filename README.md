@@ -40,6 +40,7 @@ The codebase is also organized into focused repositories under the [talise-publi
 
 - [talise-frontend](https://github.com/talise-public/talise-frontend), web app and API
 - [talise-mobile](https://github.com/talise-public/talise-mobile), iOS app
+- [talise-cli](https://github.com/talise-public/talise-cli), wallet in your terminal (payments, agent-to-agent, MCP)
 - [talise-contracts](https://github.com/talise-public/talise-contracts), Sui Move packages
 - [talise-infra](https://github.com/talise-public/talise-infra), gas-sponsorship service
 - [talise-docs](https://github.com/talise-public/talise-docs), overview, architecture, and pitch

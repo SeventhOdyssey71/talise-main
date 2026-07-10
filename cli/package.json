@@ -1,18 +1,17 @@
 {
   "name": "@talise/cli",
   "version": "0.1.0",
-  "description": "Talise wallet in your terminal — payments, natural language, agent-to-agent money on Sui.",
+  "description": "Talise wallet in your terminal: payments, natural language, agent-to-agent money on Sui.",
   "type": "module",
   "license": "MIT",
   "author": "Talise",
   "homepage": "https://talise.io",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SeventhOdyssey71/talise-main.git",
-    "directory": "cli"
+    "url": "git+https://github.com/talise-public/talise-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/SeventhOdyssey71/talise-main/issues"
+    "url": "https://github.com/talise-public/talise-cli/issues"
   },
   "keywords": [
     "talise",
