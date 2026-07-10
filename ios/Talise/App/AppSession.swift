@@ -43,6 +43,10 @@ final class AppSession {
         // run persisted and land on the sign-in screen.
         clearSession()
         phase = .signedOut
+        // Warm FX rates on cold start so a non-USD user's first amount entry
+        // converts correctly (convertToUsd blocks a non-USD send until the
+        // rate is known). Soft-fails to the cached / USD-only path.
+        Task { await CurrencySettings.shared.refresh() }
     }
 
     /// Called when the app is fully backgrounded (the user left it). Arms the

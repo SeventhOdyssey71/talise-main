@@ -93,6 +93,12 @@ final class CurrencySettings {
     func set(_ currency: TaliseCurrency) {
         current = currency
         UserDefaults.standard.set(currency.code, forKey: defaultsKey)
+        // Pull fresh rates for the newly chosen currency so amount entry
+        // works immediately (convertToUsd blocks a non-USD send until the
+        // rate is known). No-op for USD; soft-fails otherwise.
+        if currency.code != "USD" {
+            Task { await refresh() }
+        }
     }
 
     /// One-shot rate fetch — call from AppSession.bootstrap. Idempotent;
@@ -138,11 +144,16 @@ final class CurrencySettings {
     /// Reverse direction — local-currency amount back to USD. Used when
     /// the user types an amount in their chosen currency on Invest /
     /// Send / etc., and we need to convert to USDsui (1:1 USD) before
-    /// posting to the backend. Falls back to identity when the rate
-    /// hasn't loaded yet so we never silently zero out a supply.
+    /// posting to the backend.
+    ///
+    /// FAIL SAFE: USD is 1:1 by definition. For any other currency, if the
+    /// FX rate has not loaded we return 0 (not identity) so the amount fails
+    /// the caller's `> 0` gate and the send/supply is BLOCKED. Returning
+    /// identity here would submit e.g. "5000" meaning NGN 5,000 (~$3.30) as
+    /// $5,000 on the wire, overspending by the full FX factor.
     func convertToUsd(local: Double) -> Double {
-        let rate = rates[current.code] ?? 1
-        guard rate > 0 else { return local }
+        if current.code == "USD" { return local }
+        guard let rate = rates[current.code], rate > 0 else { return 0 }
         return local / rate
     }
 
