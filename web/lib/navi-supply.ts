@@ -1,13 +1,10 @@
 import "server-only";
 
-import {
-  coinWithBalance,
-  Transaction,
-} from "@mysten/sui/transactions";
+import { Transaction } from "@mysten/sui/transactions";
 import { bcs } from "@mysten/sui/bcs";
 import { NaviAdapter } from "@t2000/sdk";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
-import { USDSUI_TYPE, isUsdsui } from "./usdsui";
+import { isUsdsui } from "./usdsui";
 import { USDSUI_DECIMALS, sui } from "./sui";
 import { memoTtl } from "./perf-cache";
 import { sourceUsdsuiCoin } from "./usdsui-coin";

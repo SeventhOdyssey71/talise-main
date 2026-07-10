@@ -87,7 +87,7 @@ export async function agentGaslessSend(opts: {
   const okTx = result.Transaction as { digest?: string } | undefined;
   const failedTx = result.FailedTransaction as { digest?: string } | undefined;
   if ((result.$kind as string | undefined) === "FailedTransaction" || (failedTx && !okTx)) {
-    throw new Error("transaction failed on chain (aborted) — funds not moved");
+    throw new Error("transaction failed on chain (aborted), funds not moved");
   }
   const digest = (result.digest as string | undefined) ?? okTx?.digest ?? "";
   if (!digest) throw new Error("no digest in broadcast response");

@@ -386,7 +386,7 @@ export async function recordCreatedRule(
   await ensureMoneyRulesSchema();
   const v = validateRule(input);
   const orderId = await parseCreatedOrderId(digest);
-  if (!orderId) throw new Error("Couldn't confirm the on-chain rule yet — wait a moment and retry.");
+  if (!orderId) throw new Error("Couldn't confirm the on-chain rule yet. Wait a moment and retry.");
 
   const now = Date.now();
   const id = newRuleId();

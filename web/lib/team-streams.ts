@@ -225,7 +225,7 @@ export async function createDraftTeamStream(input: {
   const trancheMicros = input.totalMicros / BigInt(input.numTranches);
   const perMemberMicros = trancheMicros / BigInt(n);
   if (perMemberMicros < MIN_PER_MEMBER_MICROS) {
-    throw new Error("Each person's share per payout must be at least 0.01 USDsui — fund more or use fewer payouts.");
+    throw new Error("Each person's share per payout must be at least 0.01 USDsui. Fund more or use fewer payouts.");
   }
 
   const now = Date.now();
