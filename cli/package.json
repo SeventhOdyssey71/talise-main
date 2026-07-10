@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Talise wallet in your terminal: payments, natural language, agent-to-agent money on Sui.",
   "type": "module",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "author": "Talise",
   "homepage": "https://talise.io",
   "repository": {
