@@ -222,7 +222,9 @@ internal fun EarnManageSheet(
                     partial = partial,
                     onChange = { partial = it },
                     supplied = supplied,
-                    onMax = { partial = "%.2f".format(supplied) },
+                    // Locale.US: default-locale format on comma-decimal locales yields
+                    // "12,34", which toDoubleOrNull() rejects, bricking the MAX path.
+                    onMax = { partial = String.format(java.util.Locale.US, "%.2f", supplied) },
                 )
             }
 

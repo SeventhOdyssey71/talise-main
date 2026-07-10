@@ -79,12 +79,20 @@ fun SendToBankView(
     /** Masked primary-bank label, e.g. "GTBank ••••1234". */
     bankLabel: String,
     onDone: () -> Unit,
+    /**
+     * Reports when the payout pipeline is in flight so the host can block
+     * sheet dismissal — the pipeline runs on this composition's scope, and a
+     * dismissal mid-flight cancels it between the locked Linq order and the
+     * on-chain send (or after funds moved but before the event/receipt).
+     */
+    onBusyChanged: (Boolean) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
 
     var amount by remember { mutableStateOf("") }
     var step by remember { mutableStateOf(ToBankStep.Form) }
     var sending by remember { mutableStateOf(false) }
+    LaunchedEffect(sending) { onBusyChanged(sending) }
     var error by remember { mutableStateOf<String?>(null) }
     var statusText by remember { mutableStateOf("") }
     var paidLabel by remember { mutableStateOf("") }
@@ -189,7 +197,10 @@ fun SendToBankView(
                 color = TaliseColors.fg,
                 modifier = Modifier.align(Alignment.Center),
             )
-            if (step == ToBankStep.Form) {
+            // Hidden while `sending`: step stays Form during the order-lock +
+            // on-chain send, and cancelling then would kill the pipeline
+            // mid-money-move.
+            if (step == ToBankStep.Form && !sending) {
                 Text(
                     "Cancel",
                     style = TaliseType.body(14.sp, FontWeight.Normal),

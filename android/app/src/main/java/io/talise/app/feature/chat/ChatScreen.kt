@@ -160,7 +160,7 @@ fun ChatScreen(onClose: () -> Unit, vm: ChatViewModel = viewModel()) {
                     MessageRow(
                         msg = msg,
                         onRegenerate = { vm.regenerate(msg.id) },
-                        onExecuted = { results -> vm.recordExecution(msg.id, results) },
+                        executePlan = { plan, intent, onResult -> vm.executeIntent(msg.id, plan, intent, onResult) },
                     )
                 }
             }
@@ -362,7 +362,7 @@ private fun SuggestionCard(s: Suggestion, onClick: () -> Unit, modifier: Modifie
 private fun MessageRow(
     msg: ChatMessage,
     onRegenerate: () -> Unit,
-    onExecuted: (List<AgentActionResult>) -> Unit,
+    executePlan: (AgentPlanDTO, AgentIntent, onResult: (List<AgentActionResult>?, String?) -> Unit) -> Unit,
 ) {
     if (msg.role == ChatMessage.Role.User) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
@@ -398,7 +398,7 @@ private fun MessageRow(
                     AgentIntentCard(
                         intent = intent,
                         executed = msg.executed,
-                        onExecuted = onExecuted,
+                        executePlan = executePlan,
                     )
                 }
                 if (!msg.streaming && msg.content.isNotEmpty()) {
@@ -487,7 +487,7 @@ private fun markdown(s: String): AnnotatedString {
     val cleaned = s
         .replace(" — ", ", ")
         .replace(" – ", ", ")
-        .replace("-", "-")
+        .replace("—", "-")
         .replace("–", "-")
         // Inline links: keep the label, drop the URL noise.
         .replace(Regex("\\[([^\\]]+)]\\(([^)]+)\\)"), "$1")

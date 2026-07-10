@@ -187,7 +187,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = viewModel()) {
                     pageSpacing = 0.dp,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 32.dp),
                 ) { page ->
-                    if (page == 0) UsernameCard(handle) else TokenBucketCard()
+                    if (page == 0) UsernameCard(handle) else TokenBucketCard(onClick = { nav.navigate(Routes.WALLET) })
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(
@@ -376,10 +376,16 @@ private fun UsernameCard(handle: String?) {
     }
 }
 
-/** Token bucket card (carousel page 1). */
+/** Token bucket card (carousel page 1). Tapping opens the Wallet (token bucket) screen. */
 @Composable
-private fun TokenBucketCard() {
-    Box(Modifier.fillMaxWidth().height(212.dp).flatCard(radius = 25.dp)) {
+private fun TokenBucketCard(onClick: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(212.dp)
+            .flatCard(radius = 25.dp)
+            .clickable { onClick() },
+    ) {
         Icon(
             Icons.Filled.Hexagon,
             contentDescription = null,

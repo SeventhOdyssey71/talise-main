@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -256,11 +257,16 @@ fun TeamEditView(
                 )
             } else {
                 state.rows.forEach { row ->
-                    MemberRowView(
-                        row = row,
-                        onChange = { vm.updateRow(it) },
-                        onRemove = { vm.removeRow(row.id) },
-                    )
+                    // key(row.id): each row remembers its own resolved/resolving
+                    // state; without an explicit key identity is positional, so
+                    // removing row N hands its verified identity to row N+1.
+                    key(row.id) {
+                        MemberRowView(
+                            row = row,
+                            onChange = { vm.updateRow(it) },
+                            onRemove = { vm.removeRow(row.id) },
+                        )
+                    }
                 }
             }
         }

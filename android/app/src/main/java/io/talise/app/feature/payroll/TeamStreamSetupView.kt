@@ -29,10 +29,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,11 +41,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.talise.app.core.model.TeamDTO
 import io.talise.app.ui.components.SlideToConfirm
 import io.talise.app.ui.components.rampCard
 import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -65,17 +74,86 @@ private enum class StreamInterval(val label: String, val minutes: Int, val unit:
     Weekly("Weekly", 10080, "week"),
 }
 
+/**
+ * Owns the fund-the-pot pipeline (prepare -> sign+send -> record) so it runs on
+ * [viewModelScope] and survives the composable. On the previous
+ * `rememberCoroutineScope` a back press mid-flight cancelled the coroutine
+ * between `signAndSubmitSend` (real USDsui moved to escrow) and `streamRecord`
+ * (activation), silently stranding the funds.
+ */
+class TeamStreamSetupViewModel : ViewModel() {
+
+    data class State(
+        val starting: Boolean = false,
+        val error: String? = null,
+        val started: Boolean = false,
+        val startedSummary: String = "",
+        /** Forces the slider knob back to start after a failed confirm. */
+        val resetSliderTick: Int = 0,
+    )
+
+    private val _state = MutableStateFlow(State())
+    val state: StateFlow<State> = _state.asStateFlow()
+
+    fun bounceSlider() {
+        _state.value = _state.value.copy(resetSliderTick = _state.value.resetSliderTick + 1)
+    }
+
+    fun start(teamId: String, totalUsd: Double, numTranches: Int, intervalMinutes: Int, intervalUnit: String) {
+        if (_state.value.starting) return
+        _state.value = _state.value.copy(starting = true, error = null)
+        viewModelScope.launch {
+            try {
+                val prep = PayrollApi.service.streamCreatePrepare(
+                    StreamCreateBody(
+                        teamId = teamId,
+                        totalUsd = totalUsd,
+                        numTranches = numTranches,
+                        intervalMinutes = intervalMinutes,
+                    ),
+                )
+                val digest = PayrollApi.signAndSubmitSend(to = prep.escrowAddress, amountUsd = prep.totalUsd)
+                PayrollApi.service.streamRecord(StreamRecordBody(streamId = prep.streamId, digest = digest))
+                val people = if (prep.memberCount == 1) "person" else "people"
+                _state.value = _state.value.copy(
+                    starting = false,
+                    started = true,
+                    startedSummary = "${prep.memberCount} $people will each receive ${payrollUsd2(prep.perMemberUsd)} per $intervalUnit, ${prep.numTranches} times.",
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    starting = false,
+                    error = PayrollApi.friendlyPayoutError(e, "Couldn't start the stream. Please try again."),
+                    resetSliderTick = _state.value.resetSliderTick + 1,
+                )
+            }
+        }
+    }
+}
+
 @Composable
-fun TeamStreamSetupView(team: TeamDTO, onDismiss: () -> Unit) {
+fun TeamStreamSetupView(
+    team: TeamDTO,
+    onDismiss: () -> Unit,
+    vm: TeamStreamSetupViewModel = viewModel(key = "team-stream-${team.id}") { TeamStreamSetupViewModel() },
+) {
     var amount by remember { mutableStateOf("") }
     var numTranches by remember { mutableStateOf(4) }
     var interval by remember { mutableStateOf(StreamInterval.Daily) }
-    var starting by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val state by vm.state.collectAsStateWithLifecycle()
+    val starting = state.starting
+
+    // Tick -> one-frame reset pulse for the slider (same wiring as PayTeamView).
     var resetSlider by remember { mutableStateOf(false) }
-    var started by remember { mutableStateOf(false) }
-    var startedSummary by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
+    LaunchedEffect(state.resetSliderTick) {
+        if (state.resetSliderTick > 0) {
+            resetSlider = true
+            delay(50)
+            resetSlider = false
+        }
+    }
 
     val memberCount = maxOf(team.members.size, 1)
     val totalUsd = amount.trim().toDoubleOrNull() ?: 0.0
@@ -83,35 +161,18 @@ fun TeamStreamSetupView(team: TeamDTO, onDismiss: () -> Unit) {
     val canStart = totalUsd > 0 && numTranches >= 1 && perMemberPerPayout >= 0.01 && !starting
 
     fun start() {
-        if (!canStart) { resetSlider = !resetSlider; return }
-        starting = true
-        error = null
-        scope.launch {
-            try {
-                val prep = PayrollApi.service.streamCreatePrepare(
-                    StreamCreateBody(
-                        teamId = team.id,
-                        totalUsd = totalUsd,
-                        numTranches = numTranches,
-                        intervalMinutes = interval.minutes,
-                    ),
-                )
-                val digest = PayrollApi.signAndSubmitSend(to = prep.escrowAddress, amountUsd = prep.totalUsd)
-                PayrollApi.service.streamRecord(StreamRecordBody(streamId = prep.streamId, digest = digest))
-                val people = if (prep.memberCount == 1) "person" else "people"
-                startedSummary = "${prep.memberCount} $people will each receive ${payrollUsd2(prep.perMemberUsd)} per ${interval.unit}, ${prep.numTranches} times."
-                started = true
-            } catch (e: Exception) {
-                error = PayrollApi.friendlyPayoutError(e, "Couldn't start the stream. Please try again.")
-                resetSlider = !resetSlider
-            } finally {
-                starting = false
-            }
-        }
+        if (!canStart) { vm.bounceSlider(); return }
+        vm.start(
+            teamId = team.id,
+            totalUsd = totalUsd,
+            numTranches = numTranches,
+            intervalMinutes = interval.minutes,
+            intervalUnit = interval.unit,
+        )
     }
 
-    if (started) {
-        StreamStartedView(summary = startedSummary, onDone = onDismiss)
+    if (state.started) {
+        StreamStartedView(summary = state.startedSummary, onDone = onDismiss)
         return
     }
 
@@ -189,7 +250,7 @@ fun TeamStreamSetupView(team: TeamDTO, onDismiss: () -> Unit) {
             }
         }
 
-        error?.let {
+        state.error?.let {
             Text(it, style = TaliseType.body(13.sp, FontWeight.Light), color = TaliseColors.danger)
         }
 

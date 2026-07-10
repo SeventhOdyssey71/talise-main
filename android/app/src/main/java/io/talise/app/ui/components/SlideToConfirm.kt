@@ -125,7 +125,12 @@ fun SlideToConfirm(
                     if (!enabled) return@pointerInput
                     detectHorizontalDragGestures(
                         onDragEnd = {
-                            if (progress >= 0.8f && !confirming) {
+                            // Recompute from live state: the composition-time `progress` local
+                            // is captured when this pointerInput block launches (its keys don't
+                            // change during a drag), so it is stale here — always the value from
+                            // block start, which would make the slider never confirm.
+                            val endProgress = if (maxTravel > 0f) (dragX / maxTravel).coerceIn(0f, 1f) else 0f
+                            if (endProgress >= 0.8f && !confirming) {
                                 confirming = true
                                 dragX = maxTravel
                                 scope.launch { onConfirm() }

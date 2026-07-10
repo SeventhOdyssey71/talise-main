@@ -125,7 +125,9 @@ class ContractsViewModel : ViewModel() {
         if (_create.value.creating) return
         _create.value = _create.value.copy(creating = true, error = null)
         val totalUsd = rateUsd * periods
-        val intervalMs = intervalMinutes * 60_000
+        // Long math: monthly cadence is 43_200 minutes -> 2_592_000_000 ms,
+        // which overflows Int (Swift's Int is 64-bit, so iOS never hit this).
+        val intervalMs = intervalMinutes * 60_000L
         viewModelScope.launch {
             try {
                 // ── Fund the stream. ──────────────────────────────────────
@@ -145,7 +147,8 @@ class ContractsViewModel : ViewModel() {
                     digest = TaliseSigning.signAndSubmitSend(escrowAddr, totalUsd)
                 }
 
-                val totalMicros = Math.round(totalUsd * 1_000_000).toInt()
+                // Keep micros in Long: totals above $2,147.48 overflow Int.
+                val totalMicros = Math.round(totalUsd * 1_000_000)
                 val trancheMicros = totalMicros / maxOf(1, periods)
                 val now = System.currentTimeMillis()
                 val rec = api.streamRecord(

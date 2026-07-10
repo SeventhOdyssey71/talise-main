@@ -111,6 +111,38 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { ChatConversationStore.saveAll(getApplication<Application>(), list) }
     }
 
+    /** Message ids whose confirmed intent is executing. Guards double-runs from a re-composed card. */
+    private val executingIntents = mutableSetOf<String>()
+
+    /**
+     * Run a confirmed agent plan on [viewModelScope] so real money movement
+     * survives the intent card's composable (which dies when the row scrolls
+     * out of the LazyColumn, another chat is opened, or the route closes).
+     * The outcome is recorded on the transcript here, whether or not the card
+     * is still on screen to receive [onResult].
+     */
+    fun executeIntent(
+        messageId: String,
+        plan: AgentPlanDTO,
+        intent: AgentIntent,
+        onResult: (results: List<AgentActionResult>?, error: String?) -> Unit,
+    ) {
+        if (!executingIntents.add(messageId)) return
+        viewModelScope.launch {
+            try {
+                val results = AgentExecutor.execute(plan, intent)
+                if (results.isNotEmpty()) recordExecution(messageId, results)
+                onResult(results, null)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                onResult(null, t.message ?: "Couldn't complete that. Please try again.")
+            } finally {
+                executingIntents.remove(messageId)
+            }
+        }
+    }
+
     /**
      * Record a confirmed intent's outcome on its assistant turn and persist, so
      * reopening this chat shows the receipt rather than re-prompting.

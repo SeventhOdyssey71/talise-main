@@ -87,6 +87,11 @@ object ChatClient {
                 // Read the event stream line by line. Each SSE data line is
                 // `data: <json>`; blank lines separate frames.
                 while (!source.exhausted()) {
+                    // The collector cancelling (new chat / opened history / VM cleared)
+                    // closes the channel, but nothing in this blocking loop suspends —
+                    // without this check we'd keep the socket open reading the rest of
+                    // the reply and never reach awaitClose { call.cancel() }.
+                    if (isClosedForSend) break
                     val line = source.readUtf8Line() ?: break
                     if (!line.startsWith("data:")) continue
                     val jsonStr = line.removePrefix("data:").trim()

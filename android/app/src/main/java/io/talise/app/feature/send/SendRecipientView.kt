@@ -26,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -315,7 +316,7 @@ fun SendRecipientView(
             ) {
                 PayModeTab(
                     title = "On-chain",
-                    sub = "in seconds",
+                    sub = "instant",
                     selected = payMode == PayMode.Onchain,
                     onClick = {
                         payMode = PayMode.Onchain
@@ -405,9 +406,16 @@ fun SendRecipientView(
         val r = draft.resolved
         val bank = r?.recipientBank
         if (r != null && bank != null && bank.hasPrimary) {
-            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            // While the payout pipeline is in flight the sheet must not be
+            // dismissable: its coroutine runs on the sheet's composition scope,
+            // and dismissal mid-flight would cancel it with money half-moved.
+            var bankBusy by remember { mutableStateOf(false) }
+            val sheetState = rememberModalBottomSheetState(
+                skipPartiallyExpanded = true,
+                confirmValueChange = { target -> target != SheetValue.Hidden || !bankBusy },
+            )
             ModalBottomSheet(
-                onDismissRequest = { showBankSheet = false },
+                onDismissRequest = { if (!bankBusy) showBankSheet = false },
                 sheetState = sheetState,
                 containerColor = TaliseColors.bg,
             ) {
@@ -422,6 +430,7 @@ fun SendRecipientView(
                         showBankSheet = false
                         onClose()
                     },
+                    onBusyChanged = { bankBusy = it },
                 )
             }
         }

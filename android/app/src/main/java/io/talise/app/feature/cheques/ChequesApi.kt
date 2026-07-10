@@ -77,6 +77,7 @@ data class ChequeClaimResp(
     val ok: Boolean,
     val digest: String? = null,
     val amountUsd: Double? = null,
+    val error: String? = null,
 )
 
 /**

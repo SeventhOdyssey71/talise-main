@@ -95,7 +95,7 @@ data class ContractActionBody(val action: String = "cancel")
 data class CtrStreamPrepareBody(
     val to: String,
     val totalUsd: Double,
-    val intervalMs: Int,
+    val intervalMs: Long,
     val numTranches: Int,
 )
 
@@ -108,7 +108,7 @@ data class CtrStreamRecordBody(
     val trancheMicros: String,
     val numTranches: Int,
     val startMs: Long,
-    val intervalMs: Int,
+    val intervalMs: Long,
 )
 
 @Serializable

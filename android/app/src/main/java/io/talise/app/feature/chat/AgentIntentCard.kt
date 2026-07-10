@@ -33,7 +33,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,7 +44,6 @@ import androidx.compose.ui.unit.sp
 import io.talise.app.ui.components.rampCard
 import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
-import kotlinx.coroutines.launch
 import java.util.Locale
 
 /**
@@ -65,7 +63,12 @@ import java.util.Locale
 fun AgentIntentCard(
     intent: AgentIntent,
     executed: List<AgentActionResult>? = null,
-    onExecuted: (List<AgentActionResult>) -> Unit = {},
+    /**
+     * Runs the validated plan on a scope that survives this composable
+     * ([ChatViewModel.executeIntent]) — the card can scroll out of the
+     * LazyColumn mid-transfer, and money movement must not die with it.
+     */
+    executePlan: (AgentPlanDTO, AgentIntent, onResult: (List<AgentActionResult>?, String?) -> Unit) -> Unit,
 ) {
     var stage by remember { mutableStateOf(Stage.Loading) }
     var plan by remember { mutableStateOf<AgentPlanDTO?>(null) }
@@ -73,7 +76,6 @@ fun AgentIntentCard(
     var actionResults by remember { mutableStateOf<List<AgentActionResult>>(emptyList()) }
     var receiptFor by remember { mutableStateOf<AgentActionResult?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         // Already ran in a prior session — open straight to the receipt and
@@ -115,15 +117,15 @@ fun AgentIntentCard(
         if (stage == Stage.Running) return
         stage = Stage.Running
         error = null
-        scope.launch {
-            try {
-                actionResults = AgentExecutor.execute(p, intent)
+        // Persisting the outcome on the transcript happens inside the runner
+        // (ChatViewModel), so a reopen shows the receipt even if this card is
+        // gone by the time the transfer completes.
+        executePlan(p, intent) { results, failure ->
+            if (results != null) {
+                actionResults = results
                 stage = Stage.Done
-                // Persist the outcome on the transcript so a reopen shows this
-                // receipt instead of the confirm buttons again.
-                if (actionResults.isNotEmpty()) onExecuted(actionResults)
-            } catch (t: Throwable) {
-                error = t.message ?: "Couldn't complete that. Please try again."
+            } else {
+                error = failure ?: "Couldn't complete that. Please try again."
                 // Keep the plan visible so the user can tap Accept to retry.
                 stage = Stage.Plan
             }

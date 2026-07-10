@@ -281,7 +281,12 @@ class ChequesViewModel : ViewModel() {
                         claimedAmount = r.amountUsd ?: _claim.value.preview?.amountUsd,
                     )
                 } else {
-                    _claim.value = _claim.value.copy(claiming = false)
+                    // A 200 with ok=false previously reset silently: the
+                    // slide-to-cash looked like it did nothing. Say so.
+                    _claim.value = _claim.value.copy(
+                        claiming = false,
+                        error = r.error ?: "Couldn't cash this cheque right now.",
+                    )
                 }
             } catch (t: CancellationException) {
                 throw t
