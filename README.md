@@ -48,3 +48,7 @@ The codebase is also organized into focused repositories under the [talise-publi
 ## Security
 
 No secrets are committed. Configuration is environment-driven, bank details are encrypted at rest, and money-path endpoints are gated by app attestation and rate limiting.
+
+## License
+
+Proprietary. Copyright (c) 2026 Talise. All rights reserved. The source is publicly viewable for evaluation and reference only; no use, copy, modification, distribution, or fork-for-use is permitted without written permission. See [LICENSE](./LICENSE). Third-party components (for example the flag icons, SuiGrpcKit, and the gas-sponsorship service) retain their own licenses.

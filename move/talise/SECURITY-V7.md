@@ -55,7 +55,7 @@ most `max_per_day` per user before Oncall+Root rotate.
 Library: `OpenZeppelin/contracts-sui` v1.1.0
 - Audits: `audits/2026-03-v1.0.0.pdf` + `2026-04-v1.1.0-diff.pdf` +
   `2026-04-v1.1.0-fp-math.pdf` in the OZ repo.
-- License: MIT.
+- License: Proprietary (all rights reserved).
 - Pin via `rev = "v1.1.0"` in `Move.toml` so upstream changes don't
   silently break us.
 
