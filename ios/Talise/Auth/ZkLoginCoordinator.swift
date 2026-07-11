@@ -110,8 +110,21 @@ final class ZkLoginCoordinator {
     // MARK: - Sign-in
 
     func signIn() async throws -> SignInResult {
+        // 0. ROTATE the ephemeral key on every fresh sign-in. Sign-OUT wipes
+        //    the key, but re-login previously did NOT — so `loadOrCreate()`
+        //    would REUSE a weeks-old ephemeral key whose `maxEpoch` (fixed at
+        //    the key's original login) is long expired. The JWT nonce minted
+        //    below is Poseidon-bound to (ephemeralPubKey, maxEpoch, randomness),
+        //    so signing with that stale key/epoch produced the on-chain
+        //    "ZKLogin expired at epoch N" deposit failures. Wiping HERE — before
+        //    loadOrCreate + before the nonce/maxEpoch are computed and before
+        //    /start — forces a brand-new key so the JWT binds a FRESH epoch.
+        EphemeralKeyStore.shared.wipe()
+        ProofCache.shared.clear()
+
         // 1. Make sure we have an ephemeral key BEFORE OAuth so we can
-        //    bind it into the start-state cookie.
+        //    bind it into the start-state cookie. loadOrCreate now mints a
+        //    fresh key because the wipe above cleared the old one.
         let key = try EphemeralKeyStore.shared.loadOrCreate()
         let pubKeyB64 = key.publicKey.rawRepresentation.base64EncodedString()
 
@@ -180,7 +193,17 @@ final class ZkLoginCoordinator {
     /// ProofCache is the SAME one the JWT nonce committed to — the
     /// prover's nonce equality check requires it.
     func signInWithApple() async throws -> SignInResult {
-        // 1. Pre-auth binding material.
+        // 0. ROTATE the ephemeral key on every fresh sign-in (see signIn()
+        //    for the full rationale). The Apple flow computes maxEpoch +
+        //    the zkLogin nonce from this key below, so it MUST be fresh here —
+        //    reusing a stale key/epoch is what caused the "ZKLogin expired at
+        //    epoch N" deposit failures. Wipe BEFORE loadOrCreate + BEFORE the
+        //    nonce/maxEpoch are computed so the identity token binds a FRESH key.
+        EphemeralKeyStore.shared.wipe()
+        ProofCache.shared.clear()
+
+        // 1. Pre-auth binding material. loadOrCreate mints a fresh key
+        //    because the wipe above cleared the old one.
         let key = try EphemeralKeyStore.shared.loadOrCreate()
         let pubKeyB64 = key.publicKey.rawRepresentation.base64EncodedString()
         let randomness = SuiRandomness.generate()
