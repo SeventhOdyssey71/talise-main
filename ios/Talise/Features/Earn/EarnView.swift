@@ -856,7 +856,16 @@ private struct EarnManageSheet: View {
                 size: .lg,
                 loading: withdrawing
             ) {
-                Task { await withdraw(all: false) }
+                // A MAX / full-balance withdraw must use the redeem-all path
+                // (nil amount → backend redeems the entire position atomically).
+                // NAVI accrues interest continuously, so redeeming the EXACT
+                // full position by amount races the live on-chain balance and
+                // stalls the sponsor-execute confirmation window ("Send timed
+                // out"). Detect a full-position withdraw (typed amount within a
+                // cent of the supplied balance) and redeem-all; a genuine
+                // partial still withdraws the exact typed amount.
+                let isFullWithdraw = partialUsd >= supplied - 0.01
+                Task { await withdraw(all: isFullWithdraw) }
             }
             .disabled(!canWithdrawPartial)
 

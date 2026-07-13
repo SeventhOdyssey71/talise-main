@@ -39,25 +39,8 @@ struct DepositFlowView: View {
                             Eyebrow(text: "Deposit with")
                                 .padding(.leading, 4)
 
-                            // Card on-ramp — LOCKED (2026-06-10): the Stripe
-                            // hosted onramp doesn't work in production, so the
-                            // path is honest about it ("Soon") instead of
-                            // dead-ending the user in a broken Stripe flow.
-                            // Re-wire to DepositOnrampView when the onramp is
-                            // actually live.
-                            Button {
-                                showComingSoon("Card top-ups are coming soon.")
-                            } label: {
-                                FundingPathCard(
-                                    icon: "hi.card",
-                                    title: "Cash",
-                                    subtitle: "Buy USDsui with your bank card",
-                                    soon: true
-                                )
-                            }
-                            .buttonStyle(TilePress())
-
-                            // Onchain receive (QR / address). Live.
+                            // Onchain receive (QR / address). Live — the primary,
+                            // fully-working funding path, shown first.
                             NavigationLink {
                                 DepositOnchainView()
                             } label: {
@@ -69,11 +52,37 @@ struct DepositFlowView: View {
                             }
                             .buttonStyle(TilePress())
 
+                            // Card on-ramp — not live yet. Shown below Crypto as an
+                            // honest "coming soon" (tap surfaces a toast, never a
+                            // broken flow). Flip RampFlags.cardOnrampLive to wire it.
+                            if RampFlags.cardOnrampLive {
+                                NavigationLink {
+                                    DepositOnrampView(onClose: onClose)
+                                } label: {
+                                    FundingPathCard(
+                                        icon: "hi.card",
+                                        title: "Cash",
+                                        subtitle: "Buy USDsui with your bank card"
+                                    )
+                                }
+                                .buttonStyle(TilePress())
+                            } else {
+                                Button {
+                                    showComingSoon("Card top-ups are coming soon.")
+                                } label: {
+                                    FundingPathCard(
+                                        icon: "hi.card",
+                                        title: "Cash",
+                                        subtitle: "Buy USDsui with your bank card",
+                                        soon: true
+                                    )
+                                }
+                                .buttonStyle(TilePress())
+                            }
+
                             // Bank transfer — Bridge corridors (USD/EUR/GBP…).
-                            // Live only once the Bridge account is approved
-                            // (RampFlags.bridgeLive); until then it's an honest
-                            // "Soon" so we don't dead-end testers in an empty
-                            // picker. Flip the flag to open the corridor flow.
+                            // Live once RampFlags.bridgeLive; until then shown as a
+                            // "coming soon" below Crypto rather than hidden.
                             if RampFlags.bridgeLive {
                                 NavigationLink {
                                     AddMoneyCorridorFlow()
@@ -81,7 +90,7 @@ struct DepositFlowView: View {
                                     FundingPathCard(
                                         icon: "hi.bank",
                                         title: "Bank transfer",
-                                        subtitle: "From your bank — USD, EUR, GBP and more"
+                                        subtitle: "From your bank in USD, EUR, GBP and more"
                                     )
                                 }
                                 .buttonStyle(TilePress())
@@ -92,7 +101,7 @@ struct DepositFlowView: View {
                                     FundingPathCard(
                                         icon: "hi.bank",
                                         title: "Bank transfer",
-                                        subtitle: "From a local bank account — no card needed",
+                                        subtitle: "From a local bank account, no card needed",
                                         soon: true
                                     )
                                 }

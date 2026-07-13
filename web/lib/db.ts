@@ -2270,11 +2270,26 @@ export async function markRoundupProcessed(
 
 // ─── App allowlist (private-beta access gate) ───────────────────────────────
 
-/** Env bootstrap — comma-separated emails that ALWAYS have access (founders),
- *  even if the DB allowlist is unreachable. */
+/** Env bootstrap — comma-separated emails that ALWAYS have access, even if the
+ *  DB allowlist is unreachable (fail-open only for these explicit entries).
+ *
+ *  Two env vars, unioned, so intent stays legible and each is independently
+ *  revocable:
+ *    • APP_ALLOWED_EMAILS  — founders / long-lived team bootstrap.
+ *    • APP_REVIEW_EMAILS   — App Store / Play reviewer demo account(s). Add the
+ *                            reviewer email here to fully enable the account
+ *                            (skips the waiting room AND passes every money-API
+ *                            403 guardrail — both route through this function).
+ *                            Delete the entry to revoke the instant review ends;
+ *                            it never widens access for anyone else.
+ */
 function envAllowedEmails(): Set<string> {
+  const raw = [
+    process.env.APP_ALLOWED_EMAILS ?? "",
+    process.env.APP_REVIEW_EMAILS ?? "",
+  ].join(",");
   return new Set(
-    (process.env.APP_ALLOWED_EMAILS ?? "")
+    raw
       .split(",")
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean)
@@ -2289,9 +2304,13 @@ function envAllowedEmails(): Set<string> {
  *  reverts to env-bootstrap + app_allowlist gating, fail-closed on DB error).
  */
 export async function isAppAccessAllowed(email: string): Promise<boolean> {
-  if (process.env.APP_ACCESS_OPEN !== "false") return true;
   const norm = email.trim().toLowerCase();
+  // Explicit env allowlist (founders + reviewers) ALWAYS passes, independent of
+  // the open/closed toggle — so an added reviewer email keeps working even if
+  // APP_ACCESS_OPEN is later flipped to "false" mid-review. Checked first and
+  // costs no DB round-trip.
   if (envAllowedEmails().has(norm)) return true;
+  if (process.env.APP_ACCESS_OPEN !== "false") return true;
   try {
     await ensureSchema();
     const r = await db().execute({

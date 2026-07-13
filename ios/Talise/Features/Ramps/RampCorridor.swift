@@ -137,4 +137,10 @@ enum RampFlags {
     // LOCKED for now: Bridge corridors (US cash-out / add-money) hidden while
     // KYC + the US flow are paused. Flip back to true to re-enable.
     static let bridgeLive = false
+
+    // LOCKED for now: card top-up (Stripe hosted crypto onramp) hidden while the
+    // production Stripe flow is not reliable. When off, the Deposit screen shows
+    // only the fully-working onchain Crypto path — no "coming soon" dead-ends for
+    // App Review. Flip to true to re-expose the card path with no other change.
+    static let cardOnrampLive = false
 }

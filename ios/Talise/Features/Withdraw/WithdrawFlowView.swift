@@ -74,7 +74,7 @@ struct WithdrawFlowView: View {
 
                             // Private transactions — shielded USDsui (Talise's
                             // own ZK privacy layer). Opens the native
-                            // PrivateSendFlowView (amount ≤ $10 → recipient →
+                            // PrivateSendFlowView (amount ≤ $2.50 → recipient →
                             // review → hidden in-app prover/relayer). The prover
                             // harness fails CLEANLY (SendFailureView) if the
                             // web prover route isn't reachable — never a crash,
@@ -1439,7 +1439,8 @@ struct TaliseLoadingRing: View {
 /// send (deposit into the pool, then withdraw to the recipient — which severs
 /// the on-chain sender↔recipient link). The Groth16 proof is built client-side
 /// in a HIDDEN, never-shown in-app web layer (privacy holds — the relayer only
-/// relays, never sees note secrets). $10/tx pilot cap is enforced on-chain.
+/// relays, never sees note secrets). $2.50/tx pilot cap is enforced app-side
+/// (the on-chain pool max_deposit stays at $10; this is the stricter limit).
 struct PrivateSendFlowView: View {
     var onDone: (() -> Void)?
 
@@ -1915,7 +1916,7 @@ enum ShieldKeyStore {
 
 /// Amount entry for a SHIELDED send. Same muscle-memory as the normal Send
 /// keypad, but visibly its own thing: a lock-marked "Private send" header, a
-/// shielded accent, and the $10 pilot cap baked into the input.
+/// shielded accent, and the $2.50 pilot cap baked into the input.
 struct PrivateAmountView: View {
     @Bindable var draft: SendDraft
     var onNext: () -> Void
@@ -1923,7 +1924,7 @@ struct PrivateAmountView: View {
     var onRecover: () -> Void = {}
 
     private var amount: Double { Double(draft.rawAmount) ?? 0 }
-    private var overCap: Bool { amount > 10 }
+    private var overCap: Bool { amount > 2.5 }
     private var canContinue: Bool { amount > 0 && !overCap }
 
     var body: some View {
@@ -1969,7 +1970,7 @@ struct PrivateAmountView: View {
                     .font(TaliseFont.display(72, weight: .medium)).kerning(-1)
                     .foregroundStyle(TaliseColor.fg)
             }
-            Text(overCap ? "Pilot limit is $10 per private send" : "Kept private")
+            Text(overCap ? "Pilot limit is $2.50 per private send" : "Kept private")
                 .font(TaliseFont.body(13, weight: .light))
                 .foregroundStyle(overCap ? TaliseColor.danger : TaliseColor.fgMuted)
         }
@@ -1978,7 +1979,7 @@ struct PrivateAmountView: View {
     private var shieldedPill: some View {
         HStack(spacing: 8) {
             Circle().fill(TaliseColor.greenMint).frame(width: 7, height: 7)
-            Text("PRIVATE · UP TO $10")
+            Text("PRIVATE · UP TO $2.50")
                 .font(TaliseFont.mono(11, weight: .regular)).tracking(1.5)
                 .foregroundStyle(TaliseColor.fgMuted)
         }
@@ -2091,7 +2092,7 @@ struct PrivateReviewView: View {
     private var privacyNote: some View {
         HStack(alignment: .top, spacing: 10) {
             HugeIcon(name: "hi.lock", size: 15, tint: TaliseColor.greenMint).padding(.top, 1)
-            Text("Only you and the person you pay ever see the amount, and your money never leaves your control. Early pilot, capped at $10.")
+            Text("Only you and the person you pay ever see the amount, and your money never leaves your control. Early pilot, capped at $2.50.")
                 .font(TaliseFont.body(12.5, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2232,7 +2233,7 @@ struct ShieldedBalanceView: View {
                 .buttonStyle(TilePress())
                 .disabled(busy)
             }
-            Text("Up to $10 per send during the pilot.")
+            Text("Up to $2.50 per send during the pilot.")
                 .font(TaliseFont.mono(10, weight: .regular)).tracking(1.2)
                 .foregroundStyle(TaliseColor.fgDim)
                 .padding(.top, 4)

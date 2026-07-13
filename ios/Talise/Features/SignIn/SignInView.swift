@@ -131,16 +131,11 @@ struct SignInView: View {
                     .buttonStyle(.plain)
                     .disabled(anySignInBusy)
 
-                    // Beta honesty — non-allowlisted testers hit an access
-                    // gate after sign-in; flag it up front so the gate
-                    // reads as expected, not broken.
-                    Text("Talise is in private beta — access is invite-only.")
+                    // Legal — Terms and Privacy are tappable, opening the
+                    // hosted pages in the browser (markdown auto-links).
+                    Text("By continuing you agree to our [Terms](https://talise.io/terms) and [Privacy](https://talise.io/privacy).")
                         .font(TaliseFont.body(11))
-                        .foregroundStyle(TaliseColor.fgDim)
-                        .frame(maxWidth: .infinity, alignment: .center)
-
-                    Text("By continuing you agree to our Terms and Privacy.")
-                        .font(TaliseFont.body(11))
+                        .tint(TaliseColor.greenMint)
                         .foregroundStyle(TaliseColor.fgDim)
                         .frame(maxWidth: .infinity, alignment: .center)
                 }

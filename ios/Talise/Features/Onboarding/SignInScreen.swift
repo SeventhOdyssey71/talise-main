@@ -85,22 +85,15 @@ struct SignInScreen: View {
                 }
                 .padding(.horizontal, 24)
 
-                // Beta honesty — non-allowlisted testers hit an access
-                // gate after sign-in, so say up front that the gate is
-                // expected rather than letting it read as a broken app.
-                Text("Talise is in private beta — access is invite-only.")
+                // Legal — Terms and Privacy are tappable, opening the hosted
+                // pages in the browser (markdown auto-links).
+                Text("By continuing you agree to our [Terms](https://talise.io/terms) and [Privacy](https://talise.io/privacy).")
                     .font(TaliseFont.body(11, weight: .light))
                     .kerning(kern(11))
+                    .tint(TaliseColor.greenMint)
                     .foregroundStyle(TaliseColor.fgDim)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.top, 12)
-
-                Text("By continuing you agree to our Terms and Privacy.")
-                    .font(TaliseFont.body(11, weight: .light))
-                    .kerning(kern(11))
-                    .foregroundStyle(TaliseColor.fgDim)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.top, 14)
                     .padding(.bottom, 28)
             }
         }

@@ -118,7 +118,7 @@ struct ProfileView: View {
             Text(deleteError ?? "")
         }
         .sheet(isPresented: $showNftPicker) {
-            NftPickerSheet(currentPfp: currentUser?.pfpUrl) {
+            CopilotSkinSheet(currentPfp: currentUser?.pfpUrl) {
                 // Refresh the profile so the new avatar shows immediately.
                 Task { await session.bootstrap() }
             }
@@ -283,9 +283,12 @@ struct ProfileView: View {
     /// from `user.picture`; falls back to a clean initials disc.
     private var avatar: some View {
         Group {
-            // Prefer the user's chosen avatar override (e.g. an NFT) over the
-            // Google picture.
-            if let urlString = currentUser?.pfpUrl ?? currentUser?.picture,
+            // Saved Copilot takes precedence — rendered locally (mascot on its
+            // chosen background), no photo needed. Then any avatar override /
+            // Google picture, else initials.
+            if CopilotSkin.shared.useAsProfileImage {
+                copilotAvatar
+            } else if let urlString = currentUser?.pfpUrl ?? currentUser?.picture,
                let url = URL(string: urlString) {
                 AsyncImage(url: url) { phase in
                     switch phase {
@@ -303,6 +306,20 @@ struct ProfileView: View {
                 initialsDisc
             }
         }
+    }
+
+    /// The Copilot as a profile picture — the mascot (in its chosen colour) on
+    /// its chosen background, cropped to a circle. Mirrors the selector hero.
+    private var copilotAvatar: some View {
+        ZStack {
+            Image(CopilotSkin.shared.background.asset)
+                .resizable()
+                .scaledToFill()
+            AgentMascot(size: 60, tint: CopilotSkin.shared.color)
+                .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
+        }
+        .frame(width: 88, height: 88)
+        .clipShape(Circle())
     }
 
     /// Avatar fallback — a flat solid disc carrying the user's initials.
@@ -1077,92 +1094,350 @@ private struct NftsResp: Codable { let nfts: [NftItem] }
 private struct AvatarBody: Encodable { var imageUrl: String? = nil; var clear: Bool? = nil }
 private struct AvatarResp: Codable { let ok: Bool?; let pfpUrl: String? }
 
-/// Pick a Sui NFT from the wallet as the profile picture. Loads
-/// `/api/me/nfts`, sets the choice via `/api/me/avatar`, and (when an override
-/// already exists) offers to remove it back to the Google photo.
-private struct NftPickerSheet: View {
+/// The Copilot look picker — this IS the profile picture. The user's Copilot
+/// wears either a free colour skin (the drawn mascot, recoloured) or an NFT they
+/// own, shown large on a branded wallpaper. Own nothing? The classic Copilot is
+/// the wallpaper, never a dead empty state. NFTs are tradable via Tradeport.
+///
+/// Colour skins persist locally through `CopilotSkin` and reflect everywhere the
+/// mascot shows; an NFT skin sets the avatar override via `/api/me/avatar`.
+private struct CopilotSkinSheet: View {
     let currentPfp: String?
     var onChanged: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     @State private var nfts: [NftItem] = []
     @State private var loading = true
     @State private var saving = false
+    /// nil = wearing the drawn Copilot (a colour skin); non-nil = wearing an NFT.
+    @State private var selectedNftUrl: String?
+    @State private var skin = CopilotSkin.shared
+    @State private var savedPfp = false
 
     private let cols = [GridItem(.flexible(), spacing: 12),
                         GridItem(.flexible(), spacing: 12),
                         GridItem(.flexible(), spacing: 12)]
 
+    private var wearingNft: Bool { selectedNftUrl != nil }
+    private var currentName: String {
+        if let url = selectedNftUrl, let n = nfts.first(where: { $0.imageUrl == url }) { return n.name }
+        return "Talise Copilot"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Choose a picture")
-                    .font(TaliseFont.heading(20, weight: .medium))
-                    .foregroundStyle(TaliseColor.fg)
-                Spacer()
-                if currentPfp != nil {
-                    Button("Remove") { Task { await save(AvatarBody(clear: true)) } }
-                        .font(TaliseFont.body(14, weight: .medium))
-                        .foregroundStyle(TaliseColor.danger)
-                        .disabled(saving)
+            header
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    heroWallpaper
+                    backgroundPicker
+                    colorSkins
+                    saveButton
                 }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 22)
-            .padding(.bottom, 6)
-
-            Text("Pick an NFT from your wallet.")
-                .font(TaliseFont.body(13, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
-                .padding(.bottom, 14)
+                .padding(.top, 6)
+                .padding(.bottom, 30)
+            }
+        }
+        .background(TaliseColor.bg.ignoresSafeArea())
+        .task {
+            selectedNftUrl = currentPfp
+            await load()
+        }
+    }
 
-            if loading {
-                Spacer()
-                ProgressView().tint(TaliseColor.greenMint)
-                Spacer()
-            } else if nfts.isEmpty {
-                Spacer()
-                VStack(spacing: 8) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 30, weight: .light))
-                        .foregroundStyle(TaliseColor.fgDim)
-                    Text("No NFTs in your wallet yet")
-                        .font(TaliseFont.body(14, weight: .light))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                }
-                Spacer()
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: cols, spacing: 12) {
-                        ForEach(nfts) { nft in
-                            Button { Task { await save(AvatarBody(imageUrl: nft.imageUrl)) } } label: {
-                                AsyncImage(url: URL(string: nft.imageUrl)) { phase in
-                                    switch phase {
-                                    case .success(let img): img.resizable().scaledToFill()
-                                    default: Rectangle().fill(TaliseColor.surface2)
-                                    }
-                                }
-                                .frame(height: 108)
-                                .frame(maxWidth: .infinity)
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .strokeBorder(TaliseColor.line, lineWidth: 1)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(saving)
+    // MARK: header
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Your Copilot")
+                    .font(TaliseFont.heading(21, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                Text("Pick a look, or wear an NFT you own.")
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+            }
+            Spacer()
+            if wearingNft {
+                Button("Reset") { Task { await removeNft() } }
+                    .font(TaliseFont.body(14, weight: .medium))
+                    .foregroundStyle(TaliseColor.greenMint)
+                    .disabled(saving)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 22)
+        .padding(.bottom, 14)
+    }
+
+    // MARK: hero wallpaper — the Copilot (or worn NFT) on the chosen background
+    private var heroWallpaper: some View {
+        ZStack {
+            Image(skin.background.asset)
+                .resizable()
+                .scaledToFill()
+            // Scrim so the mascot + name stay legible on any background.
+            LinearGradient(
+                colors: [.black.opacity(0.12), .clear, .black.opacity(0.48)],
+                startPoint: .top, endPoint: .bottom
+            )
+
+            VStack(spacing: 16) {
+                if let url = selectedNftUrl, let u = URL(string: url) {
+                    AsyncImage(url: u) { phase in
+                        switch phase {
+                        case .success(let img): img.resizable().scaledToFill()
+                        default: Rectangle().fill(TaliseColor.surface2)
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 28)
+                    .frame(width: 128, height: 128)
+                    .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .strokeBorder(.white.opacity(0.6), lineWidth: 2))
+                    .shadow(color: .black.opacity(0.4), radius: 18, y: 10)
+                } else {
+                    AgentMascot(size: 128, animated: true, tint: skin.color)
+                        .shadow(color: .black.opacity(0.35), radius: 22, y: 10)
+                }
+                Text(currentName)
+                    .font(TaliseFont.heading(15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+            }
+            .padding(.vertical, 30)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 250)
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous)
+            .strokeBorder(.white.opacity(0.08), lineWidth: 1))
+    }
+
+    // MARK: save as profile image
+    private var saveButton: some View {
+        Button { Task { await saveAsProfile() } } label: {
+            HStack(spacing: 8) {
+                Image(systemName: savedPfp ? "checkmark" : "person.crop.circle")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(savedPfp ? "Saved as profile image" : "Save as profile image")
+                    .font(TaliseFont.heading(15, weight: .semibold))
+            }
+            .foregroundStyle(TaliseColor.bg)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(Capsule().fill(savedPfp ? TaliseColor.greenDeep : TaliseColor.greenMint))
+        }
+        .buttonStyle(.plain)
+        .disabled(saving)
+        .padding(.top, 4)
+    }
+
+    // MARK: background picker — the wallpaper the Copilot sits on
+    private var backgroundPicker: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionLabel("Copilot background")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(CopilotSkin.backgrounds) { bg in
+                        let selected = skin.selectedBgId == bg.id
+                        Button { skin.selectedBgId = bg.id } label: {
+                            VStack(spacing: 7) {
+                                Image(bg.asset)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 92, height: 64)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .strokeBorder(selected ? TaliseColor.greenMint : Color.white.opacity(0.08),
+                                                          lineWidth: selected ? 2 : 1)
+                                    )
+                                Text(bg.name)
+                                    .font(TaliseFont.mono(10, weight: .regular))
+                                    .foregroundStyle(selected ? TaliseColor.fg : TaliseColor.fgDim)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    // MARK: free colour skins — recolour the drawn Copilot (reflects app-wide)
+    private var colorSkins: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionLabel("Copilot color")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(CopilotSkin.presets) { p in
+                        let selected = !wearingNft && skin.selectedId == p.id
+                        Button { Task { await pickColor(p) } } label: {
+                            VStack(spacing: 8) {
+                                ZStack {
+                                    Circle().fill(p.color.opacity(0.16))
+                                    AgentMascot(size: 40, tint: p.color)
+                                }
+                                .frame(width: 66, height: 66)
+                                .overlay(
+                                    Circle().strokeBorder(
+                                        selected ? TaliseColor.greenMint : Color.white.opacity(0.06),
+                                        lineWidth: selected ? 2 : 1)
+                                )
+                                Text(p.name)
+                                    .font(TaliseFont.mono(10, weight: .regular))
+                                    .foregroundStyle(selected ? TaliseColor.fg : TaliseColor.fgDim)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(saving)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    // MARK: NFT skins — owned NFTs the Copilot can wear
+    private var nftSkins: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionLabel("Your NFT skins")
+            if loading {
+                HStack { Spacer(); ProgressView().tint(TaliseColor.greenMint); Spacer() }
+                    .padding(.vertical, 24)
+            } else if nfts.isEmpty {
+                emptyNfts
+            } else {
+                LazyVGrid(columns: cols, spacing: 12) {
+                    ForEach(nfts) { nft in
+                        let selected = selectedNftUrl == nft.imageUrl
+                        Button { Task { await pickNft(nft) } } label: {
+                            AsyncImage(url: URL(string: nft.imageUrl)) { phase in
+                                switch phase {
+                                case .success(let img): img.resizable().scaledToFill()
+                                default: Rectangle().fill(TaliseColor.surface2)
+                                }
+                            }
+                            .frame(height: 104)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(selected ? TaliseColor.greenMint : TaliseColor.line,
+                                                  lineWidth: selected ? 2 : 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(saving)
+                    }
                 }
             }
         }
-        .background(TaliseColor.bg)
-        .task { await load() }
+    }
+
+    private var emptyNfts: some View {
+        HStack(spacing: 13) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(TaliseColor.greenMint)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(TaliseColor.greenMint.opacity(0.12)))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("No NFT skins yet")
+                    .font(TaliseFont.body(14, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                Text("Grab one from a top Sui collection to wear it.")
+                    .font(TaliseFont.body(12.5, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(TaliseColor.surface))
+    }
+
+    // MARK: trade
+    private var tradeCard: some View {
+        Button {
+            if let u = URL(string: "https://www.tradeport.xyz/sui") { openURL(u) }
+        } label: {
+            HStack(spacing: 13) {
+                Image(systemName: "bag")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(TaliseColor.bg)
+                    .frame(width: 42, height: 42)
+                    .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(TaliseColor.greenMint))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Browse Sui collections")
+                        .font(TaliseFont.heading(15, weight: .medium))
+                        .foregroundStyle(TaliseColor.fg)
+                    Text("Trade the top NFTs on Tradeport")
+                        .font(TaliseFont.body(12.5, weight: .light))
+                        .foregroundStyle(TaliseColor.fgMuted)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
+            .padding(15)
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(TaliseColor.surface))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(TaliseColor.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sectionLabel(_ s: String) -> some View {
+        Text(s.uppercased())
+            .font(TaliseFont.mono(11, weight: .regular))
+            .kerning(1.4)
+            .foregroundStyle(TaliseColor.fgDim)
+    }
+
+    // MARK: data
+    private func saveAsProfile() async {
+        // Optimistic + LOCAL: the avatar renders the Copilot from this flag
+        // immediately (Observation), so the picture works with zero network and
+        // can't 401 → no sign-out (the /api/me/avatar path that did is gone).
+        skin.useAsProfileImage = true
+        selectedNftUrl = nil
+        savedPfp = true
+
+        // Record the choice ON-CHAIN, gaslessly (Onara-sponsored) — best-effort.
+        // Uses the standard sponsored rail (prepare → sponsor-execute) that
+        // goals/streams use. If PROFILE_PACKAGE_ID isn't set yet the route 503s
+        // and this silently no-ops; the local picture is already saved either way.
+        await recordProfileOnChain()
+
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        dismiss()
+    }
+
+    private struct ProfilePrepareResp: Decodable {
+        let bytes: String?
+        let mode: String?
+        let error: String?
+    }
+
+    private func recordProfileOnChain() async {
+        struct Body: Encodable { let avatar: String; let config: String }
+        // Small JSON blob mirroring the on-chain `config` field: colour + bg.
+        let cfg = "{\"color\":\"\(skin.selectedId)\",\"bg\":\"\(skin.selectedBgId)\"}"
+        do {
+            let prep: ProfilePrepareResp = try await APIClient.shared.post(
+                "/api/profile/set/prepare",
+                body: Body(avatar: "copilot", config: cfg)
+            )
+            guard prep.error == nil, let bytes = prep.bytes, !bytes.isEmpty else { return }
+            _ = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                bytesB64: bytes, intent: "Set profile picture"
+            )
+        } catch {
+            // On-chain sync is best-effort; the local picture is already set.
+        }
     }
 
     private func load() async {
@@ -1173,12 +1448,26 @@ private struct NftPickerSheet: View {
         }
     }
 
+    private func pickColor(_ p: CopilotSkin.Preset) async {
+        skin.selectedId = p.id
+        if wearingNft { await removeNft() }   // take the NFT off → drawn Copilot shows
+    }
+
+    private func pickNft(_ nft: NftItem) async {
+        selectedNftUrl = nft.imageUrl
+        await save(AvatarBody(imageUrl: nft.imageUrl))
+    }
+
+    private func removeNft() async {
+        selectedNftUrl = nil
+        await save(AvatarBody(clear: true))
+    }
+
     private func save(_ body: AvatarBody) async {
         guard !saving else { return }
         saving = true
         defer { saving = false }
         let _: AvatarResp? = try? await APIClient.shared.post("/api/me/avatar", body: body)
         onChanged()
-        dismiss()
     }
 }

@@ -114,6 +114,7 @@ struct SendToBankView: View {
                     fieldLabel("Amount in Naira")
                     amountField
                     estimateLine
+                    dailyCapNote
                 }
 
                 if let error {
@@ -197,6 +198,24 @@ struct SendToBankView: View {
                 .contentTransition(.numericText())
                 .animation(.snappy(duration: 0.18), value: amountValue)
         }
+    }
+
+    /// Honest disclosure of the beta cash-out ceiling so a larger attempt
+    /// reads as an expected limit, not a broken flow. The server enforces the
+    /// same $200/day cap (KYC upgrades raise it) in
+    /// api/offramp/linq/quote/route.ts.
+    private var dailyCapNote: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 10, weight: .regular))
+                .foregroundStyle(TaliseColor.fgDim)
+            Text("Cash-out is limited to $200 per day during beta. Verify your identity to raise it.")
+                .font(TaliseFont.mono(10, weight: .light))
+                .foregroundStyle(TaliseColor.fgDim)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.leading, 2)
+        .padding(.top, 2)
     }
 
     private var continueButton: some View {

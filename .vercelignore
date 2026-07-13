@@ -3,6 +3,10 @@ move
 marketing
 docs
 scratchpad
+.claude
+infra
+cli
+scripts
 .git
 node_modules
 web/node_modules
