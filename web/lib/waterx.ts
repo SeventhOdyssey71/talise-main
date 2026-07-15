@@ -288,18 +288,18 @@ async function getPositions(client: PerpClient, accountId: string): Promise<Perp
   const per = await Promise.all(
     WATERX_TICKERS.map(async (ticker): Promise<PerpPosition[]> => {
       try {
-        const m = await getMarketData(client, { ticker });
-        const priceUsd = Number(m.long_avg_entry_price) / PRICE_SCALE;
+        // Use the warm cached spot for the price basis instead of a per-ticker
+        // getMarketData gRPC call — halves the gRPC load of an account read
+        // (this runs for all 30 markets on every poll). Falls back to 0 basis
+        // (we compute PnL/liq ourselves, so the basis only feeds the SDK read).
+        const spot = (await cachedSpotFor(ticker)) ?? 0;
         const rows = await getAccountPositions(client, {
           ticker,
           accountObjectAddress: accountId,
-          basePriceUsd: rawPrice(priceUsd),
+          basePriceUsd: rawPrice(spot > 0 ? spot : 1),
           collateralPriceUsd: rawPrice(1),
         });
         if (!rows.length) return [];
-        // Live mark from our warm price cache — the on-chain oracle_price uses a
-        // higher-precision scale and can lag; our Pyth feed is the reliable mark.
-        const spot = (await cachedSpotFor(ticker)) ?? priceUsd;
         return rows.map((p) => {
           const q = p as unknown as {
             collateral_decimal?: number; average_price?: string | number;
@@ -472,11 +472,24 @@ export async function buildOrderTx(o: OrderInput): Promise<Transaction> {
  */
 export async function buildWithdrawTx(accountId: string, usd: number, recipient: string): Promise<Transaction> {
   const client = await perp();
+  let amount = usdToBase(usd);
+  // Cap to the actual on-chain spendable credit. A "MAX" withdraw shows a value
+  // rounded to cents that can round UP past the true balance (e.g. spendable
+  // 4.9399 shown as $4.94) — requesting the rounded amount then reverts. Capping
+  // makes MAX (and any over-ask) withdraw exactly what's available.
+  try {
+    const bal = await getSpendableCreditBalance(client, accountId);
+    const spendable = BigInt(bal.totalRaw);
+    if (amount > spendable) amount = spendable;
+  } catch {
+    /* fall back to the requested amount if the balance read fails */
+  }
+  if (amount <= 0n) throw new Error("Nothing available to withdraw.");
   const tx = new Transaction();
   const route = routeNative(client, tx, { assetType: COLLATERAL_TYPE, minOutput: 0 });
   const request = requestCreditWithdraw(client, tx, {
     accountId,
-    amount: usdToBase(usd),
+    amount,
     recipient,
     route,
   });

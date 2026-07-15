@@ -3,6 +3,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { denyUnlessAppApproved } from "@/lib/app-access";
 import { rateLimitAsync } from "@/lib/rate-limit";
+import { cachedFetch } from "@/lib/perp-cache";
 import {
   WATERX_ENABLED, WATERX_LOCAL_SIGN, localSigner,
   buildCreateAccountTx, buildDepositTx, buildWithdrawTx, settle, findCreatedAccountId, accountSnapshot,
@@ -51,8 +52,14 @@ export async function GET(req: Request) {
     }
     const accountId = qAccount ?? (actor.userId != null ? await getStoredAccount(actor.userId) : null);
     if (!accountId) return NextResponse.json({ accountId: null, address: actor.sender });
-    const snap = await accountSnapshot(accountId);
-    return NextResponse.json({ accountId, address: actor.sender, ...snap });
+    // Cache the (expensive, multi-gRPC) snapshot briefly so the client's 5s
+    // poll mostly hits cache instead of re-scanning every market each time.
+    const { data: snap } = await cachedFetch(
+      `perp:snap:${accountId}`, 7000, () => accountSnapshot(accountId),
+    );
+    return NextResponse.json({
+      accountId, address: actor.sender, ...(snap ?? { availableUsd: 0, positions: [] }),
+    });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message ?? "read failed" }, { status: 502 });
   }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireCron } from "@/lib/cron-auth";
 import { WATERX_ENABLED } from "@/lib/waterx";
 import { WATERX_TICKERS } from "@/lib/waterx-assets";
-import { refreshCandleCache, refreshQuoteCache, WARM_INTERVALS } from "@/lib/perp-cache";
+import { refreshCandleCache, refreshQuoteCache } from "@/lib/perp-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,13 +26,17 @@ export async function GET(req: Request) {
   if (!WATERX_ENABLED) return NextResponse.json({ ok: false, reason: "disabled" });
   let candlesOk = 0, candlesFail = 0, quotesOk = 0;
 
+  // Warm the quotes (used everywhere) + the common intervals only. The rest
+  // (1m, 5m, 4h) warm on-demand and keep their last-good, so we don't pay to
+  // pre-warm them every run. Keeps the cron cheap while the chart stays covered.
+  const WARM = ["15m", "1h", "1d"];
   for (const ticker of WATERX_TICKERS) {
     if (await refreshQuoteCache(ticker)) quotesOk++;
-    await sleep(80);
-    for (const iv of WARM_INTERVALS) {
+    await sleep(40);
+    for (const iv of WARM) {
       if (await refreshCandleCache(ticker, iv)) candlesOk++;
       else candlesFail++;
-      await sleep(80);
+      await sleep(40);
     }
   }
 
