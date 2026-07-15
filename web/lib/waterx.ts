@@ -220,6 +220,47 @@ export async function storeAccount(userId: number, accountId: string): Promise<v
   }
 }
 
+// ── Active markets per account ───────────────────────────────────────────────
+// Positions live inside each MARKET object, so finding an account's positions
+// means querying markets. Scanning all 30 on every 5s poll was the account
+// read's cost. Instead we remember which markets an account has traded and scan
+// only those — cheap AND fresh (no snapshot cache needed). The set is seeded by
+// a one-time full scan and kept current by the order endpoint.
+const ACTIVE_TTL_MS = 5 * 60 * 1000;
+
+async function getActiveMarkets(accountId: string): Promise<{ tickers: string[]; ts: number } | null> {
+  try {
+    const r = await db().execute({
+      sql: "SELECT v_text, refreshed_at FROM global_kv WHERE k = ?",
+      args: [`perp:active:${accountId}`],
+    });
+    const row = r.rows[0] as { v_text?: string; refreshed_at?: number | string } | undefined;
+    if (!row?.v_text) return null;
+    return { tickers: JSON.parse(row.v_text) as string[], ts: Number(row.refreshed_at) || 0 };
+  } catch {
+    return null;
+  }
+}
+
+async function setActiveMarkets(accountId: string, tickers: string[]): Promise<void> {
+  try {
+    await db().execute({
+      sql: `INSERT INTO global_kv (k, v_text, refreshed_at) VALUES (?, ?, ?)
+            ON CONFLICT (k) DO UPDATE SET v_text = EXCLUDED.v_text, refreshed_at = EXCLUDED.refreshed_at`,
+      args: [`perp:active:${accountId}`, JSON.stringify([...new Set(tickers)]), Date.now()],
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Record that an account has (or is about to have) a position on `ticker`, so
+ *  the next account read scans it immediately. Called from the order endpoint. */
+export async function addActiveMarket(accountId: string, ticker: string): Promise<void> {
+  const cur = (await getActiveMarkets(accountId))?.tickers ?? [];
+  if (!cur.includes(ticker)) await setActiveMarkets(accountId, [...cur, ticker]);
+}
+
 // ── Trade history (recorded per user in global_kv) ───────────────────────────
 export type TradeLogEntry = {
   ts: number;
@@ -285,8 +326,15 @@ export async function accountSnapshot(
 }
 
 async function getPositions(client: PerpClient, accountId: string): Promise<PerpPosition[]> {
+  // Scan only the account's active markets when the set is known + fresh; else
+  // do a one-time full scan (and reseed the set from what we find). This keeps
+  // the read to ~1-3 gRPC calls instead of 30 on every poll.
+  const active = await getActiveMarkets(accountId);
+  const fullScan = !active || Date.now() - active.ts > ACTIVE_TTL_MS;
+  const scanList = fullScan ? WATERX_TICKERS : active!.tickers;
+
   const per = await Promise.all(
-    WATERX_TICKERS.map(async (ticker): Promise<PerpPosition[]> => {
+    scanList.map(async (ticker): Promise<PerpPosition[]> => {
       try {
         // Use the warm cached spot for the price basis instead of a per-ticker
         // getMarketData gRPC call — halves the gRPC load of an account read
@@ -339,7 +387,16 @@ async function getPositions(client: PerpClient, accountId: string): Promise<Perp
       }
     }),
   );
-  return per.flat();
+  const positions = per.flat();
+  // After a full scan, reseed the active set (even if empty) so subsequent
+  // reads skip the 30-market scan. Keep any market from the prior set too, so a
+  // just-opened position (added by the order endpoint) isn't dropped by a
+  // concurrent scan that hasn't seen its fill yet.
+  if (fullScan) {
+    const found = positions.map((p) => p.ticker);
+    await setActiveMarkets(accountId, [...found, ...(active?.tickers ?? [])]);
+  }
+  return positions;
 }
 
 // ── Settlement (local execute OR sponsored bytes) ────────────────────────────
