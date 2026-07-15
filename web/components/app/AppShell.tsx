@@ -87,6 +87,8 @@ const PRIMARY: NavItem[] = [
   },
   { label: "Copilot", href: "/app/agent", icon: SparklesIcon as IconSvgElement },
   { label: "Earn", href: "/app/earn", icon: Plant02Icon as IconSvgElement },
+  { label: "Markets", href: "/app/markets", icon: Analytics01Icon as IconSvgElement },
+  { label: "Predict", href: "/app/predict", icon: Analytics01Icon as IconSvgElement },
   { label: "Work", href: "/app/work", icon: Briefcase01Icon as IconSvgElement },
   { label: "Activity", href: "/app/activity", icon: Analytics01Icon as IconSvgElement },
 ];
@@ -101,6 +103,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/app/requests": "Requests",
   "/app/rules": "Automations",
   "/app/earn": "Earn",
+  "/app/markets": "Markets",
+  "/app/predict": "Predict",
   "/app/rewards": "Rewards",
   "/app/work": "Work",
   "/app/activity": "Activity",
@@ -305,6 +309,47 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
   );
 }
 
+// ── Navbar nav item (lg+, horizontal) ──────────────────────────────────────────
+
+function NavbarItem({ item, active, pathname }: { item: NavItem; active: boolean; pathname: string }) {
+  const base = `flex items-center gap-2 rounded-full px-3.5 py-2 text-[14px] transition-colors ${
+    active ? "bg-[#3d7a29] font-semibold text-[#f7fcf2]" : "font-medium text-[#3a5230] hover:bg-[#CAFFB8]/50"
+  }`;
+  const inner = (
+    <>
+      <HugeiconsIcon icon={item.icon} size={17} strokeWidth={active ? 2.2 : 1.8} color={active ? "#f7fcf2" : "#3a5230"} />
+      <span>{item.label}</span>
+    </>
+  );
+  if (!item.children) {
+    return <Link href={item.href} className={base}>{inner}</Link>;
+  }
+  return (
+    <div className="group relative">
+      <Link href={item.href} className={base}>
+        {inner}
+        <span className="text-[9px] opacity-60">▾</span>
+      </Link>
+      <div className="invisible absolute left-0 top-full z-40 pt-2 opacity-0 transition group-hover:visible group-hover:opacity-100">
+        <div className="w-48 rounded-2xl border border-[#15300c]/10 bg-[#f7fcf2] p-1.5 shadow-[0_16px_44px_-16px_rgba(21,48,12,0.45)]">
+          {item.children.map((child) => {
+            const childActive = child.href === item.href ? pathname === child.href : pathname === child.href || pathname.startsWith(child.href + "/");
+            return (
+              <Link
+                key={child.href}
+                href={child.href}
+                className={`block rounded-xl px-3 py-2 text-[13px] transition-colors ${childActive ? "bg-[#CAFFB8] font-semibold text-[#15300c]" : "font-medium text-[#3a5230] hover:bg-[#CAFFB8]/50 hover:text-[#15300c]"}`}
+              >
+                {child.label}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Sign-in screen ─────────────────────────────────────────────────────────────
 
 function SignInScreen({ returnTo = "/app" }: { returnTo?: string }) {
@@ -371,12 +416,14 @@ function AccountMenu({
   size = 32,
   activityHref = "/app/activity",
   rampsHref = "/app/ramps",
+  settingsHref,
   showMoneyTools = false,
 }: {
   me: Me;
   size?: number;
   activityHref?: string;
   rampsHref?: string;
+  settingsHref?: string;
   /** Consumer-only: surface Requests + Automations (no sidebar on mobile). */
   showMoneyTools?: boolean;
 }) {
@@ -418,6 +465,13 @@ function AccountMenu({
             </DropdownMenuItem>
           </>
         )}
+        {settingsHref && (
+          <DropdownMenuItem asChild>
+            <Link href={settingsHref}>
+              <HugeiconsIcon icon={Settings01Icon} size={18} strokeWidth={1.8} /> Settings
+            </Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           {/* Wipe the tab's ephemeral key + cross-tab expiry marker BEFORE the
@@ -440,89 +494,48 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
 
   return (
     <div className="relative min-h-screen text-[#15300c]">
-      {/* ── Desktop sidebar (lg+) ── */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-[#15300c]/10 px-4 py-5 lg:flex">
-        <div className="px-2">
+      {/* ── Desktop top navbar (lg+) ── */}
+      <header className="fixed inset-x-0 top-0 z-30 hidden h-16 items-center gap-4 border-b border-[#15300c]/10 bg-[#f7fcf2]/80 px-6 backdrop-blur-md lg:flex">
+        <div className="flex-none">
           <Logo homeHref={nav.brandHref} />
         </div>
-        <nav className="mt-7 flex flex-1 flex-col gap-1">
-          {nav.primary.map((item) => {
-            const active = isActive(pathname, item.href, nav.brandHref);
-            return (
-              <div key={item.href}>
-                <SidebarItem item={item} active={active} />
-                {/* Reveal sub-entries (e.g. Pay → Cheques/Stream/Request)
-                    only while this section is active, so the sidebar stays
-                    calm elsewhere but those routes are reachable here. */}
-                {item.children && active && (
-                  <div className="mb-1.5 ml-[26px] mt-1 flex flex-col gap-0.5 border-l border-[#15300c]/15 pl-2">
-                    {item.children.map((child) => {
-                      const childActive =
-                        child.href === item.href
-                          ? pathname === child.href
-                          : pathname === child.href ||
-                            pathname.startsWith(child.href + "/");
-                      return (
-                        <Link
-                          key={child.href}
-                          href={child.href}
-                          aria-current={childActive ? "page" : undefined}
-                          className={`rounded-xl px-2.5 py-1.5 text-[13px] transition-colors ${
-                            childActive
-                              ? "bg-[#CAFFB8] font-semibold text-[#15300c]"
-                              : "font-medium text-[#3a5230] hover:bg-[#CAFFB8]/50 hover:text-[#15300c]"
-                          }`}
-                        >
-                          {child.label}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          <div className="my-3 h-px bg-[#15300c]/10" />
-          {/* Secondary money tools — Requests (track who owes you). Consumer
-              surface only; the business nav has its own primary set so these
-              stay out of it. (Automations hidden for now.) */}
+        <nav className="flex flex-1 items-center justify-center gap-1">
+          {nav.primary.map((item) => (
+            <NavbarItem
+              key={item.href}
+              item={item}
+              active={isActive(pathname, item.href, nav.brandHref)}
+              pathname={pathname}
+            />
+          ))}
           {nav === CONSUMER_NAV && (
-            <>
-              <SidebarItem
-                item={{ label: "Requests", href: "/app/requests", icon: MoneyReceive01Icon as IconSvgElement }}
-                active={isActive(pathname, "/app/requests", nav.brandHref)}
-              />
-            </>
+            <NavbarItem
+              item={{ label: "Requests", href: "/app/requests", icon: MoneyReceive01Icon as IconSvgElement }}
+              active={isActive(pathname, "/app/requests", nav.brandHref)}
+              pathname={pathname}
+            />
           )}
-          <SidebarItem
+          <NavbarItem
             item={{ label: "Ramps", href: nav.rampsHref, icon: CreditCardIcon as IconSvgElement }}
             active={isActive(pathname, nav.rampsHref, nav.brandHref)}
-          />
-          <SidebarItem
-            item={{ label: "Settings", href: nav.settingsHref, icon: Settings01Icon as IconSvgElement }}
-            active={isActive(pathname, nav.settingsHref, nav.brandHref)}
+            pathname={pathname}
           />
         </nav>
-        <div className="mt-4 flex flex-col gap-3">
+        <div className="flex flex-none items-center gap-3">
           <CurrencySelect />
-          <Link
-            href={nav.settingsHref}
-            className="flex items-center gap-2.5 rounded-2xl border border-[#15300c]/15 bg-white/60 px-3 py-2.5 backdrop-blur-sm transition-colors hover:border-[#15300c]/30"
-          >
-            <Avatar me={me} size={30} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-medium text-[#15300c]">{accountLabel(me)}</div>
-              <div className="truncate font-mono text-[10px] text-[#3d7a29]">
-                {me.suiAddress.slice(0, 6)}…{me.suiAddress.slice(-4)}
-              </div>
-            </div>
-          </Link>
+          <AccountMenu
+            me={me}
+            size={34}
+            activityHref={nav.primary.find((i) => i.label === "Activity")?.href ?? "/app/activity"}
+            rampsHref={nav.rampsHref}
+            settingsHref={nav.settingsHref}
+            showMoneyTools={nav === CONSUMER_NAV}
+          />
         </div>
-      </aside>
+      </header>
 
-      {/* ── Main area ── (no desktop topbar — the sidebar shows the active
-          page; content leads, Wise-style) */}
-      <div className="relative z-10 lg:pl-60">
+      {/* ── Main area ── (content sits below the fixed top navbar) */}
+      <div className="relative z-10">
         {/* Mobile mini-bar — transparent, sits on the mint gradient and scrolls
             away with the content (no bar background / border). */}
         {/* Wordmark + a single profile chip (Avatar with initials fallback —
@@ -561,7 +574,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
         {/* pt-7 on mobile: a deliberate, consistent breath between the mini
             header and every page's first element (Earn/Work/Settings sat too
             tight at pt-4). Desktop keeps its taller lg:pt-16. */}
-        <main className="mx-auto w-full min-w-0 max-w-[1040px] overflow-x-clip px-4 pb-32 pt-7 sm:px-6 lg:px-8 lg:pb-12 lg:pt-16">
+        <main className="w-full min-w-0 overflow-x-clip px-4 pb-32 pt-7 sm:px-6 lg:px-10 lg:pb-12 lg:pt-24">
           {children}
         </main>
       </div>

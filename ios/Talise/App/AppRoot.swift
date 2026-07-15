@@ -83,7 +83,7 @@ struct MainTabView: View {
     // kept in the codebase so we can re-add the slot once the agent
     // UX (Payment-Intent confirm cards, voice input, deeper grounding)
     // is ready — but it shouldn't ship to users half-baked.
-    enum Tab: Hashable { case home, invest, rewards, profile }
+    enum Tab: Hashable { case home, trade, invest, rewards, profile }
     @Environment(AppSession.self) private var session
     @State private var tab: Tab = .home
     @State private var depositCoverVisible = false
@@ -119,6 +119,7 @@ struct MainTabView: View {
             Group {
                 switch tab {
                 case .home: HomeView()
+                case .trade: TradeView()
                 case .invest: EarnView()
                 case .rewards: RewardsView()
                 case .profile: ProfileView()
@@ -334,6 +335,7 @@ private struct BottomNavPill: View {
     var body: some View {
         HStack(spacing: 4) {
             tabButton(.home, icon: "house.fill", label: "Home")
+            tabButton(.trade, icon: "chart.line.uptrend.xyaxis", label: "Trade")
             tabButton(.invest, icon: "leaf.fill", label: "Invest")
             tabButton(.rewards, icon: "gift.fill", label: "Rewards")
             tabButton(.profile, icon: "person.crop.circle.fill", label: "Profile")
