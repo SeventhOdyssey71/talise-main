@@ -44,6 +44,12 @@ struct TaliseApp: App {
         #endif
 
         Self.registerFonts()
+
+        // Roomier shared cache so remote images (market logos, avatars) persist
+        // to disk and are already there on the next view — no re-fetch flash.
+        URLCache.shared = URLCache(memoryCapacity: 24 * 1024 * 1024,
+                                   diskCapacity: 200 * 1024 * 1024)
+
         #if DEBUG
         // Cross-check our pure-Swift BLAKE2b-256 against @noble/hashes
         // vectors at launch. A mismatch on any vector means the iOS

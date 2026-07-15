@@ -485,8 +485,12 @@ export async function buildCloseTx(
   const priceUsd = Number(m.long_avg_entry_price) / PRICE_SCALE;
 
   // Fee = 2% of the position's actual collateral (read on-chain, not client-trusted).
+  // Also capture the position's live oracle/mark price for the accept-price band —
+  // long_avg_entry_price is a market aggregate, wrong-sided for shorts and stale
+  // after moves; the position's own oracle_price is the correct band reference.
   let feeBase = 0n;
   let feeUsd = 0;
+  let markUsd = priceUsd; // fallback only if the position can't be read
   try {
     const pos = await getPosition(client, {
       ticker: T,
@@ -497,11 +501,15 @@ export async function buildCloseTx(
     const dec = Number((pos as { collateral_decimal?: number }).collateral_decimal ?? USDSUI_DECIMALS);
     feeBase = (BigInt(pos.collateral_amount) * BigInt(CLOSE_FEE_BPS)) / 10_000n;
     feeUsd = Number(feeBase) / 10 ** dec;
+    const oracle = Number((pos as { oracle_price?: string | number }).oracle_price ?? 0) / PRICE_SCALE;
+    if (oracle > 0) markUsd = oracle;
   } catch {
     /* fee stays 0 if the position can't be read */
   }
 
-  const acceptable = isLong ? priceUsd * 0.97 : priceUsd * 1.03;
+  // Close is reduce-only: a long sells (accept down to −3%), a short buys back
+  // (accept up to +3%) — a 3% slippage band around the live mark.
+  const acceptable = isLong ? markUsd * 0.97 : markUsd * 1.03;
   const tx = await buildClosePositionTx(client, {
     ticker: T,
     accountId,

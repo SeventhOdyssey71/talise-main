@@ -17,6 +17,9 @@ struct EarnView: View {
     /// toggles round-up so the "Saved this month" running tally stays
     /// in sync with the on-chain compound supplies.
     @State private var rewardsSummary: RewardsSummary?
+    /// Presents the WaterX perps trading screen (Trade lives here now, not as
+    /// its own tab — it's a way your money can work, alongside Earn).
+    @State private var showPerps = false
 
     var body: some View {
         // Invest = the money-management hub. Venues + Supply +
@@ -59,6 +62,9 @@ struct EarnView: View {
                 Task { await load() }
             }
         }
+        .fullScreenCover(isPresented: $showPerps) {
+            TradeView(onClose: { showPerps = false })
+        }
     }
 
     // MARK: - Venue cards
@@ -98,21 +104,52 @@ struct EarnView: View {
     private var venueListCard: some View {
         VStack(spacing: 0) {
             if loading {
+                // Whole card loads together — Perps appears only once Earn is in.
                 venueSkeletonRow
                 RowDivider()
                 venueSkeletonRow
-            } else if let cmp = comparison, let earn = earnSummary(cmp) {
-                // ONE clean "Earn" row. The SAM router consolidates funds into
-                // the best venue + auto-rebalances, so the user sees a single
-                // position at the best live rate — never a per-venue list.
-                earnRow(earn)
             } else {
-                emptyState
+                if let cmp = comparison, let earn = earnSummary(cmp) {
+                    // ONE clean "Earn" row. The SAM router consolidates funds into
+                    // the best venue + auto-rebalances, so the user sees a single
+                    // position at the best live rate — never a per-venue list.
+                    earnRow(earn)
+                } else {
+                    emptyState
+                }
+                RowDivider()
+                perpsRow
             }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 4)
         .earnHeroGlass(cornerRadius: 20)
+    }
+
+    /// "Perps" — leverage trading on WaterX, gasless. Sits under Earn as another
+    /// way your money can work. Taps open the full Trade screen.
+    private var perpsRow: some View {
+        Button {
+            showPerps = true
+        } label: {
+            PremiumListRow(
+                icon: "arrow.up.arrow.down",
+                kind: .earn,
+                title: "Perps",
+                subtitle: "Trade with leverage · gasless",
+                showsChevron: true
+            ) {
+                Text("NEW")
+                    .font(TaliseFont.mono(9, weight: .regular))
+                    .tracking(1)
+                    .foregroundStyle(TaliseColor.accent)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(TaliseColor.accent.opacity(0.15)))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// The single "Earn" position. Routes taps to the best venue (highest live

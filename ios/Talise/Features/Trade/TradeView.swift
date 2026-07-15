@@ -6,14 +6,21 @@ import Charts
 /// history, and a Long / Short bottom sheet that runs on the Onara-sponsored
 /// zkLogin rail (no gas, no seed phrase).
 struct TradeView: View {
+    /// When presented (from Invest → Perps), shows a back header and dismisses
+    /// via this closure. Nil would mean "hosted as a tab" (not used today).
+    var onClose: (() -> Void)? = nil
+
     @Environment(AppSession.self) private var session
     @State private var svc = TradeService()
 
     @State private var pickerUp = false
     @State private var orderSide: Bool? = nil       // non-nil → order sheet up
     @State private var posTab: PosTab = .positions
-    @State private var result: TradeResult?
+    @State private var pop: TargetPopData?
+    @State private var pnl: PnLResult?
     @State private var banner: String?
+    @State private var chartVisible: Double = 90   // # candles shown (pinch to zoom)
+    @State private var chartVisibleBase: Double = 90
 
     enum PosTab: String, CaseIterable { case positions = "Positions", history = "History" }
 
@@ -22,9 +29,9 @@ struct TradeView: View {
             TaliseColor.bg.ignoresSafeArea()
 
             if svc.disabled {
-                disabledState
+                VStack(spacing: 0) { navHeader; Spacer(); disabledState; Spacer() }
             } else {
-                content
+                VStack(spacing: 0) { navHeader; content }
                 tradeBar
             }
         }
@@ -36,13 +43,55 @@ struct TradeView: View {
         .sheet(isPresented: Binding(get: { orderSide != nil },
                                     set: { if !$0 { orderSide = nil } })) {
             OrderSheet(svc: svc, session: session, initialLong: orderSide ?? true,
-                       onResult: { r in result = r },
+                       onPop: { showPop($0) },
                        onBanner: { banner = $0 })
         }
         .overlay(alignment: .top) { bannerView }
-        .fullScreenCover(item: $result) { r in
-            TradeResultCard(result: r) { result = nil }
+        .overlay { popView }
+        .fullScreenCover(item: $pnl) { r in
+            PnLShareCard(result: r) { pnl = nil }
         }
+    }
+
+    // Center target-icon confirmation (open / close), auto-dismissing.
+    @ViewBuilder private var popView: some View {
+        if let pop {
+            ZStack {
+                Color.black.opacity(0.35).ignoresSafeArea()
+                TargetPop(data: pop)
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private func showPop(_ data: TargetPopData) {
+        withAnimation(.easeOut(duration: 0.2)) { pop = data }
+        Task {
+            try? await Task.sleep(nanoseconds: 1_700_000_000)
+            withAnimation(.easeIn(duration: 0.25)) { pop = nil }
+        }
+    }
+
+    // MARK: - Nav header (presented mode)
+
+    private var navHeader: some View {
+        HStack {
+            Button { onClose?() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fg)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(TaliseColor.surface))
+            }
+            .buttonStyle(.plain)
+            Spacer()
+            Text("Perps").font(TaliseFont.heading(16, weight: .semibold)).foregroundStyle(TaliseColor.fg)
+            Spacer()
+            Color.clear.frame(width: 36, height: 36)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Content
@@ -59,7 +108,7 @@ struct TradeView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
-            .padding(.bottom, 190)   // clears the trade bar + nav pill
+            .padding(.bottom, 128)   // clears the sticky trade bar
         }
         .refreshable { await svc.refreshSelected(); await svc.loadHistory() }
     }
@@ -107,7 +156,8 @@ struct TradeView: View {
     private var priceBlock: some View {
         HStack(alignment: .lastTextBaseline, spacing: 12) {
             Text(svc.price > 0 ? "$\(TradeFormat.price(svc.price))" : "—")
-                .font(.system(size: 38, weight: .bold, design: .rounded))
+                .font(TaliseFont.display(36, weight: .bold))
+                .kerning(-0.5)
                 .foregroundStyle(TaliseColor.fg)
                 .contentTransition(.numericText())
                 .animation(.easeOut(duration: 0.3), value: svc.price)
@@ -170,16 +220,30 @@ struct TradeView: View {
     }
 
     private var candleChart: some View {
-        let cs = svc.candles
+        let all = svc.candles
+        let n = Int(max(20, min(Double(all.count), chartVisible)))
+        let cs = Array(all.suffix(n))
         let lo = cs.map(\.low).min() ?? 0
         let hi = cs.map(\.high).max() ?? 1
         let pad = (hi - lo) * 0.08
-        return Chart(cs) { candleMarks($0) }
+        let barW = max(2.0, min(9.0, 300.0 / Double(max(1, n))))
+        return Chart(cs) { candleMarks($0, width: barW) }
             .chartYScale(domain: (lo - pad)...(hi + pad))
             .chartYAxis { yAxisMarks }
             .chartXAxis { xAxisMarks }
             .padding(12)
-            .background(RoundedRectangle(cornerRadius: 16).fill(TaliseColor.surface))
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(TaliseColor.surface))
+            .overlay(alignment: .topLeading) {
+                Text("Pinch to zoom").font(TaliseFont.mono(9)).foregroundStyle(TaliseColor.fgDim.opacity(0.7))
+                    .padding(14)
+            }
+            .gesture(
+                MagnifyGesture()
+                    .onChanged { v in
+                        chartVisible = min(Double(all.count), max(20, chartVisibleBase / v.magnification))
+                    }
+                    .onEnded { _ in chartVisibleBase = chartVisible }
+            )
     }
 
     @AxisContentBuilder
@@ -202,7 +266,7 @@ struct TradeView: View {
     }
 
     @ChartContentBuilder
-    private func candleMarks(_ c: Candle) -> some ChartContent {
+    private func candleMarks(_ c: Candle, width: Double) -> some ChartContent {
         let col: Color = c.close >= c.open ? TradeColor.long : TradeColor.short
         RuleMark(x: .value("t", c.date),
                  yStart: .value("l", c.low), yEnd: .value("h", c.high))
@@ -211,7 +275,7 @@ struct TradeView: View {
         RectangleMark(x: .value("t", c.date),
                       yStart: .value("o", min(c.open, c.close)),
                       yEnd: .value("c", max(c.open, c.close)),
-                      width: .fixed(4))
+                      width: .fixed(width))
             .foregroundStyle(col)
     }
 
@@ -267,7 +331,7 @@ struct TradeView: View {
                     emptyRow("No open positions", "Your open trades appear here.")
                 } else {
                     ForEach(svc.positions) { p in PositionRow(p: p, svc: svc,
-                                                              onResult: { result = $0 },
+                                                              onPnL: { pnl = $0 },
                                                               onBanner: { banner = $0 }) }
                 }
             } else {
@@ -298,7 +362,14 @@ struct TradeView: View {
             tradeButton("Short", TradeColor.short) { orderSide = false }
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 84)   // sits above the floating nav pill
+        .padding(.top, 10)
+        .padding(.bottom, 28)
+        .background(
+            // Solid fade so the bar reads as a clean footer, no glow.
+            LinearGradient(colors: [TaliseColor.bg.opacity(0), TaliseColor.bg],
+                           startPoint: .top, endPoint: .bottom)
+                .allowsHitTesting(false)
+        )
     }
 
     private func tradeButton(_ label: String, _ color: Color, _ tap: @escaping () -> Void) -> some View {
@@ -308,7 +379,6 @@ struct TradeView: View {
                 .foregroundStyle(Color(hex: 0x0A130A))
                 .frame(maxWidth: .infinity).frame(height: 52)
                 .background(RoundedRectangle(cornerRadius: 16).fill(color))
-                .shadow(color: color.opacity(0.35), radius: 16, x: 0, y: 8)
         }
         .buttonStyle(.plain)
     }
@@ -347,18 +417,23 @@ struct TradeView: View {
     // MARK: - Lifecycle
 
     private func boot() async {
+        // Markets + history load once; the per-selection poll is owned by
+        // `.task(id: svc.selected)` (onSelect) so we don't spawn a second loop.
         await svc.loadMarkets()
         await svc.loadHistory()
-        await onSelect()
     }
 
     private func onSelect() async {
         await svc.refreshSelected()
-        // Light polling of the live quote while this screen is up.
+        // Refresh price, change, picker prices, chart and open positions every
+        // 5s. The server caches these, so polling is cheap and never blanks.
         while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
             if Task.isCancelled { break }
             await svc.loadQuote()
+            await svc.loadQuotes()
+            await svc.loadChart()
+            await svc.loadAccount()
         }
     }
 }
@@ -374,11 +449,13 @@ struct MarketLogo: View {
         AsyncImage(url: url) { phase in
             switch phase {
             case .success(let img): img.resizable().scaledToFill()
-            default:
+            case .failure:
                 Circle().fill(TaliseColor.surface2)
                     .overlay(Text(String(ticker.prefix(2)))
                         .font(TaliseFont.heading(size * 0.36, weight: .semibold))
                         .foregroundStyle(TaliseColor.fgMuted))
+            default:
+                Circle().fill(TaliseColor.surface2)   // clean placeholder while loading
             }
         }
         .frame(width: size, height: size)

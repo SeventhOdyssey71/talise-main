@@ -12,6 +12,7 @@ final class TradeService {
     var markets: [PerpMarket] = []
     var selected: String = "SUIUSD"
     var quote: MarketQuote?
+    var quotes: [String: Double] = [:]   // live spot per ticker (picker prices)
     var candles: [Candle] = []
     var interval: String = "15m"
 
@@ -27,6 +28,9 @@ final class TradeService {
     var disabled = false       // FEATURE_PERPS off / 503
 
     var market: PerpMarket? { markets.first { $0.symbol == selected } }
+    /// Markets we can actually price (live quote or on-chain ref). Drops the
+    /// ones that only ever show "—" (e.g. WTI/BRENT with no Pyth feed).
+    var tradableMarkets: [PerpMarket] { markets.filter { priceFor($0.symbol) > 0 } }
     var positions: [PerpPosition] { account?.positions ?? [] }
     var availableUsd: Double { account?.availableUsd ?? 0 }
     var accountId: String? { account?.accountId }
@@ -36,9 +40,23 @@ final class TradeService {
     /// Live price: freshest quote spot, else the market ref price.
     var price: Double {
         if let s = quote?.spot, s > 0 { return s }
+        if let s = quotes[selected], s > 0 { return s }
         return market?.refPriceUsd ?? 0
     }
-    var change24h: Double { quote?.change24h ?? 0 }
+    static let intervalSecs: [String: Double] = ["1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400]
+
+    /// 24h change: the dedicated quote value when present, else derived from the
+    /// loaded candles (~24h back vs latest close) so the header is never stuck
+    /// at 0 when the single-quote fetch lags the batch price.
+    var change24h: Double {
+        if let c = quote?.change24h, abs(c) > 0.0001 { return c }
+        guard candles.count >= 2 else { return 0 }
+        let secs = Self.intervalSecs[interval] ?? 3600
+        let barsBack = max(1, min(candles.count - 1, Int(86400 / secs)))
+        let prev = candles[candles.count - 1 - barsBack].close
+        let last = candles[candles.count - 1].close
+        return prev > 0 ? (last - prev) / prev * 100 : 0
+    }
 
     // MARK: - Loads
 
@@ -47,8 +65,10 @@ final class TradeService {
             let r: MarketsResponse = try await APIClient.shared.get("/api/markets")
             markets = r.markets
             disabled = false
-            if !markets.contains(where: { $0.symbol == selected }),
-               let first = markets.first(where: { !$0.paused }) ?? markets.first {
+            // Keep the selection on a priced, unpaused market.
+            let priced = tradableMarkets
+            if !priced.contains(where: { $0.symbol == selected }),
+               let first = priced.first(where: { !$0.paused }) ?? priced.first {
                 selected = first.symbol
             }
         } catch {
@@ -62,6 +82,21 @@ final class TradeService {
         do {
             quote = try await APIClient.shared.get("/api/markets/quote?symbol=\(selected)")
         } catch { /* soft: keep last quote */ }
+    }
+
+    /// Live spot for every market, for the picker (the on-chain refPrice lags).
+    func loadQuotes() async {
+        struct R: Decodable { let quotes: [String: Double] }
+        do {
+            let r: R = try await APIClient.shared.get("/api/markets/quotes")
+            if !r.quotes.isEmpty { quotes = r.quotes }
+        } catch { /* soft */ }
+    }
+
+    /// Best price for a market: live spot if we have it, else the on-chain ref.
+    func priceFor(_ symbol: String) -> Double {
+        if let s = quotes[symbol], s > 0 { return s }
+        return markets.first { $0.symbol == symbol }?.refPriceUsd ?? 0
     }
 
     func loadChart() async {
@@ -94,7 +129,8 @@ final class TradeService {
         async let q: () = loadQuote()
         async let c: () = loadChart()
         async let a: () = loadAccount()
-        _ = await (q, c, a)
+        async let qs: () = loadQuotes()
+        _ = await (q, c, a, qs)
     }
 
     // MARK: - Writes (Onara-sponsored)
