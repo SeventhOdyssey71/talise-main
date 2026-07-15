@@ -73,6 +73,48 @@ export async function cachedFetch<T>(
   return { data: null, stale: false };
 }
 
+const RES: Record<string, string> = { "1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240", "1d": "D" };
+const SECS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
+export const WARM_INTERVALS = Object.keys(RES);
+
+/**
+ * Fetch candles for (symbol, interval) and write them to the cache. Used by the
+ * warm cron so every key is populated even when no user has viewed it yet — and
+ * once populated, the last-good value survives any later Pyth outage.
+ */
+export async function refreshCandleCache(symbol: string, interval: string): Promise<boolean> {
+  const res = RES[interval];
+  if (!res) return false;
+  const to = Math.floor(Date.now() / 1000);
+  const from = to - Math.min((SECS[interval] ?? 900) * 400, 360 * 86400);
+  try {
+    const j = await fetchPythHistory(symbol, res, from, to);
+    if (!j?.t?.length) return false;
+    const candles = j.t.map((time, i) => ({ time, open: j.o![i], high: j.h![i], low: j.l![i], close: j.c![i] }));
+    await writeCache(`perp:candles:${symbol}:${interval}`, candles);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Fetch spot + 24h change for `symbol` and write it to the cache. */
+export async function refreshQuoteCache(symbol: string): Promise<boolean> {
+  try {
+    const to = Math.floor(Date.now() / 1000);
+    const from = to - 3600 * 30;
+    const j = await fetchPythHistory(symbol, "60", from, to);
+    const cl = j?.c ?? [];
+    if (!cl.length) return false;
+    const spot = cl[cl.length - 1];
+    const prev = cl[Math.max(0, cl.length - 25)] || spot;
+    await writeCache(`perp:quote:${symbol}`, { spot, change24h: prev ? ((spot - prev) / prev) * 100 : 0 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Fetch Pyth Benchmarks TradingView history with a timeout + one retry. */
 export async function fetchPythHistory(
   symbol: string,
