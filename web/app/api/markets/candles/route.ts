@@ -24,11 +24,15 @@ export async function GET(req: Request) {
   if (!res) return NextResponse.json({ error: "bad interval" }, { status: 400 });
 
   const to = Math.floor(Date.now() / 1000);
-  const from = to - (SECS[interval] ?? 900) * 400;
+  // Pyth caps a single request at 1 year of history, so cap the lookback to
+  // ~360 days. This keeps 1d (was 400 days → "range exceeds 1 year") working
+  // while leaving shorter intervals (≤4h) untouched.
+  const YEAR = 360 * 86400;
+  const from = to - Math.min((SECS[interval] ?? 900) * 400, YEAR);
   try {
     const r = await fetch(
       `https://benchmarks.pyth.network/v1/shims/tradingview/history?symbol=${encodeURIComponent(pythSymbol(symbol))}&resolution=${res}&from=${from}&to=${to}`,
-      { cache: "no-store" },
+      { cache: "no-store", signal: AbortSignal.timeout(8000) },
     );
     if (!r.ok) return NextResponse.json({ candles: [], unavailable: true });
     const j = (await r.json()) as { s: string; t?: number[]; o?: number[]; h?: number[]; l?: number[]; c?: number[] };
