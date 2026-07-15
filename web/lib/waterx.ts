@@ -42,6 +42,7 @@ import { sui } from "./sui";
 import { onara } from "./onara";
 import { memoTtl } from "./perf-cache";
 import { db } from "./db";
+import { cachedSpotFor } from "./perp-cache";
 
 const WATERX_CONFIG_URL =
   process.env.WATERX_CONFIG_URL ??
@@ -295,24 +296,41 @@ async function getPositions(client: PerpClient, accountId: string): Promise<Perp
           basePriceUsd: rawPrice(priceUsd),
           collateralPriceUsd: rawPrice(1),
         });
+        if (!rows.length) return [];
+        // Live mark from our warm price cache — the on-chain oracle_price uses a
+        // higher-precision scale and can lag; our Pyth feed is the reliable mark.
+        const spot = (await cachedSpotFor(ticker)) ?? priceUsd;
         return rows.map((p) => {
           const q = p as unknown as {
             collateral_decimal?: number; average_price?: string | number;
-            oracle_price?: string | number; leverage_bps?: string | number;
             linked_order_ids?: unknown[];
           };
           const dec = Number(q.collateral_decimal ?? USDSUI_DECIMALS);
+          const isLong = Boolean(p.is_long);
+          // average_price is 1e9-scaled USD; size is 1e9-scaled tokens.
+          const entry = Number(q.average_price ?? 0) / PRICE_SCALE;
+          const sizeTokens = Number(p.size) / PRICE_SCALE;
+          const collateralUsd = Number(p.collateral_amount) / 10 ** dec;
+          const mark = spot > 0 ? spot : entry;
+          // Leverage the user set = entry notional / collateral (stable, not the
+          // drifting on-chain leverage_bps which re-marks with price).
+          const leverage = collateralUsd > 0 && entry > 0 ? (sizeTokens * entry) / collateralUsd : 0;
+          // Unrealized PnL from our live mark (not the stale/odd-scaled chain pnl).
+          const pnlUsd = (isLong ? 1 : -1) * sizeTokens * (mark - entry);
+          const liqPriceUsd = leverage > 0
+            ? (isLong ? entry * (1 - 1 / leverage) : entry * (1 + 1 / leverage))
+            : 0;
           return {
             ticker,
             positionId: String(p.position_id),
-            isLong: Boolean(p.is_long),
-            sizeTokens: Number(p.size) / PRICE_SCALE,
-            collateralUsd: Number(p.collateral_amount) / 10 ** dec,
-            entryPriceUsd: Number(q.average_price ?? 0) / PRICE_SCALE,
-            markPriceUsd: Number(q.oracle_price ?? 0) / PRICE_SCALE,
-            liqPriceUsd: Number(p.est_liq_price) / PRICE_SCALE,
-            leverage: Number(q.leverage_bps ?? 0) / BPS,
-            pnlUsd: (Boolean(p.pnl_positive) ? 1 : -1) * (Number(p.pnl) / 10 ** dec),
+            isLong,
+            sizeTokens,
+            collateralUsd,
+            entryPriceUsd: entry,
+            markPriceUsd: mark,
+            liqPriceUsd,
+            leverage,
+            pnlUsd,
             hasTpSl: Array.isArray(q.linked_order_ids) && q.linked_order_ids.length > 0,
           };
         });
