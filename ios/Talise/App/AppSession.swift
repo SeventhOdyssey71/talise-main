@@ -53,6 +53,16 @@ final class AppSession {
     // MARK: - Launch
 
     func bootstrap() async {
+        // Fresh install: the app container (UserDefaults) is wiped but the
+        // Keychain survives, so a stale PIN from a previous install could make
+        // `hasPin` wrongly true. Clear it once on first launch so "no PIN"
+        // really means no PIN (and the user is asked to set one).
+        let freshKey = "io.talise.freshInstall.v1"
+        if !UserDefaults.standard.bool(forKey: freshKey) {
+            UserDefaults.standard.set(true, forKey: freshKey)
+            PinService.shared.clearAll()
+        }
+
         // Restore a persisted, non-expired session and gate it behind the PIN.
         // If ANY piece is missing/expired we fall back to a clean fresh sign-in,
         // so a bad restore is never worse than the old behaviour (never a lockout).
@@ -61,9 +71,10 @@ final class AppSession {
             if PinService.shared.hasPin(userId: user.id) {
                 phase = .locked
             } else {
-                // Pre-PIN session (signed in before this feature) — let them in;
-                // they'll be asked to set a PIN on their next fresh sign-in.
-                phase = .ready(user: user)
+                // No PIN on this device yet → REQUIRE the user to set one before
+                // they can use the app. Never the unlock screen / biometric for a
+                // user who has never set a PIN.
+                phase = .pinSetup(user: user)
             }
         } else {
             clearSession()

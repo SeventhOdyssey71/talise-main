@@ -54,6 +54,18 @@ final class PinService {
         return Self.constantTimeEquals(Data(stored), candidate)
     }
 
+    /// Wipes every stored PIN (all users). The Keychain survives an app
+    /// reinstall (accessible = AfterFirstUnlockThisDeviceOnly), so a stale PIN
+    /// from a previous install would make `hasPin` wrongly true on a fresh
+    /// install. Called once on first launch so "no PIN" really means no PIN.
+    func clearAll() {
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+        ]
+        SecItemDelete(q as CFDictionary)
+    }
+
     /// Clears one user's PIN. Used by the "Forgot PIN" path so the next
     /// sign-in lands the user back at the set-PIN flow.
     func clearPin(userId: String) {
