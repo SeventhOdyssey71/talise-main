@@ -42,9 +42,9 @@ struct ProfileView: View {
     /// the stats-strip KYC cell.
     @State private var showIdentity = false
     @State private var kyc: KYCStatus?
-    /// LOCKED for now: Bridge identity verification (KYC) is paused. Flip to
-    /// true to restore the Profile entry, the loader, and the stats chip.
-    private let kycEnabled = false
+    /// OPEN: Bridge identity verification (KYC) is live — restores the Profile
+    /// entry, the loader, and the stats chip. Cash-out still requires approval.
+    private let kycEnabled = true
     /// Account deletion (App Store Guideline 5.1.1(v)) — confirmation
     /// alert flag, in-flight spinner, and a failure message surfaced in
     /// its own alert so the user knows the account is still live.

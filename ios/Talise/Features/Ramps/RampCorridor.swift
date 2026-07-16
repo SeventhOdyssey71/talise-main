@@ -134,9 +134,9 @@ enum RampDirection {
 /// — the Bridge corridors (US/EU/GB/…) show as "coming soon". Flip
 /// `bridgeLive` to true to switch them on with no other code change.
 enum RampFlags {
-    // LOCKED for now: Bridge corridors (US cash-out / add-money) hidden while
-    // KYC + the US flow are paused. Flip back to true to re-enable.
-    static let bridgeLive = false
+    // OPEN: Bridge corridors (US cash-out / add-money) live. Cash-out is still
+    // server-gated (USD_WITHDRAWAL_OPEN) + requires approved Bridge KYC.
+    static let bridgeLive = true
 
     // LOCKED for now: card top-up (Stripe hosted crypto onramp) hidden while the
     // production Stripe flow is not reliable. When off, the Deposit screen shows
