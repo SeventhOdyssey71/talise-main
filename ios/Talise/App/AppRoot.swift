@@ -18,8 +18,9 @@ struct AppRoot: View {
             case .onboarding(let user):
                 KYCView(user: user)
             case .pinSetup(let user):
-                // One-time PIN setup right after a fresh sign-in.
-                PinSetupScreen(userId: user.id, onContinue: { session.completePinSetup() })
+                // One-time PIN creation (create → confirm) right after a fresh
+                // sign-in. Any later change is done in Settings → Security.
+                PinCreateView(userId: user.id, onDone: { session.completePinSetup() })
             case .ready:
                 MainTabView()
             case .locked:
