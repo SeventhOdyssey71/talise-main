@@ -53,13 +53,14 @@ final class AppSession {
     // MARK: - Launch
 
     func bootstrap() async {
-        // Fresh install: the app container (UserDefaults) is wiped but the
-        // Keychain survives, so a stale PIN from a previous install could make
-        // `hasPin` wrongly true. Clear it once on first launch so "no PIN"
-        // really means no PIN (and the user is asked to set one).
-        let freshKey = "io.talise.freshInstall.v1"
-        if !UserDefaults.standard.bool(forKey: freshKey) {
-            UserDefaults.standard.set(true, forKey: freshKey)
+        // One-time reset for the new PIN flow: ignore ANY PIN saved by an
+        // earlier build (Keychain survives updates + reinstalls) so every user
+        // re-creates a PIN through the new create → confirm flow. The marker is
+        // a fresh key, so it's absent for everyone the first time this build
+        // runs — the reset fires once, then new PINs persist normally.
+        let pinResetKey = "io.talise.pinFlowReset.v1"
+        if !UserDefaults.standard.bool(forKey: pinResetKey) {
+            UserDefaults.standard.set(true, forKey: pinResetKey)
             PinService.shared.clearAll()
         }
 
