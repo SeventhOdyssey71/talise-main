@@ -24,32 +24,29 @@ struct ChangePinView: View {
     }
 
     var body: some View {
-        ZStack {
-            TaliseColor.bg.ignoresSafeArea()
-            VStack(spacing: 0) {
-                header
-                    .padding(.top, 28)
-                Spacer(minLength: 24)
-                pinDots.modifier(ShakePin(animatableData: CGFloat(shakeTrigger)))
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(TaliseFont.body(13, weight: .light))
-                        .foregroundStyle(TaliseColor.danger)
-                        .padding(.top, 14)
-                }
-                Spacer(minLength: 24)
-                numpad.padding(.horizontal, 28)
-                Button { onDone() } label: {
-                    Text("Cancel")
-                        .font(TaliseFont.body(14, weight: .medium))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
+        VStack(spacing: 0) {
+            header
+                .padding(.top, 40)
+            Spacer(minLength: 28)
+            pinDots.modifier(ShakePin(animatableData: CGFloat(shakeTrigger)))
+            Text(errorMessage ?? " ")
+                .font(TaliseFont.body(13, weight: .light))
+                .foregroundStyle(TaliseColor.danger)
+                .opacity(errorMessage == nil ? 0 : 1)
+                .padding(.top, 14)
+            Spacer(minLength: 28)
+            numpad.padding(.horizontal, 30)
+            Button { onDone() } label: {
+                Text("Cancel")
+                    .font(TaliseFont.body(14, weight: .medium))
+                    .foregroundStyle(TaliseColor.fgMuted)
             }
-            .padding(.horizontal, 8)
+            .buttonStyle(.plain)
+            .frame(height: 46)
         }
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .taliseScreenBackground()
     }
 
     private var header: some View {
@@ -80,10 +77,10 @@ struct ChangePinView: View {
             ForEach(0..<pinLength, id: \.self) { idx in
                 let filled = idx < entry.count
                 Circle()
-                    .strokeBorder(filled ? Color.clear : TaliseColor.fgDim, lineWidth: 1.2)
-                    .background(Circle().fill(filled ? TaliseColor.fg : Color.clear))
-                    .frame(width: 15, height: 15)
-                    .scaleEffect(filled ? 1.0 : 0.9)
+                    .strokeBorder(filled ? Color.clear : TaliseColor.fgDim, lineWidth: 1.4)
+                    .background(Circle().fill(filled ? TaliseColor.greenMint : Color.clear))
+                    .frame(width: 16, height: 16)
+                    .scaleEffect(filled ? 1.0 : 0.85)
                     .animation(.spring(response: 0.22, dampingFraction: 0.7), value: entry)
             }
         }
