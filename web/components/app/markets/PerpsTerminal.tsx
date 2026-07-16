@@ -49,7 +49,7 @@ const CARD = "rounded-2xl border border-[#15300c]/10 bg-[#f7fcf2]";
 const LABEL = "tabular-nums text-[10.5px] uppercase tracking-[0.14em] text-[#7a8a72]";
 const INPUT = "w-full rounded-xl border border-[#15300c]/15 bg-white px-3 py-2.5 text-[15px] text-[#15300c] outline-none focus:border-[#15300c]/40";
 
-export default function MarketsPage() {
+export function PerpsTerminal() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [disabled, setDisabled] = useState(false);
   const [sel, setSel] = useState("SUIUSD");
@@ -200,7 +200,7 @@ export default function MarketsPage() {
   const chg = quote.change24h ?? 0;
 
   return (
-    <div className="flex flex-col gap-3 text-[#15300c] lg:h-[calc(100vh-9rem)]" style={{ fontFamily: "'Google Sans Variable', var(--font-sans-v2), system-ui, sans-serif" }}>
+    <div className="flex flex-col gap-3 pb-24 text-[#15300c] lg:h-[calc(100vh-9rem)] lg:pb-0" style={{ fontFamily: "'Google Sans Variable', var(--font-sans-v2), system-ui, sans-serif" }}>
       {/* stats bar */}
       <div className={`${CARD} flex flex-none flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5`}>
         {/* market picker */}
@@ -267,7 +267,7 @@ export default function MarketsPage() {
       <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
         {/* chart + positions column */}
         <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className={`${CARD} flex min-h-0 flex-1 flex-col p-3`} style={{ minHeight: 280 }}>
+          <div className={`${CARD} flex min-h-0 flex-col p-3 h-[340px] lg:h-auto lg:min-h-[280px] lg:flex-1`}>
             <div className="mb-1 flex items-center gap-1 px-1">
               {INTERVALS.map((iv) => (
                 <button key={iv} onClick={() => setInterval_(iv)} className="rounded-lg px-2.5 py-1 text-[12px] font-medium transition-colors" style={{ color: iv === interval ? INK : "#7a8a72", background: iv === interval ? MINT : "transparent" }}>{iv}</button>
@@ -277,7 +277,7 @@ export default function MarketsPage() {
             <div className="min-h-0 flex-1"><TradeChart symbol={sel} interval={interval} /></div>
           </div>
           {/* positions strip — drag the handle to resize */}
-          <div className={`${CARD} relative flex flex-none flex-col`} style={{ height: posHeight }}>
+          <div className={`${CARD} relative flex flex-none flex-col max-lg:!h-auto max-lg:min-h-[220px]`} style={{ height: posHeight }}>
             <div onMouseDown={startResize} title="Drag to resize" className="group absolute inset-x-0 -top-3 z-10 flex h-3 cursor-ns-resize items-center justify-center">
               <span className="h-1 w-10 rounded-full bg-[#15300c]/15 transition-colors group-hover:bg-[#15300c]/35" />
             </div>
@@ -374,7 +374,6 @@ export default function MarketsPage() {
               <button onClick={() => setAmountUsd(Math.floor(maxAmount * 100) / 100)} className="rounded-lg bg-[#eef6e7] px-2 py-1 text-[11px] font-semibold text-[#2f6d1f]">MAX</button>
             </div>
             <input type="range" min={0} max={Math.max(0.1, maxAmount)} step={maxAmount / 100 || 0.1} value={Math.min(amountUsd, maxAmount)} onChange={(e) => setAmountUsd(Number(e.target.value))} className="mt-2 w-full accent-[#3d7a29]" />
-            <div className="mt-1 flex items-center justify-between text-[13px]"><span className="text-[#3a5230]">Buying power · {leverage}x</span><span className="tabular-nums font-semibold">${fmtP(notionalUsd)}</span></div>
           </div>
 
           {/* TP/SL — percentage presets */}
@@ -448,7 +447,7 @@ export default function MarketsPage() {
 
       {/* mobile: quick Long/Short → opens the order sheet */}
       {!sheetOpen && (
-        <div className="fixed inset-x-0 bottom-[88px] z-20 flex gap-2 px-4 lg:hidden">
+        <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 lg:hidden">
           <button onClick={() => { setIsLong(true); setSheetOpen(true); }} className="flex-1 rounded-2xl py-3.5 text-[15px] font-bold text-white shadow-[0_10px_24px_-8px_rgba(21,48,12,0.5)]" style={{ background: LONG }}>Long {selMeta.sym}</button>
           <button onClick={() => { setIsLong(false); setSheetOpen(true); }} className="flex-1 rounded-2xl py-3.5 text-[15px] font-bold text-white shadow-[0_10px_24px_-8px_rgba(21,48,12,0.5)]" style={{ background: SHORT }}>Short {selMeta.sym}</button>
         </div>

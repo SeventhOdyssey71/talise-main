@@ -70,6 +70,7 @@ const MAX_API_BODY_BYTES = 1_048_576;
  * callback still lands on www, and the session it mints is readable on app.
  */
 const APP_HOST = "app.talise.io";
+const PERPS_HOST = "perps.talise.io";
 const MARKETING_HOSTS = new Set(["talise.io", "www.talise.io"]);
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
@@ -181,6 +182,27 @@ export function middleware(req: NextRequest) {
   }
 
   const host = (req.headers.get("host") ?? "").toLowerCase().split(":")[0];
+
+  // perps.talise.io → the dedicated Perps terminal. Serve the /perps route tree
+  // at the subdomain root; the backend (api/auth/assets) and public money links
+  // keep serving so sign-in + trading work. A stray /app link on this host bounces
+  // to the wallet host. Auth cookies are Domain=.talise.io, so the session that
+  // signs in here is the same one the wallet uses.
+  if (host === PERPS_HOST) {
+    const keepAlive = /^\/(api|auth|shield|c|i|u|pay|req|admin|_next|_vercel)(\/|$)/;
+    if (keepAlive.test(pathname)) {
+      return withSecurityHeaders(NextResponse.next());
+    }
+    if (pathname === "/app" || pathname.startsWith("/app/")) {
+      return withSecurityHeaders(NextResponse.redirect(`https://${APP_HOST}${pathname === "/app" ? "/" : pathname.slice(4)}`, 307));
+    }
+    if (!pathname.startsWith("/perps")) {
+      const url = req.nextUrl.clone();
+      url.pathname = pathname === "/" ? "/perps" : `/perps${pathname}`;
+      return withSecurityHeaders(NextResponse.rewrite(url));
+    }
+    return withSecurityHeaders(NextResponse.next());
+  }
 
   // app.talise.io → the web wallet is retired; everyone goes to the iOS beta.
   // Backend stays fully alive so nothing breaks: the iOS app's API (`/api`),

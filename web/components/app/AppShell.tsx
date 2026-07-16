@@ -86,7 +86,6 @@ const PRIMARY: NavItem[] = [
     ],
   },
   { label: "Earn", href: "/app/earn", icon: Plant02Icon as IconSvgElement },
-  { label: "Perps", href: "/app/markets", icon: Analytics01Icon as IconSvgElement },
   { label: "Work", href: "/app/work", icon: Briefcase01Icon as IconSvgElement },
   { label: "Activity", href: "/app/activity", icon: Analytics01Icon as IconSvgElement },
 ];
@@ -101,7 +100,6 @@ const PAGE_TITLES: Record<string, string> = {
   "/app/requests": "Requests",
   "/app/rules": "Automations",
   "/app/earn": "Earn",
-  "/app/markets": "Perps",
   "/app/rewards": "Rewards",
   "/app/work": "Work",
   "/app/activity": "Activity",
