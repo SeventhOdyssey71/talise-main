@@ -206,7 +206,10 @@ struct KYCView: View {
         // operator is misconfigured, we still proceed to the dashboard
         // (the user can claim later from /settings).
         await claimTaliseHandle()
-        await session.bootstrap()
+        // Advance into the one-time PIN setup (or straight to the app if a PIN
+        // already exists). bootstrap() now RESTORES a session rather than
+        // re-signing, so we must route explicitly here.
+        session.completeOnboarding(user: user)
     }
 
     /// Derives a candidate handle from the user's Google name (falling back

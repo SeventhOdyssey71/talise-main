@@ -17,10 +17,14 @@ struct AppRoot: View {
                 OnboardingRoot()
             case .onboarding(let user):
                 KYCView(user: user)
+            case .pinSetup(let user):
+                // One-time PIN setup right after a fresh sign-in.
+                PinSetupScreen(userId: user.id, onContinue: { session.completePinSetup() })
             case .ready:
                 MainTabView()
             case .locked:
-                LaunchView()
+                // Valid session, returned to the app — unlock with the PIN.
+                PinUnlockView()
             }
         }
         .preferredColorScheme(.dark)
@@ -58,6 +62,7 @@ struct AppRoot: View {
         case .launching: return "launching"
         case .signedOut: return "signedOut"
         case .onboarding(let user): return "onboarding-\(user.id)"
+        case .pinSetup(let user): return "pinSetup-\(user.id)"
         case .ready: return "ready"
         case .locked: return "locked"
         }

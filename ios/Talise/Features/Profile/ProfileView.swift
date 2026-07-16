@@ -41,6 +41,7 @@ struct ProfileView: View {
     /// (not onboarding). `kyc` mirrors the latest status for the row chip +
     /// the stats-strip KYC cell.
     @State private var showIdentity = false
+    @State private var showChangePin = false
     @State private var kyc: KYCStatus?
     /// OPEN: Bridge identity verification (KYC) is live — restores the Profile
     /// entry, the loader, and the stats chip. Cash-out still requires approval.
@@ -61,8 +62,7 @@ struct ProfileView: View {
                 if kycEnabled { verificationSection }
                 // Bank-account linking deferred — entry removed for now.
                 preferencesSection
-                // Security section removed — transactions are slide-to-confirm
-                // only (no PIN / biometric gate). [[slide-only-transactions]]
+                securitySection
                 helpSection
                 signOutButton
                 deleteAccountButton
@@ -87,6 +87,12 @@ struct ProfileView: View {
                     }
             }
             .environment(session)
+        }
+        .sheet(isPresented: $showChangePin) {
+            if let uid = session.currentUser?.id {
+                ChangePinView(userId: uid, onDone: { showChangePin = false })
+                    .environment(session)
+            }
         }
         // AutoSwapSettings archived 2026-05-29 — sheet removed alongside
         // the autoswap system. The Preferences row that opened it has been
@@ -631,6 +637,21 @@ struct ProfileView: View {
     }
 
     // MARK: - Help section
+
+    private var hasAppPin: Bool {
+        guard let uid = session.currentUser?.id else { return false }
+        return PinService.shared.hasPin(userId: uid)
+    }
+
+    private var securitySection: some View {
+        section(title: "Security") {
+            VStack(spacing: 0) {
+                linkRow(icon: "lock.rotation", label: hasAppPin ? "Change app PIN" : "Set an app PIN") {
+                    showChangePin = true
+                }
+            }
+        }
+    }
 
     private var helpSection: some View {
         section(title: "Help") {
