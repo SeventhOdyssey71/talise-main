@@ -103,10 +103,9 @@ struct PnLShareCard: View {
     }
 
     private func prepare() async {
-        // Pre-fetch the market logo so the rendered image includes it.
-        if let url = URL(string: AppConfig.shared.apiBaseURL + "/api/asset-icon/\(result.ticker.uppercased())"),
-           let (data, _) = try? await URLSession.shared.data(from: url),
-           let img = UIImage(data: data) {
+        // Pre-fetch the market logo so the rendered image includes it — served
+        // instantly from the shared LogoStore cache when already warmed.
+        if let img = await LogoStore.shared.load(result.ticker) {
             logo = img
         }
         await MainActor.run { render() }

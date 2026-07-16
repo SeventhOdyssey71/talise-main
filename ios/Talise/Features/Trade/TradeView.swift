@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import UIKit
 
 /// TRADE — WaterX perpetuals, in the Talise app. A clean, touch-first trading
 /// screen: pair header + live price, candlestick chart, open positions and
@@ -420,6 +421,9 @@ struct TradeView: View {
         // Markets + history load once; the per-selection poll is owned by
         // `.task(id: svc.selected)` (onSelect) so we don't spawn a second loop.
         await svc.loadMarkets()
+        // Warm the logo cache for every market once the list is in, so the
+        // picker + rows never flicker a placeholder on first paint.
+        LogoStore.shared.prefetch(svc.markets.map { $0.symbol })
         await svc.loadHistory()
     }
 
@@ -438,28 +442,64 @@ struct TradeView: View {
     }
 }
 
-// MARK: - Market logo (reuses the web asset-icon proxy)
+// MARK: - Market logo cache (reuses the web asset-icon proxy)
+
+/// Shared logo cache: an in-memory `NSCache` over a disk-backed `URLCache`.
+/// The asset-icon proxy serves each logo `immutable, max-age=1w`, so once a
+/// ticker is fetched it loads instantly and survives relaunches — no flicker,
+/// no re-download. `prefetch` warms the whole market set on boot/login.
+final class LogoStore: @unchecked Sendable {   // NSCache + URLSession are thread-safe
+    static let shared = LogoStore()
+    private let mem = NSCache<NSString, UIImage>()
+    private let session: URLSession
+    private init() {
+        let cache = URLCache(memoryCapacity: 8 << 20, diskCapacity: 64 << 20, diskPath: "talise-logos")
+        let cfg = URLSessionConfiguration.default
+        cfg.urlCache = cache
+        cfg.requestCachePolicy = .returnCacheDataElseLoad
+        session = URLSession(configuration: cfg)
+    }
+    func cached(_ ticker: String) -> UIImage? { mem.object(forKey: ticker.uppercased() as NSString) }
+    @discardableResult
+    func load(_ ticker: String) async -> UIImage? {
+        let key = ticker.uppercased()
+        if let img = mem.object(forKey: key as NSString) { return img }
+        guard let url = URL(string: AppConfig.shared.apiBaseURL + "/api/asset-icon/\(key)"),
+              let (data, _) = try? await session.data(from: url),
+              let img = UIImage(data: data) else { return nil }
+        mem.setObject(img, forKey: key as NSString)
+        return img
+    }
+    /// Warm the cache for a set of tickers (idempotent, low priority).
+    func prefetch(_ tickers: [String]) {
+        for t in tickers where mem.object(forKey: t.uppercased() as NSString) == nil {
+            Task.detached(priority: .utility) { await LogoStore.shared.load(t) }
+        }
+    }
+}
 
 struct MarketLogo: View {
     let ticker: String
     var size: CGFloat = 32
+    @State private var img: UIImage?
 
     var body: some View {
-        let url = URL(string: AppConfig.shared.apiBaseURL + "/api/asset-icon/\(ticker.uppercased())")
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let img): img.resizable().scaledToFill()
-            case .failure:
+        Group {
+            if let img {
+                Image(uiImage: img).resizable().scaledToFill()
+            } else {
                 Circle().fill(TaliseColor.surface2)
                     .overlay(Text(String(ticker.prefix(2)))
                         .font(TaliseFont.heading(size * 0.36, weight: .semibold))
                         .foregroundStyle(TaliseColor.fgMuted))
-            default:
-                Circle().fill(TaliseColor.surface2)   // clean placeholder while loading
             }
         }
         .frame(width: size, height: size)
         .background(Color.white)
         .clipShape(Circle())
+        .task(id: ticker) {
+            if let c = LogoStore.shared.cached(ticker) { img = c }
+            else { img = await LogoStore.shared.load(ticker) }
+        }
     }
 }
