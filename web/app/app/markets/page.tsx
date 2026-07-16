@@ -31,6 +31,18 @@ const mono = "'Google Sans Variable', var(--font-sans-v2), system-ui, sans-serif
 
 const fmtP = (n: number) => (n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : n >= 1 ? n.toFixed(3) : n.toFixed(4));
 const fmtK = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(2)}K` : n.toFixed(2));
+// Token size with adaptive precision — high-priced assets (BTC) have tiny token
+// sizes that round to "0.00" at 2dp, so scale the decimals to the magnitude.
+const fmtSize = (n: number) => {
+  const a = Math.abs(n);
+  if (a === 0) return "0";
+  if (a >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (a >= 1) return n.toFixed(3);
+  if (a >= 0.01) return n.toFixed(4);
+  return n.toPrecision(2); // e.g. 0.000077
+};
+// Signed USD PnL that never renders a "-$0.00" for a sub-cent negative.
+const fmtPnl = (n: number) => (Math.abs(n) < 0.005 ? "$0.00" : `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(2)}`);
 const short = (s?: string) => (s && s.length > 12 ? `${s.slice(0, 6)}…${s.slice(-4)}` : s || "");
 
 const CARD = "rounded-2xl border border-[#15300c]/10 bg-[#f7fcf2]";
@@ -43,15 +55,16 @@ export default function MarketsPage() {
   const [sel, setSel] = useState("SUIUSD");
   const [interval, setInterval_] = useState("15m");
   const [quote, setQuote] = useState<Quote>({});
+  const [spotMap, setSpotMap] = useState<Record<string, number>>({}); // live spot per market (picker prices)
   const [account, setAccount] = useState<Account>({ accountId: null });
   const [isLong, setIsLong] = useState(true);
   const [leverage, setLeverage] = useState(10);
-  const [sizeTokens, setSizeTokens] = useState(0);
-  const [depositUsd, setDepositUsd] = useState(5);
-  const [withdrawUsd, setWithdrawUsd] = useState(5);
+  const [amountUsd, setAmountUsd] = useState(0);        // USDsui collateral to trade with
+  const [acctMode, setAcctMode] = useState<"none" | "deposit" | "withdraw">("none");
+  const [acctAmount, setAcctAmount] = useState("");
   const [tpSlOn, setTpSlOn] = useState(false);
-  const [tpPrice, setTpPrice] = useState("");
-  const [slPrice, setSlPrice] = useState("");
+  const [tpPct, setTpPct] = useState(10);
+  const [slPct, setSlPct] = useState(5);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState<AssetCategory | "all">("all");
@@ -75,32 +88,64 @@ export default function MarketsPage() {
   const flash = (ok: boolean, msg: string) => { setToast({ ok, msg }); window.clearTimeout((flash as unknown as { _t?: number })._t); (flash as unknown as { _t?: number })._t = window.setTimeout(() => setToast(null), 5000); };
 
   const market = useMemo(() => markets.find((m) => m.symbol === sel), [markets, sel]);
-  const price = quote.spot ?? market?.refPriceUsd ?? 0;
+  const maxLev = Math.max(1, Math.floor(market?.maxLeverage ?? 25));
+  // Quick-select chips: 2x/5x/10x plus this market's ceiling (dedup + clamp).
+  const levPresets = useMemo(() => [...new Set([2, 5, 10, maxLev])].filter((v) => v >= 1 && v <= maxLev), [maxLev]);
+  const price = quote.spot ?? spotMap[sel] ?? market?.refPriceUsd ?? 0;
   const selMeta = assetMeta(sel);
   const filtered = useMemo(
     () => markets.filter((m) => (catFilter === "all" || m.category === catFilter) && (!search || m.name.toLowerCase().includes(search.toLowerCase()) || m.sym.toLowerCase().includes(search.toLowerCase()))),
     [markets, catFilter, search],
   );
 
-  const loadMarkets = useCallback(async () => {
-    try { const r = await fetch("/api/markets"); if (r.status === 503) { setDisabled(true); return; } const j = await r.json(); setMarkets(j.markets ?? []); } catch { /* */ }
+  // Poll guard: skip a tick while its previous request is still in flight, so a
+  // slow (cold Pyth/gRPC) call never stacks a duplicate on top of itself — that
+  // overlap is what showed up as red "(canceled)" requests in the network tab.
+  const inflight = useRef<Record<string, boolean>>({});
+  const guarded = useCallback((key: string, fn: () => Promise<void>): Promise<void> => {
+    if (inflight.current[key]) return Promise.resolve();
+    inflight.current[key] = true;
+    return fn().finally(() => { inflight.current[key] = false; });
   }, []);
-  const loadQuote = useCallback(async (s: string) => { try { setQuote(await (await fetch(`/api/markets/quote?symbol=${s}`)).json()); } catch { /* */ } }, []);
-  const loadAccount = useCallback(async () => { try { const r = await fetch("/api/markets/account"); if (r.ok) setAccount(await r.json()); } catch { /* */ } }, []);
-  const loadHistory = useCallback(async () => { try { const r = await fetch("/api/markets/history"); if (r.ok) { const j = await r.json(); setHistory(j.trades ?? []); } } catch { /* */ } }, []);
+  const loadMarkets = useCallback(() => guarded("markets", async () => {
+    try { const r = await fetch("/api/markets"); if (r.status === 503) { setDisabled(true); return; } const j = await r.json(); setMarkets((j.markets ?? []).map((m: Market) => ({ ...m, maxLeverage: Math.max(1, Math.floor(m.maxLeverage || 0)) }))); } catch { /* */ }
+  }), [guarded]);
+  const loadQuote = useCallback((s: string) => guarded(`quote:${s}`, async () => { try { setQuote(await (await fetch(`/api/markets/quote?symbol=${s}`)).json()); } catch { /* */ } }), [guarded]);
+  const loadSpots = useCallback(() => guarded("spots", async () => { try { const r = await fetch("/api/markets/quotes"); if (r.ok) { const j = await r.json(); setSpotMap(j.quotes ?? {}); } } catch { /* */ } }), [guarded]);
+  const loadAccount = useCallback(() => guarded("account", async () => { try { const r = await fetch("/api/markets/account"); if (r.ok) setAccount(await r.json()); } catch { /* */ } }), [guarded]);
+  const loadHistory = useCallback(() => guarded("history", async () => { try { const r = await fetch("/api/markets/history"); if (r.ok) { const j = await r.json(); setHistory(j.trades ?? []); } } catch { /* */ } }), [guarded]);
   const record = useCallback((t: Omit<Trade, "ts">) => { fetch("/api/markets/history", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(t) }).then(() => loadHistory()).catch(() => {}); }, [loadHistory]);
 
-  useEffect(() => { loadMarkets(); loadAccount(); loadHistory(); const m = window.setInterval(loadMarkets, 8000); const a = window.setInterval(loadAccount, 6000); return () => { window.clearInterval(m); window.clearInterval(a); }; }, [loadMarkets, loadAccount, loadHistory]);
+  // Market list (OI/funding) and the all-markets spot sweep are heavy and
+  // change slowly, so they poll on a relaxed cadence; the live header price
+  // (loadQuote, 3s) and account carry the fast-moving data.
+  useEffect(() => { loadMarkets(); loadAccount(); loadHistory(); loadSpots(); const m = window.setInterval(loadMarkets, 15000); const a = window.setInterval(loadAccount, 6000); const s = window.setInterval(loadSpots, 15000); return () => { window.clearInterval(m); window.clearInterval(a); window.clearInterval(s); }; }, [loadMarkets, loadAccount, loadHistory, loadSpots]);
   useEffect(() => { loadQuote(sel); const id = window.setInterval(() => loadQuote(sel), 3000); return () => window.clearInterval(id); }, [sel, loadQuote]);
   useEffect(() => { setLeverage((lv) => Math.min(lv, Math.max(1, Math.floor(market?.maxLeverage ?? 25))) || 10); }, [market?.maxLeverage]);
 
-  const notionalUsd = sizeTokens * price;
-  const marginUsd = leverage > 0 ? notionalUsd / leverage : 0;
+  // Amount = the USDsui collateral the user posts. Size/notional are derived.
+  const marginUsd = amountUsd;
+  const notionalUsd = amountUsd * leverage;
+  const sizeTokens = price > 0 ? notionalUsd / price : 0;
   const mm = (market?.maintenanceMarginPct ?? 0) / 100;
   const liqPrice = sizeTokens > 0 && price > 0 ? (isLong ? price * (1 - 1 / leverage + mm) : price * (1 + 1 / leverage - mm)) : 0;
   const totalFeeUsd = notionalUsd * ((market?.tradingFeeBps ?? 0) / 1e4);
-  const maxSize = isLong ? market?.availLongSize ?? 0 : market?.availShortSize ?? 0;
   const availableUsd = account.availableUsd ?? 0;
+  // WaterX minimum collateral, rounded up to a clean 0.1 with a small safety
+  // cushion (3.04 -> 3.10) so an order is never rejected for being a hair under.
+  const minMargin = (() => {
+    const base = (market?.minCollUsd ?? 0) > 0 ? market!.minCollUsd : 1;
+    let m = Math.ceil(base * 10) / 10;
+    if (m <= base + 0.001) m += 0.1;
+    return m;
+  })();
+  const availSize = isLong ? market?.availLongSize ?? 0 : market?.availShortSize ?? 0;
+  const maxAmount = price > 0 && leverage > 0
+    ? Math.max(0, Math.min(availableUsd, (availSize * price) / leverage))
+    : availableUsd;
+  const tpPrice = isLong ? price * (1 + tpPct / 100) : price * (1 - tpPct / 100);
+  const slPrice = isLong ? price * (1 - slPct / 100) : price * (1 + slPct / 100);
+  const canPlace = amountUsd >= minMargin && amountUsd <= availableUsd + 0.001 && amountUsd <= maxAmount + 0.01 && sizeTokens > 0 && !busy;
   const livePositions = (account.positions ?? []).map((p) => {
     const mark = p.ticker === sel ? (quote.spot ?? p.markPriceUsd) : p.markPriceUsd;
     const pnl = p.sizeTokens * (mark - p.entryPriceUsd) * (p.isLong ? 1 : -1);
@@ -108,7 +153,7 @@ export default function MarketsPage() {
   });
   const totalPnl = livePositions.reduce((s, p) => s + p.pnl, 0);
 
-  const runAction = async (url: string, body: unknown): Promise<{ digest?: string; accountId?: string; mode?: string; bytes?: string; feeUsd?: number }> => {
+  const runAction = async (url: string, body: unknown): Promise<{ digest?: string; accountId?: string; mode?: string; bytes?: string; feeUsd?: number; amountUsd?: number }> => {
     const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json();
     if (!r.ok) throw Object.assign(new Error(j.error ?? `HTTP ${r.status}`), { status: r.status, code: j.code });
@@ -116,19 +161,21 @@ export default function MarketsPage() {
     return j;
   };
   const doCreate = async () => { setBusy("create"); try { const j = await runAction("/api/markets/account", { op: "create", alias: "Talise" }); let id = j.accountId ?? null; if (!id && j.digest) id = (await runAction("/api/markets/account", { op: "link", digest: j.digest })).accountId ?? null; if (id) { setAccount((a) => ({ ...a, accountId: id })); flash(true, "Trading account ready"); } } catch (e) { flash(false, friendlyError(e, (e as Error).message)); } finally { setBusy(null); } };
-  const doDeposit = async () => { if (!account.accountId) return doCreate(); setBusy("deposit"); try { const j = await runAction("/api/markets/account", { op: "deposit", accountId: account.accountId, amountUsd: depositUsd }); flash(true, `Deposited $${depositUsd} USDsui${j.digest ? " · " + short(j.digest) : ""}`); await loadAccount(); } catch (e) { flash(false, friendlyError(e, (e as Error).message)); } finally { setBusy(null); } };
-  const doWithdraw = async () => { if (!account.accountId) return; setBusy("withdraw"); try { const j = await runAction("/api/markets/account", { op: "withdraw", accountId: account.accountId, amountUsd: withdrawUsd }); flash(true, `Withdrawing $${withdrawUsd}${j.digest ? " · " + short(j.digest) : ""}`); await loadAccount(); } catch (e) { flash(false, friendlyError(e, (e as Error).message)); } finally { setBusy(null); } };
+  const doDeposit = async () => { if (!account.accountId) return doCreate(); const amt = Number(acctAmount) || 0; if (amt <= 0) return; setBusy("deposit"); try { const j = await runAction("/api/markets/account", { op: "deposit", accountId: account.accountId, amountUsd: amt }); const actual = j.amountUsd ?? amt; flash(true, `Deposited $${actual.toFixed(2)} USDsui${j.digest ? " · " + short(j.digest) : ""}`); record({ type: "deposit", collateralUsd: actual, digest: j.digest }); setAcctMode("none"); await loadAccount(); } catch (e) { flash(false, friendlyError(e, (e as Error).message)); } finally { setBusy(null); } };
+  const doWithdraw = async () => { if (!account.accountId) return; const amt = Number(acctAmount) || 0; if (amt <= 0) return; setBusy("withdraw"); try { const j = await runAction("/api/markets/account", { op: "withdraw", accountId: account.accountId, amountUsd: amt }); const actual = j.amountUsd ?? amt; flash(true, `Withdrawing $${actual.toFixed(2)}${j.digest ? " · " + short(j.digest) : ""}`); record({ type: "withdraw", collateralUsd: actual, digest: j.digest }); setAcctMode("none"); await loadAccount(); } catch (e) { flash(false, friendlyError(e, (e as Error).message)); } finally { setBusy(null); } };
   const doOrder = async () => {
     if (!account.accountId) return doCreate();
-    if (sizeTokens <= 0) return flash(false, "Enter a position size");
+    if (amountUsd < minMargin) return flash(false, `Minimum $${minMargin.toFixed(2)} to trade`);
+    if (amountUsd > availableUsd + 0.001) return flash(false, "Deposit more to trade");
+    if (sizeTokens <= 0) return flash(false, "Enter an amount");
     setBusy("order");
     try {
       const acceptablePriceUsd = isLong ? price * 1.01 : price * 0.99;
-      const tp = tpSlOn && Number(tpPrice) > 0 ? Number(tpPrice) : undefined;
-      const sl = tpSlOn && Number(slPrice) > 0 ? Number(slPrice) : undefined;
-      const j = await runAction("/api/markets/order/prepare", { ticker: sel, accountId: account.accountId, isLong, sizeTokens, collateralUsd: Math.max(marginUsd, market?.minCollUsd ?? 0), acceptablePriceUsd, tpPriceUsd: tp, slPriceUsd: sl });
+      const tp = tpSlOn && tpPrice > 0 ? tpPrice : undefined;
+      const sl = tpSlOn && slPrice > 0 ? slPrice : undefined;
+      const j = await runAction("/api/markets/order/prepare", { ticker: sel, accountId: account.accountId, isLong, sizeTokens, collateralUsd: amountUsd, acceptablePriceUsd, tpPriceUsd: tp, slPriceUsd: sl });
       flash(true, `${isLong ? "Long" : "Short"} ${selMeta.sym} placed${tp || sl ? " with TP/SL" : ""}${j.digest ? " · " + short(j.digest) : ""}`);
-      record({ type: "open", ticker: sel, side: isLong ? "long" : "short", sizeTokens, priceUsd: price, collateralUsd: Math.max(marginUsd, market?.minCollUsd ?? 0), digest: j.digest });
+      record({ type: "open", ticker: sel, side: isLong ? "long" : "short", sizeTokens, priceUsd: price, collateralUsd: amountUsd, digest: j.digest });
       await loadAccount();
     } catch (e) { flash(false, friendlyError(e, (e as Error).message)); } finally { setBusy(null); }
   };
@@ -168,9 +215,14 @@ export default function MarketsPage() {
           </button>
           {pickerOpen && (
             <>
-              <div className="fixed inset-0 z-30" onClick={() => setPickerOpen(false)} />
-              <div className="absolute left-0 top-full z-40 mt-1 w-[560px] max-w-[92vw] overflow-hidden rounded-2xl border border-[#15300c]/10 bg-[#f7fcf2] shadow-[0_18px_50px_-16px_rgba(21,48,12,0.5)]">
-                <div className="p-2.5">
+              <div className="fixed inset-0 z-[55] bg-black/25 lg:bg-black/10" onClick={() => setPickerOpen(false)} />
+              {/* Bottom sheet on mobile, anchored dropdown on desktop. */}
+              <div className="fixed inset-x-0 bottom-0 z-[60] flex max-h-[85vh] flex-col overflow-hidden rounded-t-2xl border border-[#15300c]/10 bg-[#f7fcf2] shadow-[0_-18px_50px_-16px_rgba(21,48,12,0.5)] lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-0 lg:top-full lg:mt-1 lg:max-h-[440px] lg:w-[560px] lg:max-w-[calc(100vw-1.5rem)] lg:rounded-2xl lg:shadow-[0_18px_50px_-16px_rgba(21,48,12,0.5)]">
+                <div className="flex items-center justify-between px-4 pb-1 pt-3 lg:hidden">
+                  <span className="text-[15px] font-semibold text-[#15300c]">Select market</span>
+                  <button onClick={() => setPickerOpen(false)} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-full bg-[#15300c]/8 text-[15px] text-[#15300c]">✕</button>
+                </div>
+                <div className="p-2.5 pt-2">
                   <input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search markets…" className="w-full rounded-lg border border-[#15300c]/12 bg-white px-3 py-2 text-[14px] outline-none" />
                   <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
                     {CATEGORIES.map((cx) => (
@@ -178,12 +230,12 @@ export default function MarketsPage() {
                     ))}
                   </div>
                 </div>
-                <div className="grid grid-cols-[1.6fr_1fr_1fr_0.9fr] px-3 pb-1 text-[10px] uppercase tracking-[0.12em] text-[#9bb08f]">
-                  <span>Market</span><span className="text-right">Price</span><span className="text-right">OI</span><span className="text-right">Funding</span>
+                <div className="grid grid-cols-[1.6fr_1fr] px-3 pb-1 text-[10px] uppercase tracking-[0.12em] text-[#9bb08f] sm:grid-cols-[1.6fr_1fr_1fr_0.9fr]">
+                  <span>Market</span><span className="text-right">Price</span><span className="hidden text-right sm:block">OI</span><span className="hidden text-right sm:block">Funding</span>
                 </div>
-                <div className="max-h-[360px] overflow-y-auto pb-1.5">
+                <div className="flex-1 overflow-y-auto pb-2 lg:max-h-[300px]">
                   {filtered.map((m) => (
-                    <button key={m.symbol} onClick={() => { setSel(m.symbol); setPickerOpen(false); setSearch(""); }} className="grid w-full grid-cols-[1.6fr_1fr_1fr_0.9fr] items-center px-3 py-2 text-left hover:bg-[#CAFFB8]/40" style={{ background: m.symbol === sel ? "#CAFFB8" : "transparent" }}>
+                    <button key={m.symbol} onClick={() => { setSel(m.symbol); setPickerOpen(false); setSearch(""); }} className="grid w-full grid-cols-[1.6fr_1fr] items-center px-3 py-2 text-left hover:bg-[#CAFFB8]/40 sm:grid-cols-[1.6fr_1fr_1fr_0.9fr]" style={{ background: m.symbol === sel ? "#CAFFB8" : "transparent" }}>
                       <span className="flex min-w-0 items-center gap-2.5">
                         <AssetIcon ticker={m.symbol} size={26} />
                         <span className="min-w-0">
@@ -191,9 +243,9 @@ export default function MarketsPage() {
                           <span className="block text-[10px] uppercase tracking-wide text-[#9bb08f]">{m.maxLeverage}x max</span>
                         </span>
                       </span>
-                      <span className="tabular-nums text-right text-[13.5px] font-medium">${fmtP(m.refPriceUsd)}</span>
-                      <span className="tabular-nums text-right text-[12.5px] text-[#3a5230]">{fmtK(m.longOiTokens + m.shortOiTokens)}</span>
-                      <span className="tabular-nums text-right text-[12.5px]" style={{ color: m.fundingRatePct >= 0 ? LONG : SHORT }}>{m.fundingRatePct >= 0 ? "+" : ""}{m.fundingRatePct.toFixed(3)}%</span>
+                      <span className="tabular-nums text-right text-[13.5px] font-medium">${fmtP(spotMap[m.symbol] ?? m.refPriceUsd)}</span>
+                      <span className="hidden tabular-nums text-right text-[12.5px] text-[#3a5230] sm:block">{fmtK(m.longOiTokens + m.shortOiTokens)}</span>
+                      <span className="hidden tabular-nums text-right text-[12.5px] sm:block" style={{ color: m.fundingRatePct >= 0 ? LONG : SHORT }}>{m.fundingRatePct >= 0 ? "+" : ""}{m.fundingRatePct.toFixed(3)}%</span>
                     </button>
                   ))}
                   {!filtered.length && <div className="px-4 py-6 text-center text-[13px] text-[#7a8a72]">No markets match.</div>}
@@ -235,7 +287,7 @@ export default function MarketsPage() {
                   {t === "positions" ? `Positions${livePositions.length ? ` (${livePositions.length})` : ""}` : "Trade history"}
                 </button>
               ))}
-              {posTab === "positions" && livePositions.length > 0 && <span className="ml-auto text-[12.5px] text-[#3a5230]">Unrealized PnL <b className="tabular-nums" style={{ color: totalPnl >= 0 ? LONG : SHORT }}>{totalPnl >= 0 ? "+" : "-"}${Math.abs(totalPnl).toFixed(2)}</b></span>}
+              {posTab === "positions" && livePositions.length > 0 && <span className="ml-auto text-[12.5px] text-[#3a5230]">Unrealized PnL <b className="tabular-nums" style={{ color: Math.abs(totalPnl) < 0.005 ? "#7a8a72" : totalPnl >= 0 ? LONG : SHORT }}>{fmtPnl(totalPnl)}</b></span>}
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
               {posTab === "positions" ? (
@@ -250,11 +302,11 @@ export default function MarketsPage() {
                       {livePositions.map((p) => (
                         <tr key={p.ticker + p.positionId} className="border-t border-[#15300c]/8">
                           <td className="px-4 py-1.5" style={{ fontFamily: "var(--font-sans-v2)" }}><span className="flex items-center gap-1.5"><AssetIcon ticker={p.ticker} size={18} /><span className="font-semibold">{assetMeta(p.ticker).sym}</span> <span className="text-[10.5px]" style={{ color: p.isLong ? LONG : SHORT }}>{p.isLong ? "L" : "S"} {p.leverage ? `${p.leverage.toFixed(0)}x` : ""}</span>{p.hasTpSl && <span className="ml-1 text-[9px] text-[#2f6d1f]">TP/SL</span>}</span></td>
-                          <td className="py-1.5">{p.sizeTokens.toFixed(2)}</td>
+                          <td className="py-1.5">{fmtSize(p.sizeTokens)}</td>
                           <td className="py-1.5">${fmtP(p.entryPriceUsd)}</td>
                           <td className="py-1.5">${fmtP(p.mark)}</td>
                           <td className="py-1.5">${fmtP(p.liqPriceUsd)}</td>
-                          <td className="py-1.5" style={{ color: p.pnl >= 0 ? LONG : SHORT }}>{p.pnl >= 0 ? "+" : "-"}${Math.abs(p.pnl).toFixed(2)} <span className="text-[10.5px] text-[#7a8a72]">({p.pnlPct >= 0 ? "+" : ""}{p.pnlPct.toFixed(0)}%)</span></td>
+                          <td className="py-1.5" style={{ color: Math.abs(p.pnl) < 0.005 ? "#7a8a72" : p.pnl >= 0 ? LONG : SHORT }}>{fmtPnl(p.pnl)} <span className="text-[10.5px] text-[#7a8a72]">({p.pnlPct >= 0 ? "+" : ""}{p.pnlPct.toFixed(0)}%)</span></td>
                           <td className="py-1.5 pr-4"><span className="flex items-center justify-end gap-1.5">
                             <button onClick={() => setPnlCard({ ticker: p.ticker, isLong: p.isLong, leverage: p.leverage, entryPriceUsd: p.entryPriceUsd, markPriceUsd: p.mark, pnlUsd: p.pnl, pnlPct: p.pnlPct })} title="Share PnL" className="rounded-lg border border-[#15300c]/20 px-2 py-0.5 text-[11px] font-semibold text-[#2f6d1f]">Share</button>
                             <button onClick={() => doClose(p)} disabled={!!busy} className="rounded-lg border px-2 py-0.5 text-[11px] font-semibold" style={{ borderColor: SHORT, color: SHORT }}>{busy === "close:" + p.positionId ? "…" : "Close"}</button>
@@ -279,9 +331,9 @@ export default function MarketsPage() {
                           {t.type}{t.side ? <span className="ml-1 text-[10.5px]" style={{ color: t.side === "long" ? LONG : SHORT }}>{t.side}</span> : null}
                         </td>
                         <td className="py-1.5" style={{ fontFamily: "var(--font-sans-v2)" }}>{t.ticker ? <span className="flex items-center gap-1.5"><AssetIcon ticker={t.ticker} size={16} />{assetMeta(t.ticker).sym}</span> : "—"}</td>
-                        <td className="py-1.5">{t.sizeTokens != null ? t.sizeTokens.toFixed(2) : t.collateralUsd != null ? `$${t.collateralUsd.toFixed(2)}` : "—"}</td>
+                        <td className="py-1.5">{t.sizeTokens != null ? fmtSize(t.sizeTokens) : t.collateralUsd != null ? `$${t.collateralUsd.toFixed(2)}` : "—"}</td>
                         <td className="py-1.5">{t.priceUsd != null ? `$${fmtP(t.priceUsd)}` : "—"}</td>
-                        <td className="py-1.5" style={{ color: t.pnlUsd == null ? "#7a8a72" : t.pnlUsd >= 0 ? LONG : SHORT }}>{t.pnlUsd == null ? "—" : `${t.pnlUsd >= 0 ? "+" : "-"}$${Math.abs(t.pnlUsd).toFixed(2)}`}</td>
+                        <td className="py-1.5" style={{ color: t.pnlUsd == null ? "#7a8a72" : Math.abs(t.pnlUsd) < 0.005 ? "#7a8a72" : t.pnlUsd >= 0 ? LONG : SHORT }}>{t.pnlUsd == null ? "—" : fmtPnl(t.pnlUsd)}</td>
                         <td className="py-1.5 pr-4 text-right">{t.digest ? <a href={`https://suiscan.xyz/mainnet/tx/${t.digest}`} target="_blank" rel="noreferrer" className="text-[11px] text-[#2f6d1f] underline">tx ↗</a> : null}</td>
                       </tr>
                     ))}
@@ -304,49 +356,92 @@ export default function MarketsPage() {
             <button onClick={() => setIsLong(false)} className="rounded-lg py-2 text-[14px] font-semibold" style={{ background: !isLong ? SHORT : "transparent", color: !isLong ? "#fff" : "#3a5230" }}>Short</button>
           </div>
           <div className="mt-4">
-            <div className="flex items-center justify-between"><span className="text-[12px] text-[#3a5230]">Leverage <span className="text-[#7a8a72]">(max {market?.maxLeverage ?? 25}x)</span></span><span className="tabular-nums text-[14px] font-bold text-[#2f6d1f]">{leverage}x</span></div>
-            <input type="range" min={1} max={Math.max(1, Math.floor(market?.maxLeverage ?? 25))} step={1} value={leverage} onChange={(e) => setLeverage(Number(e.target.value))} className="mt-2 w-full accent-[#3d7a29]" />
+            <div className="flex items-center justify-between"><span className="text-[12px] text-[#3a5230]">Leverage <span className="text-[#7a8a72]">(max {maxLev}x)</span></span><span className="tabular-nums text-[14px] font-bold text-[#2f6d1f]">{leverage}x</span></div>
+            <input type="range" min={1} max={maxLev} step={1} value={leverage} onChange={(e) => setLeverage(Number(e.target.value))} className="mt-2 w-full accent-[#3d7a29]" />
+            <div className="mt-2 grid grid-cols-4 gap-1">
+              {levPresets.map((lv) => (
+                <button key={lv} onClick={() => setLeverage(lv)} className="rounded-lg py-1.5 text-[12px] font-semibold transition-colors" style={{ background: leverage === lv ? "#3d7a29" : "#eef6e7", color: leverage === lv ? "#fff" : "#3a5230" }}>{lv}x</button>
+              ))}
+            </div>
           </div>
-          <label className="mt-3 block"><span className={LABEL}>Size ({selMeta.sym})</span>
-            <input type="number" min={0} step={0.001} value={sizeTokens || ""} onChange={(e) => setSizeTokens(Math.max(0, Number(e.target.value)))} placeholder="0.00" className={`${INPUT} mt-1 tabular-nums`} /></label>
-          <input type="range" min={0} max={Math.max(0.001, maxSize)} step={maxSize / 100 || 0.001} value={Math.min(sizeTokens, maxSize)} onChange={(e) => setSizeTokens(Number(e.target.value))} className="mt-2 w-full accent-[#3d7a29]" />
-          <div className="mt-2 flex items-center justify-between text-[13px]"><span className="text-[#3a5230]">Margin</span><span className="tabular-nums font-semibold">{marginUsd ? `$${marginUsd.toFixed(2)}` : "$0.00"}</span></div>
+          {/* amount — the USDsui collateral to trade with */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between"><span className={LABEL}>Amount</span><span className="text-[11px] text-[#7a8a72]">Min ${minMargin.toFixed(2)} · Avail ${availableUsd.toFixed(2)}</span></div>
+            <div className="mt-1 flex items-center rounded-xl border border-[#15300c]/15 bg-white px-3">
+              <span className="text-[15px] text-[#7a8a72]">$</span>
+              <input type="number" min={0} step={0.01} value={amountUsd || ""} onChange={(e) => setAmountUsd(Math.max(0, Number(e.target.value)))} placeholder="0.00" className="w-full bg-transparent px-1 py-2.5 tabular-nums text-[18px] font-semibold text-[#15300c] outline-none" />
+              <span className="mr-1 text-[11px] text-[#7a8a72]">USDsui</span>
+              <button onClick={() => setAmountUsd(Math.floor(maxAmount * 100) / 100)} className="rounded-lg bg-[#eef6e7] px-2 py-1 text-[11px] font-semibold text-[#2f6d1f]">MAX</button>
+            </div>
+            <input type="range" min={0} max={Math.max(0.1, maxAmount)} step={maxAmount / 100 || 0.1} value={Math.min(amountUsd, maxAmount)} onChange={(e) => setAmountUsd(Number(e.target.value))} className="mt-2 w-full accent-[#3d7a29]" />
+            <div className="mt-1 flex items-center justify-between text-[13px]"><span className="text-[#3a5230]">Buying power · {leverage}x</span><span className="tabular-nums font-semibold">${fmtP(notionalUsd)}</span></div>
+          </div>
 
+          {/* TP/SL — percentage presets */}
           <label className="mt-3 flex cursor-pointer items-center gap-2 text-[13px] text-[#3a5230]">
-            <input type="checkbox" checked={tpSlOn} className="accent-[#3d7a29]" onChange={(e) => { setTpSlOn(e.target.checked); if (e.target.checked && price > 0) { setTpPrice((price * (isLong ? 1.1 : 0.9)).toFixed(4)); setSlPrice((price * (isLong ? 0.95 : 1.05)).toFixed(4)); } }} />
-            Take Profit / Stop Loss
+            <input type="checkbox" checked={tpSlOn} className="accent-[#3d7a29]" onChange={(e) => setTpSlOn(e.target.checked)} />
+            Take profit / Stop loss
           </label>
           {tpSlOn && (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <label><span className={LABEL}>TP price</span><input type="number" value={tpPrice} onChange={(e) => setTpPrice(e.target.value)} className={`${INPUT} mt-1 tabular-nums`} style={{ color: LONG }} /></label>
-              <label><span className={LABEL}>SL price</span><input type="number" value={slPrice} onChange={(e) => setSlPrice(e.target.value)} className={`${INPUT} mt-1 tabular-nums`} style={{ color: SHORT }} /></label>
+            <div className="mt-2 space-y-2">
+              {([["Take profit", tpPct, setTpPct, tpPrice, LONG], ["Stop loss", slPct, setSlPct, slPrice, SHORT]] as const).map(([title, pct, setter, tgt, col]) => (
+                <div key={title} className="rounded-xl bg-[#eef6e7] p-2.5">
+                  <div className="flex items-center justify-between"><span className="text-[12px] font-medium text-[#3a5230]">{title}</span><span className="tabular-nums text-[11px]" style={{ color: col }}>Target ${fmtP(tgt)}</span></div>
+                  <div className="mt-1.5 flex items-center gap-1">
+                    {[5, 10, 25, 50].map((o) => <button key={o} onClick={() => setter(o)} className="flex-1 rounded-lg py-1.5 text-[12px] font-semibold" style={{ background: pct === o ? col : "#fff", color: pct === o ? "#fff" : "#3a5230" }}>{o}%</button>)}
+                    {/* manual % — type any value */}
+                    <div className="flex items-center rounded-lg border border-[#15300c]/12 bg-white pl-1.5" style={{ borderColor: [5, 10, 25, 50].includes(pct) ? undefined : col }}>
+                      <input type="number" min={0.1} step={0.1} value={pct} onChange={(e) => setter(Math.min(500, Math.max(0.1, Number(e.target.value) || 0.1)))} aria-label={`${title} percent`} className="w-9 bg-transparent py-1 text-right tabular-nums text-[12px] font-semibold outline-none" style={{ color: col }} />
+                      <span className="pr-1.5 text-[11px] text-[#7a8a72]">%</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
-          <button onClick={account.accountId ? doOrder : doCreate} disabled={!!busy} className="mt-4 w-full rounded-xl py-3 text-[15px] font-bold text-white disabled:opacity-50" style={{ background: !account.accountId ? "#3d7a29" : isLong ? LONG : SHORT }}>
-            {busy === "order" || busy === "create" ? "…" : !account.accountId ? "Create trading account" : `${isLong ? "Long" : "Short"} ${selMeta.sym} · ${leverage}x`}
+          <button onClick={account.accountId ? doOrder : doCreate} disabled={!!busy || (!!account.accountId && !canPlace)} className="mt-4 w-full rounded-xl py-3 text-[15px] font-bold text-white disabled:opacity-50" style={{ background: !account.accountId ? "#3d7a29" : isLong ? LONG : SHORT }}>
+            {busy === "order" || busy === "create" ? "…" : !account.accountId ? "Create trading account" : amountUsd > availableUsd + 0.001 ? "Deposit to trade" : amountUsd > 0 && amountUsd < minMargin ? `Min $${minMargin.toFixed(2)} to trade` : `${isLong ? "Long" : "Short"} ${selMeta.sym} · ${leverage}x`}
           </button>
 
           <div className="mt-4 space-y-1.5 border-t border-[#15300c]/10 pt-3 text-[12.5px]">
             <Row k="Notional" v={`$${fmtP(notionalUsd)}`} />
             <Row k="Accept price" v={`$${fmtP(acceptablePriceUsd)}`} />
-            <Row k="Max size" v={<span style={{ color: isLong ? LONG : SHORT }}>{fmtK(maxSize)} {selMeta.sym}</span>} />
+            <Row k="Margin" v={`$${marginUsd.toFixed(2)}`} />
             <Row k="Est. liq. price" v={liqPrice ? `$${fmtP(liqPrice)}` : "—"} />
             <Row k="Trading fee" v={`$${totalFeeUsd.toFixed(4)}`} />
           </div>
 
-          {/* deposit / withdraw */}
-          <div className="mt-4 rounded-xl bg-[#eef6e7] p-3">
-            <div className="mb-2 flex items-center justify-between"><span className="text-[13px] font-semibold">Account</span><span className="tabular-nums text-[13px] font-bold text-[#2f6d1f]">${availableUsd.toFixed(2)}</span></div>
-            <div className="flex gap-2">
-              <div className="flex flex-1 items-center rounded-lg border border-[#15300c]/15 bg-white px-2"><span className="text-[#7a8a72]">$</span><input type="number" min={0} value={depositUsd} onChange={(e) => setDepositUsd(Number(e.target.value))} className="w-full bg-transparent px-1 py-2 tabular-nums text-[14px] outline-none" /></div>
-              <button onClick={doDeposit} disabled={!!busy} className="rounded-lg px-3 text-[13px] font-semibold text-[#0d2409]" style={{ background: MINT }}>{busy === "deposit" ? "…" : "Deposit"}</button>
+          {/* trading balance — deposit / withdraw, two-step with MAX */}
+          <div className="mt-4 rounded-xl border border-[#15300c]/10 bg-[#eef6e7] p-3">
+            <div className="mb-2.5 flex items-end justify-between">
+              <span className="text-[13px] font-semibold text-[#15300c]">Trading balance</span>
+              <span className="tabular-nums text-[17px] font-bold text-[#2f6d1f]">${availableUsd.toFixed(2)}</span>
             </div>
-            <div className="mt-2 flex gap-2">
-              <div className="flex flex-1 items-center rounded-lg border border-[#15300c]/15 bg-white px-2"><span className="text-[#7a8a72]">$</span><input type="number" min={0} value={withdrawUsd} onChange={(e) => setWithdrawUsd(Number(e.target.value))} className="w-full bg-transparent px-1 py-2 tabular-nums text-[14px] outline-none" /></div>
-              <button onClick={doWithdraw} disabled={!!busy || !account.accountId} className="rounded-lg border border-[#15300c]/20 bg-white px-3 text-[13px] font-semibold disabled:opacity-40">{busy === "withdraw" ? "…" : "Withdraw"}</button>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-[11.5px] text-[#7a8a72]"><span>{account.accountId ? short(account.accountId) : "no account"}</span><span>collateral USDsui</span></div>
+            {acctMode === "none" ? (
+              <>
+                <div className="flex gap-2">
+                  <button onClick={() => { setAcctMode("deposit"); setAcctAmount(""); }} className="flex-1 rounded-lg py-2.5 text-[13.5px] font-bold text-[#0d2409]" style={{ background: MINT }}>+ Deposit</button>
+                  <button onClick={() => { if (account.accountId && availableUsd > 0) { setAcctMode("withdraw"); setAcctAmount(""); } }} disabled={!account.accountId || availableUsd <= 0} className="flex-1 rounded-lg border border-[#15300c]/20 bg-white py-2.5 text-[13.5px] font-bold text-[#15300c] disabled:opacity-40">Withdraw</button>
+                </div>
+                {availableUsd <= 0 && <div className="mt-2 text-center text-[11.5px] text-[#7a8a72]">Deposit USDsui to fund your trades</div>}
+              </>
+            ) : (
+              <div>
+                <div className="mb-1.5 text-[12.5px] font-semibold text-[#15300c]">{acctMode === "deposit" ? "Deposit USDsui" : "Withdraw USDsui"}</div>
+                <div className="flex items-center rounded-lg border border-[#15300c]/15 bg-white px-2.5">
+                  <span className="text-[15px] text-[#7a8a72]">$</span>
+                  <input autoFocus type="number" min={0} step={0.01} value={acctAmount} onChange={(e) => setAcctAmount(e.target.value)} placeholder="0.00" className="w-full bg-transparent px-1 py-2.5 tabular-nums text-[16px] font-semibold outline-none" />
+                  {acctMode === "withdraw" && <button onClick={() => setAcctAmount(availableUsd.toFixed(2))} className="rounded bg-[#eef6e7] px-2 py-1 text-[11px] font-semibold text-[#2f6d1f]">MAX</button>}
+                </div>
+                <div className="mt-1.5 text-[11.5px] text-[#7a8a72]">{acctMode === "deposit" ? "Moves from your Talise balance into your trading account." : `Available to withdraw: $${availableUsd.toFixed(2)}`}</div>
+                <div className="mt-2.5 flex gap-2">
+                  <button onClick={() => setAcctMode("none")} className="flex-1 rounded-lg border border-[#15300c]/15 bg-white py-2 text-[13px] font-semibold text-[#3a5230]">Cancel</button>
+                  <button onClick={acctMode === "deposit" ? doDeposit : doWithdraw} disabled={!!busy || (Number(acctAmount) || 0) <= 0} className="flex-1 rounded-lg py-2 text-[13px] font-bold text-white disabled:opacity-40" style={{ background: acctMode === "deposit" ? LONG : "#3d7a29" }}>{busy === "deposit" || busy === "withdraw" ? "…" : acctMode === "deposit" ? "Confirm deposit" : "Confirm withdraw"}</button>
+                </div>
+              </div>
+            )}
+            <div className="mt-2.5 flex items-center justify-between border-t border-[#15300c]/8 pt-2 text-[11px] text-[#7a8a72]"><span>{account.accountId ? short(account.accountId) : "no account yet"}</span><span>USDsui collateral</span></div>
           </div>
         </div>
       </div>

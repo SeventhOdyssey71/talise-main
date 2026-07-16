@@ -3,7 +3,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { denyUnlessAppApproved } from "@/lib/app-access";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { WATERX_ENABLED, WATERX_LOCAL_SIGN, localSigner, buildCloseTx, settle } from "@/lib/waterx";
+import { WATERX_ENABLED, WATERX_LOCAL_SIGN, localSigner, buildCloseTx, settle, friendlyPerpError } from "@/lib/waterx";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +47,6 @@ export async function POST(req: Request) {
   } catch (err) {
     const msg = (err as Error).message ?? "failed";
     console.warn(`[perp/close] failed: ${msg}`);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: friendlyPerpError(msg), raw: msg }, { status: 500 });
   }
 }

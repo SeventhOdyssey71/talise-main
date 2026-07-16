@@ -6,7 +6,7 @@ import { rateLimitAsync } from "@/lib/rate-limit";
 import {
   WATERX_ENABLED, WATERX_LOCAL_SIGN, localSigner,
   buildCreateAccountTx, buildDepositTx, buildWithdrawTx, settle, findCreatedAccountId, accountSnapshot,
-  getStoredAccount, storeAccount,
+  getStoredAccount, storeAccount, usdsuiBalanceUsd, friendlyPerpError,
 } from "@/lib/waterx";
 
 export const runtime = "nodejs";
@@ -51,6 +51,8 @@ export async function GET(req: Request) {
     }
     const accountId = qAccount ?? (actor.userId != null ? await getStoredAccount(actor.userId) : null);
     if (!accountId) return NextResponse.json({ accountId: null, address: actor.sender });
+    // Fresh every time so deposits + open/close reflect immediately. The read is
+    // cheap because getPositions only scans the account's active markets.
     const snap = await accountSnapshot(accountId);
     return NextResponse.json({ accountId, address: actor.sender, ...snap });
   } catch (err) {
@@ -105,6 +107,13 @@ export async function POST(req: Request) {
       const accountId = String(b.accountId ?? "");
       const amountUsd = Number(b.amountUsd ?? 0);
       if (!accountId || amountUsd <= 0) return NextResponse.json({ error: "accountId and amountUsd required" }, { status: 400 });
+      // Pre-check the wallet has the USDsui — the deposit sources it from the
+      // user's Talise balance, so fail fast with a clear message instead of a
+      // raw on-chain "no valid coins" revert.
+      const walletUsd = await usdsuiBalanceUsd(actor.sender);
+      if (walletUsd + 0.001 < amountUsd) {
+        return NextResponse.json({ error: `Not enough USDsui — you have $${walletUsd.toFixed(2)}.`, code: "INSUFFICIENT_USDSUI" }, { status: 400 });
+      }
       const tx = await buildDepositTx(accountId, amountUsd);
       const result = await settle(tx, actor.sender);
       return NextResponse.json({ ...result, op, accountId, amountUsd });
@@ -115,15 +124,16 @@ export async function POST(req: Request) {
       const amountUsd = Number(b.amountUsd ?? 0);
       if (!accountId || amountUsd <= 0) return NextResponse.json({ error: "accountId and amountUsd required" }, { status: 400 });
       // Withdraw CREDIT → USDsui to the user's own Sui address (keeper-settled).
-      const tx = await buildWithdrawTx(accountId, amountUsd, actor.sender);
+      // The build caps to on-chain spendable and returns the actual amount.
+      const { tx, amountUsd: actualUsd } = await buildWithdrawTx(accountId, amountUsd, actor.sender);
       const result = await settle(tx, actor.sender);
-      return NextResponse.json({ ...result, op, accountId, amountUsd });
+      return NextResponse.json({ ...result, op, accountId, amountUsd: actualUsd });
     }
 
     return NextResponse.json({ error: "op must be create | link | deposit | withdraw" }, { status: 400 });
   } catch (err) {
     const msg = (err as Error).message ?? "failed";
     console.warn(`[perp/account] op=${op} failed: ${msg}`);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: friendlyPerpError(msg), raw: msg }, { status: 500 });
   }
 }

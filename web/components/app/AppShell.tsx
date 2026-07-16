@@ -31,7 +31,6 @@ import {
   UserGroupIcon,
   BarcodeScanIcon,
   MoneyReceive01Icon,
-  SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { CurrencyProvider, useCurrency } from "./data/currency";
 import { Flag } from "./ui";
@@ -49,6 +48,7 @@ import { api } from "./data/api";
 import { forceFreshSignIn, signingSessionExpired } from "@/lib/session-expiry";
 import { Diamond } from "@/components/Diamond";
 import { ScanSheet } from "./scan/ScanSheet";
+import { AgentMascot } from "./AgentMascot";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu,
@@ -85,10 +85,8 @@ const PRIMARY: NavItem[] = [
       { label: "Stream", href: "/app/pay/stream" },
     ],
   },
-  { label: "Copilot", href: "/app/agent", icon: SparklesIcon as IconSvgElement },
   { label: "Earn", href: "/app/earn", icon: Plant02Icon as IconSvgElement },
-  { label: "Markets", href: "/app/markets", icon: Analytics01Icon as IconSvgElement },
-  { label: "Predict", href: "/app/predict", icon: Analytics01Icon as IconSvgElement },
+  { label: "Perps", href: "/app/markets", icon: Analytics01Icon as IconSvgElement },
   { label: "Work", href: "/app/work", icon: Briefcase01Icon as IconSvgElement },
   { label: "Activity", href: "/app/activity", icon: Analytics01Icon as IconSvgElement },
 ];
@@ -103,8 +101,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/app/requests": "Requests",
   "/app/rules": "Automations",
   "/app/earn": "Earn",
-  "/app/markets": "Markets",
-  "/app/predict": "Predict",
+  "/app/markets": "Perps",
   "/app/rewards": "Rewards",
   "/app/work": "Work",
   "/app/activity": "Activity",
@@ -522,6 +519,15 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
           />
         </nav>
         <div className="flex flex-none items-center gap-3">
+          {nav === CONSUMER_NAV && (
+            <Link
+              href="/app/agent"
+              aria-label="Talise Copilot"
+              className="flex size-9 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
+            >
+              <AgentMascot size={34} />
+            </Link>
+          )}
           <CurrencySelect />
           <AccountMenu
             me={me}
@@ -545,6 +551,13 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
         <header className="relative z-30 flex items-center justify-between px-4 pb-1 pt-3 lg:hidden">
           <Logo homeHref={nav.brandHref} />
           <div className="flex items-center gap-2.5">
+            {/* Talise Copilot — the 3D mascot is the agent's top-bar entry
+                point (mirrors the iOS Home header). Consumer surface only. */}
+            {nav === CONSUMER_NAV && (
+              <Link href="/app/agent" aria-label="Talise Copilot" className="flex items-center justify-center active:scale-95">
+                <AgentMascot size={36} />
+              </Link>
+            )}
             {/* Scan-to-pay — camera QR reader routing into Send with the
                 recipient prefilled (mobile-only entry; desktop has no camera
                 ergonomics worth the chrome). */}
@@ -577,14 +590,22 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
         <main className="w-full min-w-0 overflow-x-clip px-4 pb-32 pt-7 sm:px-6 lg:px-10 lg:pb-12 lg:pt-24">
           {children}
         </main>
-      </div>
 
       {/* ── Mobile bottom nav ── */}
+      {/* Lives INSIDE the `relative z-10` wrapper (not a root sibling) so that
+          page-level modals/sheets/pickers can stack above it — otherwise their
+          z-index is trapped in this context and the nav paints over them. */}
       {/* Activity ⇄ Settings swap (mobile only): Settings takes Activity's
           tab slot here; Activity moves into the avatar dropdown (AccountMenu).
           The desktop sidebar keeps Activity in the primary list. */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4 lg:hidden">
-        <div className="flex items-center gap-1 rounded-full border border-[#15300c]/10 bg-white/85 px-2 py-2 shadow-[0_10px_40px_-12px_rgba(21,48,12,0.35)] backdrop-blur-md" style={{ borderRadius: 999 }}>
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-4 lg:hidden">
+        {/* Fits the pill to the viewport and scrolls horizontally on narrow
+            phones so items are never clipped; secondary items (Activity,
+            Ramps, Settings) live in the header account menu. */}
+        <div
+          className="no-scrollbar flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full border border-[#15300c]/10 bg-white/85 px-2.5 py-2 shadow-[0_10px_40px_-12px_rgba(21,48,12,0.35)] backdrop-blur-md"
+          style={{ borderRadius: 999, scrollbarWidth: "none" }}
+        >
           {nav.primary
             .map((item) =>
               item.label === "Activity"
@@ -599,7 +620,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
                 href={item.href}
                 aria-label={item.label}
                 aria-current={active ? "page" : undefined}
-                className={`flex flex-col items-center gap-0.5 rounded-full px-3.5 py-1.5 transition-colors ${
+                className={`flex shrink-0 flex-col items-center gap-0.5 rounded-full px-3.5 py-1.5 transition-colors ${
                   active ? "bg-[#CAFFB8]" : ""
                 }`}
               >
@@ -617,6 +638,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
           })}
         </div>
       </nav>
+      </div>
     </div>
   );
 }

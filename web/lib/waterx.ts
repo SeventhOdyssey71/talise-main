@@ -42,6 +42,7 @@ import { sui } from "./sui";
 import { onara } from "./onara";
 import { memoTtl } from "./perf-cache";
 import { db } from "./db";
+import { cachedSpotFor } from "./perp-cache";
 
 const WATERX_CONFIG_URL =
   process.env.WATERX_CONFIG_URL ??
@@ -79,6 +80,27 @@ async function usdsuiWalletBalance(owner: string): Promise<bigint> {
   }
 }
 
+/** The owner's spendable USDsui wallet balance in whole dollars. */
+export async function usdsuiBalanceUsd(owner: string): Promise<number> {
+  return Number(await usdsuiWalletBalance(owner)) / 10 ** USDSUI_DECIMALS;
+}
+
+/**
+ * Map a raw WaterX/Move abort or SDK/RPC error to friendly copy for the user.
+ * Falls back to the original message when nothing matches (so nothing is hidden).
+ */
+export function friendlyPerpError(msg: string): string {
+  const m = (msg || "").toLowerCase();
+  if (m.includes("acceptable") || (m.includes("price") && m.includes("exceed"))) return "Price moved past your limit — please try again.";
+  if (m.includes("maxoi") || m.includes("max_oi") || (m.includes("exceed") && m.includes("oi"))) return "This market is at capacity right now — try a smaller size or again shortly.";
+  if (m.includes("insufficient") && (m.includes("collateral") || m.includes("balance") || m.includes("fund"))) return "Not enough balance for this.";
+  if ((m.includes("min") && m.includes("coll")) || m.includes("mincollateral")) return "Below the minimum collateral for this market.";
+  if (m.includes("paused")) return "This market is paused right now.";
+  if (m.includes("no valid gas") || m.includes("no coins") || m.includes("no valid usdsui")) return "Not enough USDsui in your wallet.";
+  if (m.includes("nothing available to withdraw")) return "Nothing available to withdraw.";
+  return msg;
+}
+
 // waterx_account object type prefixes (from mainnet config) — used to spot the
 // freshly created Account in a tx's object changes.
 const WXA_PKG_IDS = [
@@ -86,17 +108,26 @@ const WXA_PKG_IDS = [
   "0x6cb6f3be75d37cd2b7db0e9fdac11b72ff0669765382cc9e00441d178b58bdbe",
 ];
 
+// gRPC endpoint. The public fullnode benchmarks fastest of the free endpoints
+// for WaterX's simulateTransaction reads (~2s vs Hayabusa ~18s here), so it's
+// the default; set SUI_GRPC_URL to a dedicated provider (QuickNode etc.) for
+// more speed + headroom under user load.
+function preferredGrpcUrl(): string {
+  return process.env.SUI_GRPC_URL ?? "https://fullnode.mainnet.sui.io:443";
+}
+
 // Memoized mainnet client (config fetch + gRPC transport reused per process).
 let _perp: Promise<PerpClient> | null = null;
 export function perp(): Promise<PerpClient> {
   if (!_perp) {
-    const grpcUrl = process.env.SUI_GRPC_URL ?? "https://fullnode.mainnet.sui.io:443";
-    _perp = PerpClient.mainnet({ grpcUrl, waterxConfigUrl: WATERX_CONFIG_URL, cache: true }).catch(
-      (e) => {
-        _perp = null;
-        throw e;
-      },
-    );
+    _perp = PerpClient.mainnet({
+      grpcUrl: preferredGrpcUrl(),
+      waterxConfigUrl: WATERX_CONFIG_URL,
+      cache: true,
+    }).catch((e) => {
+      _perp = null;
+      throw e;
+    });
   }
   return _perp;
 }
@@ -219,6 +250,47 @@ export async function storeAccount(userId: number, accountId: string): Promise<v
   }
 }
 
+// ── Active markets per account ───────────────────────────────────────────────
+// Positions live inside each MARKET object, so finding an account's positions
+// means querying markets. Scanning all 30 on every 5s poll was the account
+// read's cost. Instead we remember which markets an account has traded and scan
+// only those — cheap AND fresh (no snapshot cache needed). The set is seeded by
+// a one-time full scan and kept current by the order endpoint.
+const ACTIVE_TTL_MS = 5 * 60 * 1000;
+
+async function getActiveMarkets(accountId: string): Promise<{ tickers: string[]; ts: number } | null> {
+  try {
+    const r = await db().execute({
+      sql: "SELECT v_text, refreshed_at FROM global_kv WHERE k = ?",
+      args: [`perp:active:${accountId}`],
+    });
+    const row = r.rows[0] as { v_text?: string; refreshed_at?: number | string } | undefined;
+    if (!row?.v_text) return null;
+    return { tickers: JSON.parse(row.v_text) as string[], ts: Number(row.refreshed_at) || 0 };
+  } catch {
+    return null;
+  }
+}
+
+async function setActiveMarkets(accountId: string, tickers: string[]): Promise<void> {
+  try {
+    await db().execute({
+      sql: `INSERT INTO global_kv (k, v_text, refreshed_at) VALUES (?, ?, ?)
+            ON CONFLICT (k) DO UPDATE SET v_text = EXCLUDED.v_text, refreshed_at = EXCLUDED.refreshed_at`,
+      args: [`perp:active:${accountId}`, JSON.stringify([...new Set(tickers)]), Date.now()],
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Record that an account has (or is about to have) a position on `ticker`, so
+ *  the next account read scans it immediately. Called from the order endpoint. */
+export async function addActiveMarket(accountId: string, ticker: string): Promise<void> {
+  const cur = (await getActiveMarkets(accountId))?.tickers ?? [];
+  if (!cur.includes(ticker)) await setActiveMarkets(accountId, [...cur, ticker]);
+}
+
 // ── Trade history (recorded per user in global_kv) ───────────────────────────
 export type TradeLogEntry = {
   ts: number;
@@ -284,35 +356,59 @@ export async function accountSnapshot(
 }
 
 async function getPositions(client: PerpClient, accountId: string): Promise<PerpPosition[]> {
+  // Scan only the account's active markets when the set is known + fresh; else
+  // do a one-time full scan (and reseed the set from what we find). This keeps
+  // the read to ~1-3 gRPC calls instead of 30 on every poll.
+  const active = await getActiveMarkets(accountId);
+  const fullScan = !active || Date.now() - active.ts > ACTIVE_TTL_MS;
+  const scanList = fullScan ? WATERX_TICKERS : active!.tickers;
+
   const per = await Promise.all(
-    WATERX_TICKERS.map(async (ticker): Promise<PerpPosition[]> => {
+    scanList.map(async (ticker): Promise<PerpPosition[]> => {
       try {
-        const m = await getMarketData(client, { ticker });
-        const priceUsd = Number(m.long_avg_entry_price) / PRICE_SCALE;
+        // Use the warm cached spot for the price basis instead of a per-ticker
+        // getMarketData gRPC call — halves the gRPC load of an account read
+        // (this runs for all 30 markets on every poll). Falls back to 0 basis
+        // (we compute PnL/liq ourselves, so the basis only feeds the SDK read).
+        const spot = (await cachedSpotFor(ticker)) ?? 0;
         const rows = await getAccountPositions(client, {
           ticker,
           accountObjectAddress: accountId,
-          basePriceUsd: rawPrice(priceUsd),
+          basePriceUsd: rawPrice(spot > 0 ? spot : 1),
           collateralPriceUsd: rawPrice(1),
         });
+        if (!rows.length) return [];
         return rows.map((p) => {
           const q = p as unknown as {
             collateral_decimal?: number; average_price?: string | number;
-            oracle_price?: string | number; leverage_bps?: string | number;
             linked_order_ids?: unknown[];
           };
           const dec = Number(q.collateral_decimal ?? USDSUI_DECIMALS);
+          const isLong = Boolean(p.is_long);
+          // average_price is 1e9-scaled USD; size is 1e9-scaled tokens.
+          const entry = Number(q.average_price ?? 0) / PRICE_SCALE;
+          const sizeTokens = Number(p.size) / PRICE_SCALE;
+          const collateralUsd = Number(p.collateral_amount) / 10 ** dec;
+          const mark = spot > 0 ? spot : entry;
+          // Leverage the user set = entry notional / collateral (stable, not the
+          // drifting on-chain leverage_bps which re-marks with price).
+          const leverage = collateralUsd > 0 && entry > 0 ? (sizeTokens * entry) / collateralUsd : 0;
+          // Unrealized PnL from our live mark (not the stale/odd-scaled chain pnl).
+          const pnlUsd = (isLong ? 1 : -1) * sizeTokens * (mark - entry);
+          const liqPriceUsd = leverage > 0
+            ? (isLong ? entry * (1 - 1 / leverage) : entry * (1 + 1 / leverage))
+            : 0;
           return {
             ticker,
             positionId: String(p.position_id),
-            isLong: Boolean(p.is_long),
-            sizeTokens: Number(p.size) / PRICE_SCALE,
-            collateralUsd: Number(p.collateral_amount) / 10 ** dec,
-            entryPriceUsd: Number(q.average_price ?? 0) / PRICE_SCALE,
-            markPriceUsd: Number(q.oracle_price ?? 0) / PRICE_SCALE,
-            liqPriceUsd: Number(p.est_liq_price) / PRICE_SCALE,
-            leverage: Number(q.leverage_bps ?? 0) / BPS,
-            pnlUsd: (Boolean(p.pnl_positive) ? 1 : -1) * (Number(p.pnl) / 10 ** dec),
+            isLong,
+            sizeTokens,
+            collateralUsd,
+            entryPriceUsd: entry,
+            markPriceUsd: mark,
+            liqPriceUsd,
+            leverage,
+            pnlUsd,
             hasTpSl: Array.isArray(q.linked_order_ids) && q.linked_order_ids.length > 0,
           };
         });
@@ -321,7 +417,16 @@ async function getPositions(client: PerpClient, accountId: string): Promise<Perp
       }
     }),
   );
-  return per.flat();
+  const positions = per.flat();
+  // After a full scan, reseed the active set (even if empty) so subsequent
+  // reads skip the 30-market scan. Keep any market from the prior set too, so a
+  // just-opened position (added by the order endpoint) isn't dropped by a
+  // concurrent scan that hasn't seen its fill yet.
+  if (fullScan) {
+    const found = positions.map((p) => p.ticker);
+    await setActiveMarkets(accountId, [...found, ...(active?.tickers ?? [])]);
+  }
+  return positions;
 }
 
 // ── Settlement (local execute OR sponsored bytes) ────────────────────────────
@@ -420,10 +525,16 @@ export type OrderInput = {
 export async function buildOrderTx(o: OrderInput): Promise<Transaction> {
   const client = await perp();
   // TP/SL are reduce-only stop orders in the CLOSING direction (opposite side),
-  // sized to the position, that fire when price crosses the trigger.
+  // sized to the position, that fire when price crosses the trigger. Only accept
+  // a trigger sitting on the correct side of entry — for a long, TP above / SL
+  // below; inverse for a short — so a mis-sent price can't place a stop that
+  // fires immediately and closes the position at open.
   const closeSide = !o.isLong;
-  const preOrders = [o.tpPriceUsd, o.slPriceUsd]
-    .filter((p): p is number => typeof p === "number" && p > 0)
+  const accept = o.acceptablePriceUsd;
+  const validTp = typeof o.tpPriceUsd === "number" && o.tpPriceUsd > 0 && (o.isLong ? o.tpPriceUsd > accept : o.tpPriceUsd < accept);
+  const validSl = typeof o.slPriceUsd === "number" && o.slPriceUsd > 0 && (o.isLong ? o.slPriceUsd < accept : o.slPriceUsd > accept);
+  const preOrders = [validTp ? o.tpPriceUsd! : null, validSl ? o.slPriceUsd! : null]
+    .filter((p): p is number => p != null)
     .map((trigger) => ({
       isLong: closeSide,
       isStopOrder: true,
@@ -452,18 +563,33 @@ export async function buildOrderTx(o: OrderInput): Promise<Transaction> {
  * Withdraw CREDIT back to USDsui: route (native) → request → enqueue. WaterX's
  * keeper drains the queue and delivers USDsui to `recipient` shortly after.
  */
-export async function buildWithdrawTx(accountId: string, usd: number, recipient: string): Promise<Transaction> {
+export async function buildWithdrawTx(accountId: string, usd: number, recipient: string): Promise<{ tx: Transaction; amountUsd: number }> {
   const client = await perp();
+  let amount = usdToBase(usd);
+  // Cap to the actual on-chain spendable credit. A "MAX" withdraw shows a value
+  // rounded to cents that can round UP past the true balance (e.g. spendable
+  // 4.9399 shown as $4.94) — requesting the rounded amount then reverts. Capping
+  // makes MAX (and any over-ask) withdraw exactly what's available.
+  try {
+    const bal = await getSpendableCreditBalance(client, accountId);
+    const spendable = BigInt(bal.totalRaw);
+    if (amount > spendable) amount = spendable;
+  } catch {
+    /* fall back to the requested amount if the balance read fails */
+  }
+  if (amount <= 0n) throw new Error("Nothing available to withdraw.");
   const tx = new Transaction();
   const route = routeNative(client, tx, { assetType: COLLATERAL_TYPE, minOutput: 0 });
   const request = requestCreditWithdraw(client, tx, {
     accountId,
-    amount: usdToBase(usd),
+    amount,
     recipient,
     route,
   });
   enqueueWithdrawal(client, tx, { withdrawRequest: request });
-  return tx;
+  // Report the amount actually enqueued (post-cap) so the UI/history reflect the
+  // real movement, not the possibly-rounded-up requested value.
+  return { tx, amountUsd: Number(amount) / 10 ** USDSUI_DECIMALS };
 }
 
 /**
@@ -484,13 +610,15 @@ export async function buildCloseTx(
   const m = await getMarketData(client, { ticker: T });
   const priceUsd = Number(m.long_avg_entry_price) / PRICE_SCALE;
 
+  // Accept-price band reference: our warm live price feed (the on-chain
+  // oracle_price is high-precision-scaled and stale — using it here overflowed
+  // u64 in rawPrice). Fall back to the market's avg entry if the feed is cold.
+  const spot = await cachedSpotFor(T);
+  const markUsd = spot && spot > 0 ? spot : priceUsd;
+
   // Fee = 2% of the position's actual collateral (read on-chain, not client-trusted).
-  // Also capture the position's live oracle/mark price for the accept-price band —
-  // long_avg_entry_price is a market aggregate, wrong-sided for shorts and stale
-  // after moves; the position's own oracle_price is the correct band reference.
   let feeBase = 0n;
   let feeUsd = 0;
-  let markUsd = priceUsd; // fallback only if the position can't be read
   try {
     const pos = await getPosition(client, {
       ticker: T,
@@ -501,8 +629,6 @@ export async function buildCloseTx(
     const dec = Number((pos as { collateral_decimal?: number }).collateral_decimal ?? USDSUI_DECIMALS);
     feeBase = (BigInt(pos.collateral_amount) * BigInt(CLOSE_FEE_BPS)) / 10_000n;
     feeUsd = Number(feeBase) / 10 ** dec;
-    const oracle = Number((pos as { oracle_price?: string | number }).oracle_price ?? 0) / PRICE_SCALE;
-    if (oracle > 0) markUsd = oracle;
   } catch {
     /* fee stays 0 if the position can't be read */
   }

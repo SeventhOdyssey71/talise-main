@@ -73,6 +73,19 @@ export async function cachedFetch<T>(
   return { data: null, stale: false };
 }
 
+/**
+ * Best-effort live spot for a symbol from the warm cache (per-symbol quote, then
+ * the batch). Used to price open positions from our reliable feed instead of the
+ * on-chain oracle_price (which is high-precision-scaled and can lag).
+ */
+export async function cachedSpotFor(symbol: string): Promise<number | null> {
+  const q = await readCache<{ spot: number; change24h: number }>(`perp:quote:${symbol}`);
+  if (q && typeof q.data?.spot === "number" && q.data.spot > 0) return q.data.spot;
+  const all = await readCache<Record<string, number>>("perp:quotes:all");
+  const s = all?.data?.[symbol];
+  return typeof s === "number" && s > 0 ? s : null;
+}
+
 const RES: Record<string, string> = { "1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240", "1d": "D" };
 const SECS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
 export const WARM_INTERVALS = Object.keys(RES);

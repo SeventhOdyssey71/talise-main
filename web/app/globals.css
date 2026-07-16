@@ -581,3 +581,7 @@ input[type="number"] {
 .talise-appshell .rounded-2xl {
   border-radius: 0.875rem;
 }
+
+/* Hide the scrollbar on horizontally-scrollable strips (e.g. the mobile nav pill). */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

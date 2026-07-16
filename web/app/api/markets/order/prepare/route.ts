@@ -3,7 +3,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { denyUnlessAppApproved } from "@/lib/app-access";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { WATERX_ENABLED, WATERX_LOCAL_SIGN, localSigner, buildOrderTx, settle } from "@/lib/waterx";
+import { WATERX_ENABLED, WATERX_LOCAL_SIGN, localSigner, buildOrderTx, settle, addActiveMarket, friendlyPerpError } from "@/lib/waterx";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,10 +61,13 @@ export async function POST(req: Request) {
   try {
     const tx = await buildOrderTx({ ticker, accountId, isLong: b.isLong ?? true, sizeTokens, collateralUsd, acceptablePriceUsd, tpPriceUsd, slPriceUsd });
     const result = await settle(tx, sender);
+    // Remember this market so the next account read scans it and the new
+    // position shows up immediately (best-effort, never blocks the response).
+    void addActiveMarket(accountId, ticker);
     return NextResponse.json({ ...result, venue: "WaterX", ticker, side: (b.isLong ?? true) ? "long" : "short" });
   } catch (err) {
     const msg = (err as Error).message ?? "failed";
     console.warn(`[perp/order] failed: ${msg}`);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: friendlyPerpError(msg), raw: msg }, { status: 500 });
   }
 }
