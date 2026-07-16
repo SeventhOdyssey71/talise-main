@@ -27,7 +27,6 @@ struct ProfileView: View {
     /// Preferences row that opens `AutoSwapSettings`.
     @State private var showAutoSwap = false
     /// Mirror of `BiometricGate.isRequired` so the toggle re-renders.
-    @State private var requireBiometric = BiometricGate.isRequired
     /// Drives the NFT avatar picker.
     @State private var showNftPicker = false
     /// Drives the `CurrencyPocketsView` presentation — a non-invasive
@@ -614,27 +613,6 @@ struct ProfileView: View {
 
 
     // MARK: - Security section
-
-    /// Security toggles. Default ON; user can opt out, in which case
-    /// `BiometricGate.requireUserPresence` becomes a no-op. The label
-    /// mirrors what the system prompt will ask for so users aren't
-    /// surprised at tap time.
-    private var securitySection: some View {
-        section(title: "Security") {
-            HStack {
-                rowLabel(title: "Require PIN for transactions", icon: "lock.shield")
-                Spacer()
-                Toggle("", isOn: $requireBiometric)
-                    .labelsHidden()
-                    .tint(TaliseColor.accent)
-                    .onChange(of: requireBiometric) { _, new in
-                        BiometricGate.setRequired(new)
-                    }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-        }
-    }
 
     // MARK: - Help section
 
