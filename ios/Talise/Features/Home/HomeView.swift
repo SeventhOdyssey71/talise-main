@@ -543,17 +543,89 @@ struct HomeView: View {
                 tokenBucketCard
                     .padding(.horizontal, 32)
                     .tag(1)
+                cardComingSoonCard
+                    .padding(.horizontal, 32)
+                    .tag(2)
             }
             .frame(height: 212)
             .tabViewStyle(.page(indexDisplayMode: .never))
             HStack(spacing: 7) {
-                ForEach(0..<2, id: \.self) { i in
+                ForEach(0..<3, id: \.self) { i in
                     Circle()
                         .fill(i == homeCardPage ? TaliseColor.fg : TaliseColor.fgDim.opacity(0.45))
                         .frame(width: 6, height: 6)
                 }
             }
         }
+    }
+
+    /// Third carousel slide — a teaser for the upcoming Talise card. A dark
+    /// forest-green card with subtle orbital arcs, the Talise mark, a "Coming
+    /// soon" pill, and a Visa lockup. No action yet (spend rail is in progress).
+    private var cardComingSoonCard: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: 0x0C1E0E), Color(hex: 0x1E4A22), Color(hex: 0x0A160B)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                .overlay(cardArcs)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    Image("TaliseLogo")
+                        .resizable().scaledToFit()
+                        .frame(width: 30, height: 27)
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text("Coming soon")
+                        .font(TaliseFont.body(11, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0A140C))
+                        .padding(.horizontal, 11).padding(.vertical, 5)
+                        .background(Capsule().fill(TaliseColor.greenMint))
+                }
+                Spacer()
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Talise Card")
+                            .font(TaliseFont.heading(16))
+                            .foregroundStyle(.white)
+                        Text("Spend USDsui anywhere")
+                            .font(TaliseFont.body(12, weight: .light))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    Spacer()
+                    Text("VISA")
+                        .font(.system(size: 25, weight: .black))
+                        .italic()
+                        .foregroundStyle(.white)
+                }
+            }
+            .padding(22)
+        }
+    }
+
+    /// Subtle concentric arcs sweeping from the card's right edge — the quiet
+    /// "orbital" line motif, kept low-contrast so text stays legible.
+    private var cardArcs: some View {
+        GeometryReader { geo in
+            ZStack {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle()
+                        .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                        .frame(width: geo.size.width * (1.5 + CGFloat(i) * 0.45))
+                        .position(x: geo.size.width * 0.9, y: geo.size.height * 0.5)
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     /// Number of non-USDsui tokens the user holds (above dust).
