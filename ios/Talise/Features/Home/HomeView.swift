@@ -559,73 +559,102 @@ struct HomeView: View {
         }
     }
 
-    /// Third carousel slide — a teaser for the upcoming Talise card. A dark
-    /// forest-green card with subtle orbital arcs, the Talise mark, a "Coming
-    /// soon" pill, and a Visa lockup. No action yet (spend rail is in progress).
+    /// Third carousel slide — a teaser for the upcoming Talise card, presented
+    /// as a skeuomorphic green-leather card holder: the Talise Visa card peeks
+    /// out the top (clover + Visa mark), tucked into a stitched front pocket
+    /// with the card name + "Coming soon" embossed into the leather.
     private var cardComingSoonCard: some View {
         ZStack {
+            // ── leather wallet body ──
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(
+                    RadialGradient(
+                        colors: [Color(hex: 0x2F5F33), Color(hex: 0x1D3F20), Color(hex: 0x0E2611)],
+                        center: UnitPoint(x: 0.28, y: 0.04),
+                        startRadius: 0, endRadius: 360
+                    )
+                )
+                .overlay(  // top specular edge → dark bottom lip, gives it thickness
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.22), Color.white.opacity(0.03), Color.black.opacity(0.35)],
+                                startPoint: .top, endPoint: .bottom
+                            ),
+                            lineWidth: 1.2
+                        )
+                )
+                .shadow(color: .black.opacity(0.55), radius: 16, y: 10)
+
+            // ── the Talise card peeking out the top (behind the pocket) ──
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
                     LinearGradient(
-                        colors: [Color(hex: 0x0C1E0E), Color(hex: 0x1E4A22), Color(hex: 0x0A160B)],
+                        colors: [Color(hex: 0x16391B), Color(hex: 0x22582A), Color(hex: 0x0E2410)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    HStack(alignment: .top) {
+                        Image("TaliseLogo").resizable().scaledToFit()
+                            .frame(width: 26, height: 24).foregroundStyle(.white)
+                        Spacer()
+                        Image("VisaLogo").resizable().scaledToFit().frame(height: 27)
+                    }
+                    .padding(.horizontal, 18).padding(.top, 13),
+                    alignment: .top
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                )
+                .frame(height: 96)
+                .padding(.horizontal, 24)
+                .padding(.top, 14)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .shadow(color: .black.opacity(0.5), radius: 6, y: 4)
+
+            // ── front leather pocket (concave top, embossed text) ──
+            PocketShape()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: 0x22492C), Color(hex: 0x153420), Color(hex: 0x0D2413)],
                         startPoint: .top, endPoint: .bottom
                     )
                 )
-                .overlay(cardArcs)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    PocketShape()
+                        .stroke(Color(hex: 0x9BD291).opacity(0.10), lineWidth: 1)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top) {
-                    Image("TaliseLogo")
-                        .resizable().scaledToFit()
-                        .frame(width: 30, height: 27)
-                        .foregroundStyle(.white)
-                    Spacer()
-                    Text("Coming soon")
-                        .font(TaliseFont.body(11, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x0A140C))
-                        .padding(.horizontal, 11).padding(.vertical, 5)
-                        .background(Capsule().fill(TaliseColor.greenMint))
-                }
-                Spacer()
-                HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 3) {
+                .overlay(
+                    VStack(spacing: 6) {
                         Text("Talise Card")
-                            .font(TaliseFont.heading(16))
-                            .foregroundStyle(.white)
-                        Text("Spend USDsui anywhere")
-                            .font(TaliseFont.body(12, weight: .light))
-                            .foregroundStyle(.white.opacity(0.6))
+                            .font(TaliseFont.heading(24))
+                            .foregroundStyle(Color(hex: 0x102C17))
+                            .shadow(color: Color(hex: 0xA0D796).opacity(0.22), radius: 0.5, y: 1)
+                        Text("COMING SOON")
+                            .font(TaliseFont.body(10, weight: .bold))
+                            .tracking(3)
+                            .foregroundStyle(Color(hex: 0x143219))
+                            .shadow(color: Color(hex: 0xA0D796).opacity(0.18), radius: 0.5, y: 1)
                     }
-                    Spacer()
-                    Image("VisaLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 26)
-                }
-            }
-            .padding(22)
-        }
-    }
+                    .padding(.top, 18)
+                )
+                .frame(height: 150)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .shadow(color: .black.opacity(0.45), radius: 8, y: -5)
 
-    /// Subtle concentric arcs sweeping from the card's right edge — the quiet
-    /// "orbital" line motif, kept low-contrast so text stays legible.
-    private var cardArcs: some View {
-        GeometryReader { geo in
-            ZStack {
-                ForEach(0..<3, id: \.self) { i in
-                    Circle()
-                        .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
-                        .frame(width: geo.size.width * (1.5 + CGFloat(i) * 0.45))
-                        .position(x: geo.size.width * 0.9, y: geo.size.height * 0.5)
-                }
-            }
+            // ── stitching ──
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(
+                    Color(hex: 0xB9E6AA).opacity(0.30),
+                    style: StrokeStyle(lineWidth: 1.5, dash: [4, 4])
+                )
+                .padding(8)
+                .allowsHitTesting(false)
         }
-        .allowsHitTesting(false)
     }
 
     /// Number of non-USDsui tokens the user holds (above dust).
@@ -1589,6 +1618,30 @@ struct TaliseTxEvent {
 /// `TaliseColor.surface` fill on a continuous rounded rectangle — NO
 /// material, blur, gradient wash, specular highlight, gradient stroke, or
 /// drop shadow. Apple-system clean on the black canvas.
+/// The front pocket of the skeuomorphic card holder — a gently concave top
+/// edge (so the card peeks through) with rounded bottom corners.
+private struct PocketShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let w = rect.width, h = rect.height
+        let dip: CGFloat = 24  // how far below the top the sides begin
+        let r: CGFloat = 16    // bottom corner radius
+        p.move(to: CGPoint(x: 0, y: dip))
+        p.addCurve(to: CGPoint(x: w * 0.5, y: 2),
+                   control1: CGPoint(x: w * 0.23, y: dip),
+                   control2: CGPoint(x: w * 0.31, y: 2))
+        p.addCurve(to: CGPoint(x: w, y: dip),
+                   control1: CGPoint(x: w * 0.69, y: 2),
+                   control2: CGPoint(x: w * 0.77, y: dip))
+        p.addLine(to: CGPoint(x: w, y: h - r))
+        p.addQuadCurve(to: CGPoint(x: w - r, y: h), control: CGPoint(x: w, y: h))
+        p.addLine(to: CGPoint(x: r, y: h))
+        p.addQuadCurve(to: CGPoint(x: 0, y: h - r), control: CGPoint(x: 0, y: h))
+        p.closeSubpath()
+        return p
+    }
+}
+
 private struct HomeFlatCard: ViewModifier {
     let cornerRadius: CGFloat
 
