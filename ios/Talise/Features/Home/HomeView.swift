@@ -602,10 +602,10 @@ struct HomeView: View {
                             .foregroundStyle(.white.opacity(0.6))
                     }
                     Spacer()
-                    Text("VISA")
-                        .font(.system(size: 25, weight: .black))
-                        .italic()
-                        .foregroundStyle(.white)
+                    Image("VisaLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 26)
                 }
             }
             .padding(22)
