@@ -20,6 +20,8 @@ struct IdentityVerificationView: View {
     @State private var tosUrl: String?
     @State private var error: String?
     @State private var polling = false
+    /// The Bridge/Persona URL presented in-app via SFSafariViewController.
+    @State private var safariLink: KYCLink?
 
     var body: some View {
         ScrollView {
@@ -55,6 +57,13 @@ struct IdentityVerificationView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        // Run Bridge/Persona identity verification IN-APP (SFSafariViewController
+        // = Safari's process → full WebKit + camera). Bouncing to the external
+        // browser via openURL left the inquiry sections unresponsive. On dismiss
+        // we re-check status so an approval flips the card immediately.
+        .fullScreenCover(item: $safariLink, onDismiss: { Task { await refresh() } }) { link in
+            SafariView(url: link.url).ignoresSafeArea()
+        }
     }
 
     // MARK: - Sections
@@ -176,10 +185,10 @@ struct IdentityVerificationView: View {
     private var openLinksRow: some View {
         VStack(spacing: 10) {
             if let kycUrl, let url = URL(string: kycUrl) {
-                linkButton("Verify identity", system: "person.text.rectangle") { openURL(url) }
+                linkButton("Verify identity", system: "person.text.rectangle") { safariLink = KYCLink(url: url) }
             }
             if let tosUrl, let url = URL(string: tosUrl) {
-                linkButton("Review & accept terms", system: "doc.text") { openURL(url) }
+                linkButton("Review & accept terms", system: "doc.text") { safariLink = KYCLink(url: url) }
             }
         }
     }
@@ -247,9 +256,9 @@ struct IdentityVerificationView: View {
             // Open the identity flow straight away; the ToS button stays
             // available below for the second step.
             if let s = r.kycUrl, let url = URL(string: s) {
-                openURL(url)
+                safariLink = KYCLink(url: url)
             } else if let s = r.tosUrl, let url = URL(string: s) {
-                openURL(url)
+                safariLink = KYCLink(url: url)
             }
             startPolling()
         } catch APIError.status(let code, _) where code == 503 {
@@ -290,4 +299,10 @@ struct IdentityVerificationView: View {
             }
         }
     }
+}
+
+/// Identifiable wrapper so a Bridge/Persona URL can drive `.fullScreenCover(item:)`.
+private struct KYCLink: Identifiable {
+    let id = UUID()
+    let url: URL
 }

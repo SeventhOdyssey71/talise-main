@@ -651,7 +651,10 @@ private struct DepositOnrampView: View {
 /// user no good signal of progress for a multi-step purchase flow.
 /// Apple's App Review guidelines permit SFSafari for fiat → crypto
 /// rails since they aren't digital-good IAP.
-private struct SafariView: UIViewControllerRepresentable {
+/// Shared with the KYC flow (IdentityVerificationView) so Bridge/Persona
+/// identity verification runs in-app in Safari's process — full WebKit + camera,
+/// no external-browser bounce that breaks the inquiry session.
+struct SafariView: UIViewControllerRepresentable {
     let url: URL
 
     func makeUIViewController(context: Context) -> SFSafariViewController {
