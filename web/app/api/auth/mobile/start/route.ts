@@ -33,7 +33,7 @@ export const runtime = "nodejs";
  * the prover accepts because the equation holds.
  */
 const STATE_BINDING_COOKIE = "talise_m1_binding";
-const MAX_EPOCH_HORIZON = 2; // current_epoch + 2 → ~48h window
+const MAX_EPOCH_HORIZON = 3; // current_epoch + 3 → ~72h (3-day) signing window
 
 export async function GET(req: Request) {
   // Rate-limit: 10 starts per 60s per IP. Looser than /exchange because

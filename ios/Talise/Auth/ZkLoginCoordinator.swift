@@ -1156,8 +1156,10 @@ final class ZkLoginCoordinator {
     ///      value. Sub-plan 5.6 removed the legacy JSON-RPC fallback in
     ///      favour of unconditional gRPC (deployment target is now iOS 18).
     private func fetchMaxEpoch() async -> Int? {
-        if let v = await fetchEpochViaBackend() { return v + 2 }
-        if let v = await fetchEpochViaMainnetGrpc() { return v + 2 }
+        // +3 epochs ≈ 72h (3-day) signing window — matches MAX_EPOCH_HORIZON on
+        // /api/auth/mobile/start so the warmed proof can't drift from sign-in.
+        if let v = await fetchEpochViaBackend() { return v + 3 }
+        if let v = await fetchEpochViaMainnetGrpc() { return v + 3 }
         return nil
     }
 
