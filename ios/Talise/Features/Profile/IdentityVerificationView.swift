@@ -20,8 +20,21 @@ struct IdentityVerificationView: View {
     @State private var tosUrl: String?
     @State private var error: String?
     @State private var polling = false
+    /// Bridge ToS acceptance state ("approved" once signed). The account is only
+    /// fully active when BOTH identity is verified AND terms are accepted.
+    @State private var tosStatus: String?
     /// The Bridge/Persona URL presented in-app via SFSafariViewController.
     @State private var safariLink: KYCLink?
+
+    private var tosAccepted: Bool { (tosStatus ?? "").lowercased() == "approved" }
+
+    /// Fold a status response into the view state — keeps load/refresh/poll in sync.
+    private func apply(_ s: BridgeKYCStatusResponse) {
+        status = KYCStatus(s.status)
+        tosStatus = s.tosStatus
+        if let u = s.kycUrl { kycUrl = u }
+        if let u = s.tosUrl { tosUrl = u }
+    }
 
     var body: some View {
         ScrollView {
@@ -132,20 +145,42 @@ struct IdentityVerificationView: View {
 
     private var pendingCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("We're reviewing your details. This usually takes a few minutes. You can close this screen — we'll keep checking.")
-                .font(TaliseFont.body(13.5, weight: .light))
-                .foregroundStyle(TaliseColor.fgMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            if kycUrl != nil || tosUrl != nil {
-                openLinksRow
+            if !tosAccepted, let tosUrl, let url = URL(string: tosUrl) {
+                // Terms not yet accepted — this is the REQUIRED next step to
+                // fully activate the account. Lead with it as a primary action.
+                Text("ONE MORE STEP")
+                    .font(TaliseFont.body(11, weight: .semibold)).kerning(1.2)
+                    .foregroundStyle(TaliseColor.accent)
+                Text("Your identity is in. Accept the terms of service to activate cash-out.")
+                    .font(TaliseFont.body(13.5, weight: .light))
+                    .foregroundStyle(TaliseColor.fg)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { safariLink = KYCLink(url: url) } label: {
+                    Text("Accept terms")
+                        .font(TaliseFont.body(15, weight: .semibold)).foregroundStyle(.black)
+                        .frame(maxWidth: .infinity).frame(height: 50)
+                        .background(Capsule().fill(TaliseColor.greenMint))
+                }
+                .buttonStyle(.plain)
+                // Keep the identity check re-openable if they still need it.
+                if let kycUrl, let kUrl = URL(string: kycUrl) {
+                    linkButton("Re-open identity check", system: "person.text.rectangle") { safariLink = KYCLink(url: kUrl) }
+                }
+            } else {
+                // Terms accepted (or unknown) — identity is under review.
+                Text("We're reviewing your details. This usually takes a few minutes. You can close this screen — we'll keep checking.")
+                    .font(TaliseFont.body(13.5, weight: .light))
+                    .foregroundStyle(TaliseColor.fgMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                if kycUrl != nil || tosUrl != nil { openLinksRow }
+                Button { Task { await refresh() } } label: {
+                    Text("Refresh status")
+                        .font(TaliseFont.body(15, weight: .semibold)).foregroundStyle(.black)
+                        .frame(maxWidth: .infinity).frame(height: 50)
+                        .background(Capsule().fill(TaliseColor.greenMint))
+                }
+                .buttonStyle(.plain)
             }
-            Button { Task { await refresh() } } label: {
-                Text("Refresh status")
-                    .font(TaliseFont.body(15, weight: .semibold)).foregroundStyle(.black)
-                    .frame(maxWidth: .infinity).frame(height: 50)
-                    .background(Capsule().fill(TaliseColor.greenMint))
-            }
-            .buttonStyle(.plain)
         }
         .padding(18)
         .rampCard()
@@ -232,7 +267,7 @@ struct IdentityVerificationView: View {
         defer { loading = false }
         do {
             let s = try await BridgeKYCAPI.status()
-            status = KYCStatus(s.status)
+            apply(s)
             if status.isInFlight { startPolling() }
         } catch APIError.status(let code, _) where code == 503 {
             error = "Cash-out verification isn't switched on yet."
@@ -277,7 +312,7 @@ struct IdentityVerificationView: View {
     private func refresh() async {
         do {
             let s = try await BridgeKYCAPI.status()
-            status = KYCStatus(s.status)
+            apply(s)
         } catch { /* keep current status */ }
     }
 
@@ -293,7 +328,7 @@ struct IdentityVerificationView: View {
                 if Task.isCancelled { return }
                 do {
                     let s = try await BridgeKYCAPI.status()
-                    status = KYCStatus(s.status)
+                    apply(s)
                 } catch { continue }
                 if status == .approved || status == .rejected { return }
             }

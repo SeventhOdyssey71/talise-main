@@ -41,6 +41,10 @@ struct BridgeKYCStatusResponse: Codable {
     let tosStatus: String?
     let customerId: String?
     let stale: Bool?
+    /// Re-surfaced hosted links so the identity + "accept terms" steps stay
+    /// reachable while KYC is pending (nil until a link exists).
+    let kycUrl: String?
+    let tosUrl: String?
 }
 
 /// Talise's collapsed KYC status ladder (mirrors the server `OnrampKycStatus`).

@@ -279,18 +279,26 @@ export async function refreshBridgeKyc(input: {
   customerId: string | null;
   kycStatus?: string;
   tosStatus?: string;
+  kycUrl?: string;
+  tosUrl?: string;
 }> {
   let customerId: string | null = null;
   let statusStr: string | undefined;
   let kycStatus: string | undefined;
   let tosStatus: string | undefined;
+  let kycUrl: string | undefined;
+  let tosUrl: string | undefined;
 
   if (input.kycLinkId) {
     // The link is the stable handle — it carries kyc_status + the (eventual)
-    // customer_id, which is null until the user actually starts KYC.
+    // customer_id, which is null until the user actually starts KYC. It also
+    // carries the hosted kyc_link + tos_link, which the client re-surfaces so
+    // the "accept terms" step stays reachable while KYC is pending.
     const link = await getKycLink(input.kycLinkId);
     kycStatus = link.kyc_status;
     tosStatus = link.tos_status;
+    kycUrl = link.kyc_link;
+    tosUrl = link.tos_link;
     customerId = link.customer_id ?? null;
     statusStr = link.kyc_status;
   }
@@ -306,5 +314,5 @@ export async function refreshBridgeKyc(input: {
     customerId = input.providerCustomerId;
   }
 
-  return { status: mapBridgeKycStatus(statusStr), customerId, kycStatus, tosStatus };
+  return { status: mapBridgeKycStatus(statusStr), customerId, kycStatus, tosStatus, kycUrl, tosUrl };
 }
