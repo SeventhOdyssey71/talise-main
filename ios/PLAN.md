@@ -8,7 +8,7 @@ Native iOS, not React Native or Capacitor. We need Secure Enclave for ephemeral 
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  iOS app  (SwiftUI · Swift 5.10 · iOS 17+)                           │
+│  iOS app  (SwiftUI · Swift 5.10 · iOS 18+)                           │
 │                                                                      │
 │  Features      DesignSystem      Auth                Sui             │
 │  ─────────     ────────────      ──────              ────            │

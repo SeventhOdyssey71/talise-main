@@ -42,7 +42,10 @@ targets:
           - "**/.DS_Store"
     resources:
       - Talise/Resources/Assets.xcassets
-      - Talise/Resources/GoogleSans
+      # Fonts (DM Sans Variable) live at Talise/Resources/DMSans/ and are
+      # auto-bundled via the `Talise` sources path, then registered
+      # programmatically in TaliseApp.registerFonts() (CTFontManager).
+      # There is no GoogleSans resource — the old explicit line was stale.
     info:
       path: Talise/Resources/Info.plist
       properties:

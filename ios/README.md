@@ -1,6 +1,6 @@
 # Talise iOS
 
-Native iOS client over the existing Talise backend (`/web`). Swift 5.10, SwiftUI, iOS 17+.
+Native iOS client over the existing Talise backend (`/web`). Swift 5.10, SwiftUI, iOS 18+.
 
 ## Getting started
 
