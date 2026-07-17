@@ -3,11 +3,20 @@
 Native Android port of the Talise iOS app — Kotlin + Jetpack Compose, talking to the
 same backend (`https://app.talise.io`). Dark-only UI modeled 1:1 on the iOS design system.
 
+> **Status: functional Android port — lags the iOS client and is updated in bursts.**
+
 See **[PLAN.md](PLAN.md)** for the full architecture + build phases.
 
-## Status — Phase 0 (scaffold)
+## Status
 
-Done and structured to compile in Android Studio (Giraffe+ / AGP 8.7):
+A functional, iOS-parity port has landed — no longer a bare scaffold. The
+`app/` module carries a substantial Kotlin/Compose codebase (~170+ `.kt` files)
+plus real `res/` assets, with the design system, zkLogin sign-in, and the core
+screens below working against the live backend. It trails the iOS client on
+newer features and is advanced in bursts (see the phase breakdown below and in
+PLAN.md).
+
+Structured to compile in Android Studio (Giraffe+ / AGP 8.7):
 
 - **Design system** (`ui/theme`, `ui/components`) — exact iOS tokens: colors, type,
   radii/spacing, `taliseGlass` surface, `SlideToConfirm`, `IconChip`/`HugeIcon`,

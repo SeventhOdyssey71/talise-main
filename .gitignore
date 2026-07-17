@@ -97,7 +97,6 @@ Simulator Screen Recording*.mov
 /*.mp4
 /*.mov
 # But keep the brand logos which README references
-!/TaliseLogoFavicon.png
 !/TaliseLogoNavbar.png
 
 # ── /infra — LOCAL-ONLY ops/speed dashboard (never ship to main) ──────
