@@ -148,3 +148,6 @@ docs/kyb/
 /marketing/
 /media/
 /scripts/
+
+# archive/ — preserved-for-context snapshots; kept LOCAL only, never tracked
+/archive/
