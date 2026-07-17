@@ -1,6 +1,7 @@
 {
   "name": "talise-web",
   "version": "0.1.0",
+  "packageManager": "pnpm@10.19.0",
   "private": true,
   "engines": {
     "node": ">=22"
