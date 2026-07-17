@@ -90,11 +90,59 @@ export async function recallMemories(address: string, query: string, max = 6): P
 }
 
 /**
- * Persist a memory to Walrus so a later chat can recall it. The hosted relayer's
- * Walrus upload occasionally fails transiently (Enoki gas-estimation blips:
- * "could not determine a budget / balance::destroy_zero"), so we RETRY with
- * backoff. This runs in the route's `after()` (background, off the user's
- * critical path), so retries never slow the reply. Never throws.
+ * Classify a caught write error as PERMANENT (never retry — give up now) or
+ * TRANSIENT (a real blip — keep retrying with backoff).
+ *
+ * The memwal SDK surfaces server errors as `MemWal server error (503): {…body…}`,
+ * so we parse the HTTP status and body out of the message string.
+ *
+ * PERMANENT:
+ *   • the relayer's "writes paused for a security upgrade" message (a 503 that
+ *     will NEVER clear on retry until Mysten lifts the pause), OR
+ *   • any HTTP 4xx (auth / config / permanent server state).
+ * TRANSIENT (default):
+ *   • network errors, client/server timeouts, generic 5xx (incl. a plain 503
+ *     WITHOUT the "paused" text), and the known Enoki gas blips
+ *     ("could not determine a budget", "balance::destroy_zero").
+ */
+function classifyError(msg: string): "permanent" | "transient" {
+  const lower = msg.toLowerCase();
+  // The specific relayer pause is permanent even though it rides on a 503.
+  if (lower.includes("paused") || lower.includes("security upgrade")) return "permanent";
+  // Pull an HTTP status out of `MemWal server error (503): …` shapes.
+  const statusMatch = msg.match(/\((\d{3})\)/);
+  const status = statusMatch ? Number(statusMatch[1]) : 0;
+  // 4xx = auth/config/permanent server states — retrying can't fix them.
+  if (status >= 400 && status < 500) return "permanent";
+  // Everything else (5xx, timeouts, network, gas blips) is worth retrying.
+  return "transient";
+}
+
+/**
+ * Circuit breaker: once we hit a permanent "writes paused" error, short-circuit
+ * subsequent calls for this window so we don't hammer a relayer we know is down.
+ * When the window expires we allow one probe again, so writes auto-recover the
+ * moment Mysten lifts the pause. Module-level so it survives across warm
+ * invocations of the same serverless instance.
+ */
+const PAUSE_COOLDOWN_MS = 10 * 60_000; // 10 minutes
+let pausedUntil = 0;
+let pausedLogged = false;
+
+/**
+ * Persist a memory to Walrus so a later chat can recall it. Runs in the route's
+ * `after()` (background, off the user's critical path). Never throws.
+ *
+ * Resilience:
+ *   • Permanent failures (relayer "writes paused for security upgrade", any 4xx)
+ *     fast-fail immediately — no backoff, no further attempts.
+ *   • A "writes paused" error also OPENS a lightweight circuit breaker: for a
+ *     cooldown window, later calls short-circuit without even hitting the
+ *     network (logged at most once per window). It auto-recovers by allowing one
+ *     probe after the window, so writes resume once Mysten lifts the pause.
+ *   • Only genuinely transient failures (network/timeout/generic 5xx, Enoki gas
+ *     blips: "could not determine a budget / balance::destroy_zero") are retried
+ *     with backoff (3s, 6s, 9s).
  */
 export async function rememberFact(
   address: string,
@@ -103,6 +151,18 @@ export async function rememberFact(
 ): Promise<void> {
   if (!memwalConfigured() || !text.trim()) {
     console.log("[memwal] save skipped (configured=%s, empty=%s)", memwalConfigured(), !text.trim());
+    return;
+  }
+  // Circuit breaker open: writes are known-paused. Skip the network entirely
+  // until the cooldown expires (logged once per window to avoid log spam).
+  if (Date.now() < pausedUntil) {
+    if (!pausedLogged) {
+      console.warn(
+        "[memwal] writes paused (circuit breaker open), skipping until %s",
+        new Date(pausedUntil).toISOString(),
+      );
+      pausedLogged = true;
+    }
     return;
   }
   const t = text.slice(0, 1500);
@@ -118,7 +178,18 @@ export async function rememberFact(
       return;
     } catch (e) {
       const msg = (e as Error).message?.slice(0, 200) ?? String(e);
-      console.warn("[memwal] save attempt %d/%d failed: %s", attempt, attempts, msg);
+      if (classifyError(msg) === "permanent") {
+        console.warn("[memwal] writes unavailable (permanent), not retrying: %s", msg);
+        // Trip the breaker only for the "paused" case so a stray 4xx on one
+        // write doesn't blackhole every subsequent write.
+        const lower = msg.toLowerCase();
+        if (lower.includes("paused") || lower.includes("security upgrade")) {
+          pausedUntil = Date.now() + PAUSE_COOLDOWN_MS;
+          pausedLogged = false; // arm the one-shot "breaker open" log for this window
+        }
+        return;
+      }
+      console.warn("[memwal] save attempt %d/%d failed (transient): %s", attempt, attempts, msg);
       if (attempt < attempts) {
         // Backoff: 3s, 6s, 9s — long enough for a transient relayer blip to clear.
         await new Promise((r) => setTimeout(r, attempt * 3_000));
