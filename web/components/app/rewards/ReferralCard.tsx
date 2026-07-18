@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { publicOrigin } from "@/lib/public-origin";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -30,6 +30,9 @@ export function ReferralCard({
 }) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
 
   if (!code) return null;
   const url = inviteUrl(code);
@@ -39,7 +42,8 @@ export function ReferralCard({
       await navigator.clipboard.writeText(url);
       setCopied(true);
       toast("Invite link copied", "success");
-      setTimeout(() => setCopied(false), 1600);
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 1600);
     } catch {
       toast("Couldn't copy, long-press the code to copy it", "danger");
     }

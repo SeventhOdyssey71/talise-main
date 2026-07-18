@@ -52,6 +52,33 @@ const CHEQUE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days default expiry
 /** The shared Sui Clock object id (immutable, network-wide). */
 const SUI_CLOCK_ID = "0x6";
 
+/**
+ * Bound a hanging Sui/Walrus RPC call: reject with a clear Error if it hasn't
+ * settled within `ms`. The timeout rejection flows into the SAME try/catch the
+ * call already sits in — it does NOT change what happens on failure, it only
+ * caps how long we wait. Reads use 5s; build/execute use 15s.
+ */
+function withRpcTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms
+    );
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
+const RPC_READ_TIMEOUT_MS = 5_000;
+const RPC_WRITE_TIMEOUT_MS = 15_000;
+
 export type ChequeStatus =
   | "draft"
   | "funded"
@@ -737,11 +764,17 @@ export async function checkClaimEligibility(input: {
   skipCaptcha?: boolean;
 }): Promise<ClaimEligibility> {
   // 1) Anti-bot captcha (web claims only; native is App-Attested).
-  if (!input.skipCaptcha && turnstileConfigured()) {
-    const ok = await verifyTurnstile(input.turnstileToken ?? "", input.ip ?? undefined);
-    if (!ok) return { ok: false, reason: "captcha" };
-  }
-  const allowed = await countryAllowlist(input.chequeId);
+  //    The captcha verify and the allowlist read are independent, so fire both
+  //    in parallel — but keep the SAME result semantics: a failed captcha
+  //    still short-circuits (returns "captcha") before the allowlist matters.
+  const doCaptcha = !input.skipCaptcha && turnstileConfigured();
+  const [captchaOk, allowed] = await Promise.all([
+    doCaptcha
+      ? verifyTurnstile(input.turnstileToken ?? "", input.ip ?? undefined)
+      : Promise.resolve(true),
+    countryAllowlist(input.chequeId),
+  ]);
+  if (doCaptcha && !captchaOk) return { ok: false, reason: "captcha" };
   // 2) Country gate, only cheques with an allowlist need IP intelligence.
   if (allowed.length === 0) return { ok: true, country: null };
   const geo = await lookupIp(input.ip);
@@ -1093,12 +1126,20 @@ async function escrowTransfer(toAddress: string, micros: bigint): Promise<string
   });
   tx.setGasPayment([]);
   const client = sui();
-  const bytes = await tx.build({ client: client as never });
+  const bytes = await withRpcTimeout(
+    tx.build({ client: client as never }),
+    RPC_WRITE_TIMEOUT_MS,
+    "escrowTransfer tx.build"
+  );
   const { signature } = await kp.signTransaction(bytes);
-  const result = (await client.executeTransaction({
-    transaction: fromBase64(Buffer.from(bytes).toString("base64")),
-    signatures: [signature],
-  })) as Record<string, unknown>;
+  const result = (await withRpcTimeout(
+    client.executeTransaction({
+      transaction: fromBase64(Buffer.from(bytes).toString("base64")),
+      signatures: [signature],
+    }),
+    RPC_WRITE_TIMEOUT_MS,
+    "escrowTransfer executeTransaction"
+  )) as Record<string, unknown>;
   const inner =
     (result.Transaction as { digest?: string } | undefined) ??
     (result.FailedTransaction as { digest?: string } | undefined);
@@ -1172,7 +1213,11 @@ export async function buildChequeCreateSponsored(input: {
   // Sponsor address + reference gas price in parallel (same as sponsor-prepare).
   const [{ address: sponsor }, gasPrice] = await Promise.all([
     onaraClient.status(),
-    client.getReferenceGasPrice().then((r) => r.referenceGasPrice),
+    withRpcTimeout(
+      client.getReferenceGasPrice().then((r) => r.referenceGasPrice),
+      RPC_READ_TIMEOUT_MS,
+      "getReferenceGasPrice (cheque create)"
+    ),
   ]);
 
   const tx = new Transaction();
@@ -1219,7 +1264,11 @@ export async function parseCreatedChequeObjectId(
   if (!pkg) return { ok: false, reason: "onchain_disabled" };
   if (!digest) return { ok: false, reason: "missing_digest" };
   try {
-    const tx = await getNormalizedTransaction(digest);
+    const tx = await withRpcTimeout(
+      getNormalizedTransaction(digest),
+      RPC_READ_TIMEOUT_MS,
+      "getNormalizedTransaction"
+    );
     if (tx.status !== "success") {
       return { ok: false, reason: `tx_failed:${tx.errorMessage ?? "unknown"}` };
     }
@@ -1487,7 +1536,11 @@ export async function reclaimChequeBuilder(input: {
   const client = chequeChainClient();
   const [{ address: sponsor }, gasPrice] = await Promise.all([
     onaraClient.status(),
-    client.getReferenceGasPrice().then((r) => r.referenceGasPrice),
+    withRpcTimeout(
+      client.getReferenceGasPrice().then((r) => r.referenceGasPrice),
+      RPC_READ_TIMEOUT_MS,
+      "getReferenceGasPrice (cheque reclaim)"
+    ),
   ]);
 
   const tx = new Transaction();

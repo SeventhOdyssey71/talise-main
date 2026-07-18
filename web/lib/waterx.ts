@@ -72,6 +72,8 @@ async function usdsuiWalletBalance(owner: string): Promise<bigint> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "suix_getBalance", params: [owner, COLLATERAL_TYPE] }),
+      // Bound the call so a slow/wedged fullnode can't hang the /api/markets/account request.
+      signal: AbortSignal.timeout(5000),
     });
     const j = (await r.json()) as { result?: { totalBalance?: string } };
     return BigInt(j?.result?.totalBalance ?? "0");
@@ -478,6 +480,8 @@ export async function findCreatedAccountId(digest: string): Promise<string | nul
         jsonrpc: "2.0", id: 1, method: "sui_getTransactionBlock",
         params: [digest, { showObjectChanges: true }],
       }),
+      // Bound the lookup so a slow fullnode can't hang account creation.
+      signal: AbortSignal.timeout(8000),
     });
     const j = (await r.json()) as {
       result?: { objectChanges?: Array<{ type: string; objectType?: string; objectId?: string }> };

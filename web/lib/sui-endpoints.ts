@@ -198,11 +198,22 @@ export function isFallbackEligible(err: unknown): boolean {
  *   - Dwellir: `x-api-key`
  *   - QuickNode: token baked into the URL, no header needed.
  */
+// One SuiGrpcClient per (network, endpoint URL). The client wraps a gRPC-web
+// transport; rebuilding it on every RPC threw away HTTP/2 connection reuse, so
+// gas-price / simulate / broadcast each paid a fresh handshake. The headers are
+// derived from stable per-process env, so (net,url) uniquely identifies a
+// client, and gRPC transports reconnect internally — safe to keep hot.
+const grpcClientCache = new Map<string, SuiGrpcClient>();
+
 export function buildClientForEndpoint(
   endpoint: SuiGrpcEndpoint,
   net: Network,
 ): SuiGrpcClient | null {
   if (!endpoint.url || endpoint.url.trim().length === 0) return null;
+
+  const cacheKey = `${net}|${endpoint.url}`;
+  const cached = grpcClientCache.get(cacheKey);
+  if (cached) return cached;
 
   let meta: Record<string, string> | undefined;
   if (endpoint.requiresAuth) {
@@ -218,11 +229,13 @@ export function buildClientForEndpoint(
     // QuickNode's "key" IS the URL, no header to set in that path.
   }
 
-  return new SuiGrpcClient({
+  const client = new SuiGrpcClient({
     network: net,
     baseUrl: endpoint.url,
     ...(meta ? { meta } : {}),
   });
+  grpcClientCache.set(cacheKey, client);
+  return client;
 }
 
 // ─── Fallback wrapper ─────────────────────────────────────────────────────────
