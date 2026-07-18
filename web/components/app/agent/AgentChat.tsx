@@ -329,9 +329,12 @@ export function AgentChat() {
         </button>
       </div>
 
-      {/* Transcript */}
+      {/* Transcript — data-lenis-prevent so it scrolls natively on touch under
+          the app's Lenis smooth scroll (otherwise touch-drag scrolls the window
+          instead of the message list). */}
       <div
         ref={scrollRef}
+        data-lenis-prevent
         onScroll={(e) => {
           const el = e.currentTarget;
           pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;

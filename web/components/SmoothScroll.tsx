@@ -14,12 +14,18 @@ import Lenis from "lenis";
 export default function SmoothScroll() {
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    // Touch devices (phones/tablets) already have great native momentum
-    // scrolling; Lenis only smooths the mouse WHEEL and on iOS/touch it makes
-    // scrolling feel janky or broken. Desktop-only.
-    if (window.matchMedia("(pointer: coarse)").matches) return;
 
-    const lenis = new Lenis({ duration: 1.05, smoothWheel: true, syncTouch: false, anchors: true });
+    // syncTouch interpolates TOUCH scrolling too (not just the mouse wheel), so
+    // phones get the same smooth momentum feel as desktop. A gentler lerp +
+    // duration keeps it from fighting iOS's native rubber-banding.
+    const lenis = new Lenis({
+      duration: 1.05,
+      smoothWheel: true,
+      syncTouch: true,
+      syncTouchLerp: 0.09,
+      touchMultiplier: 1.2,
+      anchors: true,
+    });
     let id = requestAnimationFrame(function raf(time: number) {
       lenis.raf(time);
       id = requestAnimationFrame(raf);

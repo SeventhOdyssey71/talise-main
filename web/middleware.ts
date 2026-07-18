@@ -227,7 +227,10 @@ export function middleware(req: NextRequest) {
       url.pathname = "/app/shield-prove";
       return withSecurityHeaders(NextResponse.rewrite(url));
     }
-    const keepAlive = /^\/(api|auth|shield|c|i|u|pay|req|admin|_next|_vercel)(\/|$)/;
+    // `perps` is kept alive so the "trade perps" banner (href="/perps") serves
+    // the dedicated terminal on app.talise.io instead of being rewritten to the
+    // non-existent /app/perps. (Same route the perps.talise.io host serves.)
+    const keepAlive = /^\/(api|auth|shield|c|i|u|pay|req|admin|perps|_next|_vercel)(\/|$)/;
     if (keepAlive.test(pathname)) {
       return withSecurityHeaders(NextResponse.next());
     }
@@ -283,6 +286,6 @@ export const config = {
   // keep the matcher liberal otherwise so every page + API response
   // picks the headers up.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf)).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|otf|eot)).*)",
   ],
 };

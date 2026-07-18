@@ -33,7 +33,7 @@ export default function Hero() {
 
         <Reveal as="div" delay={220} className="mt-7 flex flex-wrap items-center justify-center gap-3 sm:mt-9 sm:gap-4">
           <BracketButton href="https://testflight.apple.com/join/BFNEPYtM" external>
-            Get the app
+            Get iOS App
           </BracketButton>
           <BracketButton href="#why" variant="ghost">
             How it works

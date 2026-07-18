@@ -354,6 +354,7 @@ function CurrencySwitcher({
         <ul
           role="listbox"
           aria-label="Display currency"
+          data-lenis-prevent
           className="absolute right-0 z-30 mt-2 max-h-72 w-52 overflow-y-auto rounded-2xl border border-[#15300c]/10 bg-[#f7fcf2] p-1.5 shadow-[0_16px_40px_-16px_rgba(21,48,12,0.35)]"
         >
           {CURRENCIES.map((c) => {
