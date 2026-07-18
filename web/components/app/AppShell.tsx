@@ -702,24 +702,43 @@ export function AppShell({ me, initialBalances, nav = CONSUMER_NAV, children }: 
   //      to the ephemeral key, so sponsor-execute skips the prover hop.
   useEffect(() => {
     if (!signedIn) return;
-    void fetch("/api/zk/warmup", { method: "POST" }).catch(() => {});
-    const eph = readEphemeralForT2000();
-    if (eph && !eph.cachedProof) {
-      void api<{ proof: StoredZkProof }>("/api/zk/proof", {
-        method: "POST",
-        body: {
-          ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
-          maxEpoch: eph.maxEpoch,
-          randomness: eph.randomness,
-        },
-      })
-        .then((r) => {
-          if (r?.proof) writeCachedProof(r.proof);
+    // Defer the warmup + proof pre-mint until the browser is idle (or ~1.2s)
+    // so these fire-and-forget POSTs don't compete with the critical
+    // balances/activity/me fetches for the per-host connection pool during
+    // first paint. The proof still mints well before the user taps Send.
+    const run = () => {
+      void fetch("/api/zk/warmup", { method: "POST" }).catch(() => {});
+      const eph = readEphemeralForT2000();
+      if (eph && !eph.cachedProof) {
+        void api<{ proof: StoredZkProof }>("/api/zk/proof", {
+          method: "POST",
+          body: {
+            ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
+            maxEpoch: eph.maxEpoch,
+            randomness: eph.randomness,
+          },
         })
-        .catch(() => {
-          /* best-effort, the send path mints inline as before */
-        });
-    }
+          .then((r) => {
+            if (r?.proof) writeCachedProof(r.proof);
+          })
+          .catch(() => {
+            /* best-effort, the send path mints inline as before */
+          });
+      }
+    };
+    const ric = (window as typeof window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    }).requestIdleCallback;
+    let idleId: number | undefined;
+    let toId: ReturnType<typeof setTimeout> | undefined;
+    if (typeof ric === "function") idleId = ric(run, { timeout: 2000 });
+    else toId = setTimeout(run, 1200);
+    return () => {
+      const cic = (window as typeof window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback;
+      if (idleId !== undefined && typeof cic === "function") cic(idleId);
+      if (toId !== undefined) clearTimeout(toId);
+    };
   }, [signedIn]);
 
   if (!me) {

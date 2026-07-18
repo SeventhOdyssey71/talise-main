@@ -16,7 +16,7 @@
  * amount, white-panel QR.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { publicOrigin } from "@/lib/public-origin";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -54,6 +54,9 @@ export function RequestPanel() {
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
   const [copied, setCopied] = useState<"addr" | "link" | null>(null);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
 
   const address = me?.suiAddress ?? "";
   const handle = me?.taliseHandle ?? null;
@@ -87,7 +90,8 @@ export function RequestPanel() {
       await navigator.clipboard.writeText(text);
       setCopied(which);
       toast(which === "addr" ? "Address copied" : "Payment link copied", "success");
-      setTimeout(() => setCopied(null), 1600);
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(null), 1600);
     } catch {
       toast("Couldn't copy, try selecting manually", "danger");
     }

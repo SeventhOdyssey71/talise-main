@@ -82,7 +82,12 @@ export function AgentChat() {
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Whether the user is following the tail. Updated on scroll; when true we
+  // keep pinning to the bottom as tokens stream, when false (they scrolled up
+  // to read) we leave their scroll position alone instead of fighting it.
+  const pinnedRef = useRef(true);
 
   // Mirror the latest transcript so finalize/persist always read fresh state
   // without threading it through every functional setState.
@@ -90,9 +95,12 @@ export function AgentChat() {
     messagesRef.current = messages;
   }, [messages]);
 
-  // Keep the tail pinned as new messages land / tokens trickle in.
+  // Keep the tail pinned as new messages land / tokens trickle in — but only
+  // if the user hasn't scrolled up (don't yank them back down mid-read).
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (pinnedRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
   }, [messages]);
 
   // Cancel any in-flight stream on unmount.
@@ -322,7 +330,14 @@ export function AgentChat() {
       </div>
 
       {/* Transcript */}
-      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+      <div
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+        className="min-h-0 flex-1 overflow-y-auto pb-6"
+      >
         {empty ? (
           <div className="flex h-full flex-col items-center justify-center py-12 text-center">
             <span className="mb-4 flex size-16 items-center justify-center rounded-[22px] bg-[#CAFFB8]">

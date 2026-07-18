@@ -307,12 +307,21 @@ export async function POST(req: Request) {
       overlayFeeRate: SWAP_FEE_BPS / 10_000, // 1.00% → treasury
       overlayFeeReceiver: TREASURY_WALLET,
     });
-    const cetusRouter = await aggregator.findRouters({
-      from: fromCoinType,
-      target: USDSUI_TYPE,
-      amount: fromMicros.toString(),
-      byAmountIn: true,
-    });
+    // Bound the aggregator lookup: a slow/unresponsive Cetus router must not
+    // hang the request. On timeout we fall through to the SAME NO_ROUTE / 503
+    // path a missing route already takes (findRouters resolving null-ish).
+    const ROUTE_TIMEOUT_MS = 10_000;
+    const cetusRouter = await Promise.race([
+      aggregator.findRouters({
+        from: fromCoinType,
+        target: USDSUI_TYPE,
+        amount: fromMicros.toString(),
+        byAmountIn: true,
+      }),
+      new Promise<null>((resolve) =>
+        setTimeout(() => resolve(null), ROUTE_TIMEOUT_MS)
+      ),
+    ]);
     if (!cetusRouter || cetusRouter.insufficientLiquidity) {
       return NextResponse.json(
         { error: "No swap route available right now. Try again shortly.", code: "NO_ROUTE" },

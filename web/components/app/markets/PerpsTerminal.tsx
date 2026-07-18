@@ -70,6 +70,8 @@ export function PerpsTerminal() {
   const [catFilter, setCatFilter] = useState<AssetCategory | "all">("all");
   const pickerRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false); // market-list refresh failed → show a retry banner
+  const [closing, setClosing] = useState<Set<string>>(new Set()); // per-position in-flight CLOSE ids (no shared-spinner collision)
   const [posHeight, setPosHeight] = useState(176);
   const [posTab, setPosTab] = useState<"positions" | "history">("positions");
   const [history, setHistory] = useState<Trade[]>([]);
@@ -108,7 +110,7 @@ export function PerpsTerminal() {
     return fn().finally(() => { inflight.current[key] = false; });
   }, []);
   const loadMarkets = useCallback(() => guarded("markets", async () => {
-    try { const r = await fetch("/api/markets"); if (r.status === 503) { setDisabled(true); return; } const j = await r.json(); setMarkets((j.markets ?? []).map((m: Market) => ({ ...m, maxLeverage: Math.max(1, Math.floor(m.maxLeverage || 0)) }))); } catch { /* */ }
+    try { const r = await fetch("/api/markets"); if (r.status === 503) { setDisabled(true); return; } const j = await r.json(); setMarkets((j.markets ?? []).map((m: Market) => ({ ...m, maxLeverage: Math.max(1, Math.floor(m.maxLeverage || 0)) }))); setLoadError(false); } catch { setLoadError(true); }
   }), [guarded]);
   const loadQuote = useCallback((s: string) => guarded(`quote:${s}`, async () => { try { setQuote(await (await fetch(`/api/markets/quote?symbol=${s}`)).json()); } catch { /* */ } }), [guarded]);
   const loadSpots = useCallback(() => guarded("spots", async () => { try { const r = await fetch("/api/markets/quotes"); if (r.ok) { const j = await r.json(); setSpotMap(j.quotes ?? {}); } } catch { /* */ } }), [guarded]);
@@ -183,7 +185,7 @@ export function PerpsTerminal() {
     } catch (e) { flash(false, friendlyError(e, (e as Error).message)); } finally { setBusy(null); }
   };
   const doClose = async (p: Position & { mark: number; pnl: number; pnlPct: number }) => {
-    setBusy("close:" + p.positionId);
+    setClosing((s) => new Set(s).add(p.positionId));
     try {
       const j = await runAction("/api/markets/close", { ticker: p.ticker, accountId: account.accountId, positionId: p.positionId, isLong: p.isLong });
       const fee = j.feeUsd ? ` · 2% fee $${j.feeUsd.toFixed(2)}` : "";
@@ -191,7 +193,7 @@ export function PerpsTerminal() {
       record({ type: "close", ticker: p.ticker, side: p.isLong ? "long" : "short", sizeTokens: p.sizeTokens, priceUsd: p.mark, pnlUsd: p.pnl, feeUsd: j.feeUsd, digest: j.digest });
       setPnlCard({ ticker: p.ticker, isLong: p.isLong, leverage: p.leverage, entryPriceUsd: p.entryPriceUsd, markPriceUsd: p.mark, pnlUsd: p.pnl, pnlPct: p.pnlPct });
       await loadAccount();
-    } catch (e) { flash(false, friendlyError(e, (e as Error).message)); } finally { setBusy(null); }
+    } catch (e) { flash(false, friendlyError(e, (e as Error).message)); } finally { setClosing((s) => { const n = new Set(s); n.delete(p.positionId); return n; }); }
   };
 
   const acceptablePriceUsd = isLong ? price * (1 + 0.01) : price * (1 - 0.01);
@@ -204,6 +206,13 @@ export function PerpsTerminal() {
 
   return (
     <div className="flex flex-col gap-3 pb-24 text-[#15300c] lg:h-[calc(100vh-9rem)] lg:pb-0" style={{ fontFamily: "'Google Sans Variable', var(--font-sans-v2), system-ui, sans-serif" }}>
+      {/* market-refresh error, dismissable, tap to retry */}
+      {loadError && (
+        <div className="flex flex-none items-center gap-2 rounded-[8px] border border-[#e0574f]/40 bg-[#e0574f]/8 px-3 py-2">
+          <button onClick={() => loadMarkets()} className="flex-1 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-[#b5423b]">Couldn&apos;t refresh markets · Retry</button>
+          <button onClick={() => setLoadError(false)} aria-label="Dismiss" className="font-mono text-[11px] leading-none text-[#b5423b]/70 hover:text-[#b5423b]">✕</button>
+        </div>
+      )}
       {/* stats bar */}
       <div className={`${CARD} flex flex-none flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5`}>
         {/* market picker */}
@@ -312,7 +321,7 @@ export function PerpsTerminal() {
                           <td className="py-1.5" style={{ color: Math.abs(p.pnl) < 0.005 ? "#7a8a72" : p.pnl >= 0 ? LONG : SHORT }}>{fmtPnl(p.pnl)} <span className="text-[10.5px] text-[#7a8a72]">({p.pnlPct >= 0 ? "+" : ""}{p.pnlPct.toFixed(0)}%)</span></td>
                           <td className="py-1.5 pr-4"><span className="flex items-center justify-end gap-1.5">
                             <button onClick={() => setPnlCard({ ticker: p.ticker, isLong: p.isLong, leverage: p.leverage, entryPriceUsd: p.entryPriceUsd, markPriceUsd: p.mark, pnlUsd: p.pnl, pnlPct: p.pnlPct })} title="Share PnL" className="rounded-[6px] border border-[#15300c]/20 px-2 py-0.5 text-[11px] font-semibold text-[#2f6d1f]">Share</button>
-                            <button onClick={() => doClose(p)} disabled={!!busy} className="rounded-[6px] border px-2 py-0.5 text-[11px] font-semibold" style={{ borderColor: SHORT, color: SHORT }}>{busy === "close:" + p.positionId ? "…" : "Close"}</button>
+                            <button onClick={() => doClose(p)} disabled={closing.has(p.positionId)} className="rounded-[6px] border px-2 py-0.5 text-[11px] font-semibold disabled:opacity-50" style={{ borderColor: SHORT, color: SHORT }}>{closing.has(p.positionId) ? "…" : "Close"}</button>
                           </span></td>
                         </tr>
                       ))}
