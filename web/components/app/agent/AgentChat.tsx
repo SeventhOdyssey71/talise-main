@@ -298,7 +298,7 @@ export function AgentChat() {
   const lastAssistantId = [...messages].reverse().find((m) => m.role === "assistant")?.id;
 
   return (
-    <div className="flex h-[calc(100vh-9rem)] flex-col lg:h-[calc(100vh-8rem)]">
+    <div className="flex h-[calc(100dvh-9rem)] flex-col pb-24 lg:h-[calc(100vh-8rem)] lg:pb-0">
       {/* Header */}
       <div className="flex shrink-0 items-start gap-3 pb-3">
         <div className="min-w-0 flex-1">
