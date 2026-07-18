@@ -110,7 +110,9 @@ export function TradeChart({ symbol, interval }: { symbol: string; interval: str
       });
       ro.observe(el);
       await load();
-      poll = setInterval(load, 5000);
+      // Skip the refresh while the tab is backgrounded — no point redrawing a
+      // chart no one is watching (saves RPC + battery).
+      poll = setInterval(() => { if (document.visibilityState === "visible") load(); }, 5000);
     })();
     return () => {
       disposed = true;

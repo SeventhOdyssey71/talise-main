@@ -142,7 +142,10 @@ export async function gql<T = unknown>(
     method: "POST",
     headers: { "content-type": "application/json" },
     body,
-    signal: opts.signal,
+    // Default a 10s ceiling so callers that don't pass a signal (e.g.
+    // /api/me/nfts) can't hang on a slow GraphQL endpoint. An explicit
+    // caller signal still takes precedence.
+    signal: opts.signal ?? AbortSignal.timeout(10_000),
     // Next.js' fetch-cache integration would persist this server-side across
     // requests, which is exactly what we DON'T want for live chain data.
     cache: "no-store",

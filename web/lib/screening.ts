@@ -317,26 +317,34 @@ export async function screenTransfer(
     };
   }
 
-  // 2) Address risk, fail-open. Assess both counterparties; a single
-  //    block recommendation stops the transfer. Any thrown error logs and
-  //    allows (per the fail-open contract).
-  for (const [label, addr] of [
+  // 2) Address risk, fail-open. Assess both counterparties IN PARALLEL; a
+  //    single block recommendation stops the transfer. Any thrown error logs
+  //    and allows (per the fail-open contract). Sender is checked first for the
+  //    block reason, matching the previous serial order.
+  const counterparties = [
     ["sender", input.senderAddr],
     ["recipient", input.recipientAddr],
-  ] as const) {
-    if (!addr) continue;
-    let result: AddressRiskResult;
-    try {
-      result = await riskProvider.assess(addr);
-    } catch (err) {
-      // FAIL OPEN: a vendor outage must not 500 every send.
-      console.warn(
-        `[screening] address-risk provider error for ${label}=${addr}; failing open (allowing). detail=${
-          (err as Error)?.message ?? String(err)
-        }`
-      );
-      continue;
-    }
+  ] as const;
+  const verdicts = await Promise.all(
+    counterparties.map(async ([label, addr]): Promise<AddressRiskResult | null> => {
+      if (!addr) return null;
+      try {
+        return await riskProvider.assess(addr);
+      } catch (err) {
+        // FAIL OPEN: a vendor outage must not 500 every send.
+        console.warn(
+          `[screening] address-risk provider error for ${label}=${addr}; failing open (allowing). detail=${
+            (err as Error)?.message ?? String(err)
+          }`
+        );
+        return null;
+      }
+    })
+  );
+  for (let i = 0; i < counterparties.length; i++) {
+    const [label] = counterparties[i];
+    const result = verdicts[i];
+    if (!result) continue;
     if (result.block || RISK_BLOCK_SEVERITIES.has(result.severity)) {
       return {
         allow: false,

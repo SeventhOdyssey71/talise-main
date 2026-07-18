@@ -119,8 +119,11 @@ export function PerpsTerminal() {
   // Market list (OI/funding) and the all-markets spot sweep are heavy and
   // change slowly, so they poll on a relaxed cadence; the live header price
   // (loadQuote, 3s) and account carry the fast-moving data.
-  useEffect(() => { loadMarkets(); loadAccount(); loadHistory(); loadSpots(); const m = window.setInterval(loadMarkets, 15000); const a = window.setInterval(loadAccount, 6000); const s = window.setInterval(loadSpots, 15000); return () => { window.clearInterval(m); window.clearInterval(a); window.clearInterval(s); }; }, [loadMarkets, loadAccount, loadHistory, loadSpots]);
-  useEffect(() => { loadQuote(sel); const id = window.setInterval(() => loadQuote(sel), 3000); return () => window.clearInterval(id); }, [sel, loadQuote]);
+  // Only poll while the tab is actually visible — a backgrounded terminal
+  // otherwise keeps hammering RPC (4 intervals) and draining battery for data
+  // no one is looking at.
+  useEffect(() => { const vis = () => document.visibilityState === "visible"; loadMarkets(); loadAccount(); loadHistory(); loadSpots(); const m = window.setInterval(() => { if (vis()) loadMarkets(); }, 15000); const a = window.setInterval(() => { if (vis()) loadAccount(); }, 6000); const s = window.setInterval(() => { if (vis()) loadSpots(); }, 15000); return () => { window.clearInterval(m); window.clearInterval(a); window.clearInterval(s); }; }, [loadMarkets, loadAccount, loadHistory, loadSpots]);
+  useEffect(() => { loadQuote(sel); const id = window.setInterval(() => { if (document.visibilityState === "visible") loadQuote(sel); }, 3000); return () => window.clearInterval(id); }, [sel, loadQuote]);
   useEffect(() => { setLeverage((lv) => Math.min(lv, Math.max(1, Math.floor(market?.maxLeverage ?? 25))) || 10); }, [market?.maxLeverage]);
 
   // Amount = the USDsui collateral the user posts. Size/notional are derived.
