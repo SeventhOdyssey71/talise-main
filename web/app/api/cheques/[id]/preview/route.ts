@@ -32,7 +32,7 @@ export async function GET(
   const expired = cq.expiresAt < now;
 
   // Private note: the link holds the secret, so the holder can decrypt the
-  // sender's message (fetched from Walrus). Best-effort — null if absent/unreadable.
+  // sender's message (fetched from Walrus). Best-effort, null if absent/unreadable.
   const note = await fetchAndOpenNote(secret, cq.noteBlobId);
 
   return NextResponse.json({

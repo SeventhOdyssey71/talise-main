@@ -7,7 +7,7 @@ import { listPredictionPositions } from "@/lib/waterx-predict";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET /api/predict/positions — the caller's prediction positions (+ claimable). */
+/** GET /api/predict/positions, the caller's prediction positions (+ claimable). */
 export async function GET(req: Request) {
   if (!WATERX_ENABLED) return NextResponse.json({ error: "disabled", code: "PERPS_DISABLED" }, { status: 503 });
 

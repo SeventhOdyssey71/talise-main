@@ -15,7 +15,7 @@ export const runtime = "nodejs";
  * Begin (or resume) Bridge hosted KYC for the signed-in user. Idempotent:
  * Bridge returns the same KYC link for the same email within 24h, so re-calling
  * is safe (the client may poll start → status). Derives a minimal KycProfile
- * from the authenticated user — the client never supplies PII the server holds.
+ * from the authenticated user, the client never supplies PII the server holds.
  *
  * 503 when Bridge isn't configured (env-gated, like every Talise ramp partner).
  * Does NOT move money or touch any balance/limit path.
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bridge_disabled" }, { status: 503 });
   }
   // Apply pending schema (the onramp_kyc.kyc_link_id column) before we read/
-  // write it — otherwise the upsert throws undefined_column (42703) and 502s.
+  // write it, otherwise the upsert throws undefined_column (42703) and 502s.
   await ensureSchema();
   const userId = await readEntryIdFromRequest(req);
   if (!userId) {

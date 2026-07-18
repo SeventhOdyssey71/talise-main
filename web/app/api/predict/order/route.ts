@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/predict/order — buy YES/NO shares on a prediction market.
+ * POST /api/predict/order, buy YES/NO shares on a prediction market.
  * Body: { marketId, selection: "YES"|"NO", betUsd, price }
  * Sweeps the user's USDsui → CREDIT and places the order (shared waterx_account).
  */
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   }
 
   const accountId = userId != null ? await getStoredAccount(userId) : null;
-  if (!accountId) return NextResponse.json({ error: "No trading account — create one in Markets first.", code: "NO_ACCOUNT" }, { status: 409 });
+  if (!accountId) return NextResponse.json({ error: "No trading account, create one in Markets first.", code: "NO_ACCOUNT" }, { status: 409 });
 
   let b: { marketId?: string; selection?: string; betUsd?: number; price?: number };
   try { b = await req.json(); } catch { return NextResponse.json({ error: "bad json" }, { status: 400 }); }

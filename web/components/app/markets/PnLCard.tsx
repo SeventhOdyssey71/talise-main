@@ -16,7 +16,7 @@ export type PnLCardData = {
 const fmtP = (n: number) => (n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : n >= 1 ? n.toFixed(3) : n.toFixed(4));
 
 /**
- * Shareable PnL card — a happy green anime scene for profit, a somber red one
+ * Shareable PnL card, a happy green anime scene for profit, a somber red one
  * for a loss (art via Higgsfield), with the trade stats blended cleanly on top.
  */
 export function PnLCard({ data, onClose }: { data: PnLCardData; onClose: () => void }) {
@@ -31,7 +31,7 @@ export function PnLCard({ data, onClose }: { data: PnLCardData; onClose: () => v
     const text = `${win ? "📈" : "📉"} ${data.isLong ? "Long" : "Short"} ${m.sym} · ${win ? "+" : ""}${data.pnlPct.toFixed(1)}% (${win ? "+" : "-"}$${Math.abs(data.pnlUsd).toFixed(2)}) on Talise perps`;
     try {
       if (navigator.share) await navigator.share({ text, url: "https://talise.io" });
-      else { await navigator.clipboard.writeText(`${text} — https://talise.io`); }
+      else { await navigator.clipboard.writeText(`${text}, https://talise.io`); }
     } catch { /* cancelled */ }
   };
 

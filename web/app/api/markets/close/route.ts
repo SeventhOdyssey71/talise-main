@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/markets/close — close a perp position at market.
+ * POST /api/markets/close, close a perp position at market.
  * Body: { ticker, accountId, positionId, isLong }
  * Local mode executes with the dev key; otherwise returns sponsor-ready bytes.
  */

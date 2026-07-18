@@ -1,5 +1,5 @@
 /**
- * Analytics persistence layer — the cache the on-chain indexer writes and the
+ * Analytics persistence layer, the cache the on-chain indexer writes and the
  * dashboard reads.
  *
  * Indexing every Talise user's on-chain tx history is far too much work for one
@@ -9,9 +9,9 @@
  * dashboard serves whatever is cached so far (with progress).
  *
  * Three Postgres tables (all idempotent, created by ensureAnalyticsSchema):
- *   • analytics_user_stats  — one row per indexed user (aggregates).
- *   • analytics_recent_tx   — newest-first recent-transaction feed (PK digest).
- *   • analytics_index_state — singleton (id=1) cursor + run timestamps.
+ *   • analytics_user_stats, one row per indexed user (aggregates).
+ *   • analytics_recent_tx , newest-first recent-transaction feed (PK digest).
+ *   • analytics_index_state, singleton (id=1) cursor + run timestamps.
  *
  * Resilient like /api/admin/overview: a failed sub-query yields its zero/empty
  * fallback rather than throwing, so the dashboard always renders. Writes are
@@ -48,7 +48,7 @@ function strOrNull(v: unknown): string | null {
 
 /**
  * Create the three analytics tables + supporting index if they don't exist.
- * Idempotent — safe to call on every request/batch. Seeds the singleton
+ * Idempotent, safe to call on every request/batch. Seeds the singleton
  * index-state row (id=1) so getCursor/setCursor always have a row to read.
  */
 export async function ensureAnalyticsSchema(): Promise<void> {
@@ -103,7 +103,7 @@ export async function ensureAnalyticsSchema(): Promise<void> {
   // analytics_user_stats with a `joined_at BIGINT NOT NULL` column and an
   // obsolete analytics_daily table. CREATE TABLE IF NOT EXISTS won't fix an
   // existing table, so the stale NOT NULL column silently fails every new
-  // insert (which omits joined_at). Drop the obsolete column + table — no-ops
+  // insert (which omits joined_at). Drop the obsolete column + table, no-ops
   // on a freshly-created schema, repairs a legacy one.
   await db()
     .execute({ sql: `ALTER TABLE analytics_user_stats DROP COLUMN IF EXISTS joined_at`, args: [] })
@@ -161,7 +161,7 @@ export async function upsertUserStat(s: {
 
 /**
  * Record (upsert) recent-transaction rows keyed by digest. ON CONFLICT(digest)
- * refreshes the row — the same on-chain tx seen across batches stays single,
+ * refreshes the row, the same on-chain tx seen across batches stays single,
  * and any newly resolved fields (e.g. a counterparty name) overwrite stale
  * ones. Rows with no digest are skipped (digest is the PK).
  */
@@ -261,7 +261,7 @@ export async function getCursor(): Promise<{
 /**
  * Persist the singleton cursor (id=1). Always stamps last_run_at; only touches
  * full_pass_at when `fullPassAt` is provided (a full pass over all users just
- * completed) — passing undefined leaves the existing value intact via COALESCE.
+ * completed), passing undefined leaves the existing value intact via COALESCE.
  */
 export async function setCursor(v: {
   cursor: number;
@@ -297,7 +297,7 @@ export async function setCursor(v: {
  * via the `index` block).
  */
 export async function getSummary(): Promise<AnalyticsSummary> {
-  // Live total accounts (excludes deleted tombstones) — the denominator.
+  // Live total accounts (excludes deleted tombstones), the denominator.
   const totalUsers = await countUsers().catch(() => 0);
 
   // SUM(volume_usd) + SUM(tx_count) over everything indexed so far.

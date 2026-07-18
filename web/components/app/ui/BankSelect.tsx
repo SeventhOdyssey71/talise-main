@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * BankSelect — on-brand searchable bank picker (replaces the native <select>).
+ * BankSelect, on-brand searchable bank picker (replaces the native <select>).
  *
  * A button that opens a search + scrollable list rendered inline (no portal,
  * so it always inherits the v2 theme). Click-outside + Escape close it.

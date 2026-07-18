@@ -3,12 +3,12 @@ import sharp from "sharp";
 export const runtime = "nodejs";
 
 /**
- * GET /api/asset-icon/BTCUSD — proxies the real WaterX market logo
+ * GET /api/asset-icon/BTCUSD, proxies the real WaterX market logo
  * (waterx.app/markets/<TICKER>.<ext>) so the CSP img-src stays 'self'. The
  * extension varies per market; we know it, and fall back to probing.
  *
  * SVG sources are rasterized to PNG so native clients (iOS `AsyncImage`,
- * which can't decode SVG) still render every logo. Browsers get the PNG too —
+ * which can't decode SVG) still render every logo. Browsers get the PNG too -
  * it's crisp at the sizes we draw.
  */
 const EXT: Record<string, string> = {
@@ -42,7 +42,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ sym: string }>
             headers: { "content-type": "image/png", "cache-control": "public, max-age=604800, immutable" },
           });
         } catch {
-          // Rasterize failed — fall back to serving the raw SVG.
+          // Rasterize failed, fall back to serving the raw SVG.
         }
       }
       return new Response(buf, {

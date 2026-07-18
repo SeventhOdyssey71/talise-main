@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * TradeChart — TradingView lightweight-charts candlesticks for the perps
+ * TradeChart, TradingView lightweight-charts candlesticks for the perps
  * terminal. Candles are proxied from Binance spot via /api/markets/candles
  * (WaterX drives the on-chain perp state; price history mirrors the deep spot
  * market of the same asset). Chart instance persists across symbol/interval
@@ -122,7 +122,7 @@ export function TradeChart({ symbol, interval }: { symbol: string; interval: str
     };
   }, [load]);
 
-  // Reload on symbol / interval change — show the skeleton until it lands.
+  // Reload on symbol / interval change, show the skeleton until it lands.
   // Clear the in-flight guard so the switch always fetches immediately even if
   // a poll for the previous symbol was mid-flight.
   useEffect(() => {

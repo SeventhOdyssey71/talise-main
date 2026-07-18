@@ -2,14 +2,14 @@ import "server-only";
 import { MemWal } from "@mysten-incubation/memwal";
 
 /**
- * Walrus Memory (Mysten's MemWal) — hosted, persistent agent memory.
+ * Walrus Memory (Mysten's MemWal), hosted, persistent agent memory.
  *
  * Why a manual client (not the AI-SDK `withMemWal` middleware): that middleware
  * SAVES after the LLM call as fire-and-forget. In a Vercel serverless streaming
  * function the instance is frozen/killed once the response finishes, so the save
  * never lands and nothing persists across chats. Here we control both legs:
- *   • recall — awaited BEFORE the reply, injected into the prompt.
- *   • remember — awaited BEFORE the stream closes (the function stays alive while
+ *   • recall, awaited BEFORE the reply, injected into the prompt.
+ *   • remember, awaited BEFORE the stream closes (the function stays alive while
  *     the stream is open), so the write to Walrus actually completes.
  *
  * Per-wallet namespace so memories never bleed between users. No DB. If the
@@ -90,8 +90,8 @@ export async function recallMemories(address: string, query: string, max = 6): P
 }
 
 /**
- * Classify a caught write error as PERMANENT (never retry — give up now) or
- * TRANSIENT (a real blip — keep retrying with backoff).
+ * Classify a caught write error as PERMANENT (never retry, give up now) or
+ * TRANSIENT (a real blip, keep retrying with backoff).
  *
  * The memwal SDK surfaces server errors as `MemWal server error (503): {…body…}`,
  * so we parse the HTTP status and body out of the message string.
@@ -112,7 +112,7 @@ function classifyError(msg: string): "permanent" | "transient" {
   // Pull an HTTP status out of `MemWal server error (503): …` shapes.
   const statusMatch = msg.match(/\((\d{3})\)/);
   const status = statusMatch ? Number(statusMatch[1]) : 0;
-  // 4xx = auth/config/permanent server states — retrying can't fix them.
+  // 4xx = auth/config/permanent server states, retrying can't fix them.
   if (status >= 400 && status < 500) return "permanent";
   // Everything else (5xx, timeouts, network, gas blips) is worth retrying.
   return "transient";
@@ -135,7 +135,7 @@ let pausedLogged = false;
  *
  * Resilience:
  *   • Permanent failures (relayer "writes paused for security upgrade", any 4xx)
- *     fast-fail immediately — no backoff, no further attempts.
+ *     fast-fail immediately, no backoff, no further attempts.
  *   • A "writes paused" error also OPENS a lightweight circuit breaker: for a
  *     cooldown window, later calls short-circuit without even hitting the
  *     network (logged at most once per window). It auto-recovers by allowing one
@@ -191,7 +191,7 @@ export async function rememberFact(
       }
       console.warn("[memwal] save attempt %d/%d failed (transient): %s", attempt, attempts, msg);
       if (attempt < attempts) {
-        // Backoff: 3s, 6s, 9s — long enough for a transient relayer blip to clear.
+        // Backoff: 3s, 6s, 9s, long enough for a transient relayer blip to clear.
         await new Promise((r) => setTimeout(r, attempt * 3_000));
       }
     }

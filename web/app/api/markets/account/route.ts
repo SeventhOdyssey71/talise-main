@@ -30,7 +30,7 @@ async function resolveActor(req: Request): Promise<
 }
 
 /**
- * GET /api/markets/account — the caller's remembered waterx_account + snapshot.
+ * GET /api/markets/account, the caller's remembered waterx_account + snapshot.
  * Query overrides: ?accountId=0x… (snapshot a specific id), ?digest=… (resolve a
  * freshly-created account from its tx).
  */
@@ -107,12 +107,12 @@ export async function POST(req: Request) {
       const accountId = String(b.accountId ?? "");
       const amountUsd = Number(b.amountUsd ?? 0);
       if (!accountId || amountUsd <= 0) return NextResponse.json({ error: "accountId and amountUsd required" }, { status: 400 });
-      // Pre-check the wallet has the USDsui — the deposit sources it from the
+      // Pre-check the wallet has the USDsui, the deposit sources it from the
       // user's Talise balance, so fail fast with a clear message instead of a
       // raw on-chain "no valid coins" revert.
       const walletUsd = await usdsuiBalanceUsd(actor.sender);
       if (walletUsd + 0.001 < amountUsd) {
-        return NextResponse.json({ error: `Not enough USDsui — you have $${walletUsd.toFixed(2)}.`, code: "INSUFFICIENT_USDSUI" }, { status: 400 });
+        return NextResponse.json({ error: `Not enough USDsui, you have $${walletUsd.toFixed(2)}.`, code: "INSUFFICIENT_USDSUI" }, { status: 400 });
       }
       const tx = await buildDepositTx(accountId, amountUsd);
       const result = await settle(tx, actor.sender);

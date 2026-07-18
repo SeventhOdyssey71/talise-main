@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Talise Agent mascot (web) — the friendly blocky assistant, mirroring the
+ * Talise Agent mascot (web), the friendly blocky assistant, mirroring the
  * iOS `AgentMascot`: a mint "brick" head with spherical shading (top-left
  * specular highlight, bottom volume shadow, a rim light), two deep-ink eyes,
  * and a small smile. Crisp at any size (pure SVG).
  *
- * Used as the top-bar Copilot entry point on both desktop and mobile — tapping
+ * Used as the top-bar Copilot entry point on both desktop and mobile, tapping
  * it opens /app/agent. Body colour defaults to the "Classic" skin (#CAFFB8);
  * pass `tint` to recolour it.
  */
@@ -22,7 +22,7 @@ export function AgentMascot({ size = 36, tint = "#CAFFB8" }: { size?: number; ti
       style={{ display: "block" }}
     >
       <defs>
-        {/* spherical highlight — light source at top-left */}
+        {/* spherical highlight, light source at top-left */}
         <radialGradient id="am-hi" cx="32%" cy="26%" r="62%">
           <stop offset="0%" stopColor="#ffffff" stopOpacity="0.55" />
           <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
@@ -32,14 +32,14 @@ export function AgentMascot({ size = 36, tint = "#CAFFB8" }: { size?: number; ti
           <stop offset="0%" stopColor="#000000" stopOpacity="0" />
           <stop offset="100%" stopColor="#000000" stopOpacity="0.2" />
         </linearGradient>
-        {/* rim light — bright top edge easing to a soft bottom */}
+        {/* rim light, bright top edge easing to a soft bottom */}
         <linearGradient id="am-rim" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#ffffff" stopOpacity="0.55" />
           <stop offset="100%" stopColor="#ffffff" stopOpacity="0.04" />
         </linearGradient>
       </defs>
 
-      {/* 3D head — a soft squircle */}
+      {/* 3D head, a soft squircle */}
       <rect x="9" y="11" width="82" height="78" rx="32" fill={tint} />
       <rect x="9" y="11" width="82" height="78" rx="32" fill="url(#am-hi)" />
       <rect x="9" y="11" width="82" height="78" rx="32" fill="url(#am-vol)" />

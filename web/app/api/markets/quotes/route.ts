@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/markets/quotes — live spot for EVERY market in one call, behind the
+ * GET /api/markets/quotes, live spot for EVERY market in one call, behind the
  * shared last-good cache. The whole batch is one cache key, so Pyth is swept at
  * most once per window across all users; on failure the last-good map is served
  * so picker prices never blank.

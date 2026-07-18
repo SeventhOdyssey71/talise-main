@@ -11,7 +11,7 @@ export const maxDuration = 120;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * GET /api/cron/perp-warm — keeps the perps price-feed cache warm.
+ * GET /api/cron/perp-warm, keeps the perps price-feed cache warm.
  *
  * Pyth Benchmarks rate-limits Vercel's egress, so on-demand fetches fail
  * intermittently. This cron is the ONLY thing that talks to Pyth: it walks

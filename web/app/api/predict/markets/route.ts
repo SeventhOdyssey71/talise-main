@@ -5,7 +5,7 @@ import { listPredictionMarkets } from "@/lib/waterx-predict";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET /api/predict/markets — live WaterX prediction markets (read-only). */
+/** GET /api/predict/markets, live WaterX prediction markets (read-only). */
 export async function GET() {
   if (!WATERX_ENABLED) {
     return NextResponse.json({ error: "Prediction isn't enabled.", code: "PERPS_DISABLED" }, { status: 503 });

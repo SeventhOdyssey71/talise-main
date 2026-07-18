@@ -7,13 +7,13 @@ import "server-only";
  * Re-open to everyone with `USD_WITHDRAWAL_OPEN=true`. The maintainer allowlist
  * (`USD_WITHDRAWAL_ALLOWED_EMAILS` / `_HANDLES`, default `rolandojude18`) always
  * passes so testing keeps working. Cash-out also independently requires approved
- * Bridge KYC. Server-authoritative — the iOS app surfaces the 403 as "coming soon".
+ * Bridge KYC. Server-authoritative, the iOS app surfaces the 403 as "coming soon".
  */
 const DEFAULT_EMAILS = "rolandojude18@gmail.com";
 const DEFAULT_HANDLES = "rolandojude18";
 
 export const USD_WITHDRAWAL_CLOSED_MESSAGE =
-  "USD withdrawal isn't open for your account yet — it's rolling out soon.";
+  "USD withdrawal isn't open for your account yet, it's rolling out soon.";
 
 function list(envVal: string | undefined, fallback: string): string[] {
   return (envVal ?? fallback)
