@@ -6,7 +6,7 @@ import { WATERX_ENABLED, getTrades, addTrade, type TradeLogEntry } from "@/lib/w
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET /api/markets/history — the user's recorded perp trade history. */
+/** GET /api/markets/history, the user's recorded perp trade history. */
 export async function GET(req: Request) {
   if (!WATERX_ENABLED) return NextResponse.json({ trades: [] });
   const userId = await readEntryIdFromRequest(req);
@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   return NextResponse.json({ trades: await getTrades(userId) });
 }
 
-/** POST /api/markets/history — record a completed trade (client posts after signing). */
+/** POST /api/markets/history, record a completed trade (client posts after signing). */
 export async function POST(req: Request) {
   if (!WATERX_ENABLED) return NextResponse.json({ ok: false }, { status: 503 });
   const userId = await readEntryIdFromRequest(req);

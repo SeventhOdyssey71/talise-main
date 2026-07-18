@@ -13,9 +13,9 @@
  *     create -> deposit -> trade loop runs on localhost with a funded key.
  *
  * Collateral is USDsui: WaterX native custody registers Talise's exact coin
- * type (verified against mainnet config — `usdsui::USDSUI`, 6 decimals).
+ * type (verified against mainnet config, `usdsui::USDSUI`, 6 decimals).
  *
- * Gated behind FEATURE_PERPS — off by default.
+ * Gated behind FEATURE_PERPS, off by default.
  */
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
@@ -48,12 +48,12 @@ const WATERX_CONFIG_URL =
   process.env.WATERX_CONFIG_URL ??
   "https://raw.githubusercontent.com/WaterXProtocol/waterx-config/main/mainnet.json";
 
-/** Feature flag — perps are experimental and OFF unless set to "true". */
+/** Feature flag, perps are experimental and OFF unless set to "true". */
 export const WATERX_ENABLED = process.env.FEATURE_PERPS === "true";
 /** Local prototype: sign + execute server-side with a dev key instead of sponsoring. */
 export const WATERX_LOCAL_SIGN = process.env.FEATURE_PERPS_LOCAL_SIGN === "true";
 
-/** USDsui — the collateral asset WaterX native custody accepts (6 decimals). */
+/** USDsui, the collateral asset WaterX native custody accepts (6 decimals). */
 export const COLLATERAL_TYPE = USDSUI_TYPE;
 const USDSUI_DECIMALS = 6;
 const usdToBase = (usd: number) => BigInt(Math.round(usd * 10 ** USDSUI_DECIMALS));
@@ -91,8 +91,8 @@ export async function usdsuiBalanceUsd(owner: string): Promise<number> {
  */
 export function friendlyPerpError(msg: string): string {
   const m = (msg || "").toLowerCase();
-  if (m.includes("acceptable") || (m.includes("price") && m.includes("exceed"))) return "Price moved past your limit — please try again.";
-  if (m.includes("maxoi") || m.includes("max_oi") || (m.includes("exceed") && m.includes("oi"))) return "This market is at capacity right now — try a smaller size or again shortly.";
+  if (m.includes("acceptable") || (m.includes("price") && m.includes("exceed"))) return "Price moved past your limit, please try again.";
+  if (m.includes("maxoi") || m.includes("max_oi") || (m.includes("exceed") && m.includes("oi"))) return "This market is at capacity right now, try a smaller size or again shortly.";
   if (m.includes("insufficient") && (m.includes("collateral") || m.includes("balance") || m.includes("fund"))) return "Not enough balance for this.";
   if ((m.includes("min") && m.includes("coll")) || m.includes("mincollateral")) return "Below the minimum collateral for this market.";
   if (m.includes("paused")) return "This market is paused right now.";
@@ -101,7 +101,7 @@ export function friendlyPerpError(msg: string): string {
   return msg;
 }
 
-// waterx_account object type prefixes (from mainnet config) — used to spot the
+// waterx_account object type prefixes (from mainnet config), used to spot the
 // freshly created Account in a tx's object changes.
 const WXA_PKG_IDS = [
   "0xe308bd40bd81aa42b9245e4b51b3fe63801c77c78a76be4ce5902aae549f7221",
@@ -246,7 +246,7 @@ export async function storeAccount(userId: number, accountId: string): Promise<v
       args: [`waterx_acct:${userId}`, accountId, Date.now()],
     });
   } catch {
-    /* non-fatal — client keeps a localStorage copy too */
+    /* non-fatal, client keeps a localStorage copy too */
   }
 }
 
@@ -254,7 +254,7 @@ export async function storeAccount(userId: number, accountId: string): Promise<v
 // Positions live inside each MARKET object, so finding an account's positions
 // means querying markets. Scanning all 30 on every 5s poll was the account
 // read's cost. Instead we remember which markets an account has traded and scan
-// only those — cheap AND fresh (no snapshot cache needed). The set is seeded by
+// only those, cheap AND fresh (no snapshot cache needed). The set is seeded by
 // a one-time full scan and kept current by the order endpoint.
 const ACTIVE_TTL_MS = 5 * 60 * 1000;
 
@@ -367,7 +367,7 @@ async function getPositions(client: PerpClient, accountId: string): Promise<Perp
     scanList.map(async (ticker): Promise<PerpPosition[]> => {
       try {
         // Use the warm cached spot for the price basis instead of a per-ticker
-        // getMarketData gRPC call — halves the gRPC load of an account read
+        // getMarketData gRPC call, halves the gRPC load of an account read
         // (this runs for all 30 markets on every poll). Falls back to 0 basis
         // (we compute PnL/liq ourselves, so the basis only feeds the SDK read).
         const spot = (await cachedSpotFor(ticker)) ?? 0;
@@ -436,7 +436,7 @@ export type Settled =
 
 // Onara's sponsor policy caps the gas budget at 100M MIST (0.1 SUI); a tx over
 // that "matches no policy" and is refused. Perp/Pyth txs still settle well under
-// this — 95M is the ceiling, sponsor pays only actual gas.
+// this, 95M is the ceiling, sponsor pays only actual gas.
 const GAS_BUDGET_MIST = 95_000_000n;
 
 export async function settle(tx: Transaction, sender: string): Promise<Settled> {
@@ -526,8 +526,8 @@ export async function buildOrderTx(o: OrderInput): Promise<Transaction> {
   const client = await perp();
   // TP/SL are reduce-only stop orders in the CLOSING direction (opposite side),
   // sized to the position, that fire when price crosses the trigger. Only accept
-  // a trigger sitting on the correct side of entry — for a long, TP above / SL
-  // below; inverse for a short — so a mis-sent price can't place a stop that
+  // a trigger sitting on the correct side of entry, for a long, TP above / SL
+  // below; inverse for a short, so a mis-sent price can't place a stop that
   // fires immediately and closes the position at open.
   const closeSide = !o.isLong;
   const accept = o.acceptablePriceUsd;
@@ -568,7 +568,7 @@ export async function buildWithdrawTx(accountId: string, usd: number, recipient:
   let amount = usdToBase(usd);
   // Cap to the actual on-chain spendable credit. A "MAX" withdraw shows a value
   // rounded to cents that can round UP past the true balance (e.g. spendable
-  // 4.9399 shown as $4.94) — requesting the rounded amount then reverts. Capping
+  // 4.9399 shown as $4.94), requesting the rounded amount then reverts. Capping
   // makes MAX (and any over-ask) withdraw exactly what's available.
   try {
     const bal = await getSpendableCreditBalance(client, accountId);
@@ -611,7 +611,7 @@ export async function buildCloseTx(
   const priceUsd = Number(m.long_avg_entry_price) / PRICE_SCALE;
 
   // Accept-price band reference: our warm live price feed (the on-chain
-  // oracle_price is high-precision-scaled and stale — using it here overflowed
+  // oracle_price is high-precision-scaled and stale, using it here overflowed
   // u64 in rawPrice). Fall back to the market's avg entry if the feed is cold.
   const spot = await cachedSpotFor(T);
   const markUsd = spot && spot > 0 ? spot : priceUsd;
@@ -634,7 +634,7 @@ export async function buildCloseTx(
   }
 
   // Close is reduce-only: a long sells (accept down to −3%), a short buys back
-  // (accept up to +3%) — a 3% slippage band around the live mark.
+  // (accept up to +3%), a 3% slippage band around the live mark.
   const acceptable = isLong ? markUsd * 0.97 : markUsd * 1.03;
   const tx = await buildClosePositionTx(client, {
     ticker: T,
@@ -648,7 +648,7 @@ export async function buildCloseTx(
     const feeCoin = tx.add(coinWithBalance({ type: COLLATERAL_TYPE, balance: feeBase }));
     tx.transferObjects([feeCoin], TREASURY_WALLET);
   } else {
-    feeUsd = 0; // wallet can't cover it — close without the fee this time
+    feeUsd = 0; // wallet can't cover it, close without the fee this time
   }
   return { tx, feeUsd };
 }

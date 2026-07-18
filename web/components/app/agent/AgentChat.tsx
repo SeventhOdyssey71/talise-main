@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * AgentChat — the Talise Agent chat surface for the web app (the web twin of
+ * AgentChat, the Talise Agent chat surface for the web app (the web twin of
  * iOS `ChatTabView` + `ChatViewModel`), styled to feel like ChatGPT mobile.
  *
  * Layout (top → bottom):
- *   1. Header — mascot badge + greeting + a New-chat button. (No history
+ *   1. Header, mascot badge + greeting + a New-chat button. (No history
  *      sidebar: the app already has a left nav, so a second drawer just fought
  *      it. Each chat still persists; "New chat" starts a fresh one.)
- *   2. Scrollable transcript — assistant turns render as clean, full-width
+ *   2. Scrollable transcript, assistant turns render as clean, full-width
  *      LEFT-aligned prose (no bubble); user turns are a compact right-aligned
  *      accent-green pill. A "thinking" indicator stands in where the assistant
  *      reply will appear while we await the first token. Each completed
@@ -20,7 +20,7 @@
  * Streaming: we POST the running transcript to `/api/chat/stream` and read its
  * Server-Sent-Events body. Each frame is `data: <json>\n\n` where json is
  * `{"type":"text","value":"…"}` (an incremental token) or `{"type":"done"}`
- * (terminal). We buffer the FULL raw stream — fence included — and derive the
+ * (terminal). We buffer the FULL raw stream, fence included, and derive the
  * displayed prose each delta by stripping any `---INTENT---{…}---END---` block,
  * so a fence split across chunks never flashes half-rendered JSON. When the
  * stream closes we run `parseAssistantMessage` on the raw text; any intent it
@@ -28,7 +28,7 @@
  *
  * History: each completed turn is persisted to localStorage via
  * `conversationsStore` so a refresh restores the current thread; "New chat"
- * starts fresh. (We dropped the slide-out history drawer — it overlapped the
+ * starts fresh. (We dropped the slide-out history drawer, it overlapped the
  * app's own left nav.)
  */
 
@@ -181,7 +181,7 @@ export function AgentChat() {
     void runStream(history, newAssistantId, id);
   }
 
-  // Finished turns + this prompt — never the streaming placeholder.
+  // Finished turns + this prompt, never the streaming placeholder.
   function historyFor(msgs: ChatMessage[]) {
     return msgs
       .filter((m) => m.role === "user" || !m.streaming)
@@ -240,7 +240,7 @@ export function AgentChat() {
               prev.map((m) => (m.id === assistantId ? { ...m, content: display, raw } : m))
             );
           }
-          // `done` is a no-op — we finalize once the body ends.
+          // `done` is a no-op, we finalize once the body ends.
         }
       }
       // Flush a trailing frame with no closing blank line.
@@ -257,7 +257,7 @@ export function AgentChat() {
     }
   }
 
-  // Stream closed cleanly — parse the prose + any intent block from the raw.
+  // Stream closed cleanly, parse the prose + any intent block from the raw.
   function finalize(assistantId: string, raw: string, convoId: string) {
     const { text, intent } = parseAssistantMessage(raw);
     const updated = messagesRef.current.map((m) =>
@@ -299,8 +299,8 @@ export function AgentChat() {
               <HugeiconsIcon icon={AiMagicIcon} size={17} color="#15300c" strokeWidth={1.9} />
             </span>
             <h1
-              className="truncate text-[24px] font-[800] tracking-[-0.02em] text-[#15300c]"
-              style={{ fontFamily: "var(--font-display-v2)" }}
+              className="truncate text-[24px] font-[800] tracking-[-0.05em] text-[#15300c]"
+              style={{ fontFamily: '"TWK Everett", var(--font-display-v2), system-ui, sans-serif' }}
             >
               {greeting}
             </h1>
@@ -329,8 +329,8 @@ export function AgentChat() {
               <HugeiconsIcon icon={AiMagicIcon} size={28} color="#15300c" strokeWidth={1.8} />
             </span>
             <p
-              className="text-[20px] font-[800] tracking-[-0.02em] text-[#15300c]"
-              style={{ fontFamily: "var(--font-display-v2)" }}
+              className="text-[20px] font-[800] tracking-[-0.05em] text-[#15300c]"
+              style={{ fontFamily: '"TWK Everett", var(--font-display-v2), system-ui, sans-serif' }}
             >
               Ask anything about your money
             </p>
@@ -439,7 +439,7 @@ function Row({
     );
   }
 
-  // Assistant — clean left-aligned prose, no bubble.
+  // Assistant, clean left-aligned prose, no bubble.
   const awaitingFirstToken = msg.streaming === true && msg.content.length === 0;
   const showActions = !msg.streaming && msg.content.trim().length > 0;
 

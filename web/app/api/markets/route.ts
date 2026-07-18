@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/markets — live WaterX perp markets on Sui mainnet (read-only).
+ * GET /api/markets, live WaterX perp markets on Sui mainnet (read-only).
  *
  * No signer, no funds: each market is read via gRPC `simulateTransaction`.
  * Gated behind FEATURE_PERPS → 503 when disabled.

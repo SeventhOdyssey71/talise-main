@@ -27,7 +27,7 @@ export function AssetIcon({ ticker, size = 28 }: { ticker: string; size?: number
       style={{
         width: size, height: size, borderRadius: "50%", flex: "none", background: m.color, color: "#fff",
         display: "inline-flex", alignItems: "center", justifyContent: "center",
-        fontSize: Math.max(8, size * (m.cat === "stock" ? 0.3 : 0.36)), fontWeight: 700, letterSpacing: "-0.02em",
+        fontSize: Math.max(8, size * (m.cat === "stock" ? 0.3 : 0.36)), fontWeight: 700, letterSpacing: "-0.05em",
       }}
     >
       {chars}

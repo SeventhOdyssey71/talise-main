@@ -3,19 +3,20 @@ import Link from "next/link";
 import { Diamond } from "@/components/Diamond";
 
 export const metadata: Metadata = {
-  title: "Support — Talise",
+  title: "Support, Talise",
   description:
     "Get help with Talise. Contact support, read answers to common questions, and find our Privacy Policy and Terms.",
 };
 
 /**
- * /support — the Talise support page.
+ * /support, the Talise support page.
  *
  * Purpose-built (not the shared LegalPage prose shell) so the primary
  * action, emailing a human, leads the page as a real contact card, with
- * a clean FAQ underneath. Rendered in the landing-mint visual language so
- * it sits alongside /privacy and /terms. This is the app's Support URL in
- * App Store Connect, so it must resolve and read as a real help page.
+ * a clean FAQ underneath. Rendered in the engineering-blueprint (.bp-page)
+ * visual language so it sits alongside /privacy and /terms. This is the
+ * app's Support URL in App Store Connect, so it must resolve and read as
+ * a real help page.
  */
 
 const FAQ: { q: string; a: React.ReactNode }[] = [
@@ -112,125 +113,129 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
 
 export default function Support() {
   return (
-    <div className="landing-mint relative min-h-screen overflow-hidden text-[var(--color-fg)]">
-      <div className="talise-top-glow" aria-hidden />
+    <div className="bp-page relative min-h-screen overflow-hidden">
+      <div className="bp-frame flex min-h-screen flex-col" style={{ maxWidth: 840 }}>
+        <span aria-hidden className="bp-tick bp-tick-tl" />
+        <span aria-hidden className="bp-tick bp-tick-tr" />
+        <span aria-hidden className="bp-tick bp-tick-bl" />
+        <span aria-hidden className="bp-tick bp-tick-br" />
 
-      <header className="relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between px-6 py-5 md:px-12 lg:px-16">
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 text-[17px] tracking-tight text-[var(--color-fg)]"
-        >
-          <Diamond />
-          <span>talise</span>
-        </Link>
-      </header>
+        <header className="flex items-center justify-between border-b border-[var(--color-line)] px-6 py-5 sm:px-10">
+          <Link
+            href="/"
+            className="flex items-center gap-2.5 text-[17px] tracking-[-0.02em] text-[var(--color-fg)]"
+          >
+            <Diamond />
+            <span>talise</span>
+          </Link>
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--color-accent)]">Support</span>
+        </header>
 
-      <main className="relative z-10 mx-auto w-full max-w-[720px] px-6 pb-24 pt-10 md:pt-16">
-        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--color-accent-deep)]">
-          support
-        </p>
-        <h1 className="mt-3 text-[clamp(32px,5vw,48px)] font-medium leading-[1.06] tracking-[-0.03em]">
-          How can we help?
-        </h1>
-        <p className="mt-4 max-w-[52ch] text-[15px] leading-[1.6] text-[var(--color-fg-muted)]">
-          Talise is a self-custodial money app built on Sui. If something
-          isn&apos;t working, you have a question, or you want to share feedback,
-          the fastest way to reach a human is by email.
-        </p>
+        <main className="flex-1 px-6 pb-24 pt-12 sm:px-10">
+          <span className="bp-kicker">support</span>
+          <h1 className="mt-5 text-[clamp(32px,5vw,48px)] leading-[1.05]">
+            How can we help?
+          </h1>
+          <p className="mt-4 max-w-[52ch] font-mono text-[13px] leading-[1.7] text-[var(--color-fg-muted)]">
+            Talise is a self-custodial money app built on Sui. If something
+            isn&apos;t working, you have a question, or you want to share feedback,
+            the fastest way to reach a human is by email.
+          </p>
 
-        {/* Primary action, the contact card, leads the page. */}
-        <section
-          className="talise-glass mt-8 rounded-[22px] p-6 sm:p-7"
-          aria-labelledby="contact-heading"
-        >
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2
-                id="contact-heading"
-                className="text-[13px] font-medium uppercase tracking-[0.1em] text-[var(--color-fg-dim)]"
-              >
-                Email us
-              </h2>
+          {/* Primary action, the contact card, leads the page. */}
+          <section
+            className="bp-card mt-8 p-6 sm:p-7"
+            aria-labelledby="contact-heading"
+          >
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2
+                  id="contact-heading"
+                  className="font-mono text-[11px] uppercase tracking-[0.1em] text-[var(--color-fg-dim)]"
+                >
+                  Email us
+                </h2>
+                <a
+                  href="mailto:support@talise.io"
+                  className="mt-1.5 block text-[clamp(22px,4.4vw,30px)] tracking-[-0.02em] text-[var(--color-fg)] hover:text-[var(--color-accent-deep)]"
+                >
+                  support@talise.io
+                </a>
+                <p className="mt-2 font-mono text-[12px] text-[var(--color-fg-muted)]">
+                  We usually reply within a day.
+                </p>
+              </div>
               <a
                 href="mailto:support@talise.io"
-                className="mt-1.5 block text-[clamp(22px,4.4vw,30px)] font-medium tracking-[-0.02em] text-[var(--color-fg)] hover:text-[var(--color-accent-deep)]"
+                className="inline-flex shrink-0 items-center justify-center rounded-[8px] bg-[var(--color-accent-deep)] px-6 py-3 font-mono text-[12px] uppercase tracking-[0.06em] text-white transition-colors hover:bg-[#256016]"
+              >
+                Contact support
+              </a>
+            </div>
+            <p className="mt-5 border-t border-[var(--color-line)] pt-4 font-mono text-[12px] leading-[1.6] text-[var(--color-fg-muted)]">
+              If your message is about your account, please write from the email
+              address you signed in with so we can find you faster.
+            </p>
+          </section>
+
+          {/* FAQ */}
+          <section className="mt-14" aria-labelledby="faq-heading">
+            <h2
+              id="faq-heading"
+              className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--color-accent)]"
+            >
+              Common questions
+            </h2>
+            <dl className="mt-5 divide-y divide-[var(--color-line)]">
+              {FAQ.map(({ q, a }) => (
+                <div key={q} className="py-6 first:pt-0">
+                  <dt className="text-[17px] font-medium tracking-[-0.01em] text-[var(--color-fg)]">
+                    {q}
+                  </dt>
+                  <dd className="mt-2.5 font-mono text-[13px] leading-[1.65] text-[var(--color-fg-muted)]">
+                    {a}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+
+          <p className="mt-12 font-mono text-[13px] leading-[1.6] text-[var(--color-fg-muted)]">
+            For the full details, read our{" "}
+            <Link href="/privacy" className="text-[var(--color-accent-deep)] underline underline-offset-4 hover:opacity-80">
+              Privacy Policy
+            </Link>{" "}
+            and{" "}
+            <Link href="/terms" className="text-[var(--color-accent-deep)] underline underline-offset-4 hover:opacity-80">
+              Terms of Service
+            </Link>
+            .
+          </p>
+        </main>
+
+        <footer className="px-6 pb-10 sm:px-10">
+          <div className="flex flex-col items-start gap-3 border-t border-[var(--color-line)] pt-6 font-mono text-[11px] uppercase tracking-[0.1em] text-[var(--color-fg-dim)] sm:flex-row sm:items-center sm:justify-between">
+            <span>© {new Date().getFullYear()} Talise · Built on Sui</span>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <Link href="/" className="hover:text-[var(--color-fg)]">
+                Home
+              </Link>
+              <Link href="/privacy" className="hover:text-[var(--color-fg)]">
+                Privacy
+              </Link>
+              <Link href="/terms" className="hover:text-[var(--color-fg)]">
+                Terms
+              </Link>
+              <a
+                href="mailto:support@talise.io"
+                className="hover:text-[var(--color-fg)]"
               >
                 support@talise.io
               </a>
-              <p className="mt-2 text-[13px] text-[var(--color-fg-muted)]">
-                We usually reply within a day.
-              </p>
             </div>
-            <a
-              href="mailto:support@talise.io"
-              className="inline-flex shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-deep)] px-6 py-3 text-[14px] font-medium text-white transition-transform hover:-translate-y-0.5"
-            >
-              Contact support
-            </a>
           </div>
-          <p className="mt-5 border-t border-[var(--color-line)] pt-4 text-[13px] leading-[1.6] text-[var(--color-fg-muted)]">
-            If your message is about your account, please write from the email
-            address you signed in with so we can find you faster.
-          </p>
-        </section>
-
-        {/* FAQ */}
-        <section className="mt-14" aria-labelledby="faq-heading">
-          <h2
-            id="faq-heading"
-            className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--color-accent-deep)]"
-          >
-            Common questions
-          </h2>
-          <dl className="mt-5 divide-y divide-[var(--color-line)]">
-            {FAQ.map(({ q, a }) => (
-              <div key={q} className="py-6 first:pt-0">
-                <dt className="text-[17px] font-medium tracking-[-0.01em] text-[var(--color-fg)]">
-                  {q}
-                </dt>
-                <dd className="mt-2.5 text-[15px] leading-[1.65] text-[var(--color-fg-muted)]">
-                  {a}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-
-        <p className="mt-12 text-[14px] leading-[1.6] text-[var(--color-fg-muted)]">
-          For the full details, read our{" "}
-          <Link href="/privacy" className="text-[var(--color-accent-deep)] underline underline-offset-4 hover:opacity-80">
-            Privacy Policy
-          </Link>{" "}
-          and{" "}
-          <Link href="/terms" className="text-[var(--color-accent-deep)] underline underline-offset-4 hover:opacity-80">
-            Terms of Service
-          </Link>
-          .
-        </p>
-      </main>
-
-      <footer className="relative z-10 mx-auto w-full max-w-[720px] px-6 pb-10">
-        <div className="flex flex-col items-start gap-3 border-t border-[var(--color-line)] pt-6 text-[12px] text-[var(--color-fg-dim)] sm:flex-row sm:items-center sm:justify-between">
-          <span>© {new Date().getFullYear()} Talise · Built on Sui.</span>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <Link href="/" className="hover:text-[var(--color-fg)]">
-              Home
-            </Link>
-            <Link href="/privacy" className="hover:text-[var(--color-fg)]">
-              Privacy
-            </Link>
-            <Link href="/terms" className="hover:text-[var(--color-fg)]">
-              Terms
-            </Link>
-            <a
-              href="mailto:support@talise.io"
-              className="hover:text-[var(--color-fg)]"
-            >
-              support@talise.io
-            </a>
-          </div>
-        </div>
-      </footer>
+        </footer>
+      </div>
     </div>
   );
 }

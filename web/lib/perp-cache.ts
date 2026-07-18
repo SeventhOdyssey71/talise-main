@@ -5,16 +5,16 @@ import { pythSymbolFor } from "@/lib/waterx-assets";
  * Shared last-good cache for the perps price feeds (candles / quotes).
  *
  * Pyth Benchmarks rate-limits Vercel's egress IPs, so a per-request `no-store`
- * fetch fails intermittently — the chart blanks and the 24h change reads 0.
+ * fetch fails intermittently, the chart blanks and the 24h change reads 0.
  * This wraps every Pyth read so that:
- *   1. a FRESH cached value (age < freshMs) is served without touching Pyth —
+ *   1. a FRESH cached value (age < freshMs) is served without touching Pyth -
  *      collapsing all users onto one upstream call per key per window, which
  *      keeps us under the rate limit; and
  *   2. when Pyth does fail, the LAST-GOOD cached value is served (any age), so
  *      the client never sees empty data.
  *
  * Cache lives in Postgres `global_kv` (shared across serverless instances,
- * survives cold starts). Reads/writes are best-effort — a DB hiccup degrades to
+ * survives cold starts). Reads/writes are best-effort, a DB hiccup degrades to
  * a direct Pyth fetch, never a 500.
  */
 
@@ -49,7 +49,7 @@ async function writeCache<T>(key: string, data: T): Promise<void> {
 /**
  * Serve `key` from cache when fresh, else fetch; on fetch failure fall back to
  * the last-good cached value. `fetchFn` returns null to signal "no usable data"
- * (treated like a failure — keeps the prior good value instead of caching empty).
+ * (treated like a failure, keeps the prior good value instead of caching empty).
  */
 export async function cachedFetch<T>(
   key: string,
@@ -92,7 +92,7 @@ export const WARM_INTERVALS = Object.keys(RES);
 
 /**
  * Fetch candles for (symbol, interval) and write them to the cache. Used by the
- * warm cron so every key is populated even when no user has viewed it yet — and
+ * warm cron so every key is populated even when no user has viewed it yet, and
  * once populated, the last-good value survives any later Pyth outage.
  */
 export async function refreshCandleCache(symbol: string, interval: string): Promise<boolean> {

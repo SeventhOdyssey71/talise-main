@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 type Q = { spot: number; change24h: number };
 
 /**
- * GET /api/markets/quote?symbol=SUIUSD — live spot + 24h change from Pyth
+ * GET /api/markets/quote?symbol=SUIUSD, live spot + 24h change from Pyth
  * Benchmarks hourly closes, behind the shared last-good cache so the header
  * price + change never fall back to 0 when Pyth rate-limits Vercel.
  */

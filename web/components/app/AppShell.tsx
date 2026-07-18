@@ -108,7 +108,7 @@ const PAGE_TITLES: Record<string, string> = {
 };
 
 /**
- * Nav configuration — lets one shell drive two surfaces: the consumer wallet
+ * Nav configuration, lets one shell drive two surfaces: the consumer wallet
  * (/app) and the business workspace (/business). Everything route-specific
  * (brand target, primary nav, ramps/settings links, page titles, sign-in
  * return) lives here so the chrome stays identical and in sync.
@@ -163,19 +163,19 @@ function isActive(pathname: string, href: string, brandHref: string): boolean {
 
 function Logo({ compact = false, homeHref = "/app" }: { compact?: boolean; homeHref?: string }) {
   // The real Talise brand mark (the pinwheel from public/symbol.svg), forest-
-  // tinted via --color-accent — identical to the landing TopBar wordmark.
+  // tinted via --color-accent, identical to the landing TopBar wordmark.
   return (
     <Link href={homeHref} className="inline-flex items-center gap-2">
       <Diamond />
       {!compact && (
         <span
-          className="text-[19px] font-[800] lowercase tracking-[-0.03em] text-[#15300c]"
-          style={{ fontFamily: "var(--font-display-v2)" }}
+          className="text-[19px] font-[500] lowercase tracking-[-0.05em] text-[#15300c]"
+          style={{ fontFamily: '"TWK Everett", var(--font-display-v2), system-ui, sans-serif' }}
         >
           talise
         </span>
       )}
-      {/* Private-beta marker — a small chip so testers always know
+      {/* Private-beta marker, a small chip so testers always know
           they're on the beta surface. */}
       <span className="rounded-[6px] bg-[#CAFFB8] px-1.5 py-[3px] font-mono text-[9px] font-semibold uppercase leading-none tracking-[0.18em] text-[#15300c]">
         Beta
@@ -195,8 +195,8 @@ function BalanceChip({ homeHref = "/app" }: { homeHref?: string }) {
       className="inline-flex items-center gap-2 rounded-full border border-[#15300c]/15 bg-white/60 px-3 py-1.5 backdrop-blur-sm transition-colors hover:border-[#15300c]/30"
     >
       <span className="size-1.5 rounded-full" style={{ background: "#3d7a29" }} />
-      <span className="text-[13px] font-semibold tabular-nums text-[#15300c]" style={{ letterSpacing: "-0.01em" }}>
-        {!data && (loading || error) ? "—" : formatUsd(data?.totalUsd ?? 0)}
+      <span className="text-[13px] font-semibold tabular-nums text-[#15300c]" style={{ letterSpacing: "-0.05em" }}>
+        {!data && (loading || error) ? "-" : formatUsd(data?.totalUsd ?? 0)}
       </span>
     </Link>
   );
@@ -233,7 +233,7 @@ function CurrencySelect() {
 
 function Avatar({ me, size = 28 }: { me: Me; size?: number }) {
   const initial = (me.name ?? me.email ?? "?").trim().charAt(0).toUpperCase();
-  // Google avatar URLs (lh3.googleusercontent.com) regularly 403/expire —
+  // Google avatar URLs (lh3.googleusercontent.com) regularly 403/expire -
   // without an error fallback the chip rendered as a broken-image glyph.
   const [imgFailed, setImgFailed] = useState(false);
   if (me.picture && !imgFailed) {
@@ -307,12 +307,12 @@ function SidebarItem({ item, active, dimmed, badge }: { item: NavItem; active: b
 // ── Navbar nav item (lg+, horizontal) ──────────────────────────────────────────
 
 function NavbarItem({ item, active, pathname }: { item: NavItem; active: boolean; pathname: string }) {
-  const base = `flex items-center gap-2 rounded-full px-3.5 py-2 text-[14px] transition-colors ${
-    active ? "bg-[#3d7a29] font-semibold text-[#f7fcf2]" : "font-medium text-[#3a5230] hover:bg-[#CAFFB8]/50"
+  const base = `flex items-center gap-2 rounded-[4px] px-3 py-2 text-[13px] font-mono transition-colors ${
+    active ? "bg-[#2f6a1f] text-[#f4fbef]" : "text-[#55634e] hover:bg-[rgba(18,26,15,0.06)]"
   }`;
   const inner = (
     <>
-      <HugeiconsIcon icon={item.icon} size={17} strokeWidth={active ? 2.2 : 1.8} color={active ? "#f7fcf2" : "#3a5230"} />
+      <HugeiconsIcon icon={item.icon} size={17} strokeWidth={active ? 2.2 : 1.8} color={active ? "#f4fbef" : "#55634e"} />
       <span>{item.label}</span>
     </>
   );
@@ -351,26 +351,30 @@ function SignInScreen({ returnTo = "/app" }: { returnTo?: string }) {
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6">
       <div
-        className="w-full max-w-sm rounded-[28px] bg-[#f7fcf2] p-8 text-center"
-        style={{ boxShadow: "10px 10px 0 #15300c" }}
+        className="relative w-full max-w-sm rounded-[16px] border border-[rgba(18,26,15,0.12)] bg-white p-8 text-center"
+        style={{ boxShadow: "0 1px 2px rgba(18,26,15,0.04), 0 24px 50px -26px rgba(18,26,15,0.3)" }}
       >
+        <span aria-hidden className="bp-tick bp-tick-tl" />
+        <span aria-hidden className="bp-tick bp-tick-tr" />
+        <span aria-hidden className="bp-tick bp-tick-bl" />
+        <span aria-hidden className="bp-tick bp-tick-br" />
         <div className="mx-auto mb-6 flex scale-[1.4] justify-center">
           <Logo compact />
         </div>
         <h1
-          className="text-[26px] font-[800] uppercase tracking-[-0.02em] text-[#15300c]"
-          style={{ fontFamily: "var(--font-display-v2)" }}
+          className="text-[28px] tracking-[-0.05em] text-[#121a0f]"
+          style={{ fontFamily: '"TWK Everett", var(--font-display-v2), system-ui, sans-serif' }}
         >
           Talise
         </h1>
-        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">Beta</p>
-        <p className="mx-auto mt-4 max-w-[16rem] text-[14px] leading-relaxed text-[#3a5230]">
+        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.28em] text-[#2f6a1f]">Beta</p>
+        <p className="mx-auto mt-4 max-w-[16rem] text-[14px] leading-relaxed text-[#55634e]">
           A gasless dollar wallet on Sui. Sign in to send, save, and get paid, no gas, no seed phrase.
         </p>
         <button
           type="button"
           onClick={() => triggerOauthSignIn({ returnTo })}
-          className="mt-7 inline-flex w-full items-center justify-center gap-3 rounded-full bg-[#15300c] px-5 py-3 text-[15px] font-semibold text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
+          className="bp-btn bp-btn-solid bp-btn-full mt-7"
         >
             {/* Real Google "G" (official brand colors) on a white disc so the
                 multicolor mark reads on the green button. */}
@@ -490,7 +494,8 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
   return (
     <div className="relative min-h-screen text-[#15300c]">
       {/* ── Desktop top navbar (lg+) ── */}
-      <header className="fixed inset-x-0 top-0 z-30 hidden h-16 items-center gap-4 border-b border-[#15300c]/10 bg-[#f7fcf2]/80 px-6 backdrop-blur-md lg:flex">
+      <header className="fixed inset-x-0 top-0 z-30 hidden h-16 border-b border-[var(--color-line)] bg-[#edf0ea]/85 backdrop-blur-md lg:block">
+        <div className="mx-auto flex h-full w-full max-w-[1180px] items-center gap-4 px-6 lg:px-10">
         <div className="flex-none">
           <Logo homeHref={nav.brandHref} />
         </div>
@@ -536,27 +541,28 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
             showMoneyTools={nav === CONSUMER_NAV}
           />
         </div>
+        </div>
       </header>
 
       {/* ── Main area ── (content sits below the fixed top navbar) */}
       <div className="relative z-10">
-        {/* Mobile mini-bar — transparent, sits on the mint gradient and scrolls
+        {/* Mobile mini-bar, transparent, sits on the mint gradient and scrolls
             away with the content (no bar background / border). */}
-        {/* Wordmark + a single profile chip (Avatar with initials fallback —
+        {/* Wordmark + a single profile chip (Avatar with initials fallback -
             the dropdown carries Ramps, Settings, and sign-out, which is how
             those surfaces stay reachable on mobile). The balance chip stays
-            removed — the balance lives on the page itself. */}
+            removed, the balance lives on the page itself. */}
         <header className="relative z-30 flex items-center justify-between px-4 pb-1 pt-3 lg:hidden">
           <Logo homeHref={nav.brandHref} />
           <div className="flex items-center gap-2.5">
-            {/* Talise Copilot — the 3D mascot is the agent's top-bar entry
+            {/* Talise Copilot, the 3D mascot is the agent's top-bar entry
                 point (mirrors the iOS Home header). Consumer surface only. */}
             {nav === CONSUMER_NAV && (
               <Link href="/app/agent" aria-label="Talise Copilot" className="flex items-center justify-center active:scale-95">
                 <AgentMascot size={36} />
               </Link>
             )}
-            {/* Scan-to-pay — camera QR reader routing into Send with the
+            {/* Scan-to-pay, camera QR reader routing into Send with the
                 recipient prefilled (mobile-only entry; desktop has no camera
                 ergonomics worth the chrome). */}
             <button
@@ -579,19 +585,27 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
         </header>
         <ScanSheet open={scanOpen} onClose={() => setScanOpen(false)} />
 
-        {/* Content column. overflow-x-clip: belt-and-braces — no child (wide
+        {/* Content column. overflow-x-clip: belt-and-braces, no child (wide
             grid item, unbreakable number, slider) can ever drag the page into
             horizontal scroll on mobile. */}
         {/* pt-7 on mobile: a deliberate, consistent breath between the mini
             header and every page's first element (Earn/Work/Settings sat too
             tight at pt-4). Desktop keeps its taller lg:pt-16. */}
-        <main className="w-full min-w-0 overflow-x-clip px-4 pb-32 pt-7 sm:px-6 lg:px-10 lg:pb-12 lg:pt-24">
-          {children}
-        </main>
+        {/* Construction frame, vertical hairline rails + `+` corner ticks
+            down the content column, mirroring the /v3 landing's blueprint. */}
+        <div className="relative mx-auto flex min-h-screen w-full max-w-[1180px] flex-col lg:mt-16 lg:min-h-[calc(100vh-4rem)]">
+          <span aria-hidden className="bp-tick bp-tick-tl" />
+          <span aria-hidden className="bp-tick bp-tick-tr" />
+          <span aria-hidden className="bp-tick bp-tick-bl" />
+          <span aria-hidden className="bp-tick bp-tick-br" />
+          <main className="w-full min-w-0 flex-1 overflow-x-clip border-x border-[var(--color-line)] px-4 pb-32 pt-7 sm:px-6 lg:px-10 lg:pb-12 lg:pt-8">
+            {children}
+          </main>
+        </div>
 
       {/* ── Mobile bottom nav ── */}
       {/* Lives INSIDE the `relative z-10` wrapper (not a root sibling) so that
-          page-level modals/sheets/pickers can stack above it — otherwise their
+          page-level modals/sheets/pickers can stack above it, otherwise their
           z-index is trapped in this context and the nav paints over them. */}
       {/* Activity ⇄ Settings swap (mobile only): Settings takes Activity's
           tab slot here; Activity moves into the avatar dropdown (AccountMenu).
@@ -679,12 +693,12 @@ export function AppShell({ me, initialBalances, nav = CONSUMER_NAV, children }: 
   }, [signedIn]);
 
   // ── Send-path warmers (launch-day perf, 2026-06-11) ────────────────
-  // iOS hits /api/zk/warmup at dashboard load; the web never did — so a
+  // iOS hits /api/zk/warmup at dashboard load; the web never did, so a
   // web user's FIRST send paid the full cold path inline: Onara status,
   // gas price, NAVI pools, payment registry, epoch/chain memos, AND the
   // 2–4s Shinami proof mint. Warm all of it once per app mount:
-  //   1. /api/zk/warmup — server-side caches (fire-and-forget).
-  //   2. /api/zk/proof — pre-mints the zkLogin proof and stores it next
+  //   1. /api/zk/warmup, server-side caches (fire-and-forget).
+  //   2. /api/zk/proof, pre-mints the zkLogin proof and stores it next
   //      to the ephemeral key, so sponsor-execute skips the prover hop.
   useEffect(() => {
     if (!signedIn) return;
@@ -703,7 +717,7 @@ export function AppShell({ me, initialBalances, nav = CONSUMER_NAV, children }: 
           if (r?.proof) writeCachedProof(r.proof);
         })
         .catch(() => {
-          /* best-effort — the send path mints inline as before */
+          /* best-effort, the send path mints inline as before */
         });
     }
   }, [signedIn]);

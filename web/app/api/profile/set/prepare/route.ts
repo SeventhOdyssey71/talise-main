@@ -15,12 +15,12 @@ export const dynamic = "force-dynamic";
 
 const PKG = process.env.PROFILE_PACKAGE_ID;
 const CLOCK = "0x6";
-const GAS_BUDGET_MIST = 40_000_000n; // 0.04 SUI — sponsor covers actual gas
+const GAS_BUDGET_MIST = 40_000_000n; // 0.04 SUI, sponsor covers actual gas
 const MAX_AVATAR = 512;
 const MAX_CONFIG = 1024;
 
 // One GraphQL read to find the user's existing Profile (owned, one per user) so
-// this route is STATELESS — no DB column, no client-side id tracking, and no
+// this route is STATELESS, no DB column, no client-side id tracking, and no
 // duplicate profiles. Fails open (→ create) if the read errors.
 const OWNED_PROFILE_QUERY = /* GraphQL */ `
   query OwnedProfile($owner: SuiAddress!, $type: String!) {
@@ -44,12 +44,12 @@ async function findProfile(owner: string): Promise<string | null> {
 }
 
 /**
- * POST /api/profile/set/prepare — build a sponsor-ready PTB that records the
+ * POST /api/profile/set/prepare, build a sponsor-ready PTB that records the
  * user's profile picture ON-CHAIN, gaslessly (Onara pays gas; the user signs).
  *
  * Body: { avatar: string, config: string }   (config = small JSON: colour + bg)
  * Returns base64 `bytes` the iOS app signs and forwards to
- * /api/zk/sponsor-execute — identical to the goals/streams sponsored rail.
+ * /api/zk/sponsor-execute, identical to the goals/streams sponsored rail.
  *
  * First time (no Profile yet) builds `profile::create` + transfer-to-owner;
  * afterwards `profile::set` on the existing object. Gated on PROFILE_PACKAGE_ID

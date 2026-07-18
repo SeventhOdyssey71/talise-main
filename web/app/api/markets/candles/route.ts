@@ -10,7 +10,7 @@ const SECS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 36
 type Candle = { time: number; open: number; high: number; low: number; close: number };
 
 /**
- * GET /api/markets/candles?symbol=SUIUSD&interval=15m — OHLC candles for the
+ * GET /api/markets/candles?symbol=SUIUSD&interval=15m, OHLC candles for the
  * chart, from Pyth Benchmarks, behind a shared last-good cache so a flaky
  * upstream never blanks the chart (see lib/perp-cache).
  */

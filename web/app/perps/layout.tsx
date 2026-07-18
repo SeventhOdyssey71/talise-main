@@ -11,7 +11,7 @@ const display = Hanken_Grotesk({ subsets: ["latin"], weight: ["700", "800"], var
 const sans = DM_Sans({ subsets: ["latin"], weight: ["300", "400", "500", "600"], variable: "--font-sans-v2", display: "swap" });
 
 /**
- * /perps — dedicated Talise Perps surface (served at perps.talise.io via
+ * /perps, dedicated Talise Perps surface (served at perps.talise.io via
  * middleware host-routing). Its own focused chrome + the same access gate as
  * /app: signed-in + beta-allowed users get the terminal; everyone else gets the
  * sign-in / waiting screen.
@@ -35,11 +35,11 @@ export default async function PerpsLayout({ children }: { children: React.ReactN
 
   return (
     <div
-      className={`${display.variable} ${sans.variable} relative min-h-screen overflow-x-hidden`}
+      className={`app-clean ${display.variable} ${sans.variable} relative min-h-screen overflow-x-hidden`}
       style={{
-        fontFamily: "var(--font-sans-v2), system-ui, sans-serif",
-        color: "#15300c",
-        background: "radial-gradient(120% 90% at 12% -5%, #e6f9d6 0%, #f7fcf2 46%, #ffeede 100%)",
+        fontFamily: '"TWK Everett", var(--font-display-v2), system-ui, sans-serif',
+        color: "#121a0f",
+        background: "#edf0ea",
       }}
     >
       {me && !blocked ? (

@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/markets/order/prepare — place a WaterX perp order.
+ * POST /api/markets/order/prepare, place a WaterX perp order.
  *
  * Local prototype (FEATURE_PERPS_LOCAL_SIGN): signs + executes with the dev key,
  * returns { mode:"executed", digest }. Otherwise builds a sponsor-ready PTB on

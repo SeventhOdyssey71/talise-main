@@ -1,5 +1,5 @@
 /**
- * WaterX prediction markets (Sui mainnet) — binary YES/NO markets that settle
+ * WaterX prediction markets (Sui mainnet), binary YES/NO markets that settle
  * in the SAME CREDIT (minted 1:1 from USDsui) and use the SAME waterx_account as
  * perps. So the account / deposit / withdraw rails in lib/waterx.ts apply
  * unchanged; this module adds the market reads + bet / claim builders.
@@ -117,7 +117,7 @@ export type PredictPosition = {
 export async function listPredictionPositions(objectAccountId: string): Promise<PredictPosition[]> {
   const c = await predict();
   // The prediction account id IS the waterx_account object id (verified via
-  // getAccountIds) — no separate registry-id resolution needed.
+  // getAccountIds), no separate registry-id resolution needed.
   const accountId = objectAccountId;
   const markets = (await getUnresolvedMarkets(c)).slice(0, 24);
   const out: PredictPosition[] = [];

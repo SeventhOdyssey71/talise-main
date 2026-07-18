@@ -6,7 +6,7 @@ import { Diamond } from "@/components/Diamond";
 export type PerpsUser = { name: string | null; picture: string | null };
 
 /**
- * Dedicated chrome for the standalone /perps surface (perps.talise.io) — a
+ * Dedicated chrome for the standalone /perps surface (perps.talise.io), a
  * focused trading header instead of the full app nav, so the terminal gets the
  * whole viewport. Editorial "talise / Perps [beta]" lockup, a link back to the
  * wallet, and the account initial.
@@ -15,24 +15,24 @@ export function PerpsChrome({ me, children }: { me: PerpsUser; children: ReactNo
   const initial = (me.name?.trim()?.[0] ?? "T").toUpperCase();
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-30 flex h-14 flex-none items-center justify-between border-b border-[#15300c]/10 bg-[#f7fcf2]/80 px-4 backdrop-blur-md lg:px-8">
+      <header className="sticky top-0 z-30 flex h-14 flex-none items-center justify-between border-b border-[var(--color-line)] bg-[#edf0ea]/85 px-4 backdrop-blur-md lg:px-8">
         <a href="/perps" className="flex items-center gap-2.5" aria-label="Talise Perps">
           <Diamond />
-          <span className="text-[19px] font-bold leading-none tracking-[-0.02em]">talise</span>
-          <span className="text-[#15300c]/30">/</span>
-          <span className="text-[15px] font-semibold leading-none">Perps</span>
-          <span className="rounded-full bg-[#CAFFB8] px-2 py-[3px] text-[10px] font-bold lowercase leading-none text-[#15300c]">beta</span>
+          <span className="text-[18px] font-[500] leading-none tracking-[-0.05em]" style={{ fontFamily: '"TWK Everett", var(--font-display-v2), system-ui, sans-serif' }}>talise</span>
+          <span className="text-[var(--color-fg-dim)]">/</span>
+          <span className="font-mono text-[13px] uppercase leading-none tracking-[0.06em] text-[var(--color-fg-muted)]">Perps</span>
+          <span className="bg-[var(--color-accent-light)] px-2 py-[3px] font-mono text-[9.5px] uppercase leading-none tracking-[0.08em] text-[#1c3d12]">beta</span>
         </a>
         <div className="flex items-center gap-3">
           <a
             href="/app"
-            className="hidden items-center gap-1.5 rounded-full border border-[#15300c]/15 bg-white/60 px-3 py-1.5 text-[13px] font-semibold text-[#15300c] transition-colors hover:bg-white sm:flex"
+            className="hidden items-center gap-1.5 rounded-[6px] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.06em] text-[var(--color-fg)] transition-colors hover:bg-[var(--color-surface-2)] sm:flex"
           >
             Wallet
             <span aria-hidden>↗</span>
           </a>
           <span
-            className="flex size-9 items-center justify-center overflow-hidden rounded-full bg-[#15300c] text-[14px] font-bold text-white"
+            className="flex size-9 items-center justify-center overflow-hidden rounded-[8px] bg-[#15300c] text-[14px] font-bold text-white"
             aria-label={me.name ?? "Account"}
           >
             {me.picture ? (

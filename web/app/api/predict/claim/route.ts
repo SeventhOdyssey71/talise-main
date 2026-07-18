@@ -9,7 +9,7 @@ import { buildClaimTx } from "@/lib/waterx-predict";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** POST /api/predict/claim — claim winnings from resolved positions. Body: { positionIds: string[] } */
+/** POST /api/predict/claim, claim winnings from resolved positions. Body: { positionIds: string[] } */
 export async function POST(req: Request) {
   if (!WATERX_ENABLED) return NextResponse.json({ error: "disabled", code: "PERPS_DISABLED" }, { status: 503 });
 
