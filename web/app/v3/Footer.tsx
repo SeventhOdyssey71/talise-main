@@ -6,7 +6,7 @@ const COLS: { title: string; links: { label: string; href: string; external?: bo
     { label: "Why Talise", href: "#why" },
     { label: "Features", href: "#features" },
     { label: "Global", href: "#global" },
-    { label: "Get the app", href: "https://testflight.apple.com/join/BFNEPYtM", external: true },
+    { label: "Get iOS App", href: "https://testflight.apple.com/join/BFNEPYtM", external: true },
   ] },
   { title: "Company", links: [
     { label: "Blog", href: "/blog" },
@@ -36,7 +36,7 @@ export default function Footer() {
         </p>
         <div className="mt-8 flex justify-center">
           <BracketButton href="https://testflight.apple.com/join/BFNEPYtM" external>
-            Get the app
+            Get iOS App
           </BracketButton>
         </div>
       </Reveal>

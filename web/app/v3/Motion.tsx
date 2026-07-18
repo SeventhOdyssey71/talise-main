@@ -36,20 +36,22 @@ export default function Motion() {
 
     gsap.registerPlugin(ScrollTrigger);
 
-    // Lenis smooth scroll is DESKTOP-ONLY: touch devices have great native
-    // momentum scrolling, and Lenis on iOS/touch makes scrolling janky/broken.
-    // On touch we skip Lenis entirely — ScrollTrigger just uses native scroll,
-    // so the reveals still fire normally.
-    const touch = window.matchMedia("(pointer: coarse)").matches;
-    let lenis: Lenis | undefined;
-    let tick: ((time: number) => void) | undefined;
-    if (!touch) {
-      lenis = new Lenis({ duration: 1.05, smoothWheel: true, syncTouch: false, anchors: true });
-      lenis.on("scroll", ScrollTrigger.update);
-      tick = (time: number) => lenis!.raf(time * 1000);
-      gsap.ticker.add(tick);
-      gsap.ticker.lagSmoothing(0);
-    }
+    // Smooth scroll on every device. syncTouch interpolates TOUCH scrolling too
+    // (not just the mouse wheel), so phones get the same smooth momentum as
+    // desktop; a gentle lerp keeps it from fighting iOS rubber-banding. anchors
+    // keeps the in-page nav links smooth.
+    const lenis = new Lenis({
+      duration: 1.05,
+      smoothWheel: true,
+      syncTouch: true,
+      syncTouchLerp: 0.09,
+      touchMultiplier: 1.2,
+      anchors: true,
+    });
+    lenis.on("scroll", ScrollTrigger.update);
+    const tick = (time: number) => lenis.raf(time * 1000);
+    gsap.ticker.add(tick);
+    gsap.ticker.lagSmoothing(0);
 
     const ctx = gsap.context(() => {
       // ── Section flow: each block rises + fades as it enters ────────────────
@@ -130,8 +132,8 @@ export default function Motion() {
 
     return () => {
       window.removeEventListener("load", onLoad);
-      if (tick) gsap.ticker.remove(tick);
-      lenis?.destroy();
+      gsap.ticker.remove(tick);
+      lenis.destroy();
       ctx.revert();
     };
   }, []);
