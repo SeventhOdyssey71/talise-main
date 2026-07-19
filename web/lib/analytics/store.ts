@@ -326,24 +326,36 @@ export async function getSummary(): Promise<AnalyticsSummary> {
   // Live total accounts (excludes deleted tombstones), the denominator.
   const totalUsers = await countUsers().catch(() => 0);
 
-  // SUM(volume_usd) + SUM(tx_count) over everything indexed so far.
+  // Indexing progress (how many users we've walked) stays a row-count of
+  // analytics_user_stats.
+  const indexedUsers = await db()
+    .execute({ sql: `SELECT COUNT(*) AS n FROM analytics_user_stats`, args: [] })
+    .then((r) => num(r.rows[0]?.n))
+    .catch(() => 0);
+
+  // Headline totals come from analytics_recent_tx — the digest-keyed, deduped
+  // feed — using the SAME query as the public /api/analytics page, so the admin
+  // dashboard, the public /analytics page, and the pitch deck all report the
+  // identical figures. (SUM over analytics_user_stats both double-counts
+  // internal transfers AND reflects only the latest, sometimes source-degraded,
+  // per-user snapshot, so it drifted low and diverged from the public numbers.)
   const aggregates = await db()
     .execute({
-      sql: `SELECT COALESCE(SUM(volume_usd), 0) AS vol,
-                   COALESCE(SUM(tx_count), 0)   AS txs,
-                   COUNT(*)                     AS n
-              FROM analytics_user_stats`,
+      sql: `SELECT COUNT(*) AS txs,
+                   COALESCE(SUM(amount_usd) FILTER (
+                     WHERE direction IN ('sent','swap','withdraw','invest')),0) AS vol
+              FROM analytics_recent_tx`,
       args: [],
     })
     .then((r) => ({
       stablecoinVolumeUsd: num(r.rows[0]?.vol),
       transactions: num(r.rows[0]?.txs),
-      indexedUsers: num(r.rows[0]?.n),
+      indexedUsers,
     }))
     .catch(() => ({
       stablecoinVolumeUsd: 0,
       transactions: 0,
-      indexedUsers: 0,
+      indexedUsers,
     }));
 
   // Newest-first recent-transaction feed.
