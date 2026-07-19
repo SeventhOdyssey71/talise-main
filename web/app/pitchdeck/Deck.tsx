@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const TOTAL = 13;
+const TOTAL = 14;
 const slides = Array.from(
   { length: TOTAL },
   (_, i) => `/pitchdeck/slide-${String(i + 1).padStart(2, "0")}.png`
