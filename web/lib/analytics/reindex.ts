@@ -27,6 +27,7 @@ import {
   ensureAnalyticsSchema,
   getCursor,
   recordRecentTxs,
+  recordSnapshotIfChanged,
   setCursor,
   trimRecentTxs,
   upsertUserStat,
@@ -165,6 +166,7 @@ export async function runIndexBatch(opts?: {
       fullPassAt: indexedAt,
     });
     await trimRecentTxs(RECENT_TX_KEEP);
+    await recordSnapshotIfChanged(indexedAt);
     return { processed: 0, cursor: 0, total, done: true, indexedAt };
   }
 
@@ -191,6 +193,12 @@ export async function runIndexBatch(opts?: {
   });
 
   await trimRecentTxs(RECENT_TX_KEEP);
+
+  // A completed full pass is a checkpoint boundary: snapshot the public metrics
+  // if they moved since the last one, so /analytics gets a fresh timeline step.
+  if (done) {
+    await recordSnapshotIfChanged(indexedAt);
+  }
 
   return { processed, cursor: nextCursor, total, done, indexedAt };
 }

@@ -1,4 +1,5 @@
 import "server-only";
+import { isPrivateRelayEmail } from "@/lib/email-address";
 
 /**
  * USD withdrawal (Bridge USD-wire cash-out) access gate.
@@ -26,6 +27,10 @@ export function usdWithdrawalAllowed(user: {
   email?: string | null;
   talise_username?: string | null;
 }): boolean {
+  // Apple "Hide My Email" relay addresses can't complete Bridge KYC, so they
+  // can't cash out. Deny until the user sets a real email (via KYC start),
+  // ahead of every other rule (including USD_WITHDRAWAL_OPEN).
+  if (isPrivateRelayEmail(user.email)) return false;
   // LOCKED for now: closed by default. Flip back on with `USD_WITHDRAWAL_OPEN=true`.
   if (process.env.USD_WITHDRAWAL_OPEN?.trim().toLowerCase() === "true") return true;
   // Otherwise allow only the maintainer allowlist (keeps testing working).

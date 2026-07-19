@@ -1776,6 +1776,23 @@ export async function updateUserProfile(
   });
 }
 
+/**
+ * Overwrite a user's email. Used only to replace an Apple "Hide My Email"
+ * relay address (`@privaterelay.appleid.com`, which can't complete Bridge KYC)
+ * with a real email the user supplies at verification time. `email` is a
+ * non-unique index, so this is a plain lower-cased update.
+ */
+export async function updateUserEmail(
+  userId: number,
+  email: string
+): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: "UPDATE users SET email = ? WHERE id = ?",
+    args: [email.trim().toLowerCase(), userId],
+  });
+}
+
 export async function setPaymentRegistry(
   userId: number,
   objectId: string
