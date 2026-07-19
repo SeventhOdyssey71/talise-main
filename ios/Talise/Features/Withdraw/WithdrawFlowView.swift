@@ -67,11 +67,6 @@ struct WithdrawFlowView: View {
                             }
                             .buttonStyle(TilePress())
 
-                            Button { handOff(.taliseRequestCrossBorderCover) } label: {
-                                ActionTile(icon: "hi.globe", title: "Send abroad", caption: "Paid in their currency")
-                            }
-                            .buttonStyle(TilePress())
-
                             // Private transactions — shielded USDsui (Talise's
                             // own ZK privacy layer). Opens the native
                             // PrivateSendFlowView (amount ≤ $2.50 → recipient →
@@ -163,17 +158,6 @@ struct WithdrawFlowView: View {
                             PayrollView()
                         } label: {
                             NavRow(icon: "hi.cash", title: "Payroll", caption: "Pay a team in one tap")
-                        }
-                        .buttonStyle(TilePress())
-                        .zIndex(0)
-
-                        // ── Request money: mint a shareable pay link / QR ──
-                        // RequestsListView has no NavigationStack of its own,
-                        // so it pushes cleanly inside this one.
-                        NavigationLink {
-                            RequestsListView()
-                        } label: {
-                            NavRow(icon: "hi.qr", title: "Request money", caption: "Ask anyone with a link")
                         }
                         .buttonStyle(TilePress())
                         .zIndex(0)

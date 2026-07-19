@@ -81,32 +81,21 @@ struct DepositFlowView: View {
                             }
 
                             // Bank transfer — Bridge corridors (USD/EUR/GBP…).
-                            // Live once RampFlags.bridgeLive; until then shown as a
-                            // "coming soon" below Crypto rather than hidden.
-                            if RampFlags.bridgeLive {
-                                NavigationLink {
-                                    AddMoneyCorridorFlow()
-                                } label: {
-                                    FundingPathCard(
-                                        icon: "hi.bank",
-                                        title: "Bank transfer",
-                                        subtitle: "From your bank in USD, EUR, GBP and more"
-                                    )
-                                }
-                                .buttonStyle(TilePress())
-                            } else {
-                                Button {
-                                    showComingSoon("Bank transfers are coming soon.")
-                                } label: {
-                                    FundingPathCard(
-                                        icon: "hi.bank",
-                                        title: "Bank transfer",
-                                        subtitle: "From a local bank account, no card needed",
-                                        soon: true
-                                    )
-                                }
-                                .buttonStyle(TilePress())
+                            // Not available yet: shown as a non-tappable "Soon"
+                            // card (a tap surfaces a gentle toast, never opens a
+                            // broken flow). Re-enable by restoring the
+                            // RampFlags.bridgeLive NavigationLink to AddMoneyCorridorFlow.
+                            Button {
+                                showComingSoon("Bank transfers are coming soon.")
+                            } label: {
+                                FundingPathCard(
+                                    icon: "hi.bank",
+                                    title: "Bank transfer",
+                                    subtitle: "From your bank in USD, EUR, GBP and more",
+                                    soon: true
+                                )
                             }
+                            .buttonStyle(TilePress())
                         }
 
                         footer

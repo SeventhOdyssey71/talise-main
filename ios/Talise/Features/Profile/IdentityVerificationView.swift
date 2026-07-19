@@ -25,6 +25,11 @@ struct IdentityVerificationView: View {
     @State private var tosStatus: String?
     /// The Bridge/Persona URL presented in-app via SFSafariViewController.
     @State private var safariLink: KYCLink?
+    /// Apple "Hide My Email" users can't KYC a `@privaterelay.appleid.com`
+    /// address, so when the server asks for a real one (409) we prompt for it
+    /// and re-start verification with it.
+    @State private var needsEmail = false
+    @State private var emailInput = ""
 
     private var tosAccepted: Bool { (tosStatus ?? "").lowercased() == "approved" }
 
@@ -76,6 +81,17 @@ struct IdentityVerificationView: View {
         // we re-check status so an approval flips the card immediately.
         .fullScreenCover(item: $safariLink, onDismiss: { Task { await refresh() } }) { link in
             SafariView(url: link.url).ignoresSafeArea()
+        }
+        // Apple hid the email → collect a real one, then re-start verification.
+        .alert("Add a real email", isPresented: $needsEmail) {
+            TextField("you@email.com", text: $emailInput)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+            Button("Continue") { Task { await beginVerification(email: emailInput) } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You signed in with Apple and hid your email, so we can't verify it. Enter a real email to verify your identity and cash out.")
         }
     }
 
@@ -278,13 +294,15 @@ struct IdentityVerificationView: View {
     }
 
     /// Kick off (or re-fetch) the hosted KYC + ToS links and open them.
-    private func beginVerification() async {
+    /// `email` is supplied only when the server asked for a real one (Apple
+    /// "Hide My Email" accounts); nil for the normal path.
+    private func beginVerification(email: String? = nil) async {
         guard !working else { return }
         working = true
         error = nil
         defer { working = false }
         do {
-            let r = try await BridgeKYCAPI.start()
+            let r = try await BridgeKYCAPI.start(email: email)
             status = KYCStatus(r.status)
             kycUrl = r.kycUrl
             tosUrl = r.tosUrl
@@ -298,8 +316,13 @@ struct IdentityVerificationView: View {
             startPolling()
         } catch APIError.status(let code, _) where code == 503 {
             self.error = "Cash-out verification isn't switched on yet. Please try again soon."
+        } catch APIError.status(let code, _) where code == 409 {
+            // Apple "Hide My Email": the server needs a real email to verify.
+            // Prompt for one, then re-start with it.
+            self.emailInput = ""
+            self.needsEmail = true
         } catch APIError.status(let code, _) where code == 400 {
-            self.error = "Add an email to your account first, then verify your identity."
+            self.error = "Enter a valid personal email to verify your identity, then try again."
         } catch APIError.status(let code, _) where code == 429 {
             self.error = "Too many attempts — wait a moment and try again."
         } catch APIError.unauthorized {
