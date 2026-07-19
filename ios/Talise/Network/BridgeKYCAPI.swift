@@ -12,9 +12,14 @@ import Foundation
 /// configured (the view renders a clean "not available yet" state).
 @MainActor
 enum BridgeKYCAPI {
-    static func start() async throws -> BridgeKYCStartResponse {
-        struct Empty: Encodable {}
-        return try await APIClient.shared.post("/api/kyc/bridge/start", body: Empty())
+    /// Begin (or resume) hosted Bridge KYC. `email` is only needed for accounts
+    /// that signed in with Apple "Hide My Email": their `@privaterelay.appleid.com`
+    /// address can't complete KYC, so the server returns 409 REAL_EMAIL_REQUIRED
+    /// and the view re-calls with a real email the user typed. Nil for everyone
+    /// else (the server verifies against the email already on file).
+    static func start(email: String? = nil) async throws -> BridgeKYCStartResponse {
+        struct Body: Encodable { let email: String? }
+        return try await APIClient.shared.post("/api/kyc/bridge/start", body: Body(email: email))
     }
 
     static func status() async throws -> BridgeKYCStatusResponse {
