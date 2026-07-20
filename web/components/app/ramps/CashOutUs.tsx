@@ -228,10 +228,10 @@ export function CashOutUs() {
     : "your US bank";
 
   return (
-    <div className="mx-auto w-full max-w-lg space-y-6 pb-12 pt-1">
-      <div className="space-y-3">
+    <div className="mx-auto flex min-h-[74vh] w-full max-w-lg flex-col justify-center gap-6 pb-12 pt-1">
+      <div className="space-y-2">
         <BackButton href="/app/ramps" label="Ramps" />
-        <div>
+        <div className="pt-1">
           <Eyebrow>Cash out · United States</Eyebrow>
           <h1
             className="mt-1 text-[clamp(24px,4.5vw,34px)] font-[500] leading-[1.05] tracking-[-0.05em] text-[#15300c]"
@@ -344,49 +344,71 @@ export function CashOutUs() {
 
       {step === "cashout" && (
         <div className="space-y-5">
-          {/* USDC pocket / swap */}
+          {/* Step 1 — USDC pocket / swap */}
           <div className={cardCls} style={cardStyle}>
             <div className="flex items-center justify-between">
-              <Eyebrow>USDC pocket</Eyebrow>
-              <span className="text-[15px] font-semibold tabular-nums text-[#15300c]">{usd(pocket)}</span>
+              <span className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#3d7a29]">
+                Step 1 · USDC pocket
+              </span>
+              <span className="text-[17px] font-semibold tabular-nums text-[#15300c]">{usd(pocket)}</span>
             </div>
             <p className="mt-2 text-[12.5px] leading-relaxed text-[#3d7a29]">
-              Swap USDsui to USDC first, then withdraw it to your bank. Balance: {usd(usdsuiBal)} USDsui.
+              Swap USDsui to USDC first, then withdraw it to your bank in step 2.
             </p>
-            <div className="mt-3 flex gap-2">
+            <label className="mt-4 block">
+              <span className="mb-1.5 block font-mono text-[11px] uppercase tracking-[0.2em] text-[#3d7a29]">
+                Amount to swap (USDsui)
+              </span>
               <input
                 inputMode="decimal"
                 value={swapAmt}
                 onChange={(e) => setSwapAmt(e.target.value.replace(/[^\d.]/g, ""))}
-                placeholder="USDsui to swap"
-                className={inputCls + " flex-1"}
+                placeholder="0.00"
+                className={inputCls + " text-[18px]"}
               />
-              <PrimaryButton onClick={doSwap} disabled={!canSwap} loading={swapping}>Swap</PrimaryButton>
+              <span className="mt-1.5 block text-[12px] text-[#3d7a29]">
+                Balance: {usd(usdsuiBal)} USDsui
+              </span>
+            </label>
+            <div className="mt-4">
+              <PrimaryButton full onClick={doSwap} disabled={!canSwap} loading={swapping}>
+                Swap to USDC
+              </PrimaryButton>
             </div>
           </div>
 
-          {/* Withdraw USDC → bank */}
+          {/* Step 2 — Withdraw USDC → bank */}
           <div className={cardCls} style={cardStyle}>
-            <div className="flex items-center gap-2.5">
-              <span className="flex size-8 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
-                <HugeiconsIcon icon={BankIcon} size={16} strokeWidth={1.8} />
+            <div className="flex items-center gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
+                <HugeiconsIcon icon={BankIcon} size={18} strokeWidth={1.8} />
               </span>
               <div className="min-w-0">
-                <Eyebrow>Withdraw to</Eyebrow>
-                <div className="truncate text-[14px] font-medium text-[#15300c]">{bankLabel}</div>
+                <span className="block font-mono text-[11px] uppercase tracking-[0.24em] text-[#3d7a29]">
+                  Step 2 · Withdraw to
+                </span>
+                <div className="truncate text-[15px] font-medium text-[#15300c]">{bankLabel}</div>
               </div>
             </div>
-            <div className="mt-3 flex gap-2">
+            <label className="mt-4 block">
+              <span className="mb-1.5 block font-mono text-[11px] uppercase tracking-[0.2em] text-[#3d7a29]">
+                Amount (USDC, min $1.00)
+              </span>
               <input
                 inputMode="decimal"
                 value={sendAmt}
                 onChange={(e) => setSendAmt(e.target.value.replace(/[^\d.]/g, ""))}
-                placeholder="USDC (min $1.00)"
-                className={inputCls + " flex-1"}
+                placeholder="0.00"
+                className={inputCls + " text-[18px]"}
               />
-              <PrimaryButton onClick={doSend} disabled={!canSend} loading={sending}>Withdraw</PrimaryButton>
+              <span className="mt-1.5 block text-[12px] text-[#3d7a29]">Available: {usd(pocket)} USDC</span>
+            </label>
+            <div className="mt-4">
+              <PrimaryButton full onClick={doSend} disabled={!canSend} loading={sending}>
+                Withdraw to bank
+              </PrimaryButton>
             </div>
-            <p className="mt-2 text-[12px] text-[#3d7a29]">
+            <p className="mt-3 text-center text-[12px] text-[#3d7a29]">
               Paid out by wire, typically arrives within a business day.
             </p>
           </div>

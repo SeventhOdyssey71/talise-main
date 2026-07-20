@@ -181,10 +181,10 @@ export function CashOutNg() {
   const bankName = LINQ_BANKS.find((b) => b.bankCode === bankCode)?.name ?? bankCode;
 
   return (
-    <div className="mx-auto w-full max-w-lg space-y-6 pb-12 pt-1">
-      <div className="space-y-3">
+    <div className="mx-auto flex min-h-[74vh] w-full max-w-lg flex-col justify-center gap-6 pb-12 pt-1">
+      <div className="space-y-2">
         <BackButton href="/app/ramps" label="Ramps" />
-        <div>
+        <div className="pt-1">
           <Eyebrow>Cash out · Nigeria</Eyebrow>
           <h1
             className="mt-1 text-[clamp(24px,4.5vw,34px)] font-[500] leading-[1.05] tracking-[-0.05em] text-[#15300c]"
