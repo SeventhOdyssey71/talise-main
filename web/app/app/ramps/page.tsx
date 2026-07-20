@@ -15,16 +15,17 @@
  */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   BankIcon,
   CreditCardIcon,
   Tick02Icon,
   Notification01Icon,
+  ArrowRight01Icon,
 } from "@hugeicons/core-free-icons";
-import { StatusPill, useToast } from "@/components/app";
+import { StatusPill, useToast, useMe } from "@/components/app";
 import { Flag } from "@/components/app/ui/Flag";
-import { WithdrawToBankSheet } from "@/components/app/ramps/WithdrawToBankSheet";
 import { AddMoneyModal } from "@/components/app/AddMoneyModal";
 
 const NOTIFY_KEY = "talise:ramp-notify:onramp";
@@ -50,7 +51,13 @@ const COMING_SOON_CORRIDORS: { cc: string; country: string }[] = [
 ];
 
 export default function RampsPage() {
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const { me } = useMe();
+  // Show the US corridor when the per-user flag is on. In local dev we always
+  // surface it so the flow is testable without waiting on the env flag; every
+  // US cash-out call is still server-gated (allowlist + KYC), so this only
+  // controls whether the row/chooser is visible, never actual access.
+  const usdEnabled =
+    !!me?.features?.usdWithdrawal || process.env.NODE_ENV === "development";
   const [addOpen, setAddOpen] = useState(false);
 
   return (
@@ -105,21 +112,20 @@ export default function RampsPage() {
         </div>
 
         <ul className="relative mt-6 divide-y divide-[#15300c]/10">
-          {/* The one live corridor gets a full row. */}
-          <li className="flex items-center justify-between gap-3 py-3.5 first:pt-0">
-            <span className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center overflow-hidden rounded-full ring-1 ring-[#15300c]/10">
-                <Flag code="ng" size={28} />
-              </span>
-              <span className="flex items-baseline gap-1.5">
-                <span className="text-[14px] font-medium text-[#15300c]">Nigeria</span>
-                <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">NGN</span>
-              </span>
-            </span>
-            <StatusPill label={OFFRAMP_LOCKED ? "Coming soon" : "Live"} tone={OFFRAMP_LOCKED ? "neutral" : "success"} />
-          </li>
-          {/* Queued corridors: one overlapped, greyscaled flag stack, not a
-              dead full row per country. */}
+          {/* US corridor (Bridge), shown only when the per-user flag is on. */}
+          {usdEnabled && (
+            <CorridorRow href="/app/ramps/cashout/us" cc="us" country="United States" cur="USD" />
+          )}
+          {/* Nigeria, the original live corridor. */}
+          {OFFRAMP_LOCKED ? (
+            <li className="flex items-center justify-between gap-3 py-3.5 first:pt-0">
+              <CorridorLabel cc="ng" country="Nigeria" cur="NGN" />
+              <StatusPill label="Coming soon" tone="neutral" />
+            </li>
+          ) : (
+            <CorridorRow href="/app/ramps/cashout/ng" cc="ng" country="Nigeria" cur="NGN" />
+          )}
+          {/* Queued corridors: one overlapped, greyscaled flag stack. */}
           <li className="flex items-center justify-between gap-3 py-3.5">
             <span className="flex items-center gap-3">
               <span className="flex shrink-0 -space-x-2.5">
@@ -140,30 +146,57 @@ export default function RampsPage() {
           </li>
         </ul>
 
-        <div className="relative mt-8">
-          <button
-            type="button"
-            onClick={() => { if (!OFFRAMP_LOCKED) setWithdrawOpen(true); }}
-            disabled={OFFRAMP_LOCKED}
-            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#15300c] px-6 text-[15px] font-semibold text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[#15300c]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7fcf2] disabled:cursor-not-allowed disabled:bg-[#15300c]/30 disabled:hover:translate-y-0"
-          >
-            {OFFRAMP_LOCKED ? "Cash-out coming soon" : "Cash out to your bank"}
-          </button>
-          {!OFFRAMP_LOCKED && (
-            <p className="relative mt-3 text-center font-mono text-[11px] text-[#3d7a29]">
-              Capped at ${OFFRAMP_CAP_USD} a day while we scale.
-            </p>
-          )}
-        </div>
+        {!OFFRAMP_LOCKED && (
+          <p className="relative mt-6 text-center font-mono text-[11px] text-[#3d7a29]">
+            Pick a country to cash out · NGN capped at ${OFFRAMP_CAP_USD}/day while we scale.
+          </p>
+        )}
       </div>
 
       <p className="text-center text-[12px] leading-relaxed text-[#3d7a29]">
         Balances are always 1:1 with the US dollar, send and receive anytime.
       </p>
 
-      <WithdrawToBankSheet open={withdrawOpen} onClose={() => setWithdrawOpen(false)} />
       <AddMoneyModal open={addOpen} onClose={() => setAddOpen(false)} />
     </div>
+  );
+}
+
+/** The flag + country + currency label used inside a corridor row. */
+function CorridorLabel({ cc, country, cur }: { cc: string; country: string; cur: string }) {
+  return (
+    <span className="flex items-center gap-3">
+      <span className="flex size-7 items-center justify-center overflow-hidden rounded-full ring-1 ring-[#15300c]/10">
+        <Flag code={cc} size={28} />
+      </span>
+      <span className="flex items-baseline gap-1.5">
+        <span className="text-[14px] font-medium text-[#15300c]">{country}</span>
+        <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">{cur}</span>
+      </span>
+    </span>
+  );
+}
+
+/** A live, clickable corridor row that navigates to its full cash-out page. */
+function CorridorRow({ href, cc, country, cur }: { href: string; cc: string; country: string; cur: string }) {
+  return (
+    <li>
+      <Link
+        href={href}
+        className="group -mx-2 flex items-center justify-between gap-3 rounded-2xl px-2 py-3.5 transition-colors hover:bg-[#CAFFB8]/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3d7a29]/40"
+      >
+        <CorridorLabel cc={cc} country={country} cur={cur} />
+        <span className="flex items-center gap-2">
+          <StatusPill label="Live" tone="success" />
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            size={16}
+            strokeWidth={2}
+            className="text-[#3d7a29] transition-transform group-hover:translate-x-0.5"
+          />
+        </span>
+      </Link>
+    </li>
   );
 }
 
