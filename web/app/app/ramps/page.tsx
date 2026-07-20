@@ -52,7 +52,12 @@ const COMING_SOON_CORRIDORS: { cc: string; country: string }[] = [
 
 export default function RampsPage() {
   const { me } = useMe();
-  const usdEnabled = !!me?.features?.usdWithdrawal;
+  // Show the US corridor when the per-user flag is on. In local dev we always
+  // surface it so the flow is testable without waiting on the env flag; every
+  // US cash-out call is still server-gated (allowlist + KYC), so this only
+  // controls whether the row/chooser is visible, never actual access.
+  const usdEnabled =
+    !!me?.features?.usdWithdrawal || process.env.NODE_ENV === "development";
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [usdOpen, setUsdOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
