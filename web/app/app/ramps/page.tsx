@@ -15,17 +15,17 @@
  */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   BankIcon,
   CreditCardIcon,
   Tick02Icon,
   Notification01Icon,
+  ArrowRight01Icon,
 } from "@hugeicons/core-free-icons";
-import { StatusPill, useToast, useMe, Sheet } from "@/components/app";
+import { StatusPill, useToast, useMe } from "@/components/app";
 import { Flag } from "@/components/app/ui/Flag";
-import { WithdrawToBankSheet } from "@/components/app/ramps/WithdrawToBankSheet";
-import { WithdrawToUsdSheet } from "@/components/app/ramps/WithdrawToUsdSheet";
 import { AddMoneyModal } from "@/components/app/AddMoneyModal";
 
 const NOTIFY_KEY = "talise:ramp-notify:onramp";
@@ -58,18 +58,7 @@ export default function RampsPage() {
   // controls whether the row/chooser is visible, never actual access.
   const usdEnabled =
     !!me?.features?.usdWithdrawal || process.env.NODE_ENV === "development";
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
-  const [usdOpen, setUsdOpen] = useState(false);
-  const [chooserOpen, setChooserOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-
-  // With more than one live corridor the CTA opens a chooser; with just NGN it
-  // goes straight to the Nigerian flow (unchanged).
-  function startCashOut() {
-    if (OFFRAMP_LOCKED) return;
-    if (usdEnabled) setChooserOpen(true);
-    else setWithdrawOpen(true);
-  }
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-7 pb-10 pt-1">
@@ -125,34 +114,18 @@ export default function RampsPage() {
         <ul className="relative mt-6 divide-y divide-[#15300c]/10">
           {/* US corridor (Bridge), shown only when the per-user flag is on. */}
           {usdEnabled && (
-            <li className="flex items-center justify-between gap-3 py-3.5 first:pt-0">
-              <span className="flex items-center gap-3">
-                <span className="flex size-7 items-center justify-center overflow-hidden rounded-full ring-1 ring-[#15300c]/10">
-                  <Flag code="us" size={28} />
-                </span>
-                <span className="flex items-baseline gap-1.5">
-                  <span className="text-[14px] font-medium text-[#15300c]">United States</span>
-                  <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">USD</span>
-                </span>
-              </span>
-              <StatusPill label="Live" tone="success" />
-            </li>
+            <CorridorRow href="/app/ramps/cashout/us" cc="us" country="United States" cur="USD" />
           )}
-          {/* The one live corridor gets a full row. */}
-          <li className="flex items-center justify-between gap-3 py-3.5 first:pt-0">
-            <span className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center overflow-hidden rounded-full ring-1 ring-[#15300c]/10">
-                <Flag code="ng" size={28} />
-              </span>
-              <span className="flex items-baseline gap-1.5">
-                <span className="text-[14px] font-medium text-[#15300c]">Nigeria</span>
-                <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">NGN</span>
-              </span>
-            </span>
-            <StatusPill label={OFFRAMP_LOCKED ? "Coming soon" : "Live"} tone={OFFRAMP_LOCKED ? "neutral" : "success"} />
-          </li>
-          {/* Queued corridors: one overlapped, greyscaled flag stack, not a
-              dead full row per country. */}
+          {/* Nigeria, the original live corridor. */}
+          {OFFRAMP_LOCKED ? (
+            <li className="flex items-center justify-between gap-3 py-3.5 first:pt-0">
+              <CorridorLabel cc="ng" country="Nigeria" cur="NGN" />
+              <StatusPill label="Coming soon" tone="neutral" />
+            </li>
+          ) : (
+            <CorridorRow href="/app/ramps/cashout/ng" cc="ng" country="Nigeria" cur="NGN" />
+          )}
+          {/* Queued corridors: one overlapped, greyscaled flag stack. */}
           <li className="flex items-center justify-between gap-3 py-3.5">
             <span className="flex items-center gap-3">
               <span className="flex shrink-0 -space-x-2.5">
@@ -173,87 +146,57 @@ export default function RampsPage() {
           </li>
         </ul>
 
-        <div className="relative mt-8">
-          <button
-            type="button"
-            onClick={startCashOut}
-            disabled={OFFRAMP_LOCKED}
-            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#15300c] px-6 text-[15px] font-semibold text-[#f7fcf2] transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-[#15300c]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7fcf2] disabled:cursor-not-allowed disabled:bg-[#15300c]/30 disabled:hover:translate-y-0"
-          >
-            {OFFRAMP_LOCKED ? "Cash-out coming soon" : "Cash out to your bank"}
-          </button>
-          {!OFFRAMP_LOCKED && (
-            <p className="relative mt-3 text-center font-mono text-[11px] text-[#3d7a29]">
-              Capped at ${OFFRAMP_CAP_USD} a day while we scale.
-            </p>
-          )}
-        </div>
+        {!OFFRAMP_LOCKED && (
+          <p className="relative mt-6 text-center font-mono text-[11px] text-[#3d7a29]">
+            Pick a country to cash out · NGN capped at ${OFFRAMP_CAP_USD}/day while we scale.
+          </p>
+        )}
       </div>
 
       <p className="text-center text-[12px] leading-relaxed text-[#3d7a29]">
         Balances are always 1:1 with the US dollar, send and receive anytime.
       </p>
 
-      <WithdrawToBankSheet open={withdrawOpen} onClose={() => setWithdrawOpen(false)} />
-      <WithdrawToUsdSheet open={usdOpen} onClose={() => setUsdOpen(false)} />
-      <CorridorChooser
-        open={chooserOpen}
-        onClose={() => setChooserOpen(false)}
-        onUs={() => { setChooserOpen(false); setUsdOpen(true); }}
-        onNg={() => { setChooserOpen(false); setWithdrawOpen(true); }}
-      />
       <AddMoneyModal open={addOpen} onClose={() => setAddOpen(false)} />
     </div>
   );
 }
 
-/** Pick a cash-out corridor when more than one is live. */
-function CorridorChooser({
-  open,
-  onClose,
-  onUs,
-  onNg,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onUs: () => void;
-  onNg: () => void;
-}) {
+/** The flag + country + currency label used inside a corridor row. */
+function CorridorLabel({ cc, country, cur }: { cc: string; country: string; cur: string }) {
   return (
-    <Sheet open={open} onClose={onClose} title="Where to?" size="sm">
-      <div className="space-y-3">
-        <CorridorOption cc="us" title="United States" sub="USD, to your US bank by wire" onClick={onUs} />
-        <CorridorOption cc="ng" title="Nigeria" sub="NGN, to your Nigerian bank" onClick={onNg} />
-      </div>
-    </Sheet>
+    <span className="flex items-center gap-3">
+      <span className="flex size-7 items-center justify-center overflow-hidden rounded-full ring-1 ring-[#15300c]/10">
+        <Flag code={cc} size={28} />
+      </span>
+      <span className="flex items-baseline gap-1.5">
+        <span className="text-[14px] font-medium text-[#15300c]">{country}</span>
+        <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">{cur}</span>
+      </span>
+    </span>
   );
 }
 
-function CorridorOption({
-  cc,
-  title,
-  sub,
-  onClick,
-}: {
-  cc: string;
-  title: string;
-  sub: string;
-  onClick: () => void;
-}) {
+/** A live, clickable corridor row that navigates to its full cash-out page. */
+function CorridorRow({ href, cc, country, cur }: { href: string; cc: string; country: string; cur: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center gap-3.5 rounded-[20px] border border-[#15300c]/10 bg-[#f7fcf2] px-4 py-3.5 text-left transition-transform duration-150 hover:-translate-y-0.5 active:scale-[0.99]"
-    >
-      <span className="flex size-8 items-center justify-center overflow-hidden rounded-full ring-1 ring-[#15300c]/10">
-        <Flag code={cc} size={32} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[15px] font-medium text-[#15300c]">{title}</span>
-        <span className="block text-[12.5px] text-[#3d7a29]">{sub}</span>
-      </span>
-    </button>
+    <li>
+      <Link
+        href={href}
+        className="group -mx-2 flex items-center justify-between gap-3 rounded-2xl px-2 py-3.5 transition-colors hover:bg-[#CAFFB8]/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3d7a29]/40"
+      >
+        <CorridorLabel cc={cc} country={country} cur={cur} />
+        <span className="flex items-center gap-2">
+          <StatusPill label="Live" tone="success" />
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            size={16}
+            strokeWidth={2}
+            className="text-[#3d7a29] transition-transform group-hover:translate-x-0.5"
+          />
+        </span>
+      </Link>
+    </li>
   );
 }
 

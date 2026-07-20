@@ -1,43 +1,22 @@
 "use client";
 
 /**
- * WithdrawToUsdSheet — USDsui → US bank cash-out (web), via Bridge.
+ * CashOutUs — USDsui → US bank cash-out, as a full page (via Bridge).
  *
- * Mirrors the iOS BridgeCashOutView. Decoupled two-step on-chain flow:
- *   1. KYC gate  — if Bridge KYC isn't approved, show the verify card
- *                  (opens <VerifyIdentitySheet>); re-init on approval.
- *   2. Bank setup (one-time) — POST /cashout-address registers the payout
- *                  bank and returns a persistent Sui address + USDC pocket.
- *   3. Swap     — POST /swap-to-usdc-prepare → sign the sponsored PTB
- *                  (USDsui → USDC into the user's own "pocket", 1% fee).
- *   4. Withdraw — POST /send-usdc-prepare → sign the sponsored PTB
- *                  (USDC pocket → Bridge address). Bridge wires to the bank.
- *   5. Result   — "on its way" (Bridge settles the bank leg async, ~1 day).
- *
- * The off-ramp + KYC routes resolve the web cookie session, and enforce the
- * allowlist / KYC-approved / min-$1 gates server-side; the UI mirrors them.
+ * Full-page version of the old WithdrawToUsdSheet. Decoupled two-step flow:
+ *   KYC gate (inline <KycFlow>) → one-time bank setup → swap USDsui→USDC →
+ *   withdraw USDC→wire → "on its way". Signs the two server-prepared sponsored
+ *   PTBs. Every step is server-gated (allowlist + KYC-approved + $1 min).
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  CheckmarkCircle02Icon,
-  Alert02Icon,
-  ShieldUserIcon,
-  BankIcon,
-} from "@hugeicons/core-free-icons";
-import {
-  Sheet,
-  Field,
-  PrimaryButton,
-  Eyebrow,
-  useToast,
-  useBalances,
-  api,
-  ApiError,
-} from "@/components/app";
+import { CheckmarkCircle02Icon, Alert02Icon, BankIcon } from "@hugeicons/core-free-icons";
+import { Field, PrimaryButton, Eyebrow, useToast, useBalances, api, ApiError } from "@/components/app";
+import { BackButton } from "@/components/app/ui/BackButton";
 import { signAndSubmitPreparedBytes } from "@/lib/zkclient";
-import { VerifyIdentitySheet } from "./VerifyIdentitySheet";
+import { KycFlow } from "./KycFlow";
 
 type Route = {
   address: string;
@@ -62,8 +41,11 @@ const KYC_APPROVED = (s?: string) => !!s && s.toLowerCase() === "approved";
 
 const inputCls =
   "w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 text-[16px] text-[#15300c] placeholder:text-[#3d7a29] outline-none backdrop-blur-sm focus:border-[#3d7a29] focus:ring-1 focus:ring-[#3d7a29]";
+const cardCls = "rounded-[24px] bg-[#f7fcf2] p-5 sm:p-6";
+const cardStyle = { boxShadow: "0 1px 2px rgba(18,26,15,0.04), 0 14px 34px -22px rgba(18,26,15,0.22)" };
 
-export function WithdrawToUsdSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CashOutUs() {
+  const router = useRouter();
   const { toast } = useToast();
   const { data: balances, refreshFresh: refreshBalances } = useBalances();
 
@@ -71,7 +53,6 @@ export function WithdrawToUsdSheet({ open, onClose }: { open: boolean; onClose: 
   const [route, setRoute] = useState<Route | null>(null);
   const [closedMsg, setClosedMsg] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [verifyOpen, setVerifyOpen] = useState(false);
 
   // Bank setup form (US ACH).
   const [ownerName, setOwnerName] = useState("");
@@ -94,8 +75,6 @@ export function WithdrawToUsdSheet({ open, onClose }: { open: boolean; onClose: 
   const pocket = microsToUsdc(route?.usdcMicros);
   const usdsuiBal = balances?.usdsui ?? 0;
 
-  // Probe for an existing payout route (reuse-first: empty body returns it, or
-  // 400 when none exists yet → bank setup needed).
   const probeRoute = useCallback(async (): Promise<Route | null> => {
     try {
       return await api<Route>("/api/offramp/bridge/cashout-address", {
@@ -138,19 +117,8 @@ export function WithdrawToUsdSheet({ open, onClose }: { open: boolean; onClose: 
   }, [probeRoute]);
 
   useEffect(() => {
-    if (open) init();
-  }, [open, init]);
-
-  const close = useCallback(() => {
-    onClose();
-    setTimeout(() => {
-      setStep("loading");
-      setError(null);
-      setSwapAmt("");
-      setSendAmt("");
-      setRoute(null);
-    }, 250);
-  }, [onClose]);
+    init();
+  }, [init]);
 
   // ── bank setup ──
   const canSaveBank =
@@ -260,40 +228,44 @@ export function WithdrawToUsdSheet({ open, onClose }: { open: boolean; onClose: 
     : "your US bank";
 
   return (
-    <>
-      <Sheet open={open} onClose={close} title="Cash out to your US bank" size="md">
-        {step === "loading" && (
-          <p className="py-6 text-center text-[14px] text-[#3d7a29]">Loading…</p>
-        )}
+    <div className="mx-auto w-full max-w-lg space-y-6 pb-12 pt-1">
+      <div className="space-y-3">
+        <BackButton href="/app/ramps" label="Ramps" />
+        <div>
+          <Eyebrow>Cash out · United States</Eyebrow>
+          <h1
+            className="mt-1 text-[clamp(24px,4.5vw,34px)] font-[500] leading-[1.05] tracking-[-0.05em] text-[#15300c]"
+            style={{ fontFamily: '"TWK Everett", var(--font-display-v2), system-ui, sans-serif' }}
+          >
+            Cash out to your US bank
+          </h1>
+        </div>
+      </div>
 
-        {step === "closed" && (
+      {step === "loading" && (
+        <p className="py-6 text-center text-[14px] text-[#3d7a29]">Loading…</p>
+      )}
+
+      {step === "closed" && (
+        <div className={cardCls} style={cardStyle}>
           <div className="flex flex-col items-center gap-4 py-2 text-center">
             <span className="flex size-12 items-center justify-center rounded-full bg-[#FFE59E] text-[#15300c]">
               <HugeiconsIcon icon={Alert02Icon} size={24} strokeWidth={2} />
             </span>
             <p className="max-w-sm text-[14px] leading-relaxed text-[#3a5230]">{closedMsg}</p>
-            <PrimaryButton full onClick={close}>Close</PrimaryButton>
+            <PrimaryButton full onClick={() => router.push("/app/ramps")}>Back to ramps</PrimaryButton>
           </div>
-        )}
+        </div>
+      )}
 
-        {step === "kyc" && (
-          <div className="flex flex-col items-center gap-4 py-2 text-center">
-            <span className="flex size-12 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
-              <HugeiconsIcon icon={ShieldUserIcon} size={24} strokeWidth={2} />
-            </span>
-            <div>
-              <h3 className="text-[18px] font-medium tracking-[-0.05em] text-[#15300c]">
-                Verify your identity to cash out
-              </h3>
-              <p className="mt-1 max-w-sm text-[14px] leading-relaxed text-[#3a5230]">
-                A one-time check, required for US bank payouts. Takes a couple of minutes.
-              </p>
-            </div>
-            <PrimaryButton full onClick={() => setVerifyOpen(true)}>Verify identity</PrimaryButton>
-          </div>
-        )}
+      {step === "kyc" && (
+        <div className={cardCls} style={cardStyle}>
+          <KycFlow onApproved={() => init()} />
+        </div>
+      )}
 
-        {step === "bankSetup" && (
+      {step === "bankSetup" && (
+        <div className={cardCls} style={cardStyle}>
           <div className="space-y-4">
             <p className="text-[13.5px] leading-relaxed text-[#3a5230]">
               Add the US bank account to pay out to. You only do this once.
@@ -367,72 +339,64 @@ export function WithdrawToUsdSheet({ open, onClose }: { open: boolean; onClose: 
               Save bank
             </PrimaryButton>
           </div>
-        )}
+        </div>
+      )}
 
-        {step === "cashout" && (
-          <div className="space-y-5">
-            {/* USDC pocket / swap */}
-            <div
-              className="rounded-[24px] bg-[#f7fcf2] p-5"
-              style={{ boxShadow: "0 1px 2px rgba(18,26,15,0.04), 0 14px 34px -22px rgba(18,26,15,0.22)" }}
-            >
-              <div className="flex items-center justify-between">
-                <Eyebrow>USDC pocket</Eyebrow>
-                <span className="text-[15px] font-semibold tabular-nums text-[#15300c]">{usd(pocket)}</span>
-              </div>
-              <p className="mt-2 text-[12.5px] leading-relaxed text-[#3d7a29]">
-                Swap USDsui to USDC first, then withdraw it to your bank. Balance: {usd(usdsuiBal)} USDsui.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <input
-                  inputMode="decimal"
-                  value={swapAmt}
-                  onChange={(e) => setSwapAmt(e.target.value.replace(/[^\d.]/g, ""))}
-                  placeholder="USDsui to swap"
-                  className={inputCls + " flex-1"}
-                />
-                <PrimaryButton onClick={doSwap} disabled={!canSwap} loading={swapping}>
-                  Swap
-                </PrimaryButton>
-              </div>
+      {step === "cashout" && (
+        <div className="space-y-5">
+          {/* USDC pocket / swap */}
+          <div className={cardCls} style={cardStyle}>
+            <div className="flex items-center justify-between">
+              <Eyebrow>USDC pocket</Eyebrow>
+              <span className="text-[15px] font-semibold tabular-nums text-[#15300c]">{usd(pocket)}</span>
             </div>
-
-            {/* Withdraw USDC → bank */}
-            <div
-              className="rounded-[24px] bg-[#f7fcf2] p-5"
-              style={{ boxShadow: "0 1px 2px rgba(18,26,15,0.04), 0 14px 34px -22px rgba(18,26,15,0.22)" }}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="flex size-8 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
-                  <HugeiconsIcon icon={BankIcon} size={16} strokeWidth={1.8} />
-                </span>
-                <div className="min-w-0">
-                  <Eyebrow>Withdraw to</Eyebrow>
-                  <div className="truncate text-[14px] font-medium text-[#15300c]">{bankLabel}</div>
-                </div>
-              </div>
-              <div className="mt-3 flex gap-2">
-                <input
-                  inputMode="decimal"
-                  value={sendAmt}
-                  onChange={(e) => setSendAmt(e.target.value.replace(/[^\d.]/g, ""))}
-                  placeholder="USDC (min $1.00)"
-                  className={inputCls + " flex-1"}
-                />
-                <PrimaryButton onClick={doSend} disabled={!canSend} loading={sending}>
-                  Withdraw
-                </PrimaryButton>
-              </div>
-              <p className="mt-2 text-[12px] text-[#3d7a29]">
-                Paid out by wire, typically arrives within a business day.
-              </p>
+            <p className="mt-2 text-[12.5px] leading-relaxed text-[#3d7a29]">
+              Swap USDsui to USDC first, then withdraw it to your bank. Balance: {usd(usdsuiBal)} USDsui.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <input
+                inputMode="decimal"
+                value={swapAmt}
+                onChange={(e) => setSwapAmt(e.target.value.replace(/[^\d.]/g, ""))}
+                placeholder="USDsui to swap"
+                className={inputCls + " flex-1"}
+              />
+              <PrimaryButton onClick={doSwap} disabled={!canSwap} loading={swapping}>Swap</PrimaryButton>
             </div>
-
-            {error && <p className="text-center text-[13px] text-[#c0532f]">{error}</p>}
           </div>
-        )}
 
-        {step === "result" && (
+          {/* Withdraw USDC → bank */}
+          <div className={cardCls} style={cardStyle}>
+            <div className="flex items-center gap-2.5">
+              <span className="flex size-8 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
+                <HugeiconsIcon icon={BankIcon} size={16} strokeWidth={1.8} />
+              </span>
+              <div className="min-w-0">
+                <Eyebrow>Withdraw to</Eyebrow>
+                <div className="truncate text-[14px] font-medium text-[#15300c]">{bankLabel}</div>
+              </div>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                inputMode="decimal"
+                value={sendAmt}
+                onChange={(e) => setSendAmt(e.target.value.replace(/[^\d.]/g, ""))}
+                placeholder="USDC (min $1.00)"
+                className={inputCls + " flex-1"}
+              />
+              <PrimaryButton onClick={doSend} disabled={!canSend} loading={sending}>Withdraw</PrimaryButton>
+            </div>
+            <p className="mt-2 text-[12px] text-[#3d7a29]">
+              Paid out by wire, typically arrives within a business day.
+            </p>
+          </div>
+
+          {error && <p className="text-center text-[13px] text-[#c0532f]">{error}</p>}
+        </div>
+      )}
+
+      {step === "result" && (
+        <div className={cardCls} style={cardStyle}>
           <div className="flex flex-col items-center gap-4 py-4 text-center">
             <span className="flex size-12 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
               <HugeiconsIcon icon={CheckmarkCircle02Icon} size={24} strokeWidth={2} />
@@ -443,21 +407,12 @@ export function WithdrawToUsdSheet({ open, onClose }: { open: boolean; onClose: 
                 {usd(sentAmount)} was sent for payout to {bankLabel}. The wire typically arrives within a business day.
               </p>
             </div>
-            <PrimaryButton full onClick={close}>Done</PrimaryButton>
+            <PrimaryButton full onClick={() => router.push("/app/ramps")}>Done</PrimaryButton>
           </div>
-        )}
-      </Sheet>
-
-      <VerifyIdentitySheet
-        open={verifyOpen}
-        onClose={() => setVerifyOpen(false)}
-        onApproved={() => {
-          setVerifyOpen(false);
-          init();
-        }}
-      />
-    </>
+        </div>
+      )}
+    </div>
   );
 }
 
-export default WithdrawToUsdSheet;
+export default CashOutUs;
