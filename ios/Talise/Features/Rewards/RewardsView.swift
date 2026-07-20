@@ -287,7 +287,7 @@ struct RewardsView: View {
                         .foregroundStyle(TaliseColor.fg)
                     Spacer(minLength: 8)
                     LiquidGlassPill(title: "Copy", icon: "doc.on.doc", compact: true) {
-                        UIPasteboard.general.string = "https://talise.io/r/\(code)"
+                        UIPasteboard.general.string = "https://www.talise.io/r/\(code)"
                     }
                 }
                 .padding(.horizontal, 18)
@@ -302,7 +302,7 @@ struct RewardsView: View {
                     icon: "square.and.arrow.up",
                     size: .lg
                 ) {
-                    share(text: "Join me on Talise: https://talise.io/r/\(code)")
+                    share(text: "Join me on Talise: https://www.talise.io/r/\(code)")
                 }
             }
         }
