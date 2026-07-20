@@ -13,7 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckmarkCircle02Icon, Alert02Icon, BankIcon } from "@hugeicons/core-free-icons";
-import { Field, PrimaryButton, Eyebrow, useToast, useBalances, api, ApiError } from "@/components/app";
+import { Field, PrimaryButton, Eyebrow, Spinner, useToast, useBalances, api, ApiError } from "@/components/app";
 import { BackButton } from "@/components/app/ui/BackButton";
 import { signAndSubmitPreparedBytes } from "@/lib/zkclient";
 import { KycFlow } from "./KycFlow";
@@ -228,10 +228,10 @@ export function CashOutUs() {
     : "your US bank";
 
   return (
-    <div className="mx-auto flex min-h-[74vh] w-full max-w-lg flex-col justify-center gap-6 pb-12 pt-1">
-      <div className="space-y-2">
+    <div className="mx-auto w-full max-w-lg space-y-6 pb-16 pt-2">
+      <div className="space-y-3">
         <BackButton href="/app/ramps" label="Ramps" />
-        <div className="pt-1">
+        <div>
           <Eyebrow>Cash out · United States</Eyebrow>
           <h1
             className="mt-1 text-[clamp(24px,4.5vw,34px)] font-[500] leading-[1.05] tracking-[-0.05em] text-[#15300c]"
@@ -243,7 +243,9 @@ export function CashOutUs() {
       </div>
 
       {step === "loading" && (
-        <p className="py-6 text-center text-[14px] text-[#3d7a29]">Loading…</p>
+        <div className="flex min-h-[220px] items-center justify-center">
+          <Spinner size={22} />
+        </div>
       )}
 
       {step === "closed" && (
@@ -344,17 +346,33 @@ export function CashOutUs() {
 
       {step === "cashout" && (
         <div className="space-y-5">
-          {/* Step 1 — USDC pocket / swap */}
+          {/* USDC pocket — the payout asset, shown prominently. */}
           <div className={cardCls} style={cardStyle}>
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#3d7a29]">
-                Step 1 · USDC pocket
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <span className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#3d7a29]">
+                  USDC pocket
+                </span>
+                <div className="mt-1 text-[32px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[#15300c]">
+                  {usd(pocket)}
+                </div>
+                <div className="mt-1.5 text-[12.5px] text-[#3d7a29]">USDC ready to withdraw to your bank</div>
+              </div>
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] font-mono text-[11px] font-semibold tracking-wide text-[#15300c]">
+                USDC
               </span>
-              <span className="text-[17px] font-semibold tabular-nums text-[#15300c]">{usd(pocket)}</span>
             </div>
-            <p className="mt-2 text-[12.5px] leading-relaxed text-[#3d7a29]">
-              Swap USDsui to USDC first, then withdraw it to your bank in step 2.
+            <p className="mt-4 border-t border-[#15300c]/10 pt-3 text-[12.5px] leading-relaxed text-[#3d7a29]">
+              US bank payouts settle in <span className="font-medium text-[#15300c]">USDC</span>. Swap your USDsui
+              to USDC (step 1), then withdraw the USDC to your bank (step 2).
             </p>
+          </div>
+
+          {/* Step 1 — swap USDsui → USDC */}
+          <div className={cardCls} style={cardStyle}>
+            <span className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#3d7a29]">
+              Step 1 · Swap USDsui → USDC
+            </span>
             <label className="mt-4 block">
               <span className="mb-1.5 block font-mono text-[11px] uppercase tracking-[0.2em] text-[#3d7a29]">
                 Amount to swap (USDsui)
@@ -367,7 +385,7 @@ export function CashOutUs() {
                 className={inputCls + " text-[18px]"}
               />
               <span className="mt-1.5 block text-[12px] text-[#3d7a29]">
-                Balance: {usd(usdsuiBal)} USDsui
+                Balance: {usd(usdsuiBal)} USDsui · fee-free swap
               </span>
             </label>
             <div className="mt-4">
@@ -377,7 +395,7 @@ export function CashOutUs() {
             </div>
           </div>
 
-          {/* Step 2 — Withdraw USDC → bank */}
+          {/* Step 2 — withdraw USDC → bank */}
           <div className={cardCls} style={cardStyle}>
             <div className="flex items-center gap-3">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#CAFFB8] text-[#15300c]">
@@ -385,7 +403,7 @@ export function CashOutUs() {
               </span>
               <div className="min-w-0">
                 <span className="block font-mono text-[11px] uppercase tracking-[0.24em] text-[#3d7a29]">
-                  Step 2 · Withdraw to
+                  Step 2 · Withdraw USDC to
                 </span>
                 <div className="truncate text-[15px] font-medium text-[#15300c]">{bankLabel}</div>
               </div>
