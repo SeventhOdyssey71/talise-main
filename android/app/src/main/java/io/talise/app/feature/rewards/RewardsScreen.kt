@@ -413,7 +413,7 @@ private fun ShareSection(code: String?) {
                 title = "Copy",
                 icon = Icons.Outlined.ContentCopy,
                 compact = true,
-                onClick = { clipboard.setText(AnnotatedString("https://talise.io/r/$code")) },
+                onClick = { clipboard.setText(AnnotatedString("https://www.talise.io/r/$code")) },
             )
         }
 
@@ -422,7 +422,7 @@ private fun ShareSection(code: String?) {
             onClick = {
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, "Join me on Talise: https://talise.io/r/$code")
+                    putExtra(Intent.EXTRA_TEXT, "Join me on Talise: https://www.talise.io/r/$code")
                 }
                 context.startActivity(Intent.createChooser(intent, "Share Talise"))
             },
