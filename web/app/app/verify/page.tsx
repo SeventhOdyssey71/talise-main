@@ -15,10 +15,10 @@ import { KycFlow } from "@/components/app/ramps/KycFlow";
 export default function VerifyPage() {
   const router = useRouter();
   return (
-    <div className="mx-auto flex min-h-[74vh] w-full max-w-lg flex-col justify-center gap-6 pb-12 pt-1">
-      <div className="space-y-2">
+    <div className="mx-auto w-full max-w-lg space-y-6 pb-16 pt-2">
+      <div className="space-y-3">
         <BackButton />
-        <div className="pt-1">
+        <div>
           <Eyebrow>Identity</Eyebrow>
           <h1
             className="mt-1 text-[clamp(24px,4.5vw,34px)] font-[500] leading-[1.05] tracking-[-0.05em] text-[#15300c]"
