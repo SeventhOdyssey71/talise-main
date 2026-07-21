@@ -403,6 +403,74 @@ export async function getSummary(): Promise<AnalyticsSummary> {
   };
 }
 
+/** Map a raw analytics_recent_tx row to a RecentTx. */
+function toRecentTx(row: Record<string, unknown>): RecentTx {
+  return {
+    digest: String(row.digest ?? ""),
+    ts: num(row.ts),
+    direction: String(row.direction ?? ""),
+    amountUsd: numOrNull(row.amount_usd),
+    handle: strOrNull(row.handle),
+    address: strOrNull(row.address),
+    counterparty: strOrNull(row.counterparty),
+    counterpartyName: strOrNull(row.counterparty_name),
+  };
+}
+
+/** Hard cap on a single transactions page — keeps Postgres + payloads bounded. */
+const TX_PAGE_MAX = 100;
+
+/**
+ * One page of the full transaction feed, newest-first, with an optional
+ * free-text filter (handle / address / counterparty / direction / digest).
+ * Powers the public /analytics table's server-side pagination so visitors can
+ * page through EVERY indexed transaction, not just the newest 60. `total` is
+ * the count for the current filter, so the client can compute page bounds.
+ * limit/offset are clamped + integer-coerced, so they interpolate safely; the
+ * search needle is passed as a bound parameter.
+ */
+export async function getRecentTxPage(opts: {
+  limit: number;
+  offset: number;
+  q?: string;
+}): Promise<{ rows: RecentTx[]; total: number }> {
+  const limit = Math.min(Math.max(1, Math.floor(opts.limit) || RECENT_LIMIT), TX_PAGE_MAX);
+  const offset = Math.max(0, Math.floor(opts.offset) || 0);
+  const q = (opts.q ?? "").trim().toLowerCase();
+
+  // Single concatenated haystack keeps this to ONE bound param + one index-free
+  // scan; the feed is capped at a few thousand rows so a LIKE scan is cheap.
+  const where = q
+    ? `WHERE LOWER(COALESCE(handle,'') || ' ' || COALESCE(address,'') || ' ' ||
+             COALESCE(counterparty,'') || ' ' || COALESCE(counterparty_name,'') || ' ' ||
+             COALESCE(direction,'') || ' ' || digest) LIKE ?`
+    : "";
+  const whereArgs: unknown[] = q ? [`%${q}%`] : [];
+
+  const total = await db()
+    .execute({
+      sql: `SELECT COUNT(*) AS n FROM analytics_recent_tx ${where}`,
+      args: whereArgs,
+    })
+    .then((r) => num(r.rows[0]?.n))
+    .catch(() => 0);
+
+  const rows = await db()
+    .execute({
+      sql: `SELECT digest, address, handle, direction, amount_usd,
+                   counterparty, counterparty_name, ts
+              FROM analytics_recent_tx
+              ${where}
+             ORDER BY ts DESC
+             LIMIT ${limit} OFFSET ${offset}`,
+      args: whereArgs,
+    })
+    .then((r) => r.rows.map((row) => toRecentTx(row as Record<string, unknown>)))
+    .catch((): RecentTx[] => []);
+
+  return { rows, total };
+}
+
 // ── public checkpoints ─────────────────────────────────────────────────────
 
 /** The aggregate numbers a checkpoint captures (order-independent compare). */
