@@ -86,6 +86,9 @@ function RootNav() {
       <Stack.Screen name="bank-accounts" options={{ presentation: "modal" }} />
       <Stack.Screen name="bank-add" options={{ presentation: "fullScreenModal" }} />
       <Stack.Screen name="claim-handle" options={{ presentation: "modal" }} />
+
+      {/* Phase 9 — Copilot */}
+      <Stack.Screen name="copilot" options={{ presentation: "fullScreenModal" }} />
     </Stack>
   );
 }

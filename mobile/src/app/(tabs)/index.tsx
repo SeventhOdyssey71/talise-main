@@ -52,9 +52,9 @@ export default function HomeScreen() {
         <View style={styles.topBar}>
           <Img name="TaliseLogo" style={styles.logo} />
           <View style={styles.topRight}>
-            <View style={styles.agent}>
+            <Pressable style={styles.agent} onPress={() => router.push("/copilot")} hitSlop={8} accessibilityLabel="Talise Agent">
               <Icon name="sparkles" size={17} color={colors.greenMint} />
-            </View>
+            </Pressable>
             {user?.accountType ? (
               <Pressable style={styles.scanDisc} onPress={() => router.push("/scan")}>
                 <Icon name="qrcode.viewfinder" size={18} color={colors.fg} />
