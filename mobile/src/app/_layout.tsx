@@ -58,6 +58,24 @@ function RootNav() {
       <Stack.Screen name="goal-action" options={{ presentation: "modal" }} />
       <Stack.Screen name="change-pin" options={{ presentation: "fullScreenModal" }} />
       <Stack.Screen name="verify-identity" options={{ presentation: "modal" }} />
+
+      {/* Phase 7 — money tools */}
+      <Stack.Screen name="cheques" options={{ presentation: "modal" }} />
+      <Stack.Screen name="cheque-write" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="cheque-mine" options={{ presentation: "modal" }} />
+      <Stack.Screen name="cheque-claim" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="work" options={{ presentation: "modal" }} />
+      <Stack.Screen name="streams" options={{ presentation: "modal" }} />
+      <Stack.Screen name="stream-new" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="invoices" options={{ presentation: "modal" }} />
+      <Stack.Screen name="invoice-new" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="invoice-pay" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="contracts" options={{ presentation: "modal" }} />
+      <Stack.Screen name="contract-new" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="requests" options={{ presentation: "modal" }} />
+      <Stack.Screen name="request-new" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="rules" options={{ presentation: "modal" }} />
+      <Stack.Screen name="rule-new" options={{ presentation: "fullScreenModal" }} />
     </Stack>
   );
 }
