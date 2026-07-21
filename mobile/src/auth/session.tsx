@@ -28,6 +28,7 @@ type SessionValue = {
   signIn: () => Promise<{ existing: boolean }>;
   completeOnboarding: (user: UserDTO) => void;
   completePinSetup: () => void;
+  unlock: () => void;
   verifyAndUnlock: (pin: string) => Promise<boolean>;
   hasPinForCurrent: () => Promise<boolean>;
   setPinAndReady: (pin: string) => Promise<void>;
@@ -126,6 +127,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       void route(u);
     },
     completePinSetup: () => setPhase("ready"),
+    unlock: () => {
+      if (user) setPhase("ready");
+    },
     verifyAndUnlock: async (pin) => {
       if (!user) return false;
       const ok = await pinService.verifyPin(user.id, pin);

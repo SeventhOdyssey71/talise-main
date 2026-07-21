@@ -1,60 +1,104 @@
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import * as Haptics from "expo-haptics";
+import * as LocalAuthentication from "expo-local-authentication";
 
+import { requireUserPresence } from "@/auth/biometrics";
 import { useSession } from "@/auth/session";
 import { PinPad } from "@/components/PinPad";
-import { Img } from "@/design/assets";
-import { Screen } from "@/design/components/Screen";
 import { TopGlow } from "@/design/components/TopGlow";
-import { colors, spacing } from "@/design/tokens";
+import { colors } from "@/design/tokens";
 import { family } from "@/design/typography";
 
-/** Unlock — verify PIN to resume the session; "Forgot PIN?" signs out. Ports ios PinUnlockView. */
+/**
+ * PinUnlockView — the live unlock (.locked phase). PIN or biometrics resumes the
+ * session (no OAuth). Biometrics is attempted automatically on mount; "Forgot
+ * PIN? Sign in again" appears after 2 failed attempts. TopGlow background.
+ */
 export default function PinUnlockScreen() {
-  const { user, verifyAndUnlock, signOut } = useSession();
+  const { user, verifyAndUnlock, unlock, signOut } = useSession();
   const [value, setValue] = useState("");
   const [error, setError] = useState(false);
+  const [attempts, setAttempts] = useState(0);
+  const [bioAvailable, setBioAvailable] = useState(false);
+
+  const first = user?.name?.trim().split(/\s+/)[0];
+
+  const tryBiometrics = async () => {
+    try {
+      await requireUserPresence("Unlock Talise");
+      unlock();
+    } catch {
+      /* fall back to PIN */
+    }
+  };
+
+  useEffect(() => {
+    (async () => {
+      const has = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      if (has && enrolled) {
+        setBioAvailable(true);
+        void tryBiometrics();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (value.length < 4) return;
     (async () => {
       const ok = await verifyAndUnlock(value);
-      if (!ok) {
+      if (ok) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setError(true);
+        setAttempts((a) => a + 1);
         setTimeout(() => {
           setValue("");
           setError(false);
-        }, 500);
+        }, 550);
       }
     })();
   }, [value, verifyAndUnlock]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={styles.screen}>
       <TopGlow />
-      <Screen scroll={false} tabBarSpace={false}>
-        <View style={styles.head}>
-          <Img name="TaliseLogo" style={styles.logo} />
-          <Text style={styles.title}>Welcome back{user?.name ? `, ${user.name.split(" ")[0]}` : ""}</Text>
-          <Text style={styles.sub}>Enter your PIN to continue.</Text>
+      <View style={styles.content}>
+        <View style={{ height: 44 }} />
+        <View style={styles.header}>
+          <Text style={styles.title}>Welcome back</Text>
+          <Text style={styles.sub}>{first ? `Enter your PIN, ${first}` : "Enter your PIN to continue"}</Text>
         </View>
-        <View style={styles.body}>
-          <PinPad value={value} onChange={setValue} error={error} />
-        </View>
-        <Pressable onPress={() => void signOut()} style={styles.forgot} hitSlop={8}>
-          <Text style={styles.forgotText}>Forgot PIN? Sign out</Text>
-        </Pressable>
-      </Screen>
+        <View style={{ height: 34 }} />
+        <PinPad
+          value={value}
+          onChange={setValue}
+          error={error}
+          bottomLeftIcon={bioAvailable ? "faceid" : undefined}
+          onBottomLeftPress={tryBiometrics}
+        />
+        <Text style={styles.error}>{error ? "Incorrect PIN" : " "}</Text>
+        <View style={{ flex: 1 }} />
+        {attempts >= 2 ? (
+          <Pressable onPress={() => void signOut()} style={styles.forgot} hitSlop={8}>
+            <Text style={styles.forgotText}>Forgot PIN? Sign in again</Text>
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  head: { alignItems: "center", gap: spacing.sm, marginTop: spacing.xl },
-  logo: { width: 108, height: 28, resizeMode: "contain", marginBottom: spacing.sm },
-  title: { fontFamily: family.sans, fontSize: 22, fontWeight: "600", color: colors.fg },
-  sub: { fontFamily: family.sans, fontSize: 14, color: colors.fgMuted },
-  body: { flex: 1, justifyContent: "center", alignItems: "center" },
-  forgot: { alignSelf: "center", paddingVertical: spacing.md },
-  forgotText: { fontFamily: family.sans, fontSize: 13, color: colors.fgMuted, fontWeight: "500" },
+  screen: { flex: 1, backgroundColor: colors.bg },
+  content: { flex: 1, alignItems: "center", paddingHorizontal: 8, paddingTop: 60 },
+  header: { alignItems: "center", gap: 8 },
+  title: { fontFamily: family.sans, fontSize: 27, fontWeight: "600", color: colors.fg },
+  sub: { fontFamily: family.sans, fontSize: 15, fontWeight: "300", color: colors.fgMuted },
+  error: { fontFamily: family.sans, fontSize: 14, color: colors.danger, marginTop: 14, height: 20 },
+  forgot: { paddingVertical: 14, marginBottom: 24 },
+  forgotText: { fontFamily: family.sans, fontSize: 14, color: colors.fgMuted, fontWeight: "500" },
 });

@@ -1,4 +1,4 @@
-import { api, setBearer } from "@/api/client";
+import { api, ApiError, setBearer } from "@/api/client";
 import { googleSignIn } from "@/auth/oauth";
 import { prefs } from "@/auth/prefs";
 import { proofCache, type Proof } from "@/auth/proofCache";
@@ -110,6 +110,40 @@ export async function sponsorExecute(
   if (res.freshProof) await proofCache.setProof(res.freshProof);
   if (res.error) throw new Error(res.error);
   return { digest: res.digest };
+}
+
+/**
+ * Auto-claim a `.talise.sui` handle after onboarding, silently — derives a
+ * candidate from the name (or email local-part, skipping Apple relay), retries
+ * on 409 with a random suffix (≤3 tries), and gives up quietly on any other
+ * error. Matches KYCView.claimTaliseHandle().
+ */
+export async function claimHandleSilently(user: UserDTO): Promise<void> {
+  const base = deriveHandle(user);
+  if (!base) return;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const username = attempt === 0 ? base : `${base}${100 + Math.floor(Math.random() * 9900)}`;
+    try {
+      await api("/api/username/claim", { method: "POST", body: { username } });
+      return;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) continue;
+      return;
+    }
+  }
+}
+
+function deriveHandle(user: UserDTO): string {
+  const firstName = user.name?.trim().split(/\s+/)[0];
+  const emailLocal =
+    user.email && !user.email.includes("privaterelay.appleid.com") ? user.email.split("@")[0] : undefined;
+  const raw = firstName || emailLocal || "";
+  return raw.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20);
+}
+
+/** Submit onboarding country + account type. */
+export function submitOnboarding(country: string, accountType: "personal" | "business"): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>("/api/onboarding", { method: "POST", body: { country, accountType } });
 }
 
 /** Wipe all session material (keeps the per-user PIN, like iOS clearSession()). */

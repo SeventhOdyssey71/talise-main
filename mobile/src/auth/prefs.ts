@@ -53,6 +53,10 @@ export const prefs = {
   getPinFlowReset: () => AsyncStorage.getItem(K.pinFlowReset),
   setPinFlowReset: () => AsyncStorage.setItem(K.pinFlowReset, "1"),
 
+  /** Whether the user has signed in before (drives the SignIn screen copy). */
+  getHasSignedIn: async (): Promise<boolean> => (await AsyncStorage.getItem("talise.hasSignedInBefore")) === "1",
+  setHasSignedIn: () => AsyncStorage.setItem("talise.hasSignedInBefore", "1"),
+
   // Display-only cached user snapshot (fast launch; never used in money paths)
   getUserSnapshot: <T>(userId: string) => getJSON<T>(K.snapshotUser(userId)),
   setUserSnapshot: (userId: string, user: unknown) => setJSON(K.snapshotUser(userId), user),
