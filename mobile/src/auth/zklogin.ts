@@ -146,6 +146,63 @@ export function submitOnboarding(country: string, accountType: "personal" | "bus
   return api<{ ok: boolean }>("/api/onboarding", { method: "POST", body: { country, accountType } });
 }
 
+type TxMeta = { kind: string; amountUsd?: number; venue?: string; roundupUsd?: number };
+
+/**
+ * Sponsor a transactionKind, then sign + execute. Used by the swap/consolidate
+ * paths (POST /api/zk/sponsor {transactionKindB64} -> {bytes} → sponsorExecute).
+ */
+export async function signAndSubmit(transactionKindB64: string, meta?: TxMeta): Promise<{ digest: string }> {
+  const { bytes } = await api<{ bytes: string }>("/api/zk/sponsor", {
+    method: "POST",
+    zk: true,
+    body: { transactionKindB64 },
+  });
+  return sponsorExecute(bytes, meta);
+}
+
+/**
+ * Prepare a send, sign the bytes, and submit — gasless when possible, else
+ * sponsored. Exact contract: /api/send/sponsor-prepare → sign → /api/send/
+ * gasless-submit | /api/zk/sponsor-execute. Returns the on-chain digest.
+ */
+export async function signAndSubmitSend(
+  to: string,
+  amountUsd: number,
+  asset = "USDsui",
+): Promise<{ digest: string; roundupUsd?: number }> {
+  const prep = await api<{ bytes: string; mode: string; roundupUsd?: number; error?: string; code?: string }>(
+    "/api/send/sponsor-prepare",
+    { method: "POST", zk: true, body: { to, amount: amountUsd, asset, sponsorFallback: true } },
+  );
+  if (prep.error) throw new Error(prep.error);
+
+  const pc = await proofCache.get();
+  if (!pc) throw new Error("No active session.");
+  const ephemeralPubKeyB64 = await ephemeralKey.publicKeyB64();
+  const userSignature = await signTransactionBytes(prep.bytes);
+  const cachedProof = await proofCache.validProof();
+
+  const body = {
+    bytesB64: prep.bytes,
+    ephemeralPubKeyB64,
+    maxEpoch: pc.maxEpoch,
+    randomness: pc.jwtRandomness,
+    userSignature,
+    cachedProof: cachedProof ?? undefined,
+    meta: { kind: "send", amountUsd, roundupUsd: prep.roundupUsd },
+  };
+  const path = prep.mode === "gasless" ? "/api/send/gasless-submit" : "/api/zk/sponsor-execute";
+  const res = await api<{ digest: string; freshProof?: Proof; error?: string }>(path, {
+    method: "POST",
+    zk: true,
+    body,
+  });
+  if (res.freshProof) await proofCache.setProof(res.freshProof);
+  if (res.error || !res.digest) throw new Error(res.error || "Payment didn't land on chain. No funds moved.");
+  return { digest: res.digest, roundupUsd: prep.roundupUsd };
+}
+
 /** Wipe all session material (keeps the per-user PIN, like iOS clearSession()). */
 export async function clearSession(): Promise<void> {
   const uid = await prefs.getLastUserId();

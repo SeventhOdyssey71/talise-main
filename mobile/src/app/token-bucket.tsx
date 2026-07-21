@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { humanAmount, walletApi, type WalletCoinBalance } from "@/api/wallet";
+import { signAndSubmit } from "@/auth/zklogin";
+import { SuccessfulTxView } from "@/components/wallet/SuccessfulTxView";
 import { Icon } from "@/design/Icon";
 import { MicroLabel } from "@/design/components/text";
 import { colors, spacing } from "@/design/tokens";
@@ -20,12 +22,38 @@ export default function TokenBucketScreen() {
   const router = useRouter();
   const [coins, setCoins] = useState<WalletCoinBalance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [swapping, setSwapping] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
     walletApi.coinBalances().then((c) => setCoins(c.filter((x) => !x.isUsdsui))).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const total = coins.reduce((s, c) => s + (c.usdValue ?? 0), 0);
+
+  const swap = async (coin: WalletCoinBalance) => {
+    setSwapping(coin.coinType);
+    try {
+      const { bytesB64 } = await walletApi.sweep([{ coinType: coin.coinType, amount: coin.amount }]);
+      await signAndSubmit(bytesB64, { kind: "consolidate" });
+      setCoins((prev) => prev.filter((c) => c.coinType !== coin.coinType));
+      setDone(true);
+    } catch (e) {
+      Alert.alert("Swap failed", e instanceof Error ? e.message : "Couldn't swap that token.");
+    } finally {
+      setSwapping(null);
+    }
+  };
+
+  if (done) {
+    return (
+      <SuccessfulTxView
+        title="Swapped to USDsui"
+        subtitle="gas cost = 0 · added to your balance"
+        onDone={() => (coins.length === 0 ? router.back() : setDone(false))}
+      />
+    );
+  }
 
   return (
     <View style={styles.screen}>
@@ -67,8 +95,16 @@ export default function TokenBucketScreen() {
                 <Text style={styles.coinSym}>{c.symbol ?? "Token"}</Text>
                 <Text style={styles.coinAmt}>{humanAmount(c).toLocaleString("en-US", { maximumFractionDigits: 4 })} {c.symbol}</Text>
               </View>
-              <Pressable style={styles.swapPill} onPress={() => Alert.alert("", "Swap-to-USDsui execution lands in the Phase 4 continuation.")}>
-                <Text style={styles.swapText}>Swap to USDsui</Text>
+              <Pressable
+                style={[styles.swapPill, swapping && { opacity: 0.7 }]}
+                disabled={!!swapping}
+                onPress={() => swap(c)}
+              >
+                {swapping === c.coinType ? (
+                  <ActivityIndicator size="small" color={colors.inkOnAccent} />
+                ) : (
+                  <Text style={styles.swapText}>Swap to USDsui</Text>
+                )}
               </Pressable>
             </View>
           ))}
