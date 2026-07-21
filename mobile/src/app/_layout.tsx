@@ -42,6 +42,13 @@ function RootNav() {
     >
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="(auth)" />
+      <Stack.Screen name="deposit" options={{ presentation: "modal" }} />
+      <Stack.Screen name="withdraw" options={{ presentation: "modal" }} />
+      <Stack.Screen name="receive" options={{ presentation: "modal" }} />
+      <Stack.Screen name="history" options={{ presentation: "modal" }} />
+      <Stack.Screen name="token-bucket" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="receipt" options={{ presentation: "modal" }} />
+      <Stack.Screen name="scan" options={{ presentation: "fullScreenModal" }} />
     </Stack>
   );
 }
