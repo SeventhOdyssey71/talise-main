@@ -32,7 +32,6 @@ export default function WithdrawScreen() {
           <HubCard icon="hi.send" title="Send" subtitle="@handle or address" onPress={() => router.push("/send")} />
           <HubCard icon="hi.globe" title="Send abroad" subtitle="To their bank, in their currency" onPress={() => router.push("/send-abroad")} />
           <HubCard icon="hi.bank" title="Cash out" subtitle="To your bank" onPress={() => soon("Cash out")} />
-          <HubCard icon="hi.lock" title="Send privately" subtitle="Amount stays hidden" onPress={() => soon("Private send")} />
         </View>
 
         <Text style={styles.section}>MORE</Text>
