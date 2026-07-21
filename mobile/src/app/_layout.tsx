@@ -52,6 +52,10 @@ function RootNav() {
       <Stack.Screen name="confirm-pay" options={{ presentation: "modal" }} />
       <Stack.Screen name="send" options={{ presentation: "fullScreenModal" }} />
       <Stack.Screen name="send-abroad" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="perps" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="earn-manage" options={{ presentation: "modal" }} />
+      <Stack.Screen name="new-goal" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="goal-action" options={{ presentation: "modal" }} />
     </Stack>
   );
 }
