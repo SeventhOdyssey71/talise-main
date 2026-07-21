@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     description:
       "A dollar wallet that feels like a messaging app. Hold real dollars, send them to a name, cash out at home.",
     type: "article",
-    images: [{ url: "/blog/move-freely.png", width: 1200, height: 630 }],
+    images: [{ url: "/blog/move-freely.webp", width: 1200, height: 630 }],
   },
 };
 
@@ -138,7 +138,7 @@ export default function IntroducingTalise() {
       <figure className="mt-9 overflow-hidden rounded-[28px] border border-[#15300c]/10">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/blog/move-freely.png"
+          src="/blog/move-freely.webp"
           alt="Money that moves freely, like messages."
           className="w-full"
         />

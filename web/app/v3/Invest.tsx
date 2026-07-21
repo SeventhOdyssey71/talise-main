@@ -26,7 +26,7 @@ function PnlCard() {
     >
       {/* anime girl, recoloured green + faded into the card */}
       <div className="absolute inset-y-0 right-0 w-[50%]" style={{ isolation: "isolate" }}>
-        <Image src="/v3/anime-girl.png" alt="A Talise user checking her phone" fill sizes="270px" className="object-cover object-top" style={{ filter: "contrast(1.05) saturate(0.5)" }} />
+        <Image src="/v3/anime-girl.webp" alt="A Talise user checking her phone" fill sizes="270px" className="object-cover object-top" style={{ filter: "contrast(1.05) saturate(0.5)" }} />
         <div className="absolute inset-0" style={{ background: "#2f7d2f", mixBlendMode: "color" }} />
         <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, #0d2211 0%, rgba(13,34,17,0.72) 34%, rgba(13,34,17,0.12) 74%, transparent 100%)" }} />
         <div className="absolute inset-0" style={{ background: "linear-gradient(0deg, rgba(10,14,11,0.55) 0%, transparent 42%)" }} />

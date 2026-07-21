@@ -16,7 +16,7 @@ import Image from "next/image";
  * collectively take 300-900ms, long enough that the user thinks the
  * button is broken.
  *
- * The galaxy backdrop reuses the existing /landing-hero.png so we don't
+ * The galaxy backdrop reuses the existing /landing-hero.webp so we don't
  * pay for an extra asset, and the brand voice carries through.
  */
 export function SigninPreloader({
@@ -45,7 +45,7 @@ export function SigninPreloader({
             className="pointer-events-none absolute inset-0 opacity-70"
           >
             <Image
-              src="/landing-hero.png"
+              src="/landing-hero.webp"
               alt=""
               fill
               priority

@@ -5,7 +5,7 @@ import { Counter, Kicker, Ticks } from "./ui";
 const POSTS = [
   {
     href: "/blog/introducing-talise",
-    img: "/v3/move-freely.png",
+    img: "/v3/move-freely.webp",
     date: "2026",
     tag: "Product",
     title: "Introducing Talise",
@@ -13,7 +13,7 @@ const POSTS = [
   },
   {
     href: "/blog/talise-copilot",
-    img: "/v3/move-freely.png",
+    img: "/v3/move-freely.webp",
     date: "2026",
     tag: "AI",
     title: "Meet the Talise Copilot",
@@ -21,7 +21,7 @@ const POSTS = [
   },
   {
     href: "/blog/copilot-walrus-memory",
-    img: "/v3/move-freely.png",
+    img: "/v3/move-freely.webp",
     date: "2026",
     tag: "Engineering",
     title: "Private memory with Walrus",
