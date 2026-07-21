@@ -6,7 +6,7 @@ export default function ProfileScreen() {
     <TabPlaceholder
       title="Profile"
       subtitle="Account · Settings"
-      icon="person"
+      icon="person.crop.circle.fill"
       note="Identity, KYC status, linked banks, handle, security (PIN/biometrics) and help land here as the Profile module is ported from iOS."
     />
   );
