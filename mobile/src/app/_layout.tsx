@@ -56,6 +56,8 @@ function RootNav() {
       <Stack.Screen name="earn-manage" options={{ presentation: "modal" }} />
       <Stack.Screen name="new-goal" options={{ presentation: "fullScreenModal" }} />
       <Stack.Screen name="goal-action" options={{ presentation: "modal" }} />
+      <Stack.Screen name="change-pin" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="verify-identity" options={{ presentation: "modal" }} />
     </Stack>
   );
 }
