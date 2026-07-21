@@ -42,7 +42,7 @@ const POSTS: Post[] = [
     date: "June 22, 2026",
     readTime: "5 min read",
     tag: "Announcement",
-    cover: "/blog/move-freely.png",
+    cover: "/blog/move-freely.webp",
   },
 ];
 

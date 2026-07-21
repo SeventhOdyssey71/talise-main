@@ -48,9 +48,9 @@ function SendWidget() {
 
 function GlobalWidget() {
   const rows = [
-    ["/v2/flag-us.png", "/v2/flag-ng.png", "US → Nigeria"],
-    ["/v2/flag-gb.png", "/v2/flag-ph.png", "UK → Philippines"],
-    ["/v2/flag-ae.png", "/v2/flag-ng.png", "UAE → Nigeria"],
+    ["/v2/flag-us.webp", "/v2/flag-ng.webp", "US → Nigeria"],
+    ["/v2/flag-gb.webp", "/v2/flag-ph.webp", "UK → Philippines"],
+    ["/v2/flag-ae.webp", "/v2/flag-ng.webp", "UAE → Nigeria"],
   ];
   return (
     <div className="flex h-full flex-col justify-center gap-2.5 rounded-lg border border-[var(--v3-line)] bg-[var(--v3-white)] p-5" data-rows>
