@@ -227,10 +227,18 @@ export function middleware(req: NextRequest) {
       url.pathname = "/app/shield-prove";
       return withSecurityHeaders(NextResponse.rewrite(url));
     }
-    // `perps` is kept alive so the "trade perps" banner (href="/perps") serves
-    // the dedicated terminal on app.talise.io instead of being rewritten to the
-    // non-existent /app/perps. (Same route the perps.talise.io host serves.)
-    const keepAlive = /^\/(api|auth|shield|c|i|u|pay|req|admin|perps|_next|_vercel)(\/|$)/;
+    // Perps lives on its own canonical host. Any /perps link on the wallet host
+    // (the "trade perps" banner, a shared/bookmarked link, direct navigation)
+    // bounces to perps.talise.io so the terminal always runs under its own
+    // subdomain — never app.talise.io/perps. Subpaths map to the clean root
+    // (/perps → /, /perps/x → /x), matching the URLs the perps host serves.
+    if (pathname === "/perps" || pathname.startsWith("/perps/")) {
+      const rest = pathname.slice("/perps".length) || "/";
+      return withSecurityHeaders(
+        NextResponse.redirect(`https://${PERPS_HOST}${rest}${req.nextUrl.search}`, 307),
+      );
+    }
+    const keepAlive = /^\/(api|auth|shield|c|i|u|pay|req|admin|_next|_vercel)(\/|$)/;
     if (keepAlive.test(pathname)) {
       return withSecurityHeaders(NextResponse.next());
     }
