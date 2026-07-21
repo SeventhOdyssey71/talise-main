@@ -38,6 +38,14 @@ const fmtStamp = (t: number) =>
     hour12: false,
   });
 
+// Chart axis font. Must be LITERAL family names only — lightweight-charts sets
+// this directly on the <canvas> `ctx.font`, which cannot resolve CSS variables
+// (`var(--font-sans-v2)` would make the whole font string invalid and silently
+// fall back to the default sans-serif). "Google Sans Variable" is loaded app-
+// wide via @fontsource in the root layout.
+const CHART_FONT =
+  '"Google Sans Variable", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+
 /** Animated candle skeleton shown while the first candles load. */
 function ChartSkeleton() {
   const bars = [42, 66, 54, 78, 60, 86, 48, 72, 58, 90, 64, 76, 52, 82, 62, 74, 56, 88];
@@ -116,7 +124,7 @@ export function TradeChart({ symbol, interval }: { symbol: string; interval: str
         layout: {
           background: { type: ColorType.Solid, color: "transparent" },
           textColor: "#3a5230",
-          fontFamily: '"Google Sans Variable", "Google Sans", var(--font-sans-v2), system-ui, sans-serif',
+          fontFamily: CHART_FONT,
         },
         grid: {
           vertLines: { color: "rgba(21,48,12,0.06)" },
@@ -165,6 +173,14 @@ export function TradeChart({ symbol, interval }: { symbol: string; interval: str
         }
       });
       ro.observe(el);
+      // Canvas text uses whatever font is loaded at draw time and does NOT
+      // repaint when a web font arrives later. Once Google Sans is ready,
+      // re-apply the layout to force a redraw so the axis picks it up.
+      if (typeof document !== "undefined" && document.fonts?.ready) {
+        document.fonts.ready.then(() => {
+          if (!disposed) chartRef.current?.applyOptions({ layout: { fontFamily: CHART_FONT } });
+        });
+      }
       await load();
       // Skip the refresh while the tab is backgrounded — no point redrawing a
       // chart no one is watching (saves RPC + battery).
