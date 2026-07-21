@@ -17,10 +17,15 @@ A gasless US dollar account on Sui. Sign in with Google, hold dollars, and send 
 This is the **primary working repository** for Talise, where the product was built. It is a monorepo:
 
 ```
-web/      Web app and API (Next.js, TypeScript)
-ios/      iOS app (Swift, SwiftUI)
-move/     Sui Move packages (payments, privacy, savings, yield)
-infra/    Gas-sponsorship service (the gasless transaction sponsor)
+web/       Web app and API (Next.js, TypeScript)
+ios/       iOS app (Swift, SwiftUI)
+android/   Android app (Kotlin, Jetpack Compose)
+move/      Sui Move packages (payments, privacy, savings, yield)
+infra/     Gas-sponsorship service (the gasless transaction sponsor)
+cli/       Talise command-line client (@talise/cli)
+scripts/   Repo tooling and one-off operational scripts
+docs/      Design, strategy, pitch, and security documentation
+marketing/ Marketing site assets and Remotion motion pieces
 ```
 
 ## What Talise does

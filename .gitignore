@@ -96,6 +96,10 @@ Simulator Screen Recording*.mov
 /*.gif
 /*.mp4
 /*.mov
+/*.otf
+/*.ttf
+/*.woff
+/*.woff2
 # But keep the brand logos which README references
 !/TaliseLogoNavbar.png
 
