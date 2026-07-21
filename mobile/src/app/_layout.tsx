@@ -76,6 +76,16 @@ function RootNav() {
       <Stack.Screen name="request-new" options={{ presentation: "fullScreenModal" }} />
       <Stack.Screen name="rules" options={{ presentation: "modal" }} />
       <Stack.Screen name="rule-new" options={{ presentation: "fullScreenModal" }} />
+
+      {/* Phase 8 — payroll, pockets, bank, handle */}
+      <Stack.Screen name="payroll" options={{ presentation: "modal" }} />
+      <Stack.Screen name="team-edit" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="pay-team" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="team-stream" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="pockets" options={{ presentation: "modal" }} />
+      <Stack.Screen name="bank-accounts" options={{ presentation: "modal" }} />
+      <Stack.Screen name="bank-add" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="claim-handle" options={{ presentation: "modal" }} />
     </Stack>
   );
 }

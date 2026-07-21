@@ -38,7 +38,7 @@ export default function WithdrawScreen() {
         <View style={{ gap: spacing.md }}>
           <HubCard icon="hi.cheque" title="Cheques" subtitle="Write · Cash · My cheques" onPress={() => router.push("/cheques")} />
           <HubCard icon="hi.briefcase" title="Work" subtitle="Streams · Invoices · Contracts" onPress={() => router.push("/work")} />
-          <HubCard icon="hi.cash" title="Payroll" subtitle="Pay a team in one tap" onPress={() => soon("Payroll")} />
+          <HubCard icon="hi.cash" title="Payroll" subtitle="Pay a team in one tap" onPress={() => router.push("/payroll")} />
           <HubCard icon="hi.stream" title="Rules" subtitle="Money that runs itself" onPress={() => router.push("/rules")} />
         </View>
       </ScrollView>
