@@ -32,11 +32,23 @@
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            { "scheme": "https", "host": "talise.io" },
-            { "scheme": "https", "host": "www.talise.io" },
-            { "scheme": "https", "host": "app.talise.io" }
+            {
+              "scheme": "https",
+              "host": "talise.io"
+            },
+            {
+              "scheme": "https",
+              "host": "www.talise.io"
+            },
+            {
+              "scheme": "https",
+              "host": "app.talise.io"
+            }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -53,10 +65,11 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 96
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
-      "typedRoutes": true,
+      "typedRoutes": false,
       "reactCompiler": true
     }
   }
