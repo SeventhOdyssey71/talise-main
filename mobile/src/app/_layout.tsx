@@ -50,6 +50,8 @@ function RootNav() {
       <Stack.Screen name="receipt" options={{ presentation: "modal" }} />
       <Stack.Screen name="scan" options={{ presentation: "fullScreenModal" }} />
       <Stack.Screen name="confirm-pay" options={{ presentation: "modal" }} />
+      <Stack.Screen name="send" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="send-abroad" options={{ presentation: "fullScreenModal" }} />
     </Stack>
   );
 }

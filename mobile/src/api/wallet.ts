@@ -104,3 +104,16 @@ export type RecipientResolution = {
 export function resolveRecipient(q: string): Promise<RecipientResolution> {
   return api<RecipientResolution>(`/api/recipient/resolve?q=${encodeURIComponent(q)}`);
 }
+
+export type ContactDTO = {
+  address: string;
+  name?: string | null;
+  lastSeenMs: number;
+  sentCount: number;
+  receivedCount: number;
+};
+
+export async function getContacts(): Promise<ContactDTO[]> {
+  const r = await api<{ contacts?: ContactDTO[] }>("/api/contacts");
+  return r.contacts ?? [];
+}
