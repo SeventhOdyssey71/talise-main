@@ -6,7 +6,7 @@ export default function FinanceScreen() {
     <TabPlaceholder
       title="Finance"
       subtitle="Earn · Invest"
-      icon="trending-up"
+      icon="leaf.fill"
       note="Earn, Perps, round-ups, goals and insights land here as the Finance module is ported from iOS."
     />
   );

@@ -20,7 +20,7 @@ export function Screen({ children, scroll = true, tabBarSpace = true }: Props) {
   const insets = useSafeAreaInsets();
   const pad = {
     paddingTop: insets.top + spacing.sm,
-    paddingBottom: tabBarSpace ? 120 : insets.bottom + spacing.base,
+    paddingBottom: tabBarSpace ? 120 : insets.bottom + spacing.lg,
   };
 
   if (!scroll) {
@@ -39,5 +39,5 @@ export function Screen({ children, scroll = true, tabBarSpace = true }: Props) {
 
 const styles = StyleSheet.create({
   base: { flex: 1, backgroundColor: colors.bg },
-  gutter: { paddingHorizontal: spacing.base },
+  gutter: { paddingHorizontal: spacing.lg },
 });

@@ -6,7 +6,7 @@ export default function RewardsScreen() {
     <TabPlaceholder
       title="Rewards"
       subtitle="Points · Referrals"
-      icon="gift"
+      icon="gift.fill"
       note="Points, tier, referral sharing, earning history and redemptions land here as the Rewards module is ported from iOS."
     />
   );
