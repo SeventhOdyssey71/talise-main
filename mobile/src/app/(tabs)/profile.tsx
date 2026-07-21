@@ -64,7 +64,12 @@ export default function ProfileScreen() {
               <Icon name="checkmark.seal.fill" size={11} color={colors.greenMint} />
               <Text style={styles.handleText}>{handle}@talise</Text>
             </View>
-          ) : null}
+          ) : (
+            <Pressable style={styles.handlePill} onPress={() => router.push("/claim-handle")}>
+              <Icon name="sparkles" size={11} color={colors.greenMint} />
+              <Text style={styles.handleText}>Claim your name</Text>
+            </Pressable>
+          )}
           <Text style={styles.email}>{u?.email?.includes("privaterelay.appleid.com") ? "Signed in with Apple · private email" : u?.email ?? ""}</Text>
         </LinearGradient>
 
@@ -91,6 +96,13 @@ export default function ProfileScreen() {
               <Text style={styles.pillText}>Suiscan</Text>
             </Pressable>
           </View>
+        </Section>
+
+        {/* Money */}
+        <Section title="Money">
+          <Row icon="arrow.left.arrow.right" label="Currency pockets" onPress={() => router.push("/pockets")} />
+          <View style={styles.divider} />
+          <Row icon="building.columns" label="Bank accounts" onPress={() => router.push("/bank-accounts")} />
         </Section>
 
         {/* Cash out / verification */}
