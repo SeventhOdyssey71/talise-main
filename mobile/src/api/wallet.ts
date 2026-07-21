@@ -83,4 +83,24 @@ export const walletApi = {
     const r = await api<{ balances?: WalletCoinBalance[] }>("/api/wallet/balances");
     return r.balances ?? [];
   },
+
+  /** Sweep/convert non-USDsui coins to USDsui → returns a transactionKind to sponsor+sign. */
+  sweep: (coins: { coinType: string; amount: string }[]) =>
+    api<{ bytesB64: string; sender?: string; estUsdsuiOut?: string }>("/api/wallet/sweep", {
+      method: "POST",
+      zk: true,
+      body: { coins },
+    }),
 };
+
+/** Recipient resolution — resolves a handle / address / QR target to pay. */
+export type RecipientResolution = {
+  address: string;
+  displayName?: string | null;
+  display?: string | null;
+  source?: string | null;
+};
+
+export function resolveRecipient(q: string): Promise<RecipientResolution> {
+  return api<RecipientResolution>(`/api/recipient/resolve?q=${encodeURIComponent(q)}`);
+}

@@ -49,6 +49,7 @@ function RootNav() {
       <Stack.Screen name="token-bucket" options={{ presentation: "fullScreenModal" }} />
       <Stack.Screen name="receipt" options={{ presentation: "modal" }} />
       <Stack.Screen name="scan" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen name="confirm-pay" options={{ presentation: "modal" }} />
     </Stack>
   );
 }
