@@ -11,17 +11,14 @@
     },
     "simulator": {
       "distribution": "internal",
-      "ios": { "simulator": true },
-      "channel": "simulator"
+      "ios": { "simulator": true }
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview",
       "android": { "buildType": "apk" }
     },
     "production": {
-      "autoIncrement": true,
-      "channel": "production"
+      "autoIncrement": true
     }
   },
   "submit": {
