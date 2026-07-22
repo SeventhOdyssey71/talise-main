@@ -1,0 +1,13 @@
+# EAS Build only needs the Expo app in mobile/ (self-contained: own package-lock).
+# Exclude the rest of the monorepo so the upload archive stays small.
+/web/
+/ios/
+/android/
+/move/
+/infra/
+/cli/
+/docs/
+/marketing/
+/.github/
+*.mp4
+*.mov
