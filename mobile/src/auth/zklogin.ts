@@ -1,5 +1,5 @@
 import { api, ApiError, setBearer } from "@/api/client";
-import { googleSignIn } from "@/auth/oauth";
+import { startGoogleAuth, parseCallback } from "@/auth/oauth";
 import { prefs } from "@/auth/prefs";
 import { proofCache, type Proof } from "@/auth/proofCache";
 import { secure } from "@/auth/secure";
@@ -30,13 +30,27 @@ async function fetchMaxEpoch(): Promise<number> {
   return Number(epoch) + 3;
 }
 
-export async function signInWithGoogle(): Promise<{ user: UserDTO; existing: boolean }> {
+/**
+ * Rotate to a fresh ephemeral key and open Google OAuth. Returns the callback
+ * URL when the in-app auth session captured the redirect; null when it deep-links
+ * into the app instead (completeGoogleSignIn is then driven by the SessionProvider
+ * deep-link listener).
+ */
+export async function beginGoogleSignIn(): Promise<string | null> {
   await ephemeralKey.wipe();
   await proofCache.clear();
   const { secret } = await ephemeralKey.loadOrCreate();
   const pubKeyUrl = b64.encodeUrl(ed25519PublicKey(secret));
+  return startGoogleAuth(pubKeyUrl);
+}
 
-  const { token, userId, existing } = await googleSignIn(pubKeyUrl);
+/**
+ * Finish sign-in from the OAuth callback URL: store the session bearer, fetch the
+ * user record, cache session material, and warm the ZK proof. Safe to call from
+ * either the inline (auth-session) or the deep-link path.
+ */
+export async function completeGoogleSignIn(callbackUrl: string): Promise<{ user: UserDTO; existing: boolean }> {
+  const { token, userId, existing } = parseCallback(callbackUrl);
   await secure.setBearer(token);
   setBearer(token);
   await prefs.setSignInAt(Date.now());
@@ -45,6 +59,7 @@ export async function signInWithGoogle(): Promise<{ user: UserDTO; existing: boo
   const user = await api<UserDTO>("/api/me");
   await prefs.setUserSnapshot(userId, user);
 
+  const { secret } = await ephemeralKey.loadOrCreate();
   const randomness = randomnessDecimal();
   const maxEpoch = await fetchMaxEpoch();
   await proofCache.set({ maxEpoch, jwtRandomness: randomness });
