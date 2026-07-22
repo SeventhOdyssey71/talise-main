@@ -9,6 +9,11 @@ import { API_BASE } from "@/api/client";
  * (same `aud` → same Sui address as web). Open /api/auth/mobile/start with the
  * base64URL ephemeral pubkey; the backend runs OAuth and redirects to
  * talise://auth/callback?token&userId&existing.
+ *
+ * On Android the app claims the `talise://` scheme, so that redirect usually
+ * deep-links back INTO the app (routed to app/auth/callback and finished by the
+ * SessionProvider deep-link listener) instead of being captured by the in-app
+ * auth session. Both completion paths are supported.
  */
 
 export class AuthCancelled extends Error {
@@ -20,20 +25,28 @@ export class AuthCancelled extends Error {
 
 export type OAuthResult = { token: string; userId: string; existing: boolean };
 
-const REDIRECT = "talise://auth/callback";
+export const AUTH_REDIRECT = "talise://auth/callback";
 
-export async function googleSignIn(ephemeralPubKeyB64Url: string): Promise<OAuthResult> {
+/**
+ * Open Google OAuth. Returns the callback URL when the in-app auth session
+ * captures the redirect (iOS / some Android); returns null when it was cancelled
+ * OR the redirect deep-linked into the app — in which case the deep-link listener
+ * completes sign-in from the incoming URL.
+ */
+export async function startGoogleAuth(ephemeralPubKeyB64Url: string): Promise<string | null> {
   const startUrl = `${API_BASE}/api/auth/mobile/start?ephemeralPubKey=${encodeURIComponent(ephemeralPubKeyB64Url)}`;
-  const res = await WebBrowser.openAuthSessionAsync(startUrl, REDIRECT);
+  const res = await WebBrowser.openAuthSessionAsync(startUrl, AUTH_REDIRECT);
+  return res.type === "success" && res.url ? res.url : null;
+}
 
-  if (res.type === "cancel" || res.type === "dismiss" || res.type === "locked") {
-    throw new AuthCancelled();
-  }
-  if (res.type !== "success" || !res.url) {
-    throw new Error("Sign-in did not complete.");
-  }
+/** True if a URL is our OAuth callback (talise://auth/callback?…). */
+export function isAuthCallback(url: string): boolean {
+  return url.startsWith(AUTH_REDIRECT) || url.includes("auth/callback");
+}
 
-  const q = parseQuery(res.url);
+/** Parse token/userId/existing from a callback URL (throws on error / missing session). */
+export function parseCallback(url: string): OAuthResult {
+  const q = parseQuery(url);
   const err = q.err ?? q.error;
   if (err) throw new Error(decodeURIComponent(err));
   const token = q.token;

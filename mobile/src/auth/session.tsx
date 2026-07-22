@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { AppState, type AppStateStatus } from "react-native";
+import { AppState, Linking, type AppStateStatus } from "react-native";
+import * as WebBrowser from "expo-web-browser";
 
 import { setUnauthorizedHandler } from "@/api/client";
 import { pinService } from "@/auth/pin";
 import { prefs } from "@/auth/prefs";
 import { proofCache } from "@/auth/proofCache";
 import { secure } from "@/auth/secure";
-import { clearSession, fetchMe, restoreBearer, signInWithGoogle, type UserDTO } from "@/auth/zklogin";
+import { beginGoogleSignIn, clearSession, completeGoogleSignIn, fetchMe, restoreBearer, type UserDTO } from "@/auth/zklogin";
 
 /**
  * AppSession — the phase state machine, ported from ios App/AppSession.swift.
@@ -46,6 +47,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<Phase>("launching");
   const [user, setUser] = useState<UserDTO | null>(null);
   const backgroundedAt = useRef<number | null>(null);
+  const authInFlight = useRef(false);
+  const lastCallbackUrl = useRef<string | null>(null);
 
   /** accountType==null → onboarding; else no PIN → pinSetup; else ready. */
   const route = useCallback(async (u: UserDTO) => {
@@ -94,6 +97,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
+  // OAuth deep-link callback. On Android the talise://auth/callback redirect
+  // deep-links back INTO the app (rather than being captured by the auth
+  // session), so finish sign-in here from the incoming URL — otherwise it lands
+  // on an "unmatched route". Deduped by URL so getInitialURL + the url event
+  // don't complete twice.
+  useEffect(() => {
+    const handle = async (url: string | null) => {
+      if (!url || !url.includes("auth/callback")) return;
+      if (url === lastCallbackUrl.current || authInFlight.current) return;
+      lastCallbackUrl.current = url;
+      authInFlight.current = true;
+      try {
+        const { user: u } = await completeGoogleSignIn(url);
+        await route(u);
+      } catch {
+        /* leave the user on the welcome screen; retrying re-opens OAuth */
+      } finally {
+        authInFlight.current = false;
+        try { WebBrowser.dismissBrowser(); } catch { /* no browser open */ }
+      }
+    };
+    Linking.getInitialURL().then(handle).catch(() => {});
+    const sub = Linking.addEventListener("url", (e) => handle(e.url));
+    return () => sub.remove();
+  }, [route]);
+
   // Background lock — record on background, re-lock on foreground after 20s.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next: AppStateStatus) => {
@@ -119,9 +148,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     phase,
     user,
     signIn: async () => {
-      const { user: u, existing } = await signInWithGoogle();
-      await route(u);
-      return { existing };
+      const url = await beginGoogleSignIn();
+      if (url) {
+        const { user: u, existing } = await completeGoogleSignIn(url);
+        await route(u);
+        return { existing };
+      }
+      // The redirect deep-linked into the app; the listener below finishes it.
+      return { existing: false };
     },
     completeOnboarding: (u) => {
       void route(u);
