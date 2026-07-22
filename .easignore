@@ -1,5 +1,21 @@
+# NOTE: when this file exists, EAS uses it INSTEAD of .gitignore — so it must
+# also exclude node_modules and build output, not just the non-mobile dirs.
 # EAS Build only needs the Expo app in mobile/ (self-contained: own package-lock).
-# Exclude the rest of the monorepo so the upload archive stays small.
+
+# heavy build/deps (normally covered by .gitignore)
+node_modules/
+mobile/node_modules/
+**/node_modules/
+.expo/
+mobile/.expo/
+dist/
+mobile/dist/
+web-build/
+.next/
+**/.next/
+*.log
+
+# the rest of the monorepo — irrelevant to the mobile app build
 /web/
 /ios/
 /android/
@@ -9,5 +25,6 @@
 /docs/
 /marketing/
 /.github/
+/.claude/
 *.mp4
 *.mov
