@@ -207,8 +207,11 @@ export function TradeChart({ symbol, interval }: { symbol: string; interval: str
   }, [symbol, interval, load]);
 
   return (
-    <div className="relative h-full w-full">
-      <div ref={elRef} className="h-full w-full" />
+    // letter-spacing:normal — the app-wide −0.05em tracking otherwise bleeds into
+    // the chart's canvas axis text (Chrome honors the canvas element's CSS
+    // letter-spacing), cramping the price/date labels.
+    <div className="relative h-full w-full" style={{ letterSpacing: "normal" }}>
+      <div ref={elRef} className="h-full w-full" style={{ letterSpacing: "normal" }} />
       {loading && <ChartSkeleton />}
     </div>
   );
