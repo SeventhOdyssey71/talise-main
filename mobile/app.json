@@ -50,6 +50,10 @@
             "DEFAULT"
           ]
         }
+      ],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -77,6 +81,13 @@
     "experiments": {
       "typedRoutes": false,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "17aabaae-65e8-4317-a7ad-f5b32f1af3cd"
+      }
+    },
+    "owner": "iv_dev3"
   }
 }
