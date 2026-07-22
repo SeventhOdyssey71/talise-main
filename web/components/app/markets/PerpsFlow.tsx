@@ -43,6 +43,7 @@ export function PerpsFlow() {
   const [spotMap, setSpotMap] = useState<Record<string, number>>({});
   const [changeMap, setChangeMap] = useState<Record<string, number>>({});
   const [chartSym, setChartSym] = useState<string | null>(null);
+  const [chartIv, setChartIv] = useState("15m");
   const [quote, setQuote] = useState<Quote>({});
   const [account, setAccount] = useState<Account>({ accountId: null });
 
@@ -522,7 +523,12 @@ export function PerpsFlow() {
                 <button onClick={() => setChartSym(null)} aria-label="Close" className="flex size-8 items-center justify-center rounded-full text-[15px]" style={{ background: "rgba(21,48,12,.08)" }}>✕</button>
               </div>
             </div>
-            <div className="h-[440px] w-full"><TradeChart symbol={chartSym} interval="15m" /></div>
+            <div className="mb-2.5 flex items-center gap-1">
+              {["1m", "15m", "1h", "4h", "1d"].map((iv) => (
+                <button key={iv} onClick={() => setChartIv(iv)} className="rounded-[7px] px-2.5 py-1 text-[12px] font-medium transition-colors" style={{ color: chartIv === iv ? INK : "#7a8a72", background: chartIv === iv ? MINT : "transparent" }}>{iv}</button>
+              ))}
+            </div>
+            <div className="h-[440px] w-full"><TradeChart symbol={chartSym} interval={chartIv} /></div>
           </div>
         </div>
       )}
