@@ -8,6 +8,7 @@ import { db, ensureSchema, schemaVersionGate } from "@/lib/db";
 import { sui } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { getChainIdentifier, getCurrentEpoch } from "@/lib/sui-epoch";
+import { getNormalizedTransaction } from "@/lib/sui-shapes";
 
 /**
  * Team streaming payments, fund a pot once, then a gasless scheduler releases an
@@ -248,12 +249,103 @@ export async function createDraftTeamStream(input: {
   return getTeamStream(id, input.senderUserId) as Promise<TeamStream>;
 }
 
-/** Activate a draft once its funding send has landed. */
+/**
+ * MONEY-SAFETY (audit C4): the funding digest is CLIENT-supplied, so it must be
+ * proven on-chain before the stream is allowed to draw on the commingled escrow.
+ * Verifies: tx succeeded, the sender is this stream's own creator, and the escrow
+ * was actually credited the stream's full `total_micros` in USDsui. Mirrors
+ * `verifyEscrowDeposit` in `lib/cheques.ts`. Fails CLOSED on any doubt.
+ */
+async function verifyStreamFunding(input: {
+  digest: string;
+  fromAddress: string;
+  totalMicros: bigint;
+}): Promise<boolean> {
+  try {
+    const expectedSender = input.fromAddress.trim().toLowerCase();
+    if (!expectedSender) return false;
+
+    const norm = await getNormalizedTransaction(input.digest);
+    if (norm.status !== "success") {
+      console.warn(`[team-streams] funding rejected: tx not successful digest=${input.digest}`);
+      return false;
+    }
+    if (norm.sender !== expectedSender) {
+      console.warn(
+        `[team-streams] funding rejected: sender mismatch digest=${input.digest} sender=${norm.sender || "(none)"} expected=${expectedSender}`
+      );
+      return false;
+    }
+
+    const escrow = teamStreamEscrowAddress().toLowerCase();
+    const tx = (await sui().getTransaction({
+      digest: input.digest,
+      include: { balanceChanges: true, effects: true },
+    })) as Record<string, unknown>;
+    const inner = ((tx.Transaction as Record<string, unknown>) ?? tx) as {
+      balanceChanges?: Array<Record<string, unknown>>;
+    };
+    const ownerOf = (ch: Record<string, unknown>): string => {
+      const o = (ch.owner ?? ch.address) as unknown;
+      if (typeof o === "string") return o.toLowerCase();
+      if (o && typeof o === "object") {
+        const ao = (o as { AddressOwner?: unknown }).AddressOwner;
+        if (typeof ao === "string") return ao.toLowerCase();
+      }
+      return "";
+    };
+    for (const ch of inner.balanceChanges ?? []) {
+      const isUsdsui = /::usdsui::usdsui$/i.test(String(ch.coinType ?? ""));
+      if (ownerOf(ch) === escrow && isUsdsui) {
+        const credited = BigInt(String(ch.amount ?? "0"));
+        if (credited >= input.totalMicros) return true;
+        console.warn(
+          `[team-streams] funding rejected: underfunded digest=${input.digest} credited=${credited} need=${input.totalMicros}`
+        );
+        return false;
+      }
+    }
+    console.warn(`[team-streams] funding rejected: no USDsui credit to escrow digest=${input.digest}`);
+    return false;
+  } catch (err) {
+    console.error(`[team-streams] funding verification faulted digest=${input.digest}:`, (err as Error).message);
+    return false; // fail CLOSED
+  }
+}
+
+/** Activate a draft once its funding send has landed (verified on-chain). */
 export async function activateTeamStream(id: string, userId: number, fundingDigest: string): Promise<TeamStream | null> {
   await ensureTeamStreamsSchema();
   const now = Date.now();
   const stream = await getTeamStream(id, userId);
   if (!stream) return null;
+
+  // Raw row: the projected type rounds to USD, and we need the exact micros +
+  // the address that was supposed to fund this stream.
+  const raw = await db().execute({
+    sql: "SELECT total_micros, sender_address FROM team_streams WHERE id = ? AND sender_user_id = ? LIMIT 1",
+    args: [id, userId],
+  });
+  const rawRow = raw.rows[0] as unknown as { total_micros: string; sender_address: string } | undefined;
+  if (!rawRow) return null;
+
+  // Replay guard: one funding tx can only ever activate one stream.
+  const dupe = await db().execute({
+    sql: "SELECT id FROM team_streams WHERE funding_digest = ? AND id <> ? LIMIT 1",
+    args: [fundingDigest, id],
+  });
+  if (dupe.rows.length > 0) {
+    console.warn(`[team-streams] funding rejected: digest already used digest=${fundingDigest}`);
+    return null;
+  }
+
+  const funded = await verifyStreamFunding({
+    digest: fundingDigest,
+    fromAddress: rawRow.sender_address,
+    totalMicros: BigInt(rawRow.total_micros),
+  });
+  if (!funded) return null;
+
   const nextAt = now + stream.intervalMs;
   await db().execute({
     sql: `UPDATE team_streams

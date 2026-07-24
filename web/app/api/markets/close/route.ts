@@ -3,7 +3,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { denyUnlessAppApproved } from "@/lib/app-access";
 import { rateLimitAsync } from "@/lib/rate-limit";
-import { WATERX_ENABLED, WATERX_LOCAL_SIGN, localSigner, buildCloseTx, settle, friendlyPerpError } from "@/lib/waterx";
+import { WATERX_ENABLED, WATERX_LOCAL_SIGN, localSigner, buildCloseTx, settle, friendlyPerpError, assertOwnsPerpAccount } from "@/lib/waterx";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,10 +17,12 @@ export async function POST(req: Request) {
   if (!WATERX_ENABLED) return NextResponse.json({ error: "Perps aren't enabled.", code: "PERPS_DISABLED" }, { status: 503 });
 
   let sender: string;
+  let authedUserId: number | null = null;
   if (WATERX_LOCAL_SIGN && localSigner()) {
     sender = localSigner()!.toSuiAddress();
   } else {
     const userId = await readEntryIdFromRequest(req);
+    authedUserId = userId ?? null;
     if (!userId) return NextResponse.json({ error: "not authenticated" }, { status: 401 });
     const denied = await denyUnlessAppApproved(userId);
     if (denied) return denied;
@@ -38,6 +40,11 @@ export async function POST(req: Request) {
   const positionId = String(b.positionId ?? "");
   if (!ticker || !accountId || !positionId) {
     return NextResponse.json({ error: "ticker, accountId, positionId required" }, { status: 400 });
+  }
+  // MONEY-SAFETY (audit H13): accountId is client-supplied. Bind it to the
+  // authenticated user so nobody can close another trader's position.
+  if (authedUserId != null && !(await assertOwnsPerpAccount(authedUserId, accountId))) {
+    return NextResponse.json({ error: "account does not belong to this user" }, { status: 403 });
   }
 
   try {

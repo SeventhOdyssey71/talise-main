@@ -1,3 +1,25 @@
+# SECRETS — MUST STAY FIRST. Like .easignore, this governs what the Vercel CLI
+# uploads; gitignored-but-present files are otherwise included. `.secrets/` holds
+# Apple .p8 keys, the production env file and prod DB dumps. Never remove these.
+.secrets
+**/.secrets
+.env
+.env.*
+**/.env
+**/.env.*
+*.p8
+*.p12
+*.pem
+*.key
+*.keystore
+*.jks
+_scratch
+archive
+media
+.agents
+.vercel
+**/.vercel
+
 ios
 move
 marketing
