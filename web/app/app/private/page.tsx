@@ -5,7 +5,7 @@ import {
   Coins01Icon,
 } from "@hugeicons/core-free-icons";
 import { Eyebrow, StatusPill } from "@/components/app";
-import { shieldConfigured, SHIELD } from "@/lib/shield/onchain";
+import { shieldConfigured, shieldMaintenance, SHIELD } from "@/lib/shield/onchain";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,8 @@ const DISPLAY = { fontFamily: '"TWK Everett", var(--font-display-v2), system-ui,
  * (current) or the live send form (once flipped on).
  */
 export default function PrivatePage() {
-  const live = shieldConfigured();
+  const maint = shieldMaintenance();
+  const live = shieldConfigured() && !maint;
   const capUsd = "$2.50";
 
   return (
@@ -62,16 +63,18 @@ export default function PrivatePage() {
                 Private payments
               </h2>
               <StatusPill
-                label={live ? "Ready" : "Switching on"}
+                label={maint ? "In maintenance" : live ? "Ready" : "Switching on"}
                 tone={live ? "active" : "neutral"}
               />
             </div>
             <p className="text-[14px] leading-relaxed text-[#3a5230]">
-              {live
-                ? "Choose an amount and a recipient to send shielded. Each transaction is capped at " +
-                  capUsd +
-                  " during the pilot."
-                : "The shielded pool is live on Sui mainnet and we're switching on private sends here shortly. Check back soon, your funds stay in your own wallet until then."}
+              {maint
+                ? "Private sends are currently in maintenance. Your funds stay in your own wallet, check back soon."
+                : live
+                  ? "Choose an amount and a recipient to send shielded. Each transaction is capped at " +
+                    capUsd +
+                    " during the pilot."
+                  : "The shielded pool is live on Sui mainnet and we're switching on private sends here shortly. Check back soon, your funds stay in your own wallet until then."}
             </p>
           </div>
         </div>
