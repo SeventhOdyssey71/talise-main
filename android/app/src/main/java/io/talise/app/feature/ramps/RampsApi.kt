@@ -13,7 +13,8 @@ import retrofit2.http.POST
  * Feature-scoped Retrofit surface for the ramps, the Android counterpart of iOS
  * `BridgeRampAPI` + `BridgeKYCAPI`.
  *
- *   - On-ramp  -> POST /api/onramp/v2/session   (fiat -> USDsui on Sui)
+ *   - Config   -> GET  /api/onramp/config       (is fiat funding open?)
+ *   - On-ramp  -> POST /api/onramp/v2/session   (fiat -> USDC on Sui)
  *   - Off-ramp -> POST /api/offramp/bridge/cashout-address (USDsui -> fiat)
  *   - KYC      -> POST /api/kyc/bridge/start · GET /api/kyc/bridge/status
  *
@@ -24,6 +25,11 @@ import retrofit2.http.POST
  * as a clean "not available yet" state.
  */
 interface RampsApi {
+    /** THE single source of truth for whether fiat funding is open. Server-side
+     *  `ONRAMP_ENABLED`, so it flips with no app release. */
+    @GET("api/onramp/config")
+    suspend fun onrampConfig(): OnrampConfigResponse
+
     @POST("api/onramp/v2/session")
     suspend fun onrampSession(@Body body: OnrampSessionRequest): OnrampSessionResponse
 
@@ -99,15 +105,79 @@ data class OnrampSessionRequest(
     val sourceCurrency: String,
 )
 
-/** Mirrors the server `SessionResult` (+ optional `kycUrl`). For Bridge,
- *  `depositInstructions` carries the bank coordinates to fund; `kycUrl` is the
- *  hosted identity flow when verification isn't complete. */
+/** Mirrors the server `SessionResult` (+ the identity-step fields). Exactly one
+ *  outcome is populated: `kycRequired` -> send the user to `kycUrl`/`tosUrl`;
+ *  `depositInstructions` -> the bank coordinates to fund (Bridge); `widgetUrl`
+ *  -> hosted checkout (widget providers). */
 @Serializable
 data class OnrampSessionResponse(
+    /** True when identity verification must complete before an account can be
+     *  issued. The server returns this instead of failing, so the screen always
+     *  has a real next step. */
+    val kycRequired: Boolean? = null,
+    /** unverified | pending | approved | rejected | expired. */
+    val status: String? = null,
     val kycUrl: String? = null,
+    val tosUrl: String? = null,
     val widgetUrl: String? = null,
     val depositInstructions: BridgeDepositInstructions? = null,
+    /** True when funds land as USDC and still need converting to USDsui. */
+    val requiresSwapToUsdsui: Boolean? = null,
 )
+
+/**
+ * Mirrors `GET /api/onramp/config` — the ONE verdict web, iOS and Android all
+ * read. Defaults are FAIL-CLOSED so a partial/absent payload never reads as
+ * "funding is open".
+ */
+@Serializable
+data class OnrampConfigResponse(
+    val enabled: Boolean = false,
+    val provider: String = "bridge",
+    val configured: Boolean = false,
+    /** "switch_off" | "provider_unconfigured" | null. */
+    val closedReason: String? = null,
+    /** "bank" (virtual account to wire to) | "widget" (hosted checkout). */
+    val funding: String = "bank",
+    /** "USDC" | "USDSUI" — what actually lands on the user's Sui address. */
+    val deliverAsset: String = "USDC",
+    val requiresSwapToUsdsui: Boolean = true,
+) {
+    /** Open AND funded via bank coordinates (Bridge virtual account). */
+    val bankFundingOpen: Boolean get() = enabled && funding == "bank"
+
+    companion object {
+        val CLOSED = OnrampConfigResponse()
+    }
+}
+
+/**
+ * Process-wide cache of the on-ramp verdict, the Android counterpart of iOS
+ * `OnrampConfigStore`. Fail-closed until the server says otherwise; call
+ * [load] on screen entry so a server-side flip lands without a relaunch.
+ */
+object OnrampConfigStore {
+    @Volatile
+    var config: OnrampConfigResponse = OnrampConfigResponse.CLOSED
+        private set
+
+    /** False until the first attempt completes (lets a screen show "checking…"). */
+    @Volatile
+    var loaded: Boolean = false
+        private set
+
+    suspend fun load(force: Boolean = false) {
+        if (loaded && !force) return
+        config = try {
+            RampsClient.api.onrampConfig()
+        } catch (_: Throwable) {
+            // 401 / offline / 5xx -> stay closed. Better a user told "not yet"
+            // than one walked into a flow that dead-ends.
+            OnrampConfigResponse.CLOSED
+        }
+        loaded = true
+    }
+}
 
 @Serializable
 data class BridgeDepositInstructions(

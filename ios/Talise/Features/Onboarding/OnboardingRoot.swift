@@ -177,6 +177,10 @@ struct OnboardingRoot: View {
             step = next
         }
         persist(step: next)
+        // ONE chokepoint for the whole onboarding funnel: every step change
+        // routes through here, so per-step drop-off (which step actually loses
+        // people) becomes measurable without touching any step's own view.
+        Growth.shared.track(.onboardingStep, surface: "onboarding", step: next.rawValue)
     }
 
     private func persist(step: OnboardingStep) {
@@ -219,6 +223,7 @@ struct OnboardingRoot: View {
             name: Notification.Name("io.talise.onboardingCompleted"),
             object: nil
         )
+        Growth.shared.milestone(.onboardingCompleted, surface: "onboarding")
         advance(to: .done)
     }
 

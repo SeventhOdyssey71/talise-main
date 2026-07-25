@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,7 +52,9 @@ import io.talise.app.ui.theme.TaliseType
  *   - Cash out is server-gated (FEATURE_CASHOUT): iOS shows the entry only when
  *     `currentUser.cashoutEnabled == true`; here the "Cash out" card renders
  *     only when `features.cashout` is set.
- *   - Bridge corridors stay "coming soon" while `RampFlags.bridgeLive` is false.
+ *   - Add-money corridors are gated by the SERVER (`ONRAMP_ENABLED` ->
+ *     `GET /api/onramp/config`), so funding opens with no app release. Cash-out
+ *     corridors stay "coming soon" while `RampFlags.bridgeLive` is false.
  *   - Nigeria's local Linq rail routes to the Withdraw flow's bank view on iOS;
  *     that view isn't part of this module, so a clean not-available card shows.
  */
@@ -63,6 +66,13 @@ fun RampsScreen(onClose: () -> Unit) {
 
     val userCountry = AppSession.currentUser?.country
     val cashoutEnabled = AppSession.currentUser?.features?.cashout == true
+
+    // Server verdict for add-money (`ONRAMP_ENABLED` -> /api/onramp/config).
+    var onrampOpen by remember { mutableStateOf(OnrampConfigStore.config.enabled) }
+    LaunchedEffect(Unit) {
+        OnrampConfigStore.load(force = true)
+        onrampOpen = OnrampConfigStore.config.enabled
+    }
 
     BackHandler(enabled = direction != null) {
         if (corridor != null) corridor = null else direction = null
@@ -92,6 +102,9 @@ fun RampsScreen(onClose: () -> Unit) {
             CorridorPickerView(
                 direction = direction!!,
                 userCountry = userCountry,
+                // Add-money is gated by the SERVER (ONRAMP_ENABLED), not a
+                // compile-time flag; fail-closed until it answers.
+                onrampOpen = onrampOpen,
                 onSelect = { corridor = it },
             )
         }
@@ -164,7 +177,7 @@ private fun HubCard(icon: Int, title: String, subtitle: String, onClick: () -> U
 }
 
 @Composable
-private fun HubHeader(title: String, onClose: (() -> Unit)? = null, onBack: (() -> Unit)? = null) {
+internal fun HubHeader(title: String, onClose: (() -> Unit)? = null, onBack: (() -> Unit)? = null) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 12.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,

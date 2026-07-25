@@ -9,10 +9,17 @@ struct CorridorPickerView: View {
     /// The signed-in user's ISO country — gates which corridors are bookable
     /// (a Nigerian sees Nigeria cash-out; others → coming soon).
     var userCountry: String?
+    /// Server verdict for add-money (`GET /api/onramp/config`). Defaults to
+    /// CLOSED so a picker that forgets to pass it can't offer funding.
+    var onrampOpen: Bool = false
     let onSelect: (RampCorridor) -> Void
 
     private var groups: (available: [RampCorridor], soon: [RampCorridor]) {
-        RampCorridors.forDirection(direction, userCountry: userCountry)
+        RampCorridors.forDirection(
+            direction,
+            userCountry: userCountry,
+            onrampOpen: onrampOpen
+        )
     }
 
     private var title: String {
@@ -143,11 +150,19 @@ struct CorridorPickerView: View {
 /// flow, so that unified picker lives in WithdrawFlowView (`UnifiedCashOutFlow`).
 struct AddMoneyCorridorFlow: View {
     @Environment(AppSession.self) private var session
+    @State private var flags = OnrampConfigStore.shared
     @State private var selected: RampCorridor?
     var body: some View {
-        CorridorPickerView(direction: .onramp, userCountry: session.currentUser?.country) {
+        CorridorPickerView(
+            direction: .onramp,
+            userCountry: session.currentUser?.country,
+            onrampOpen: flags.config.enabled
+        ) {
             selected = $0
         }
         .navigationDestination(item: $selected) { BridgeOnrampView(corridor: $0) }
+        // Refresh on entry: the flag lives server-side, so a mid-session flip
+        // takes effect without an app relaunch.
+        .task { await flags.load(force: true) }
     }
 }

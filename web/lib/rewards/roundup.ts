@@ -21,10 +21,18 @@ import { awardForTx, POINT_RATES } from "@/lib/rewards/earn";
  * zkLogin key.
  *
  * The OFF-chain bookkeeping happens in `/api/zk/sponsor-execute` after
- * Onara confirms broadcast. Server reads the server-blessed
- * `meta.roundupUsd` (came from prepare, can't be inflated by a lying
- * client, the actual on-chain supply was for exactly that amount or
- * the PTB would have failed validation), then:
+ * Onara confirms broadcast.
+ *
+ * CORRECTION (2026-07-25): that route reads `meta.roundupUsd` off the
+ * REQUEST BODY, and the comment there claiming a lying client "will fail
+ * Sui validation at sponsor-time" is wrong — nothing cross-checks `meta`
+ * against the signed PTB. It is now bounded downstream instead:
+ * `awardForTx` credits `min(asserted, chain-verified outflow, unclaimed
+ * headroom on the digest, 10% of the outflow)`, so an inflated
+ * `roundupUsd` can at worst re-slice money that actually moved. See the
+ * ISSUANCE INTEGRITY block in lib/rewards/earn.ts.
+ *
+ * The bookkeeping itself:
  *   • `users.roundup_saved_usd`  += amount (the RoundupCard's running tally)
  *   • `users.lifetime_saved_usd` += amount (via `awardForTx`)
  *   • `users.points_total`       += 5 pts/$1 (via `awardForTx`)
@@ -95,10 +103,13 @@ export async function maybeRoundupForSend(opts: {
   if (!(roundupUsd > 0)) return { swept: false, reason: "no-amount" };
 
   // Idempotency: have we already booked a round-up for this source
-  // digest? `awardForTx` writes `{ amountUsd, digest }` into the
-  // event's metadata column (JSON-as-text); a substring match on the
-  // digest is enough, Sui digests are base58 of a 32-byte hash, so
-  // there's effectively zero chance of false-positive collision.
+  // digest? This metadata LIKE-match is now BELT-AND-BRACES only. The
+  // real guard lives in `awardForTx`, which takes a UNIQUE claim key
+  // (`tx:<user>:<digest>:roundup`) in `rewards_award_ledger` before any
+  // points move. Searching a JSON-as-text column for a substring was
+  // never an idempotency mechanism; it's kept because it's cheap and it
+  // also suppresses the duplicate `roundup_saved_usd` bump below, which
+  // is NOT covered by the ledger.
   const dupe = await c.execute({
     sql: `SELECT 1 FROM rewards_events
           WHERE user_id = ?

@@ -46,10 +46,13 @@ fun CorridorPickerView(
     /** The signed-in user's ISO country, gates which corridors are bookable
      *  (a Nigerian sees Nigeria cash-out; others -> coming soon). */
     userCountry: String?,
+    /** Server verdict for add-money (`GET /api/onramp/config`). Defaults to
+     *  CLOSED so a picker that forgets it can't offer funding. */
+    onrampOpen: Boolean = false,
     onSelect: (RampCorridor) -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
-    val (available, soon) = RampCorridors.forDirection(direction, userCountry)
+    val (available, soon) = RampCorridors.forDirection(direction, userCountry, onrampOpen)
 
     val title = if (direction == RampDirection.Onramp) "Add money" else "Cash out"
     val subtitle = if (direction == RampDirection.Onramp) {

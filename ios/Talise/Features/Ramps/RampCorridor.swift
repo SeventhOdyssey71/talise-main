@@ -4,7 +4,7 @@ import SwiftUI
 /// country + its currency + a flag, plus how Talise serves it:
 ///
 ///   • `.bridge` — live via Bridge (USD/EUR/GBP/MXN/BRL/COP). Bridge moves
-///     fiat ↔ USDsui DIRECTLY on Sui, both directions.
+///     fiat ↔ USDC on Sui, both directions.
 ///   • `.local`  — served by a dedicated local rail (Nigeria/NGN via Linq),
 ///     off-ramp only today.
 ///   • `.soon`   — known corridor, not yet bookable; shown disabled so the
@@ -49,7 +49,8 @@ struct RampCorridor: Identifiable, Equatable, Hashable {
 /// the picker honest about coverage without pretending they work.
 enum RampCorridors {
     /// Bridge fiat corridors (live when Bridge is configured). Bridge delivers
-    /// USDsui on Sui directly — no swap — for both add-money and cash-out.
+    /// USDC on Sui (not USDsui), so add-money finishes with the one-tap
+    /// "Swap to USDsui" in the token bucket.
     // Every code below has a vendored circular flag in Assets.xcassets/Flags
     // (the web app's circle-flags set). "EU" → the Eurozone (Bridge SEPA),
     // rendered with the EU flag rather than listing each member state.
@@ -85,9 +86,13 @@ enum RampCorridors {
 
     /// Corridors that support a given direction, available ones first, "soon"
     /// last — both groups alphabetical by name.
+    /// `onrampOpen` is the server verdict from `OnrampConfigStore` (defaults to
+    /// CLOSED). When false, no add-money corridor is bookable, so the picker
+    /// cannot hand a user funding details the backend would refuse.
     static func forDirection(
         _ direction: RampDirection,
-        userCountry: String?
+        userCountry: String?,
+        onrampOpen: Bool = false
     ) -> (available: [RampCorridor], soon: [RampCorridor]) {
         // Nigeria-first: an unset/empty country defaults to NG so a user who
         // never picked one still gets Nigerian cash-out (the live rail) rather
@@ -109,6 +114,9 @@ enum RampCorridors {
             case .local: return cc == c.code
             case .bridge:
                 guard RampFlags.bridgeLive else { return false }
+                // Add-money additionally needs the SERVER to say funding is
+                // open; cash-out keeps its own gate (USD_WITHDRAWAL_OPEN).
+                if direction == .onramp && !onrampOpen { return false }
                 // Cash-out (off-ramp) is country-agnostic: anyone holding
                 // dollars can pay out to a USD/EUR bank, so we don't gate it on
                 // the user's residence. Add-money (on-ramp) stays matched to the
@@ -129,18 +137,23 @@ enum RampDirection {
     case offramp  // cash out: USDsui → fiat
 }
 
-/// Feature gating for the ramps. Until the Bridge account is live (KYB
-/// approved + API key + webhook), only Nigeria's local rail (Linq) is bookable
-/// — the Bridge corridors (US/EU/GB/…) show as "coming soon". Flip
-/// `bridgeLive` to true to switch them on with no other code change.
+/// Feature gating for the ramps.
+///
+/// ADD-MONEY (on-ramp) is NO LONGER gated here. Its single source of truth is
+/// the server: `GET /api/onramp/config`, driven by the `ONRAMP_ENABLED` env var
+/// and cached in `OnrampConfigStore`. That means funding can be switched on per
+/// environment with no app release — see `OnrampConfig.swift`.
+///
+/// What remains here are two genuinely client-side kill-switches.
 enum RampFlags {
-    // OPEN: Bridge corridors (US cash-out / add-money) live. Cash-out is still
-    // server-gated (USD_WITHDRAWAL_OPEN) + requires approved Bridge KYC.
+    /// CASH-OUT corridors served by Bridge (US/EU/GB…). Every cash-out call is
+    /// additionally server-gated (`USD_WITHDRAWAL_OPEN` + approved Bridge KYC),
+    /// so this only controls row visibility.
     static let bridgeLive = true
 
-    // LOCKED for now: card top-up (Stripe hosted crypto onramp) hidden while the
-    // production Stripe flow is not reliable. When off, the Deposit screen shows
-    // only the fully-working onchain Crypto path — no "coming soon" dead-ends for
-    // App Review. Flip to true to re-expose the card path with no other change.
+    /// Stripe hosted crypto onramp (the "Cash"/card tile). A SEPARATE
+    /// integration from `ONRAMP_ENABLED`/Bridge: it stays hidden while the
+    /// production Stripe flow is unreliable, so the Deposit screen never offers
+    /// a checkout that can't complete. Bank funding is unaffected by this.
     static let cardOnrampLive = false
 }

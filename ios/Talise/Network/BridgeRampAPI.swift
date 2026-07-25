@@ -2,7 +2,8 @@ import Foundation
 
 /// Thin namespace over Talise's Bridge ramp endpoints.
 ///
-///   • On-ramp  → POST /api/onramp/v2/session   (fiat → USDsui on Sui)
+///   • Config   → GET  /api/onramp/config       (is funding open? one source)
+///   • On-ramp  → POST /api/onramp/v2/session   (fiat → USDC on Sui)
 ///   • Off-ramp → POST /api/offramp/bridge/cashout-address (USDsui → fiat)
 ///
 /// The destination Sui address (on-ramp) and the source funds (off-ramp) are
@@ -78,13 +79,24 @@ struct OnrampSessionRequest: Codable {
     let sourceCurrency: String
 }
 
-/// Mirrors the server `SessionResult` (+ optional `kycUrl`). For Bridge,
-/// `depositInstructions` carries the bank coordinates to fund; `kycUrl` is the
-/// hosted identity flow when verification isn't complete.
+/// Mirrors the server `SessionResult` (+ the identity-step fields). Exactly one
+/// outcome is populated:
+///   • `kycRequired == true` → send the user to `kycUrl` / `tosUrl` first;
+///   • `depositInstructions` → the bank coordinates to fund (Bridge);
+///   • `widgetUrl`           → hosted checkout (widget providers).
 struct OnrampSessionResponse: Codable {
-    let kycUrl: String?
-    let widgetUrl: String?
-    let depositInstructions: BridgeDepositInstructions?
+    /// True when identity verification must complete before an account can be
+    /// issued. The server returns this instead of failing, so the screen has a
+    /// real next step rather than an error.
+    var kycRequired: Bool? = nil
+    /// Talise status ladder: unverified | pending | approved | rejected | expired.
+    var status: String? = nil
+    var kycUrl: String? = nil
+    var tosUrl: String? = nil
+    var widgetUrl: String? = nil
+    var depositInstructions: BridgeDepositInstructions? = nil
+    /// True when funds land as USDC and still need converting to USDsui.
+    var requiresSwapToUsdsui: Bool? = nil
 }
 
 struct BridgeDepositInstructions: Codable {

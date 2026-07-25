@@ -288,6 +288,10 @@ struct RewardsView: View {
                     Spacer(minLength: 8)
                     LiquidGlassPill(title: "Copy", icon: "doc.on.doc", compact: true) {
                         UIPasteboard.general.string = "https://www.talise.io/r/\(code)"
+                        // Copying the link IS sending an invite as far as
+                        // virality is concerned — count it, with its own
+                        // channel so we can compare copy vs share sheet.
+                        Growth.shared.inviteSent(code: code, channel: "copy")
                     }
                 }
                 .padding(.horizontal, 18)
@@ -302,7 +306,10 @@ struct RewardsView: View {
                     icon: "square.and.arrow.up",
                     size: .lg
                 ) {
-                    share(text: "Join me on Talise: https://www.talise.io/r/\(code)")
+                    share(
+                        text: "Join me on Talise: https://www.talise.io/r/\(code)",
+                        code: code
+                    )
                 }
             }
         }
@@ -449,8 +456,16 @@ struct RewardsView: View {
         }
     }
 
-    private func share(text: String) {
+    private func share(text: String, code: String) {
         let activity = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        // invite_sent fires only when the share COMPLETES, not when the sheet
+        // opens — an abandoned sheet is not an invite, and counting it would
+        // silently deflate the K-factor's conversion rate.
+        activity.completionWithItemsHandler = { activityType, completed, _, _ in
+            guard completed else { return }
+            let channel = activityType?.rawValue.split(separator: ".").last.map(String.init) ?? "share"
+            Task { @MainActor in Growth.shared.inviteSent(code: code, channel: channel) }
+        }
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
