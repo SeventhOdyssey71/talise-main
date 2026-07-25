@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { getContacts, resolveRecipient, walletApi, type ContactDTO, type RecipientResolution } from "@/api/wallet";
-import { signAndSubmitSend } from "@/auth/zklogin";
+import { signAndSubmitSend, type SaveOutcome } from "@/auth/zklogin";
 import { useSession } from "@/auth/session";
 import { SendNumpad } from "@/components/wallet/SendNumpad";
 import { SendingView } from "@/components/wallet/SendingView";
@@ -28,6 +28,11 @@ export default function SendScreen() {
   const [resolved, setResolved] = useState<RecipientResolution | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [digest, setDigest] = useState<string | null>(null);
+  // The SERVER-VERIFIED Spend + Save outcome. Held as the whole outcome, not
+  // just an amount, so the success screen can never claim a save that didn't
+  // happen: the save is a leg of the send's own PTB and the server tells us
+  // whether it landed.
+  const [save, setSave] = useState<SaveOutcome>({ status: "none" });
 
   const amountUsd = Number(rawAmount) || 0;
   const close = () => router.back();
@@ -38,6 +43,7 @@ export default function SendScreen() {
     try {
       const res = await signAndSubmitSend(resolved!.address, amountUsd, "USDsui");
       setDigest(res.digest);
+      setSave(res.save);
       setStep("complete");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Send didn't land on chain. No funds moved.");
@@ -50,8 +56,10 @@ export default function SendScreen() {
     return (
       <SuccessfulTxView
         title="Transaction Successful!"
-        subtitle="gas cost = 0, money arrives < 1s"
+        subtitle="gas cost = 0, money arrives in under a second"
         amountText={local2(amountUsd)}
+        savedText={save.status === "saved" || save.status === "pending" ? local2(save.savedUsd) : undefined}
+        saveState={save.status}
         onShareReceipt={() => digest && Share.share({ message: `https://suivision.xyz/txblock/${digest}` })}
         onDone={close}
       />
