@@ -13,22 +13,22 @@
 *.key
 *.keystore
 *.jks
-_scratch
-archive
-media
+/_scratch
+/archive
+/media
 .agents
 .vercel
 **/.vercel
 
-ios
-move
-marketing
-docs
-scratchpad
+/ios
+/move
+/marketing
+/docs            # top-level only: web/public/docs must still ship
+/scratchpad
 .claude
-infra
-cli
-scripts
+/infra
+/cli
+/scripts
 .git
 node_modules
 web/node_modules
