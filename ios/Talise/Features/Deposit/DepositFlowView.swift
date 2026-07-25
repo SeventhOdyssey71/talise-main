@@ -564,6 +564,13 @@ private struct DepositOnrampView: View {
                 startingBalance = 0
             }
 
+            Growth.shared.track(
+                .depositStarted,
+                surface: "deposit",
+                status: .started,
+                amountUsd: amount,
+                currency: "USD"
+            )
             do {
                 let resp = try await OnrampAPI.hostedSession(amount: amount)
                 guard let url = URL(string: resp.redirectUrl) else {
@@ -573,6 +580,13 @@ private struct DepositOnrampView: View {
                 showingSafari = true
                 loading = false
             } catch {
+                Growth.shared.track(
+                    .depositFailed,
+                    surface: "deposit",
+                    status: .error,
+                    errorCode: Growth.errorCode(error),
+                    amountUsd: amount
+                )
                 loading = false
                 errorMessage = (error as? APIError)?.userMessage
                     ?? "Couldn't start your purchase. Please try again."
@@ -602,6 +616,20 @@ private struct DepositOnrampView: View {
                     // requested amount directly.
                     if delta >= 0.01 {
                         pollingActive = false
+                        // A positive balance delta after the Stripe hop is a
+                        // CONFIRMED credit — the closest thing to a server
+                        // truth this flow has. `funded` is the activation
+                        // milestone (first money in); the server keeps it
+                        // exactly-once per user, so emitting on every deposit
+                        // is correct.
+                        Growth.shared.track(
+                            .depositCompleted,
+                            surface: "deposit",
+                            status: .ok,
+                            amountUsd: delta,
+                            currency: "USD"
+                        )
+                        Growth.shared.milestone(.funded, amountUsd: delta, surface: "deposit")
                         pollingResult = .credited(delta: delta)
                         pollingToast = "Added \(formatUsd(delta)) USDsui to your wallet"
                         try? await Task.sleep(nanoseconds: 1_400_000_000)

@@ -73,7 +73,12 @@ struct TaliseApp: App {
         WindowGroup {
             AppRoot()
                 .environment(session)
-                .task { await session.bootstrap() }
+                .task {
+                    // app_open on launch — the keystone retention event. One
+                    // per 30-min session window, so this is free on re-entry.
+                    Growth.shared.appOpen()
+                    await session.bootstrap()
+                }
                 .overlay {
                     if locked {
                         AppLockOverlay()
@@ -98,6 +103,10 @@ struct TaliseApp: App {
                         // show the privacy lock.
                         locked = true
                         session.appDidEnterBackground()
+                        // Push the queued events out before iOS suspends us,
+                        // otherwise the last events of every session (i.e. the
+                        // drop-off signal) are lost.
+                        Growth.shared.flush()
                     case .inactive:
                         // Transient (app switcher, notification pull) — lock the
                         // screen but don't arm the timer.
@@ -107,6 +116,9 @@ struct TaliseApp: App {
                         // the grace window (→ fresh sign-in + fresh proof).
                         session.appWillEnterForeground()
                         locked = false
+                        // A return after >30 idle minutes is a new session and
+                        // therefore a new app_open; inside the window it no-ops.
+                        Growth.shared.appOpen()
                     @unknown default:
                         break
                     }
@@ -182,8 +194,12 @@ final class PushRegistrar {
     func register() {
         UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-                guard granted else { return }
                 DispatchQueue.main.async {
+                    // Push reachability: the opt-in rate was previously only
+                    // inferable from `device_token` rows, which can't tell a
+                    // denial from a token that never synced.
+                    Growth.shared.track(granted ? .pushPermissionGranted : .pushPermissionDenied)
+                    guard granted else { return }
                     UIApplication.shared.registerForRemoteNotifications()
                 }
             }

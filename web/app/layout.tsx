@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/next";
 import { JetBrains_Mono, Instrument_Serif } from "next/font/google";
 import { ReferralCapture } from "@/components/ReferralCapture";
+import { GrowthAnalytics } from "@/lib/analytics/GrowthAnalytics";
 // Google Sans Variable, self-hosted via @fontsource. Google's marketing
 // font isn't on the public Google Fonts API, but Fontsource ships an
 // OFL-1.1 build, same weights, same shapes, distributable.
@@ -71,6 +72,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Captures ?ref=CODE from invite links into the talise_ref cookie,
             attributed to the inviter on the new user's first sign-in. */}
         <ReferralCapture />
+        {/* First-party product analytics: app_open (DAU/retention), first-touch
+            UTM/referrer attribution, invite clicks, and the route-derived
+            funnel. Posts to our own /api/events — no third-party SDK, no
+            cookies, no PII. See web/lib/analytics/events.ts for the taxonomy. */}
+        <GrowthAnalytics />
         {children}
         {/* Vercel Web Analytics, privacy-friendly route/pageview metrics
             (no cookies, no PII). Surfaces at the project's /analytics tab. */}

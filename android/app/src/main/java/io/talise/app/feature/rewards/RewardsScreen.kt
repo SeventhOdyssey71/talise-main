@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.talise.app.core.analytics.Growth
 import io.talise.app.ui.components.LiquidGlassButton
 import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
@@ -413,7 +414,13 @@ private fun ShareSection(code: String?) {
                 title = "Copy",
                 icon = Icons.Outlined.ContentCopy,
                 compact = true,
-                onClick = { clipboard.setText(AnnotatedString("https://www.talise.io/r/$code")) },
+                onClick = {
+                    clipboard.setText(AnnotatedString("https://www.talise.io/r/$code"))
+                    // Copying the link IS sending an invite as far as virality is
+                    // concerned — counted with its own channel so copy and share
+                    // sheet can be compared.
+                    Growth.inviteSent(code = code, channel = "copy")
+                },
             )
         }
 
@@ -425,6 +432,14 @@ private fun ShareSection(code: String?) {
                     putExtra(Intent.EXTRA_TEXT, "Join me on Talise: https://www.talise.io/r/$code")
                 }
                 context.startActivity(Intent.createChooser(intent, "Share Talise"))
+                // Android's chooser gives no completion callback without an
+                // IntentSender receiver, so this counts an invite at CHOOSER
+                // OPEN. Documented deliberately: it makes the Android
+                // invites-sent number a slight over-count versus iOS (which
+                // waits for completion), and the `channel` dimension
+                // ("chooser" vs iOS's per-app value) is how a dashboard tells
+                // them apart.
+                Growth.inviteSent(code = code, channel = "chooser")
             },
         )
     }

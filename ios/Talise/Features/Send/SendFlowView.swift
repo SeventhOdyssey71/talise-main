@@ -29,6 +29,10 @@ struct SendFlowView: View {
                 onNext: { path.append(.recipient) },
                 onCancel: { close() }
             )
+            // Entering the amount screen IS the start of a send attempt, so
+            // send_started -> send_reviewed -> send_completed/failed gives the
+            // full drop-off curve for the money-out funnel.
+            .onAppear { Growth.shared.track(.sendStarted, surface: "send.amount", status: .started) }
             .navigationDestination(for: SendStep.self) { step in
                 switch step {
                 case .amount:
@@ -128,6 +132,16 @@ struct SendFlowView: View {
         let intentLabel = "Send \(draft.currency.symbol)\(draft.rawAmount)"
         path.append(.sending)
 
+        // Send funnel: reviewed -> completed/failed. The amount is BANDED
+        // inside Growth.track, and the recipient is never attached.
+        Growth.shared.track(
+            .sendReviewed,
+            surface: "send.review",
+            status: .started,
+            amountUsd: draft.amountUsdsui,
+            currency: draft.currency.code
+        )
+
         await performSend(intentLabel: intentLabel, resolved: resolved)
     }
 
@@ -165,6 +179,14 @@ struct SendFlowView: View {
             // digest past the coordinator, we still route to failure
             // rather than flashing the green checkmark.
             guard !result.digest.isEmpty else {
+                Growth.shared.track(
+                    .sendFailed,
+                    surface: "send",
+                    status: .error,
+                    errorCode: "empty_digest",
+                    amountUsd: draft.amountUsdsui,
+                    currency: draft.currency.code
+                )
                 draft.errorMessage = "Send didn't land on chain. No funds moved."
                 path = [.recipient, .review, .failure]
                 return
@@ -180,6 +202,18 @@ struct SendFlowView: View {
                 savedUsd: result.roundupUsd
             )
             draft.success = success
+
+            // Landed on chain. `first_send` is deduped server-side
+            // (growth_user_firsts, COALESCE on first write), so emitting it on
+            // every send is correct and needs no client-side bookkeeping.
+            Growth.shared.track(
+                .sendCompleted,
+                surface: "send",
+                status: .ok,
+                amountUsd: draft.amountUsdsui,
+                currency: draft.currency.code
+            )
+            Growth.shared.milestone(.firstSend, amountUsd: draft.amountUsdsui, surface: "send")
 
             // Broadcast for HomeView's optimistic-balance path. Sent
             // even if the user has already tapped Done mid-flight —
@@ -232,6 +266,14 @@ struct SendFlowView: View {
             // autoswap archive. The failure copy already directs users
             // to top up via Stripe or use the new "Swap to USDsui" CTA
             // on Home.
+            Growth.shared.track(
+                .sendFailed,
+                surface: "send",
+                status: .error,
+                errorCode: Growth.errorCode(error),
+                amountUsd: draft.amountUsdsui,
+                currency: draft.currency.code
+            )
             draft.errorMessage = error.localizedDescription
             path = [.recipient, .review, .failure]
         }
