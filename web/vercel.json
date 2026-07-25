@@ -18,6 +18,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/process-roundup-queue",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/perp-warm",
       "schedule": "*/5 * * * *"
     },

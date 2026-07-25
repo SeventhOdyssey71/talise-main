@@ -5,13 +5,13 @@ import {
   mobileSigningContext,
   isMobileRequest,
 } from "@/lib/mobile-sessions";
-import { userById, enqueueRoundup } from "@/lib/db";
+import { userById } from "@/lib/db";
 import { assembleZkLoginSignature, readSigningCookie } from "@/lib/zksigner";
 import { sui } from "@/lib/sui";
 import { fromBase64 } from "@mysten/sui/utils";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
 import { requireAppAttestStructural } from "@/lib/app-attest";
-import { takePendingRoundup, takePendingInbound } from "@/lib/perf-cache";
+import { takePendingInbound } from "@/lib/perf-cache";
 import { notifyInboundSettlement } from "@/lib/notify";
 import { rateLimitAsync } from "@/lib/rate-limit";
 
@@ -167,31 +167,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // Deferred Spend-and-Save, fire-and-forget. The gasless rail
-    // can't co-bundle the NAVI supply (PTB allowlist), so
-    // sponsor-prepare stashed the rounded-up USDsui amount under
-    // this user; we now hand it to the `roundup_queue` for the cron
-    // worker to drain. Done AFTER we have a confirmed digest so we
-    // never enqueue a save that didn't actually accompany a send.
-    //
-    // Two layers of detachment intentionally:
-    //   1. `takePendingRoundup` is synchronous (in-memory map).
-    //   2. `enqueueRoundup` is awaited inside a void-returning IIFE so
-    //      the response isn't gated on the DB write, a queue insert
-    //      failure must not surface as a failed send.
-    const pendingRoundupUsd = takePendingRoundup(userId);
-    if (pendingRoundupUsd && pendingRoundupUsd > 0) {
-      void (async () => {
-        try {
-          await enqueueRoundup({ userId, amountUsd: pendingRoundupUsd });
-        } catch (e) {
-          console.warn(
-            `[send/gasless-submit] enqueueRoundup failed (user=${userId}, amount=${pendingRoundupUsd}):`,
-            (e as Error).message
-          );
-        }
-      })();
-    }
+    // Spend + Save does NOT pass through here. The round-up is its own
+    // sponsored transaction: `/api/send/sponsor-prepare` books a
+    // `roundup_saves` intent and returns a token, the client posts that
+    // token plus THIS digest to `/api/send/roundup/prepare`, and the tally
+    // moves only once the resulting supply is read back off chain. The old
+    // `takePendingRoundup` → `roundup_queue` hand-off is gone: it wrote an
+    // amount with no digest into a table nothing drained, which is how the
+    // savings figure came to rise with no money behind it.
 
     // Notify the recipient that money landed (email now; push once APNs is
     // wired). Fire-and-forget, never gates the response, never throws.

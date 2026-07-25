@@ -5,7 +5,7 @@ import {
   mobileSigningContext,
   isMobileRequest,
 } from "@/lib/mobile-sessions";
-import { db, userById } from "@/lib/db";
+import { userById } from "@/lib/db";
 import { assembleZkLoginSignature, readSigningCookie } from "@/lib/zksigner";
 import { onara } from "@/lib/onara";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
@@ -14,6 +14,12 @@ import { rateLimitAsync } from "@/lib/rate-limit";
 import { recordSendLatency, takePendingInbound } from "@/lib/perf-cache";
 import { notifyInboundSettlement } from "@/lib/notify";
 import { getCurrentEpoch } from "@/lib/sui-epoch";
+import {
+  LOG as SAVE_LOG,
+  markSaveFailed,
+  roundupSaveByToken,
+  settleRoundupSave,
+} from "@/lib/rewards/roundup-save";
 
 export const runtime = "nodejs";
 
@@ -170,14 +176,22 @@ export async function POST(req: Request) {
       amountUsd?: number;
       venue?: string;
       /**
-       * Round-up & Save (Phase 2 v2). When a send PTB includes a
-       * compound NAVI supply leg for auto-save, iOS forwards the
-       * server-blessed round-up amount from the prepare response. We
-       * credit a second `roundup` earn on top of the send's points
-       * + bump `users.roundup_saved_usd` to reflect the on-chain
-       * supply that just landed atomically with the send.
+       * Spend + Save. Set ONLY when the transaction being executed is the
+       * standalone NAVI round-up supply built by
+       * `/api/send/roundup/prepare`. It is an opaque server-issued token,
+       * not an amount: the amount lives on the `roundup_saves` row, and
+       * the tally moves only after the resulting digest is read back off
+       * chain (lib/rewards/roundup-save.ts).
+       *
+       * `meta.roundupUsd` used to be accepted here and bumped
+       * `users.roundup_saved_usd` straight from the request body, with a
+       * comment claiming a lying client "will fail Sui validation at
+       * sponsor-time". Nothing cross-checked `meta` against the signed
+       * PTB, so the tally rose on sends where no save existed at all.
+       * That field is gone; a client-supplied savings figure is never
+       * credited again.
        */
-      roundupUsd?: number;
+      roundupSaveToken?: string;
     };
   };
   try {
@@ -316,6 +330,16 @@ export async function POST(req: Request) {
     );
   };
 
+  // Is this the standalone Spend + Save supply? It is a background
+  // transaction (no user waiting on a success screen), so it can afford to
+  // wait for execution and get a definitive on-chain outcome instead of the
+  // optimistic ACK the send path needs.
+  const roundupSaveToken =
+    typeof body.meta?.roundupSaveToken === "string" &&
+    body.meta.roundupSaveToken.length > 0
+      ? body.meta.roundupSaveToken
+      : null;
+
   const work = (async () => {
     const t0 = Date.now();
     // Proof mint: cached path ~250ms, fresh Shinami ~2-4s, fresh GPU
@@ -380,7 +404,10 @@ export async function POST(req: Request) {
           sender: user.sui_address,
           txBytes: bytesB64,
           txSignature: sig,
-          waitForExecution: false,
+          // Optimistic for user-facing money movement; definitive for the
+          // background round-up save, whose whole point is that we only
+          // credit a tally once the chain has the transaction.
+          waitForExecution: roundupSaveToken != null,
           // Skip Onara's pre-broadcast simulate, one fewer RPC round-trip on
           // the hot send path. The send is already optimistic (we don't wait
           // for execution; iOS polls the digest), so the simulate only added
@@ -447,6 +474,10 @@ export async function POST(req: Request) {
     const meta = body.meta;
     if (
       meta &&
+      // The round-up save leg books its own award from the settlement path
+      // below, against the digest it verified. Never let it also earn from
+      // an unverified `meta.kind` here.
+      !roundupSaveToken &&
       typeof meta.kind === "string" &&
       typeof meta.amountUsd === "number" &&
       meta.amountUsd > 0
@@ -502,6 +533,21 @@ export async function POST(req: Request) {
         `[zk/sponsor-execute] FAILED on-chain tx user=${userId} digest=${failedTx?.digest ?? ""}`,
         JSON.stringify(failedTx ?? r)
       );
+      // A round-up save that aborted on chain moved nothing. Close the row
+      // out so the tally stays where it is and the drain stops looking.
+      if (roundupSaveToken) {
+        const row = await roundupSaveByToken(userId, roundupSaveToken).catch(
+          () => null
+        );
+        if (row && row.status === "prepared") {
+          await markSaveFailed(row.id, "save transaction aborted on chain").catch(
+            () => {}
+          );
+        }
+        console.error(
+          `${SAVE_LOG} SAVE_FAILED user=${userId} token=${roundupSaveToken} aborted on chain`
+        );
+      }
       return NextResponse.json(
         { error: "transaction failed on chain (aborted), funds not moved", code: "TX_ABORTED" },
         { status: 502 }
@@ -517,23 +563,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Phase 2 v2, Round-up & Save credit on the COMPOUND PTB.
-    //
-    // The send PTB now includes a NAVI supply leg for `meta.roundupUsd`
-    // (computed + appended by /api/send/prepare based on the user's
-    // round-up config). It already settled atomically with the send
-    // when Onara broadcast, funds are in the NAVI pool. All that's
-    // left is the bookkeeping: credit the 5pt/$1 round-up earn, bump
-    // lifetime saved tallies (both `lifetime_saved_usd` and the
-    // running `roundup_saved_usd` for the RoundupCard UI).
-    //
-    // Trust the server-blessed `meta.roundupUsd` from prepare: the
-    // user signed exactly that amount into the on-chain supply, so
-    // crediting any other value would diverge from chain reality. A
-    // malicious client that LIES about roundupUsd > 0 when no supply
-    // ran will fail Sui validation at sponsor-time (the PTB doesn't
-    // match what they're claiming), so by the time we reach this
-    // point the value is implicitly verified.
     // Notify the RECIPIENT that money landed. The stash was set in
     // sponsor-prepare; previously only gasless-submit consumed it, so
     // SPONSORED sends (Spend+Save round-ups, cross-currency, any Move-call
@@ -551,28 +580,42 @@ export async function POST(req: Request) {
       }
     }
 
-    const roundupUsd = meta?.roundupUsd ?? 0;
-    if (digest && roundupUsd > 0 && meta?.kind === "send") {
-      const cappedRoundup = Math.min(roundupUsd, 10_000);
-      awardForTx({
-        userId,
-        trigger: "roundup",
-        amountUsd: cappedRoundup,
-        digest,
-        venue: "navi",
-      })
-        .then(() =>
-          // awardForTx bumps lifetime_saved_usd; we additionally bump
-          // the dedicated roundup_saved_usd column the RoundupCard
-          // reads so that running total is in sync. One extra UPDATE.
-          db().execute({
-            sql: "UPDATE users SET roundup_saved_usd = COALESCE(roundup_saved_usd, 0) + ? WHERE id = ?",
-            args: [cappedRoundup, userId],
-          })
-        )
-        .catch((e) =>
-          console.warn("[zk/sponsor-execute] roundup credit failed:", e)
+    // ── Spend + Save settlement ──────────────────────────────────────
+    // This is the ONLY place a client-driven request can move
+    // `users.roundup_saved_usd`, and it does so by reading the digest we
+    // just broadcast back off chain, not by trusting anything in the
+    // request body. `settleRoundupSave` refuses any digest other than the
+    // one it built for this token, and a lost response is picked up later
+    // by /api/cron/process-roundup-queue, so the tally converges on chain
+    // state either way.
+    let saveOutcome: Awaited<ReturnType<typeof settleRoundupSave>> | null = null;
+    if (roundupSaveToken) {
+      if (!digest) {
+        console.warn(
+          `${SAVE_LOG} no digest for save token=${roundupSaveToken} user=${userId}; leaving it for the drain`
         );
+      } else {
+        try {
+          saveOutcome = await settleRoundupSave({
+            userId,
+            senderAddress: user.sui_address,
+            digest,
+            token: roundupSaveToken,
+            // Broadcast waited for execution, but the read path can still
+            // lag a beat behind. Two extra looks, then hand off to the drain.
+            verifyRetries: 2,
+          });
+        } catch (e) {
+          console.warn(
+            `${SAVE_LOG} settle threw user=${userId} token=${roundupSaveToken}: ${(e as Error).message}`
+          );
+        }
+        if (saveOutcome?.status === "pending") {
+          console.log(
+            `${SAVE_LOG} save ${digest} not yet verifiable (${saveOutcome.reason}); the drain will credit it`
+          );
+        }
+      }
     }
 
     return NextResponse.json({
@@ -584,6 +627,23 @@ export async function POST(req: Request) {
       objectChanges:
         ((r.objectChanges as unknown[]) ?? []) as unknown[],
       freshProof: isFresh ? proof : undefined,
+      // Present only on the round-up save leg. `settled` means the tally
+      // moved; `pending` means the transaction is on chain but not yet
+      // verifiable here and the drain will credit it; `failed` means
+      // nothing was credited and nothing will be.
+      ...(roundupSaveToken
+        ? {
+            roundupSave: {
+              status: saveOutcome?.status ?? "pending",
+              creditedUsd:
+                saveOutcome?.status === "settled" ? saveOutcome.creditedUsd : 0,
+              reason:
+                saveOutcome && saveOutcome.status !== "settled"
+                  ? saveOutcome.reason
+                  : undefined,
+            },
+          }
+        : {}),
     });
   })();
 
