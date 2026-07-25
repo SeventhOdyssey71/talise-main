@@ -13,9 +13,20 @@ export function microsToUsd(micros: string | number): number {
   return Number(micros) / 1_000_000;
 }
 
-/** "$1,234.50" — 2dp USD. */
-export function fmtUsd(usd: number): string {
-  return `$${usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/**
+ * "$1,234.50" - 2dp USD.
+ *
+ * Tolerates a missing or non-finite amount. This used to take a bare `number`
+ * and call `.toLocaleString()` on it, so any row whose amount the API did not
+ * send threw a TypeError mid-render instead of merely looking wrong. That was
+ * live on the rules list, where `amountUsd` is nested in `actionConfig` and was
+ * never flattened for this client. The server now sends it, but a formatter on a
+ * money screen should not be one absent field away from taking out the list.
+ */
+export function fmtUsd(usd: number | null | undefined): string {
+  const n = Number(usd);
+  if (!Number.isFinite(n)) return "$0.00";
+  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function shortAddr(a: string): string {

@@ -46,9 +46,10 @@ export async function GET(req: Request) {
  * the live name in front of the snapshot.
  *
  * Two shapes are written because the clients read two shapes: iOS reads the
- * nested `actionConfig.toHandle`, the Expo app reads flat `toHandle`/`toAddress`
- * (which the API never actually emitted, so its rule rows showed no payee at
- * all). Both now get the same resolved name.
+ * nested `actionConfig.toHandle`, the Expo app reads flat
+ * `toHandle`/`toAddress`/`amountUsd` (which the API never actually emitted, so
+ * its rule rows showed no payee and no amount at all). Both now get the same
+ * resolved name, and the amount is flattened alongside it.
  *
  * The mutated objects are freshly projected from DB rows on every request and
  * are never written back, so nothing here can reach the stored rule. On any
@@ -66,11 +67,21 @@ async function withPayeeNames(rules: MoneyRule[]): Promise<unknown[]> {
       const stored = (r.actionConfig as { toHandle?: unknown } | null)?.toHandle;
       const toHandle =
         names.get(toAddress) ?? (typeof stored === "string" && stored ? stored : null);
+      // `amountUsd` lives ONLY inside actionConfig, and the Expo app reads it
+      // flat (`mobile/src/api/rules.ts` types it as a top-level number), so its
+      // rule rows rendered an amount of `undefined` next to the payee. Flatten
+      // it for the same reason toHandle/toAddress are flattened. Read as a
+      // number and drop anything non-finite rather than forwarding a NaN that
+      // would render as "$NaN".
+      const rawAmount = (r.actionConfig as { amountUsd?: unknown } | null)?.amountUsd;
+      const parsedAmount = Number(rawAmount);
+      const amountUsd = Number.isFinite(parsedAmount) ? parsedAmount : undefined;
       return {
         ...r,
         actionConfig: { ...r.actionConfig, toHandle },
         toAddress,
         toHandle,
+        ...(amountUsd === undefined ? {} : { amountUsd }),
       };
     });
   } catch {
