@@ -81,12 +81,20 @@ export function ensureGrowthSchema(): Promise<void> {
         id            BIGSERIAL PRIMARY KEY,
         event         TEXT NOT NULL,
         ts            BIGINT NOT NULL,
-        received_at   BIGINT NOT NULL,
-        day           DATE NOT NULL,
+        -- DEFAULTS ARE LOAD-BEARING (fixed 2026-07-25). These three are NOT
+        -- NULL, and a second writer (lib/referral-events.ts) inserts only
+        -- (event, user_id, props, ts) after feature-probing column names. With
+        -- no defaults every one of its inserts raised a not-null violation,
+        -- got swallowed by its own try/catch, and logged
+        -- "[growth] <name> insert skipped" — so the ENTIRE invite funnel and
+        -- K-factor existed only in console logs, never in the table. Defaults
+        -- fix every partial writer at once instead of patching them one by one.
+        received_at   BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT,
+        day           DATE NOT NULL DEFAULT CURRENT_DATE,
         user_id       INTEGER,
         anon_id       TEXT,
         session_id    TEXT,
-        platform      TEXT NOT NULL,
+        platform      TEXT NOT NULL DEFAULT 'server',
         app_version   TEXT,
         country       TEXT,
         source        TEXT,
@@ -106,6 +114,21 @@ export function ensureGrowthSchema(): Promise<void> {
         props         JSONB
       )`
     );
+    // Backfill the defaults onto an ALREADY-CREATED table: the block above is
+    // CREATE TABLE IF NOT EXISTS, so it is a no-op wherever growth_events
+    // already exists — which is exactly where the swallowed not-null
+    // violations are happening. Idempotent and additive.
+    for (const alter of [
+      `ALTER TABLE growth_events ALTER COLUMN received_at SET DEFAULT (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT`,
+      `ALTER TABLE growth_events ALTER COLUMN day SET DEFAULT CURRENT_DATE`,
+      `ALTER TABLE growth_events ALTER COLUMN platform SET DEFAULT 'server'`,
+    ]) {
+      try {
+        await c.execute(alter);
+      } catch {
+        /* column shape already fine, or a concurrent pass won the race */
+      }
+    }
     await c.execute(
       `CREATE INDEX IF NOT EXISTS growth_events_event_day_idx
          ON growth_events (event, day)`
