@@ -21,6 +21,7 @@
 **/.vercel
 
 /ios
+/mobile
 /move
 /marketing
 /docs            # top-level only: web/public/docs must still ship
