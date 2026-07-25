@@ -32,9 +32,13 @@ const GONE = {
 let goneHits = 0;
 const LOG_EVERY = 100;
 
-// `req` is optional so the handlers stay directly callable from the unit
-// test that locks in this 410 contract (__tests__/sui/waitlist-turnstile).
-function gone(req?: Request) {
+// The first argument must be a required `Request` — Next.js validates route
+// handler signatures at build time and rejects an optional first param
+// ("Type 'Request | undefined' is not a valid type for the function's first
+// argument"). The unit test that locks in this 410 contract
+// (__tests__/sui/waitlist-turnstile) passes a Request, so nothing needs it to
+// be optional; the internals stay defensive in case it is ever called bare.
+function gone(req: Request) {
   goneHits += 1;
   if (goneHits === 1 || goneHits % LOG_EVERY === 0) {
     abuseLog("rate_limited", {
