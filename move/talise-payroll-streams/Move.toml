@@ -1,0 +1,27 @@
+[package]
+name = "talise_payroll_streams"
+edition = "2024.beta"
+version = "0.1.0"
+
+# Standalone package: an on-chain, NON-CUSTODIAL team payroll stream. The creator
+# funds a `TeamStream<T>` shared object with the WHOLE pot up front; the schedule
+# (per-member share, interval, tranche count, roster) is fixed at funding.
+# `release_due_tranche` is PERMISSIONLESS — anyone may fire it once the Clock
+# passes `next_due_ms`, and the contract pays exactly the pre-set share to each
+# hardwired member. There is NO scheduler key and NO cron; the caller has zero
+# discretion over who is paid or how much, so triggering is trustless.
+#
+# Fresh package rather than a module added to `talise_payroll` (the roster
+# package, already published on mainnet) because:
+#   • a new module's `init` never runs on a package UPGRADE, so the registry +
+#     admin circuit-breaker could not be bootstrapped there;
+#   • `talise_payroll` deliberately holds NO money — keeping fund custody out of
+#     it keeps the blast radius of any future roster upgrade at zero;
+#   • a fresh publish needs no UpgradeCap ceremony on a live production package.
+# Mirrors `talise_automations::standing_order` (the established permissionless
+# money-rule model), generalized from one recipient to an equal-split roster.
+
+[dependencies]
+
+[addresses]
+talise_payroll_streams = "0x0"

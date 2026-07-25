@@ -9,10 +9,12 @@ import SwiftUI
 /// reloads its list whenever it reappears (so a save/pay upstream is reflected
 /// without a callback round-trip).
 struct PayrollView: View {
+    @Environment(AppSession.self) private var session
     @State private var teams: [TeamDTO] = []
     @State private var loading = true
     @State private var error: String?
     @State private var deletingId: String?
+    @State private var firedDueStreams = false
 
     var body: some View {
         ScrollView {
@@ -48,7 +50,10 @@ struct PayrollView: View {
         .navigationBarTitleDisplayMode(.inline)
         // Reload on every appearance so a save/pay on a pushed screen is
         // reflected the moment we pop back to the list.
-        .task { await load() }
+        .task {
+            await load()
+            await fireDueStreamsOnce()
+        }
         .refreshable { await load() }
     }
 
@@ -210,6 +215,39 @@ struct PayrollView: View {
         } catch {
             if APIError.isCancellation(error) { return }
             self.error = "Couldn't load your teams right now."
+        }
+    }
+
+    /// Fire any DUE team-stream tranches once per appearance — the "no cron"
+    /// trigger, identical in shape to RulesView's `fireDueRulesOnce`.
+    /// `release_due_tranche` is permissionless on chain, so the creator's open app
+    /// releases the payouts they already funded: prepare → sign → record. The
+    /// contract is the real gate (it aborts ENotDue / EExhausted / ECancelled), so
+    /// every step is best-effort and a double payout is impossible.
+    private func fireDueStreamsOnce() async {
+        guard !firedDueStreams else { return }
+        firedDueStreams = true
+        let streams: [TeamStreamDTO]
+        do { streams = try await TeamStreamAPI.list() } catch { return }
+        let now = Date().timeIntervalSince1970 * 1000
+        let due = streams.filter { $0.isFireable && ($0.dueNow == true || $0.nextTrancheAt <= now) }
+        guard !due.isEmpty else { return }
+        for stream in due {
+            do {
+                let prep = try await TeamStreamAPI.releasePrepare(id: stream.id)
+                guard let bytes = prep.bytes else { continue }
+                let digest = try await ZkLoginCoordinator.shared.signAndExecuteRaw(
+                    bytesB64: bytes,
+                    meta: ["kind": "team-stream-release"]
+                )
+                _ = try await TeamStreamAPI.recordReleased(id: stream.id, digest: digest)
+            } catch ZkLoginCoordinator.SessionError.rebindRequired {
+                error = "Sign in again — your session needs a refresh."
+                session.signOut()
+                return
+            } catch {
+                // ENotDue / NO_STREAM (409) / transient — the contract is the gate; skip.
+            }
         }
     }
 

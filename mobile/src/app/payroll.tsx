@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,9 +30,20 @@ export default function PayrollScreen() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Fire any DUE payroll-stream tranches once per app-open. There is NO cron:
+  // `release_due_tranche` is permissionless on chain, so an open app simply
+  // executes the payouts the creator already funded and authorized. Best-effort
+  // and silent — the contract is the gate (it aborts if a tranche isn't due), so
+  // a skip is always safe and a double payout is impossible.
+  const firedDue = useRef(false);
+
   useFocusEffect(
     useCallback(() => {
       load();
+      if (!firedDue.current) {
+        firedDue.current = true;
+        void payrollApi.fireDueStreams();
+      }
     }, [load]),
   );
 

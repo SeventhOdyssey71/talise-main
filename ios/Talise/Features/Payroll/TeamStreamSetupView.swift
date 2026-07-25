@@ -1,11 +1,13 @@
 import SwiftUI
 
 /// Set up a streaming payout for a team: fund a pot once, then equal shares
-/// stream to every member on an interval, gaslessly, until the pot runs out.
+/// stream to every member on an interval, gaslessly, until the schedule is done.
 ///
-/// Flow: createPrepare (draft + escrow address) → fund the escrow over the normal
-/// gasless send rail (signAndSubmitSend) → record (activate). A backend cron then
-/// releases each tranche. No per-tranche signing by the user.
+/// Flow: createPrepare (draft + sponsor-ready `team_stream::create` bytes) → sign
+/// them once (that ONE gasless transaction moves the whole pot into an on-chain
+/// stream object the user owns) → record (activate). Each due tranche then releases
+/// PERMISSIONLESSLY on chain — no escrow key, no cron, and no per-tranche signing
+/// by the user beyond the app firing what's due when it's open.
 struct TeamStreamSetupView: View {
     let team: TeamDTO
     @Environment(\.dismiss) private var dismiss
@@ -213,25 +215,37 @@ struct TeamStreamSetupView: View {
         starting = true; error = nil
         defer { starting = false }
         do {
-            // 1) Draft + escrow address.
+            // 1) Draft + sponsor-ready `team_stream::create` bytes.
             let prep = try await TeamStreamAPI.createPrepare(
                 teamId: team.id,
                 totalUsd: totalUsd,
                 numTranches: numTranches,
                 intervalMinutes: interval.minutes
             )
-            // 2) Fund the escrow over the normal gasless send rail.
-            let sub = try await ZkLoginCoordinator.shared.signAndSubmitSend(
-                to: prep.escrowAddress,
-                amountUsd: prep.totalUsd,
-                intent: "Fund team stream"
+            // 2) Sign once: this funds the pot AND creates the on-chain stream the
+            //    user owns. Talise never custodies the money.
+            let digest = try await ZkLoginCoordinator.shared.signAndExecuteRaw(
+                bytesB64: prep.bytes,
+                meta: ["kind": "team-stream-create", "amountUsd": prep.totalUsd]
             )
-            // 3) Activate the stream with the funding digest.
-            _ = try await TeamStreamAPI.record(streamId: prep.streamId, digest: sub.digest)
+            // 3) Activate the stream with that digest (the server parses the new
+            //    stream object id straight off the chain). A 409 just means the
+            //    fullnode hasn't surfaced the object yet — retry the SAME digest,
+            //    activation is idempotent and the pot is already on chain.
+            var recorded = false
+            for attempt in 0..<3 where !recorded {
+                do {
+                    _ = try await TeamStreamAPI.record(streamId: prep.streamId, digest: digest)
+                    recorded = true
+                } catch let recordError {
+                    if attempt == 2 { throw recordError }
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                }
+            }
 
             startedSummary = "\(prep.memberCount) \(prep.memberCount == 1 ? "person" : "people") will each receive \(TaliseFormat.usd2(prep.perMemberUsd)) per \(interval.unit), \(prep.numTranches) times."
             NotificationCenter.default.post(name: .taliseTxCompleted, object: TaliseTxEvent(
-                digest: sub.digest, direction: "sent", amountUsdsui: prep.totalUsd,
+                digest: digest, direction: "sent", amountUsdsui: prep.totalUsd,
                 counterparty: nil, counterpartyName: team.name, venue: nil))
             withAnimation { started = true }
         } catch ZkLoginCoordinator.SessionError.rebindRequired {

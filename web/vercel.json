@@ -14,10 +14,6 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/process-team-streams",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/process-roundup-queue",
       "schedule": "* * * * *"
     },
