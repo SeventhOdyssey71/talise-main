@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,24 +11,48 @@ import { Icon } from "@/design/Icon";
 import { colors, radius, spacing } from "@/design/tokens";
 import { family } from "@/design/typography";
 
-/** StreamsView — list of your streams, in and out. Claim (recipient) / cancel & refund (sender). */
+/**
+ * StreamsView — list of your streams, in and out.
+ *
+ * Opening this screen ADVANCES every stream with money due, from either side:
+ * `stream::claim_accrued` is permissionless on chain and can only pay the
+ * stream's hardwired recipient, so the sender's open app pushes their own
+ * outgoing stream forward too. Once per stream per screen-open, silent on
+ * failure — the same "no cron" trigger shape as rules and team streams.
+ */
 export default function StreamsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [streams, setStreams] = useState<Stream[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  /** Streams already auto-advanced on this screen-open, so a refresh never
+   *  re-fires and we can't spam sponsored txs. */
+  const fired = useRef<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<Stream[]> => {
     setErr(null);
     try {
-      setStreams(await streamsApi.list());
+      const list = await streamsApi.list();
+      setStreams(list);
+      return list;
     } catch (e) {
       setErr(moneyErrorCopy(e, "Couldn't load your streams."));
       setStreams([]);
+      return [];
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const fireDue = useCallback(async (list: Stream[]) => {
+    const due = list.filter((s) => s.dueNow && !fired.current.has(s.id));
+    if (due.length === 0) return;
+    due.forEach((s) => fired.current.add(s.id));
+    const count = await streamsApi.fireDueClaims(due);
+    if (count > 0) await load();
+  }, [load]);
+
+  useEffect(() => {
+    void (async () => { await fireDue(await load()); })();
+  }, [load, fireDue]);
 
   return (
     <View style={styles.screen}>
@@ -57,32 +81,47 @@ export default function StreamsScreen() {
   );
 }
 
-function StreamRow({ stream, onReload }: { stream: Stream; onReload: () => Promise<void> }) {
+function StreamRow({ stream, onReload }: { stream: Stream; onReload: () => Promise<unknown> }) {
   const [busy, setBusy] = useState(false);
   const isRecipient = stream.role === "recipient";
   const total = stream.totalUsd ?? 0;
+  // CONFIRMED on chain, not a schedule projection — so the bar freezes by
+  // itself on a cancelled or completed stream (the cursor stops moving) and
+  // never shows money the recipient doesn't hold.
   const released = stream.releasedUsd ?? 0;
   const done = stream.tranchesDone ?? 0;
   const num = stream.numTranches ?? 0;
+  const claimable = stream.claimableUsd ?? 0;
   const progress = total > 0 ? Math.min(1, released / total) : 0;
-  const fullyStreamed = num > 0 && done >= num;
 
+  // `completed` is derived server-side from the contract's release cursor;
+  // nothing writes it, so this is how a finished stream stops looking live.
   const state = (stream.state || "").toLowerCase();
   const active = state === "active";
   const paused = state === "paused";
-  const stateLabel = active ? "Active" : paused ? "Paused" : stream.state || "—";
-  const stateColor = active ? colors.accent : colors.fgMuted;
+  const completed = state === "completed";
+  const cancelled = state === "cancelled";
+  const live = active || paused;
+  const stateLabel = completed
+    ? "Completed"
+    : cancelled
+      ? "Cancelled"
+      : active
+        ? "Active"
+        : paused
+          ? "Paused"
+          : stream.state || "—";
+  const stateColor = active ? colors.accent : completed ? colors.greenMint : colors.fgMuted;
 
   const name = stream.recipientHandle || (stream.recipientAddress ? shortAddr(stream.recipientAddress) : "—");
 
-  const claim = async () => {
+  const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
-    try { await streamsApi.claim(stream.id); await onReload(); } finally { setBusy(false); }
+    try { await fn(); await onReload(); } catch { /* best-effort */ } finally { setBusy(false); }
   };
-  const cancel = async () => {
-    setBusy(true);
-    try { await streamsApi.cancel(stream.id); await onReload(); } finally { setBusy(false); }
-  };
+  const claim = () => run(() => streamsApi.claim(stream.id));
+  const cancel = () => run(() => streamsApi.cancel(stream.id));
+  const togglePause = () => run(() => streamsApi.setPaused(stream.id, !paused));
 
   return (
     <View style={styles.card}>
@@ -97,52 +136,93 @@ function StreamRow({ stream, onReload }: { stream: Stream; onReload: () => Promi
       <View style={styles.barTrack}>
         <View style={[styles.barFill, { width: `${progress * 100}%` }]} />
       </View>
-      <Text style={styles.progressText}>{done}/{num} payments</Text>
+      <Text style={styles.progressText}>
+        {cancelled
+          ? `${fmtUsd(released)} streamed of ${fmtUsd(total)} before cancelling · ${done}/${num} payments`
+          : completed
+            ? `${fmtUsd(total)} · all ${num} payments sent`
+            : `${fmtUsd(released)} of ${fmtUsd(total)} · ${done}/${num} payments`}
+      </Text>
+      {active && claimable > 0 ? (
+        <Text style={styles.progressText}>{fmtUsd(claimable)} ready to claim</Text>
+      ) : null}
+      {paused ? (
+        <Text style={styles.progressText}>Paused, nothing is being released.</Text>
+      ) : null}
 
-      {isRecipient && active ? (
-        <ClaimButton stream={stream} fullyStreamed={fullyStreamed} busy={busy} onClaim={claim} />
-      ) : !isRecipient && (active || paused) ? (
-        <ActionButton
+      {/* Terminal streams get a statement, never controls. */}
+      {completed ? (
+        <LockedButton icon="checkmark.circle" label="Fully streamed" />
+      ) : cancelled ? (
+        <LockedButton
           icon="stop.circle"
-          label={busy ? "Cancelling…" : "Cancel & refund remainder"}
-          onPress={busy ? undefined : cancel}
+          label={
+            (stream.remainingUsd ?? 0) > 0
+              ? `Cancelled · ${fmtUsd(stream.remainingUsd ?? 0)} refunded`
+              : "Cancelled"
+          }
         />
+      ) : isRecipient ? (
+        <ClaimButton stream={stream} busy={busy} onClaim={claim} />
+      ) : live ? (
+        <>
+          <ActionButton
+            icon={paused ? "play.fill" : "pause.fill"}
+            label={busy ? "Working…" : paused ? "Resume stream" : "Pause stream"}
+            onPress={busy ? undefined : togglePause}
+          />
+          <ActionButton
+            icon="stop.circle"
+            label={busy ? "Cancelling…" : "Cancel & refund remainder"}
+            onPress={busy ? undefined : cancel}
+          />
+        </>
       ) : null}
     </View>
   );
 }
 
+/**
+ * Recipient claim control. The screen-open auto-fire already pulls whatever is
+ * due, so this is the manual fallback plus an honest countdown: claimable while
+ * the chain owes something, otherwise counting down to the next tranche's Clock
+ * time. Paused streams show why nothing can be pulled.
+ */
 function ClaimButton({
   stream,
-  fullyStreamed,
   busy,
   onClaim,
 }: {
   stream: Stream;
-  fullyStreamed: boolean;
   busy: boolean;
   onClaim: () => void;
 }) {
   const [now, setNow] = useState(Date.now());
+  const claimable = (stream.claimableUsd ?? 0) > 0;
   const next = stream.nextTrancheAt ?? null;
-  const locked = next != null && next > now;
+  const paused = (stream.state || "").toLowerCase() === "paused";
 
   useEffect(() => {
-    if (fullyStreamed || next == null) return;
+    if (paused || claimable || next == null) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [fullyStreamed, next]);
+  }, [paused, claimable, next]);
 
-  if (fullyStreamed) return <LockedButton icon="checkmark.circle" label="Fully streamed" />;
-  if (locked && next != null) return <LockedButton icon="clock" label={`Next claim in ${countdown(next - now)}`} />;
-  return (
-    <ActionButton
-      icon="arrow.down.circle"
-      label={busy ? "Claiming…" : "Claim available"}
-      tint={colors.greenMint}
-      onPress={busy ? undefined : onClaim}
-    />
-  );
+  if (paused) return <LockedButton icon="pause.fill" label="Paused by the sender" />;
+  if (claimable) {
+    return (
+      <ActionButton
+        icon="arrow.down.circle"
+        label={busy ? "Claiming…" : `Claim ${fmtUsd(stream.claimableUsd ?? 0)}`}
+        tint={colors.greenMint}
+        onPress={busy ? undefined : onClaim}
+      />
+    );
+  }
+  if (next != null && next > now) {
+    return <LockedButton icon="clock" label={`Next payment in ${countdown(next - now)}`} />;
+  }
+  return <LockedButton icon="clock" label="Waiting on the next payment" />;
 }
 
 function ActionButton({

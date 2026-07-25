@@ -28,24 +28,45 @@ private struct StreamCancelResp: Decodable {
     let refunded: Bool?
     let refundUsd: Double?
 }
-/// /api/streams/[id]/claim response. On-chain rail returns sponsor-ready
-/// `claim_accrued` `bytes` for the caller to sign+execute; `nothingToClaim`
-/// when the schedule has nothing newly due.
+/// /api/streams/[id]/claim response. Returns sponsor-ready `claim_accrued`
+/// `bytes` for the caller to sign+execute; `nothingToClaim` when the Clock has
+/// nothing the chain hasn't already paid.
 private struct StreamClaimResp: Decodable {
     let ok: Bool?
     let mode: String?
     let bytes: String?
     let nothingToClaim: Bool?
+    let claimableUsd: Double?
+}
+/// /api/streams/[id]/pause | /resume response. Both are ON-CHAIN now (only the
+/// contract's `paused` flag actually stops money moving), so both hand back
+/// sponsor-ready bytes for the SENDER to sign, then the digest goes to /confirm.
+private struct StreamPauseResp: Decodable {
+    let ok: Bool?
+    let state: String?
+    let mode: String?
+    let bytes: String?
 }
 struct StreamDTO: Decodable, Identifiable {
     let id: String
+    /// Server-DERIVED: active | paused | completed | cancelled. `completed` is
+    /// never stored, it's computed from the contract's release cursor.
     let state: String
     let role: String?
     let recipientHandle: String?
     let recipientAddress: String?
     let totalUsd: Double?
+    /// CONFIRMED on chain: money the recipient actually holds.
     let releasedUsd: Double?
     let remainingUsd: Double?
+    /// Earned by the Clock, claimed or not.
+    let accruedUsd: Double?
+    let accruedTranches: Int?
+    /// Earned but not pushed yet, what the next claim moves.
+    let claimableUsd: Double?
+    let claimableTranches: Int?
+    /// Something is due that the chain hasn't paid yet, the auto-fire gate.
+    let dueNow: Bool?
     let tranchesDone: Int?
     let numTranches: Int?
     let nextTrancheAt: Double?
@@ -426,13 +447,11 @@ struct StreamsListView: View {
     @State private var loading = true
     @State private var cancellingId: String?
     @State private var claimingId: String?
+    @State private var pausingId: String?
     @State private var cancelError: String?
-    /// Streams already auto-claimed this view session, so opening the list
-    /// pulls accrued funds once per stream rather than re-firing on every refresh.
-    @State private var autoClaimed: Set<String> = []
-    /// Tranches claimed per stream this session — drives the "next claim in Xs"
-    /// cooldown so the button locks until the next tranche is actually due.
-    @State private var claimedMark: [String: Int] = [:]
+    /// Streams already auto-advanced this view session, so a due claim fires at
+    /// most once per stream per open no matter how often the list refreshes.
+    @State private var firedDue: Set<String> = []
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -457,24 +476,29 @@ struct StreamsListView: View {
         .background(TaliseColor.bg.ignoresSafeArea())
         .coverDismiss(onDone)
         .presentationDragIndicator(.visible)
-        .task { await load(); await autoClaimAccrued() }
+        .task { await load(); await fireDueClaimsOnce() }
     }
 
-    /// Auto-pull accrued tranches for every incoming stream when the recipient
-    /// opens the list — so funds land without a manual tap (still just the
-    /// on-chain Clock + claim_accrued, no cron). Best-effort + silent: once per
-    /// stream per session, only when something has accrued, and the manual
-    /// "Claim available" button stays for later accruals. Refreshes once after.
-    private func autoClaimAccrued() async {
-        var claimedAny = false
-        for s in streams where s.role == "recipient"
-            && s.state == "active"
-            && (s.tranchesDone ?? 0) > 0
-            && !autoClaimed.contains(s.id) {
-            autoClaimed.insert(s.id)
-            if await silentClaim(s) { claimedAny = true }
+    /// Fire any DUE claim once per appearance — the "no cron" trigger, identical
+    /// in shape to RulesView's `fireDueRulesOnce`. `claim_accrued` is
+    /// PERMISSIONLESS on chain and hard-transfers to the stream's hardwired
+    /// recipient, so BOTH sides fire it: the sender opening this list pushes
+    /// their own outgoing stream forward, which is what makes it actually stream
+    /// instead of waiting on the recipient to find a button.
+    ///
+    /// `dueNow` is the server's exact gate (the Clock has earned something the
+    /// chain hasn't paid), so a stream with nothing due costs no sponsored gas,
+    /// and paused/cancelled streams never appear because the contract would
+    /// abort them. Every step is best-effort; the contract is the real gate.
+    private func fireDueClaimsOnce() async {
+        let due = streams.filter { $0.dueNow == true && !firedDue.contains($0.id) }
+        guard !due.isEmpty else { return }
+        var fired = 0
+        for s in due {
+            firedDue.insert(s.id)
+            if await silentClaim(s) { fired += 1 }
         }
-        if claimedAny { await load() }
+        if fired > 0 { await load() }
     }
 
     /// Silent claim for the auto path — no button spinner, no error surfaced.
@@ -486,10 +510,10 @@ struct StreamsListView: View {
                 "/api/streams/\(s.id)/claim", body: ClaimBody()
             )
             if r.mode == "onchain", let bytes = r.bytes {
-                _ = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                let sent = try await ZkLoginCoordinator.shared.executeSponsorReady(
                     bytesB64: bytes, intent: "Claim stream"
                 )
-                claimedMark[s.id] = liveAccrued(s)
+                await confirm(s.id, digest: sent.digest)
                 NotificationCenter.default.post(name: .taliseHomeShouldRefresh, object: nil)
                 return true
             }
@@ -500,11 +524,37 @@ struct StreamsListView: View {
         return false
     }
 
+    /// Tell the server a signed stream tx landed so the mirror re-reads the
+    /// contract's release cursor. Best-effort: every figure on the card comes
+    /// from the chain, so a missed confirm only means the next claim re-syncs it.
+    private func confirm(_ id: String, digest: String) async {
+        struct ConfirmBody: Encodable { let digest: String }
+        struct ConfirmResp: Decodable { let ok: Bool? }
+        do {
+            let _: ConfirmResp = try await APIClient.shared.post(
+                "/api/streams/\(id)/confirm", body: ConfirmBody(digest: digest)
+            )
+        } catch {
+            // The mirror catches up on the next claim.
+        }
+    }
+
+    @ViewBuilder
     private func streamRow(_ s: StreamDTO) -> some View {
         let total = s.totalUsd ?? 0
+        // CONFIRMED on chain, not a schedule projection — so the bar freezes by
+        // itself once a stream stops (the contract's cursor stops moving) and it
+        // never shows money the recipient doesn't hold.
         let released = s.releasedUsd ?? 0
         let progress = total > 0 ? min(1, released / total) : 0
-        return VStack(alignment: .leading, spacing: 10) {
+        let claimable = s.claimableUsd ?? 0
+        // `completed` is DERIVED server-side from the release cursor; nothing
+        // writes it, so this is what stops a finished stream looking live.
+        let isCompleted = s.state == "completed"
+        let isCancelled = s.state == "cancelled"
+        let isPaused = s.state == "paused"
+        let isLive = s.state == "active" || isPaused
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(s.role == "recipient" ? "Streaming in" : "Streaming out")
@@ -514,7 +564,10 @@ struct StreamsListView: View {
                 }
                 Spacer()
                 Text(s.state.capitalized).font(TaliseFont.mono(9))
-                    .foregroundStyle(s.state == "active" ? TaliseColor.accent : TaliseColor.fgMuted)
+                    .foregroundStyle(
+                        s.state == "active" ? TaliseColor.accent
+                            : isCompleted ? TaliseColor.greenMint : TaliseColor.fgMuted
+                    )
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(Capsule().fill(TaliseColor.surface2))
                     .clipShape(Capsule())
@@ -526,29 +579,61 @@ struct StreamsListView: View {
                 }
             }.frame(height: 6)
             HStack {
-                Text("\(TaliseFormat.usd2(released)) of \(TaliseFormat.usd2(total))")
-                    .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgMuted)
+                Text(
+                    isCancelled
+                        ? "\(TaliseFormat.usd2(released)) streamed before cancelling"
+                        : isCompleted
+                            ? "\(TaliseFormat.usd2(total)) fully streamed"
+                            : "\(TaliseFormat.usd2(released)) of \(TaliseFormat.usd2(total))"
+                )
+                .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgMuted)
                 Spacer()
                 Text("\(s.tranchesDone ?? 0)/\(s.numTranches ?? 0) payments")
                     .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgDim)
             }
-            // Recipient: pull the funds the Clock has accrued. Streaming is
-            // CLOCK-BASED + cron-less — the contract has released tranches over
-            // time, and this claim transfers everything now due into the
-            // recipient's wallet (Onara-sponsored, free). Idempotent: claim as
-            // often as you like; it only ever moves what's newly accrued.
-            // Recipient claim with a live cooldown: "Claim available" while a
-            // tranche is due, otherwise "Next claim in Xs" — locked until the
-            // next tranche's on-chain Clock time. Re-evaluated every second.
-            if s.role == "recipient", s.state == "active" {
+            if s.state == "active", claimable > 0 {
+                Text("\(TaliseFormat.usd2(claimable)) ready to claim")
+                    .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.accent)
+            }
+            if isPaused {
+                Text("Paused, nothing is being released.")
+                    .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgMuted)
+            }
+            if isCancelled, (s.remainingUsd ?? 0) > 0 {
+                Text("\(TaliseFormat.usd2(s.remainingUsd ?? 0)) went back to the sender.")
+                    .font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgMuted)
+            }
+
+            // Terminal streams get a plain statement instead of controls: no
+            // pause, no cancel, no claim, because there is nothing left to do.
+            if isCompleted {
+                lockedClaimButton("Fully streamed").padding(.top, 4)
+            } else if isCancelled {
+                lockedClaimButton("Cancelled").padding(.top, 4)
+            } else if s.role == "recipient" {
+                // Live cooldown: claimable while the chain owes something,
+                // otherwise counting down to the next tranche's on-chain Clock
+                // time. Re-evaluated every second. The screen-open auto-fire
+                // already pulls what's due, this is the manual fallback.
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     claimControl(s)
                 }
                 .padding(.top, 4)
-            }
-            // Sender-only cancel on a live stream. Stops further releases and
-            // returns the undistributed remainder to the sender.
-            if s.role != "recipient", s.state == "active" || s.state == "paused" {
+            } else if isLive {
+                // Sender controls. Pause is ON CHAIN (only the contract's
+                // `paused` flag actually stops money moving), and both pause and
+                // cancel settle accrued tranches to the recipient first.
+                LiquidGlassButton(
+                    title: pausingId == s.id
+                        ? (isPaused ? "Resuming…" : "Pausing…")
+                        : (isPaused ? "Resume stream" : "Pause stream"),
+                    icon: pausingId == s.id ? nil : (isPaused ? "play.circle" : "pause.circle"),
+                    tint: nil,
+                    size: .md,
+                    loading: pausingId == s.id
+                ) { Task { await setPaused(s, !isPaused) } }
+                    .disabled(pausingId != nil || cancellingId != nil)
+                    .padding(.top, 4)
                 LiquidGlassButton(
                     title: cancellingId == s.id ? "Cancelling…" : "Cancel & refund remainder",
                     icon: cancellingId == s.id ? nil : "stop.circle",
@@ -556,8 +641,7 @@ struct StreamsListView: View {
                     size: .md,
                     loading: cancellingId == s.id
                 ) { Task { await cancel(s) } }
-                    .disabled(cancellingId != nil)
-                    .padding(.top, 4)
+                    .disabled(cancellingId != nil || pausingId != nil)
             }
         }
         .padding(16)
@@ -568,11 +652,11 @@ struct StreamsListView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
-    /// Cancel a stream (sender-only). The server flips the row to cancelled,
-    /// then EITHER refunds the remainder server-side (escrow rail) OR returns
-    /// sponsor-ready `cancel_and_withdraw` bytes for the sender to sign
-    /// (on-chain rail) — only the sender's zkLogin can withdraw the on-chain
-    /// remainder. We sign+execute those bytes via executeSponsorReady.
+    /// Cancel a stream (sender-only). The server flips the row to cancelled and
+    /// returns sponsor-ready bytes — only the sender's zkLogin can sign
+    /// `cancel_and_withdraw`. That PTB settles every accrued tranche to the
+    /// recipient BEFORE withdrawing, so cancelling can't claw back money the
+    /// Clock already earned them, and `refundUsd` is the true remainder.
     private func cancel(_ s: StreamDTO) async {
         cancellingId = s.id; cancelError = nil
         defer { cancellingId = nil }
@@ -585,6 +669,7 @@ struct StreamsListView: View {
                 let sent = try await ZkLoginCoordinator.shared.executeSponsorReady(
                     bytesB64: bytes, intent: "Cancel stream"
                 )
+                await confirm(s.id, digest: sent.digest)
                 if let refund = r.refundUsd, refund > 0 {
                     NotificationCenter.default.post(name: .taliseTxCompleted, object: TaliseTxEvent(
                         digest: sent.digest, direction: "received", amountUsdsui: refund,
@@ -603,10 +688,49 @@ struct StreamsListView: View {
         }
     }
 
-    /// Recipient claim: pull the Clock-accrued tranches into the wallet. The
-    /// server builds the Onara-sponsored `stream::claim_accrued` PTB; we sign +
-    /// execute it. The on-chain contract only ever pays the hardwired recipient,
-    /// so this is safe even though the call is permissionless.
+    /// Pause or resume (sender-only), ON CHAIN. `claim_accrued` is
+    /// permissionless, so only the contract's `paused` flag genuinely stops
+    /// money moving — a mirror-only pause would leave the stream claimable. Both
+    /// directions sign sponsor-ready bytes, then we confirm the digest so the
+    /// mirror follows the chain. Pausing settles accrued tranches first, so it
+    /// never retroactively takes back what the Clock earned.
+    private func setPaused(_ s: StreamDTO, _ paused: Bool) async {
+        pausingId = s.id; cancelError = nil
+        defer { pausingId = nil }
+        struct EmptyBody: Encodable {}
+        do {
+            let r: StreamPauseResp = try await APIClient.shared.post(
+                "/api/streams/\(s.id)/\(paused ? "pause" : "resume")", body: EmptyBody()
+            )
+            if r.mode == "onchain", let bytes = r.bytes {
+                let sent = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                    bytesB64: bytes, intent: paused ? "Pause stream" : "Resume stream"
+                )
+                await confirm(s.id, digest: sent.digest)
+            }
+            // A resumed stream's backlog SHOULD go out now, that isn't spam.
+            if !paused { firedDue.remove(s.id) }
+            await load()
+            if !paused { await fireDueClaimsOnce() }
+        } catch APIError.status(let code, let msg) {
+            cancelError = StreamSetupView.friendlyStreamError(code: code, message: msg)
+            await load()
+        } catch ZkLoginCoordinator.SessionError.rebindRequired {
+            cancelError = "Sign in again — your session needs a refresh."
+            session.signOut()
+        } catch {
+            if APIError.isCancellation(error) { return }
+            cancelError = paused
+                ? "Couldn't pause the stream right now."
+                : "Couldn't resume the stream right now."
+        }
+    }
+
+    /// Manual claim: push the Clock-accrued tranches into the recipient's
+    /// wallet. The server builds the Onara-sponsored `stream::claim_accrued`
+    /// PTB; we sign + execute it, then confirm so the mirror re-reads the
+    /// contract. The contract only ever pays the hardwired recipient, so this is
+    /// safe even though the call is permissionless.
     private func claim(_ s: StreamDTO) async {
         claimingId = s.id; cancelError = nil
         defer { claimingId = nil }
@@ -616,12 +740,10 @@ struct StreamsListView: View {
                 "/api/streams/\(s.id)/claim", body: ClaimBody()
             )
             if r.mode == "onchain", let bytes = r.bytes {
-                _ = try await ZkLoginCoordinator.shared.executeSponsorReady(
+                let sent = try await ZkLoginCoordinator.shared.executeSponsorReady(
                     bytesB64: bytes, intent: "Claim stream"
                 )
-                // Pulled everything due as of now → lock the button until the
-                // next tranche's clock time.
-                claimedMark[s.id] = liveAccrued(s)
+                await confirm(s.id, digest: sent.digest)
                 NotificationCenter.default.post(name: .taliseHomeShouldRefresh, object: nil)
             }
             await load()
@@ -637,27 +759,34 @@ struct StreamsListView: View {
     }
 
     /// The Claim button / cooldown for one incoming stream, recomputed every
-    /// second by the enclosing TimelineView.
+    /// second by the enclosing TimelineView. "Claimable" is the local re-run of
+    /// the server's `dueNow`: the Clock has accrued past the CONFIRMED release
+    /// cursor. Doing it locally means the button unlocks on the tick rather than
+    /// waiting for a refresh.
     @ViewBuilder
     private func claimControl(_ s: StreamDTO) -> some View {
         let num = s.numTranches ?? 0
+        let confirmedDone = s.tranchesDone ?? 0
         let accrued = liveAccrued(s)
-        let claimed = claimedMark[s.id] ?? 0
-        if accrued > claimed {
-            // A tranche is due now — claimable.
+        if s.state == "paused" {
+            lockedClaimButton("Paused by the sender")
+        } else if accrued > confirmedDone {
+            let claimable = s.claimableUsd ?? 0
             LiquidGlassButton(
-                title: claimingId == s.id ? "Claiming…" : "Claim available",
+                title: claimingId == s.id
+                    ? "Claiming…"
+                    : (claimable > 0 ? "Claim \(TaliseFormat.usd2(claimable))" : "Claim available"),
                 icon: claimingId == s.id ? nil : "arrow.down.circle",
                 tint: TaliseColor.greenMint,
                 size: .md,
                 loading: claimingId == s.id
             ) { Task { await claim(s) } }
                 .disabled(claimingId != nil)
-        } else if claimed < num {
-            // Nothing due yet — count down to the next tranche's clock time.
+        } else if confirmedDone < num {
+            // Nothing due yet — count down to the next tranche's Clock time.
             let nowMs = Date().timeIntervalSince1970 * 1000
-            let secs = max(0, Int(((nextDueMs(s, accrued: accrued) - nowMs) / 1000).rounded(.up)))
-            lockedClaimButton("Next claim in \(countdownLabel(secs))")
+            let secs = max(0, Int(((nextDueMs(s) - nowMs) / 1000).rounded(.up)))
+            lockedClaimButton("Next payment in \(countdownLabel(secs))")
         } else {
             lockedClaimButton("Fully streamed")
         }
@@ -676,13 +805,15 @@ struct StreamsListView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    /// Tranches the on-chain Clock has released by now (mirrors the contract +
-    /// the server's projection). Falls back to the server-sent count if the
-    /// schedule fields are missing.
+    /// Tranches the on-chain Clock has made DUE by now (mirrors the contract's
+    /// own `due_at` walk and the server's projection). This is ACCRUED, not
+    /// released: an accrued tranche nobody has claimed is still locked in the
+    /// Stream object. Falls back to the server's accrued count if the schedule
+    /// fields are missing.
     private func liveAccrued(_ s: StreamDTO) -> Int {
         let num = s.numTranches ?? 0
         guard let start = s.startMs, let interval = s.intervalMs, interval > 0, num > 0 else {
-            return s.tranchesDone ?? 0
+            return s.accruedTranches ?? s.tranchesDone ?? 0
         }
         let now = Date().timeIntervalSince1970 * 1000
         if now < start { return 0 }
@@ -690,9 +821,12 @@ struct StreamsListView: View {
         return max(0, min(num, due))
     }
 
-    /// Clock time the NEXT (yet-unaccrued) tranche becomes due.
-    private func nextDueMs(_ s: StreamDTO, accrued: Int) -> Double {
-        (s.startMs ?? 0) + Double(accrued) * (s.intervalMs ?? 0)
+    /// Clock time the next UNRELEASED tranche becomes due — the contract's own
+    /// `due_at = start_ms + tranches_done * interval_ms`. Prefers the server's
+    /// derived value and falls back to the same formula locally.
+    private func nextDueMs(_ s: StreamDTO) -> Double {
+        if let next = s.nextTrancheAt { return next }
+        return (s.startMs ?? 0) + Double(s.tranchesDone ?? 0) * (s.intervalMs ?? 0)
     }
 
     private func countdownLabel(_ secs: Int) -> String {
