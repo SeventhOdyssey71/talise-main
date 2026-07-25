@@ -5,6 +5,12 @@ import { api } from "@/api/client";
 export type RewardsEvent = { id: string; kind: string; points: number; createdAt: string };
 export type RewardsTier = { id: string; label: string; pointsToNext?: number | null; nextLabel?: string | null };
 export type RoundupConfig = { enabled: boolean; percentage: number };
+/**
+ * Canonical invite copy, served from web/components/app/rewards/share-copy.ts.
+ * Nullable so an older server (or a user with no code yet) degrades to the local
+ * fallback in lib/referral.ts instead of shipping a third variant of the copy.
+ */
+export type InviteShare = { title: string; text: string; url: string; message: string };
 
 export type RewardsSummary = {
   code?: string | null;
@@ -16,6 +22,7 @@ export type RewardsSummary = {
   lifetimeSavedUsd?: number | null;
   roundup?: RoundupConfig | null;
   roundupSavedUsd?: number | null;
+  share?: InviteShare | null;
 };
 
 export type SavingsGoal = {

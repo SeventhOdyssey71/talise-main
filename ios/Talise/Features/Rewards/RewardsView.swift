@@ -279,6 +279,11 @@ struct RewardsView: View {
     @ViewBuilder
     private var shareSection: some View {
         if let code = summary?.code {
+            // Invite link + copy come from the SERVER (`share`), which renders
+            // web/components/app/rewards/share-copy.ts, the one source of truth
+            // for all three clients. ReferralAttribution is the offline fallback.
+            let inviteURL = summary?.share?.url ?? ReferralAttribution.inviteURL(code: code)
+            let shareMessage = summary?.share?.message ?? ReferralAttribution.shareFallback(code: code)
             VStack(spacing: 12) {
                 HStack {
                     Text(code)
@@ -287,7 +292,8 @@ struct RewardsView: View {
                         .foregroundStyle(TaliseColor.fg)
                     Spacer(minLength: 8)
                     LiquidGlassPill(title: "Copy", icon: "doc.on.doc", compact: true) {
-                        UIPasteboard.general.string = "https://www.talise.io/r/\(code)"
+                        UIPasteboard.general.string = inviteURL
+                        ReferralAttribution.reportInviteSent(code: code, channel: "copy")
                     }
                 }
                 .padding(.horizontal, 18)
@@ -302,7 +308,8 @@ struct RewardsView: View {
                     icon: "square.and.arrow.up",
                     size: .lg
                 ) {
-                    share(text: "Join me on Talise: https://www.talise.io/r/\(code)")
+                    share(text: shareMessage)
+                    ReferralAttribution.reportInviteSent(code: code, channel: "share")
                 }
             }
         }
@@ -316,7 +323,7 @@ struct RewardsView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(TaliseColor.greenMint)
                 .padding(.top, 1)
-            Text("Invite friends — you earn points when they join and start moving money.")
+            Text("Invite friends. You earn points when they join and start moving money.")
                 .font(TaliseFont.body(12.5, weight: .light))
                 .foregroundStyle(TaliseColor.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)

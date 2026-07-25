@@ -29,20 +29,24 @@
       "predictiveBackGestureEnabled": false,
       "intentFilters": [
         {
+          "_comment": "App Links, verified against /.well-known/assetlinks.json (web/app/.well-known/assetlinks.json/route.ts). SCOPED to /r/ on purpose: this filter used to claim EVERY path on all three hosts, which was harmless only because verification always failed (no assetlinks.json existed). Now that the file is served, an unscoped filter would swallow the whole marketing site and every link the app has no route for, stranding users on an unmatched route. Add a pathPrefix here only together with a real expo-router route for it (e.g. /c/ needs app/c/[id].tsx before it can be claimed).",
           "action": "VIEW",
           "autoVerify": true,
           "data": [
             {
               "scheme": "https",
-              "host": "talise.io"
+              "host": "talise.io",
+              "pathPrefix": "/r/"
             },
             {
               "scheme": "https",
-              "host": "www.talise.io"
+              "host": "www.talise.io",
+              "pathPrefix": "/r/"
             },
             {
               "scheme": "https",
-              "host": "app.talise.io"
+              "host": "app.talise.io",
+              "pathPrefix": "/r/"
             }
           ],
           "category": [

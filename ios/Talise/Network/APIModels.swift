@@ -461,6 +461,19 @@ struct RewardsSummary: Codable {
     /// Point-earning rates from the server so iOS can render the
     /// "earn rules" copy without hardcoding (1 pt / $1 sent, etc.)
     let pointRates: PointRates?
+    /// Canonical invite copy + link, from web/components/app/rewards/
+    /// share-copy.ts. One source of truth for web, iOS and Android; before it
+    /// there were three different hardcoded invite messages. Optional so an
+    /// older server falls back to `ReferralAttribution.shareFallback`.
+    let share: InviteShare?
+}
+
+/// Server-rendered invite share payload. Field names match `inviteSharePayload`.
+struct InviteShare: Codable {
+    let title: String
+    let text: String
+    let url: String
+    let message: String
 }
 
 struct RewardsTier: Codable {
