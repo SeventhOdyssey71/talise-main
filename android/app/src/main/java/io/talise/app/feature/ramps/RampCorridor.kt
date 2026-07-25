@@ -73,6 +73,9 @@ object RampCorridors {
     fun forDirection(
         direction: RampDirection,
         userCountry: String?,
+        /** Server verdict from [OnrampConfigStore]. Defaults to CLOSED so a
+         *  caller that forgets it can't offer add-money the backend refuses. */
+        onrampOpen: Boolean = false,
     ): Pair<List<RampCorridor>, List<RampCorridor>> {
         // Nigeria-first: an unset/empty country defaults to NG so a user who
         // never picked one still gets Nigerian cash-out (the live rail) rather
@@ -94,6 +97,9 @@ object RampCorridors {
                 RampCorridor.Availability.Local -> cc == c.code
                 RampCorridor.Availability.Bridge ->
                     if (!RampFlags.bridgeLive) false
+                    // Add-money additionally needs the SERVER to say funding is
+                    // open; cash-out keeps its own gate (USD_WITHDRAWAL_OPEN).
+                    else if (direction == RampDirection.Onramp && !onrampOpen) false
                     // Cash-out (off-ramp) is country-agnostic: anyone holding
                     // dollars can pay out to a USD/EUR bank, so we don't gate it on
                     // the user's residence. Add-money (on-ramp) stays matched to the
@@ -115,13 +121,16 @@ enum class RampDirection {
 }
 
 /**
- * Feature gating for the ramps, mirroring iOS `RampFlags`. Until the Bridge
- * account is live (KYB approved + API key + webhook), only Nigeria's local rail
- * (Linq) is bookable, the Bridge corridors (US/EU/GB/...) show as "coming soon".
- * Flip [bridgeLive] to true to switch them on with no other code change.
+ * Feature gating for the ramps, mirroring iOS `RampFlags`.
+ *
+ * ADD-MONEY (on-ramp) is NO LONGER gated here. Its single source of truth is
+ * the server: `GET /api/onramp/config`, driven by the `ONRAMP_ENABLED` env var
+ * and cached in [OnrampConfigStore] — so funding can be switched on per
+ * environment with no app release. Pass that verdict as `onrampOpen`.
  */
 object RampFlags {
-    // LOCKED for now: Bridge corridors (US cash-out / add-money) hidden while
-    // KYC + the US flow are paused. Flip back to true to re-enable.
+    /** CASH-OUT corridors served by Bridge (US/EU/GB…). Still locked on Android
+     *  while the KYC + US cash-out flow is paused; every cash-out call is
+     *  additionally server-gated (`USD_WITHDRAWAL_OPEN` + approved KYC). */
     const val bridgeLive = false
 }
