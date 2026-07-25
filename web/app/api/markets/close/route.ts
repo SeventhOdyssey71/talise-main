@@ -4,6 +4,8 @@ import { userById } from "@/lib/db";
 import { denyUnlessAppApproved } from "@/lib/app-access";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { WATERX_ENABLED, WATERX_LOCAL_SIGN, localSigner, buildCloseTx, settle, friendlyPerpError, assertOwnsPerpAccount } from "@/lib/waterx";
+import { awardForTx } from "@/lib/rewards/earn";
+import { PERPS_CLOSE } from "@/lib/rewards-constants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +52,42 @@ export async function POST(req: Request) {
   try {
     const { tx, feeUsd } = await buildCloseTx(ticker, accountId, positionId, b.isLong ?? true, sender);
     const result = await settle(tx, sender);
+
+    // REWARDS: closing a position earns points, fire-and-forget.
+    //
+    // `feeUsd` is the 2% Talise close fee that `buildCloseTx` computed from
+    // the position's ON-CHAIN collateral and appended to this very PTB as a
+    // USDsui transfer to the treasury. It is > 0 only when the fee leg is
+    // actually in the transaction (buildCloseTx zeroes it when the user's
+    // wallet can't cover it, and closes without it), so it is the honest
+    // upper bound on what a close can be worth.
+    //
+    // We pass it as the ASSERTED amount, which the engine treats as a ceiling
+    // and never as a value: it re-reads the settled tx and pays on the USDsui
+    // the treasury address was actually credited (lib/rewards/earn.ts →
+    // shapeBasis). Nothing about position size, entry price or PnL is trusted,
+    // or even sent — none of it is verifiable on chain, because a reduce-only
+    // close settles into the WaterX Account object's internal credit balance
+    // and produces no coin balance change.
+    //
+    // The digest is only available in the local-sign path; in the normal
+    // SPONSORED path we hand the client unsigned bytes and never learn the
+    // digest, so the award is booked digest-less and the deferred settlement
+    // pass finds the close by its on-chain shape (fee-only outflow to the
+    // treasury) on the next app-open. That shape requirement is what stops a
+    // deferred perps award from latching onto an unrelated send.
+    if (authedUserId != null && feeUsd >= PERPS_CLOSE.MIN_FEE_USD) {
+      void awardForTx({
+        userId: authedUserId,
+        trigger: "perps_close",
+        amountUsd: feeUsd,
+        digest: result.mode === "executed" ? result.digest : undefined,
+        venue: "waterx",
+      }).catch((e) =>
+        console.warn(`[perp/close] awardForTx failed: ${(e as Error).message}`)
+      );
+    }
+
     return NextResponse.json({ ...result, ticker, positionId, feeUsd });
   } catch (err) {
     const msg = (err as Error).message ?? "failed";

@@ -150,6 +150,86 @@ export const REFERRAL_LIMITS = {
 export const DAILY_EARN_POINTS_CAP = 25_000;
 
 /**
+ * PERPS CLOSE award policy.
+ *
+ * ── What is actually verifiable about a WaterX close ────────────────
+ *
+ * A close is NOT shaped like a send, and most of what a trader cares about
+ * is invisible to `balanceChanges`:
+ *
+ *   • Realized PnL       — NOT verifiable. A reduce-only close settles into
+ *     the WaterX Account object's internal CREDIT balance, not into a Coin,
+ *     so no `balanceChanges` entry exists for it. (Credit only becomes a
+ *     real USDsui balance change later, in a separate withdraw tx that
+ *     WaterX's keeper delivers.)
+ *   • Collateral returned — NOT verifiable, same reason.
+ *   • Position size / entry / mark — client-side numbers. The iOS and web
+ *     terminals both compute them from an oracle read for display.
+ *
+ * Exactly ONE thing about a close is on-chain, unambiguous, and attributable
+ * to the user: the 2% Talise close fee. `buildCloseTx` (lib/waterx.ts) reads
+ * the position's collateral ON CHAIN (`getPosition(...).collateral_amount`,
+ * "not client-trusted") and appends a USDsui `transferObjects` from the
+ * user's own wallet to the Talise treasury inside the SAME atomic PTB. That
+ * leg lands in `balanceChanges` as a negative delta for the sender and a
+ * positive delta for the treasury address.
+ *
+ * So issuance is based on the FEE PAID, and because the fee is a fixed 2% of
+ * chain-read collateral, the fee is also a chain-attested proxy for position
+ * size — the award is volume-scaled without ever trusting a client-asserted
+ * size or PnL.
+ *
+ * ── Why this is not farmable ────────────────────────────────────────
+ *
+ * Perps are the easiest wash-trading surface Talise has: gas is sponsored, so
+ * opening and closing in a loop is free. The load-bearing defence is that on
+ * THIS trigger it is not free — every point is paid out of a fee the user
+ * actually delivered to Talise revenue, verified as an on-chain outflow from
+ * their own wallet to the treasury. A wash loop funds its own issuance. On
+ * top of that sit the shape gate, the per-day close cap and the minimum fee
+ * below (see lib/rewards/earn.ts for the enforcement).
+ */
+export const PERPS_CLOSE = {
+  /**
+   * Points per $1 of close fee actually received by the treasury.
+   *
+   * 25. The fee is 2% of collateral (`PERP_CLOSE_FEE_BPS`, default 200), so
+   * 25 pts/$1-of-fee === 0.5 pts per $1 of collateral closed, i.e. HALF the
+   * send rate per dollar at risk. Deliberately below the send rate on a new
+   * surface, and deliberately not scaled by leverage: notional is a client
+   * number, collateral is not.
+   *
+   * Note this is a LEVERED rate — 25x — so any error in measuring the fee is
+   * amplified 25x. That is why the basis is not the transaction's net
+   * outflow but the amount the treasury specifically received, and why the
+   * shape gate demands the fee be the WHOLE outflow.
+   */
+  POINTS_PER_FEE_USD: 25,
+
+  /**
+   * Smallest fee worth points: $0.02, i.e. a $1 position.
+   *
+   * The engine floors any positive verified amount to at least 1 pt (real
+   * corridor sends are sub-$1), which on a 25x rate would make a dust close
+   * worth a point. $1 of collateral is below WaterX's own minimum margin and
+   * far below any real Talise position, so nothing legitimate is refused.
+   */
+  MIN_FEE_USD: 0.02,
+
+  /**
+   * Closes one account may be PAID for per UTC day.
+   *
+   * 20. A real trader closes a handful of positions a day; twenty is
+   * generous even for someone scalping. This is a belt-and-braces bound on
+   * ledger rows and chain reads a scripted loop can force, independent of
+   * the "every point costs real revenue" argument, and it also caps the one
+   * remaining way to convert money into points here (hand-crafting treasury
+   * transfers) at 20 rows/day.
+   */
+  MAX_CLOSES_PER_DAY: 20,
+} as const;
+
+/**
  * How long a pending (unverified) award stays claimable.
  *
  * 24h. The send rails broadcast with `waitForExecution: false`, so an
@@ -177,6 +257,11 @@ export const EVENT_LABELS: Record<RewardsEventKind, string> &
   withdraw_earn: "Withdrew from yield",
   goal_deposit: "Added to a savings goal",
   swap_earn: "Converted to USDsui",
+  // Perps close earn. Like `clawback` below, this kind is NOT a member of
+  // `RewardsEventKind` (that union lives in lib/db.ts, owned by another work
+  // stream); the intersection type above lets us label it anyway so the feed
+  // row renders instead of coming out blank.
+  perps_close_earn: "Earned from closing a trade",
   redeemed: "Redeemed points",
   // Integrity kind, written by lib/rewards/integrity.ts → clawbackUser.
   // Not a member of `RewardsEventKind` (that union lives in lib/db.ts);
