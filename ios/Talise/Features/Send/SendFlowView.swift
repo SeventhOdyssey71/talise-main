@@ -238,15 +238,20 @@ struct SendFlowView: View {
             // wander back into a stale "Sending…" screen.
             path = [.recipient, .review, .complete]
 
-            // Round-up & Save is now a SEPARATE sponsored tx — the send PTB no
-            // longer bundles the NAVI supply (that combined PTB timed out). Fire
-            // it best-effort after the send lands, on the same clean
-            // /api/earn/supply path the Invest screen uses. A failure here never
-            // touches the already-completed send.
-            if result.roundupUsd > 0 {
-                let saved = result.roundupUsd
-                Task { await fireRoundupSave(saved) }
-            }
+            // Round-up & Save is a LEG OF THE SEND'S OWN PTB again (2026-07-25):
+            // /api/send/sponsor-prepare appends `appendNaviSupply` server-side
+            // whenever the user has round-up on, so the save is already inside
+            // the transaction that just succeeded. There is nothing for the
+            // client to fire.
+            //
+            // DO NOT re-add a second supply call here. Doing so would save
+            // TWICE per send and debit the user twice: the server-side leg runs
+            // for every client, so an extra client-side `/api/earn/supply`
+            // duplicates it rather than being a fallback. The earlier
+            // "combined PTB timed out" note was wrong about the cause — it was
+            // a fake pre-warm (NaviAdapter.init() returns in 0ms and warmed
+            // nothing) leaving a 3.3s cold pool/reserve read inside the send;
+            // a real warm brings it to ~268ms. See lib/rewards/roundup.ts.
         } catch ZkLoginCoordinator.SessionError.rebindRequired {
             // Bearer predates the Poseidon-nonce binding; sign the user
             // out so they re-auth and rebuild a valid session. This is
@@ -279,27 +284,12 @@ struct SendFlowView: View {
         }
     }
 
-    /// Round-up & Save as its OWN sponsored NAVI supply, fired after the send
-    /// completes (the send PTB no longer bundles it). Best-effort — a failure
-    /// here never affects the already-landed send. This is the same clean
-    /// `/api/earn/supply` → sign → sponsor-execute path the Invest screen uses,
-    /// so it credits the round-up save once, where the money actually moves.
-    private func fireRoundupSave(_ usd: Double) async {
-        struct Body: Encodable { let venue: String; let amount: Double }
-        do {
-            let built: BuildKindResponse = try await APIClient.shared.post(
-                "/api/earn/supply/prepare", body: Body(venue: "navi", amount: usd)
-            )
-            _ = try await ZkLoginCoordinator.shared.signAndSubmit(
-                transactionKindB64: built.transactionKindB64,
-                intent: "Round-up & Save",
-                rewards: ZkLoginCoordinator.RewardsMeta(kind: "roundup", amountUsd: usd, venue: "navi")
-            )
-            NotificationCenter.default.post(name: .taliseHomeShouldRefresh, object: nil)
-        } catch {
-            // Best-effort: the send already succeeded. Nothing to surface.
-        }
-    }
+    // `fireRoundupSave` was REMOVED on 2026-07-25. Round-up is a leg of the
+    // send's own PTB again (appended server-side in /api/send/sponsor-prepare),
+    // so a client-side `/api/earn/supply` call is no longer a fallback — it is a
+    // duplicate that saves twice and debits the user twice. It also under-paid
+    // points, because a standalone digest hits MAX_ROUNDUP_FRACTION's 10% clamp
+    // in lib/rewards/earn.ts. Do not reintroduce it.
 
     private func shortAddress(_ a: String) -> String {
         guard a.count > 14 else { return a }

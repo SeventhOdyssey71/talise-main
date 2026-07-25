@@ -101,7 +101,7 @@ export function fetchMe(): Promise<UserDTO> {
  */
 export async function sponsorExecute(
   bytesB64: string,
-  meta?: { kind: string; amountUsd?: number; venue?: string; roundupUsd?: number },
+  meta?: { kind: string; amountUsd?: number; venue?: string; saveProof?: string },
 ): Promise<{ digest: string }> {
   const pc = await proofCache.get();
   if (!pc) throw new Error("No active session.");
@@ -161,7 +161,7 @@ export function submitOnboarding(country: string, accountType: "personal" | "bus
   return api<{ ok: boolean }>("/api/onboarding", { method: "POST", body: { country, accountType } });
 }
 
-type TxMeta = { kind: string; amountUsd?: number; venue?: string; roundupUsd?: number };
+type TxMeta = { kind: string; amountUsd?: number; venue?: string; saveProof?: string };
 
 /**
  * Sponsor a transactionKind, then sign + execute. Used by the swap/consolidate
@@ -177,16 +177,55 @@ export async function signAndSubmit(transactionKindB64: string, meta?: TxMeta): 
 }
 
 /**
+ * The Spend + Save leg of a send, as the SERVER verified it. Never the amount
+ * we hoped to save — the receipt renders this verbatim.
+ *
+ *   none     no save leg in this send (round-up off, or under the floor).
+ *   saved    the NAVI supply is on chain and the savings total moved.
+ *   pending  the send landed and the save is inside the same transaction, but
+ *            the server couldn't read it back yet, so nothing is credited.
+ *   failed   nothing was saved and the savings total did not move.
+ */
+export type SaveOutcome =
+  | { status: "none"; reason?: string }
+  | { status: "saved"; savedUsd: number }
+  | { status: "pending"; savedUsd: number }
+  | { status: "failed"; savedUsd: 0; message: string };
+
+/** The `save` block /api/send/sponsor-prepare returns. */
+type PrepareSave = {
+  applied: boolean;
+  grossUsd: number;
+  netUsd: number;
+  feeBps: number;
+  venue: string;
+  proof?: string;
+  reason?: string;
+};
+
+/**
  * Prepare a send, sign the bytes, and submit — gasless when possible, else
  * sponsored. Exact contract: /api/send/sponsor-prepare → sign → /api/send/
  * gasless-submit | /api/zk/sponsor-execute. Returns the on-chain digest.
+ *
+ * Spend + Save needs NO extra transaction. When round-up is on the server puts
+ * the NAVI supply leg inside the SAME PTB and routes it to the sponsored rail,
+ * so the one signature below covers both legs. All we do is carry the server's
+ * HMAC-signed `saveProof` through to execute (we cannot read or alter what is
+ * inside it) and report back what the server verified on chain.
  */
 export async function signAndSubmitSend(
   to: string,
   amountUsd: number,
   asset = "USDsui",
-): Promise<{ digest: string; roundupUsd?: number }> {
-  const prep = await api<{ bytes: string; mode: string; roundupUsd?: number; error?: string; code?: string }>(
+): Promise<{ digest: string; save: SaveOutcome }> {
+  const prep = await api<{
+    bytes: string;
+    mode: string;
+    save?: PrepareSave;
+    error?: string;
+    code?: string;
+  }>(
     "/api/send/sponsor-prepare",
     { method: "POST", zk: true, body: { to, amount: amountUsd, asset, sponsorFallback: true } },
   );
@@ -205,17 +244,79 @@ export async function signAndSubmitSend(
     randomness: pc.jwtRandomness,
     userSignature,
     cachedProof: cachedProof ?? undefined,
-    meta: { kind: "send", amountUsd, roundupUsd: prep.roundupUsd },
+    meta: {
+      kind: "send",
+      amountUsd,
+      ...(prep.save?.proof ? { saveProof: prep.save.proof } : {}),
+    },
   };
   const path = prep.mode === "gasless" ? "/api/send/gasless-submit" : "/api/zk/sponsor-execute";
-  const res = await api<{ digest: string; freshProof?: Proof; error?: string }>(path, {
+  const res = await api<{
+    digest: string;
+    freshProof?: Proof;
+    error?: string;
+    save?: { status: string; savedUsd?: number; reason?: string };
+  }>(path, {
     method: "POST",
     zk: true,
     body,
   });
   if (res.freshProof) await proofCache.setProof(res.freshProof);
   if (res.error || !res.digest) throw new Error(res.error || "Payment didn't land on chain. No funds moved.");
-  return { digest: res.digest, roundupUsd: prep.roundupUsd };
+  return { digest: res.digest, save: await resolveSave(prep.save, res) };
+}
+
+/**
+ * Reduce the prepare + execute responses to the one honest sentence the receipt
+ * may show about the save.
+ *
+ * A `pending` execute means the send landed and the save is inside it, but the
+ * server couldn't read the transaction back in time to prove the amount, so it
+ * credited nothing. We give it ONE re-confirm: a retried READ of a transaction
+ * that already exists, carrying the server's own proof. There is no queue and
+ * no scheduled job behind it — if this also comes back pending the tally simply
+ * doesn't move and we say "confirming", which is the truth.
+ */
+async function resolveSave(
+  prepSave: PrepareSave | undefined,
+  exec: { digest: string; save?: { status: string; savedUsd?: number; reason?: string } },
+): Promise<SaveOutcome> {
+  if (prepSave?.applied !== true) {
+    return { status: "none", ...(prepSave?.reason ? { reason: prepSave.reason } : {}) };
+  }
+  const status = exec.save?.status;
+  if (status === "saved") {
+    return { status: "saved", savedUsd: exec.save?.savedUsd ?? prepSave.netUsd };
+  }
+  if (status === "failed") {
+    return {
+      status: "failed",
+      savedUsd: 0,
+      message: exec.save?.reason ?? "The round-up didn't go through.",
+    };
+  }
+  if (!prepSave.proof || !exec.digest) {
+    return { status: "pending", savedUsd: prepSave.netUsd };
+  }
+  try {
+    const again = await api<{ status: string; savedUsd?: number; reason?: string }>(
+      "/api/send/save-confirm",
+      { method: "POST", zk: true, body: { digest: exec.digest, saveProof: prepSave.proof } },
+    );
+    if (again.status === "saved") {
+      return { status: "saved", savedUsd: again.savedUsd ?? prepSave.netUsd };
+    }
+    if (again.status === "failed") {
+      return {
+        status: "failed",
+        savedUsd: 0,
+        message: again.reason ?? "The round-up didn't go through.",
+      };
+    }
+  } catch {
+    /* the send already landed; a failed re-read is not a send failure */
+  }
+  return { status: "pending", savedUsd: prepSave.netUsd };
 }
 
 /** Wipe all session material (keeps the per-user PIN, like iOS clearSession()). */

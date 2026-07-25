@@ -128,7 +128,7 @@ function RoundupCard({ summary, onChange }: { summary: RewardsSummary | null; on
           </View>
         </>
       ) : (
-        <Text style={styles.roundupFoot}>Funds stay in your wallet and earn 5 pts per $1 saved.</Text>
+        <Text style={styles.roundupFoot}>Supplied to NAVI in the same transaction as your send, yours to withdraw any time. Earns 5 pts per $1 saved.</Text>
       )}
     </View>
   );

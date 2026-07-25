@@ -167,14 +167,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // Spend + Save does NOT pass through here. The round-up is its own
-    // sponsored transaction: `/api/send/sponsor-prepare` books a
-    // `roundup_saves` intent and returns a token, the client posts that
-    // token plus THIS digest to `/api/send/roundup/prepare`, and the tally
-    // moves only once the resulting supply is read back off chain. The old
-    // `takePendingRoundup` → `roundup_queue` hand-off is gone: it wrote an
-    // amount with no digest into a table nothing drained, which is how the
-    // savings figure came to rise with no money behind it.
+    // Spend + Save never reaches this rail. A Save-ON send is routed onto
+    // the SPONSORED rail by `/api/send/sponsor-prepare` precisely because
+    // the gasless rail cannot carry the NAVI supply: it builds with
+    // gasPrice=0, gasBudget=0, an empty gas payment and an offline BCS
+    // build, and the validator's gasless allowlist admits only
+    // `0x2::balance::send_funds<T>`. So there is no round-up bookkeeping to
+    // do here, and no amount to read out of a stash. See
+    // lib/rewards/roundup.ts.
 
     // Notify the recipient that money landed (email now; push once APNs is
     // wired). Fire-and-forget, never gates the response, never throws.
