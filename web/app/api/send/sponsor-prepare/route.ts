@@ -18,6 +18,7 @@ import {
   getRoundupConfig,
   issueSaveProof,
   planRoundup,
+  roundupConfigMemoKey,
   type RoundupPlan,
 } from "@/lib/rewards/roundup";
 import { appendNaviSupply, SAVE_TREASURY_FEE_BPS } from "@/lib/navi-supply";
@@ -345,7 +346,9 @@ export async function POST(req: Request) {
   // a config error never blocks a send. `getRoundupConfig` also applies the
   // ROUNDUP_ENABLED product gate, so a closed gate lands here as "off".
   const roundupCfg = await memoTtl(
-    `roundup:cfg:${userId}`,
+    // Shared with setRoundupConfig's invalidation so a toggle takes effect on
+    // the next send instead of up to 60s later.
+    roundupConfigMemoKey(userId),
     60_000,
     () =>
       getRoundupConfig(userId).catch(() => ({
@@ -574,9 +577,15 @@ export async function POST(req: Request) {
         asset,
         amount: amountNum,
         to,
-        // This rail is only reached with round-up OFF (see RAIL CHOICE), so
-        // there is never a save to report here.
-        save: noSave(),
+        // This rail is reached only when there is no save leg (see RAIL CHOICE):
+        // either the user has round-up off, or their round-up landed under
+        // ROUNDUP_MIN_SAVE_USD. Report WHICH, so the client can say "round-up
+        // needs a slightly larger send" instead of showing a bare success that
+        // reads as the feature being broken. A silent skip here is what made a
+        // ₦200 send look like a bug rather than a threshold.
+        save: noSave(
+          roundupCfg.enabled ? "below_minimum" : undefined
+        ),
         // DEPRECATED, always 0. Pre-atomic clients treat a non-zero
         // `roundupUsd` as "now go fire the standalone save transaction"; the
         // save is inside the send PTB now, so telling them a number would

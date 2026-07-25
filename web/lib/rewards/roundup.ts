@@ -8,6 +8,7 @@ import {
   verifyDigestForUser,
 } from "@/lib/rewards/verify";
 import { sign as hmacSign, verify as hmacVerify } from "@/lib/auth";
+import { invalidate } from "@/lib/perf-cache";
 
 /**
  * Spend + Save, ONE ATOMIC PTB.
@@ -145,12 +146,23 @@ const SAVE_TREASURY_FEE_BPS = 100;
 /**
  * Smallest round-up worth putting in a PTB, in USD reaching NAVI.
  *
- * Below a cent there is nothing to save: the rewards engine's own
- * `MIN_CREDITED_USD` is $0.01, and a sub-cent supply is dust. A send whose
- * round-up lands under this floor gets NO save leg and reports none, rather
- * than a promise we then cannot keep.
+ * $0.005 (lowered from $0.01 on 2026-07-25). The old cent floor was set from
+ * the rewards engine's `MIN_CREDITED_USD` and quietly made Spend + Save
+ * unreachable for Talise's actual market: a ₦200 send is ~$0.15, so a 5%
+ * round-up is $0.0073 and every such send skipped the save. A user with a
+ * fixed percentage saw the feature fire or not fire purely on send size, with
+ * no explanation.
+ *
+ * At $0.005 a 5% round-up qualifies from a ~$0.10 send, which covers ordinary
+ * naira amounts. The 1% treasury fee on a $0.005 save is $0.00005, so the
+ * supply is still worth more than it costs to take.
+ *
+ * A send whose round-up lands under this floor still gets NO save leg, but it
+ * now reports `below_minimum` so the client can say why instead of showing a
+ * bare success. Note points may round to nothing below the engine's own
+ * `MIN_CREDITED_USD`; the money still reaches NAVI, which is the point.
  */
-export const ROUNDUP_MIN_SAVE_USD = 0.01;
+export const ROUNDUP_MIN_SAVE_USD = 0.005;
 
 /**
  * Hard ceiling on a single round-up, in USD.
@@ -225,6 +237,17 @@ export async function getRoundupConfig(userId: number): Promise<{
  * Returns the post-update shape so the
  * caller can echo it back to the client without a second round-trip.
  */
+/**
+ * Memo key for a user's round-up config on the send path.
+ *
+ * Exported so `sponsor-prepare` (the reader) and `setRoundupConfig` (the
+ * invalidator) cannot drift apart. A silent mismatch here reintroduces the
+ * "toggle ignored for 60s" bug, which looks like Spend + Save being broken.
+ */
+export function roundupConfigMemoKey(userId: number): string {
+  return `roundup:cfg:${userId}`;
+}
+
 export async function setRoundupConfig(opts: {
   userId: number;
   enabled?: boolean;
@@ -252,6 +275,18 @@ export async function setRoundupConfig(opts: {
       sql: `UPDATE users SET ${sets.join(", ")} WHERE id = ?`,
       args,
     });
+    // Drop the send path's 60s memo of this user's config, or the toggle they
+    // just flipped is ignored for up to a minute. That window is why testing
+    // Spend + Save felt erratic: enable it, send straight away, and
+    // sponsor-prepare read the CACHED "disabled" value, took the gasless rail
+    // and skipped the save with no explanation.
+    //
+    // Key must stay in step with `roundup:cfg:${userId}` in
+    // app/api/send/sponsor-prepare/route.ts. Best-effort: the memo is
+    // per-lambda, so this clears the instance that served the write; other
+    // instances still expire on their own TTL, which is the pre-existing
+    // behaviour and self-heals within 60s.
+    invalidate(roundupConfigMemoKey(opts.userId));
   }
 
   return getRoundupConfig(opts.userId);
