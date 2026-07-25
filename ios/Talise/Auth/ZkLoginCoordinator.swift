@@ -414,12 +414,30 @@ final class ZkLoginCoordinator {
         /// tally separately from the send leg. Nil for sends without
         /// round-up enabled or for non-send kinds.
         let roundupUsd: Double?
+        /// Opaque HMAC-signed proof from /api/send/sponsor-prepare that this
+        /// PTB really carries a Spend + Save leg, and for how much.
+        ///
+        /// LOAD-BEARING: /api/zk/sponsor-execute settles the save only
+        /// `if (saveProof)`. Without it the NAVI supply still executes (it is
+        /// inside the PTB the server built) but nothing ever credits
+        /// `users.roundup_saved_usd` — money moves and the savings card stays
+        /// flat. That was the iOS bug fixed on 2026-07-25. The server verifies
+        /// the signature and reads the amount from it, so this is never a
+        /// number the client can influence.
+        let saveProof: String?
 
-        init(kind: String, amountUsd: Double, venue: String? = nil, roundupUsd: Double? = nil) {
+        init(
+            kind: String,
+            amountUsd: Double,
+            venue: String? = nil,
+            roundupUsd: Double? = nil,
+            saveProof: String? = nil
+        ) {
             self.kind = kind
             self.amountUsd = amountUsd
             self.venue = venue
             self.roundupUsd = roundupUsd
+            self.saveProof = saveProof
         }
     }
 
@@ -496,6 +514,10 @@ final class ZkLoginCoordinator {
             // worst they earn 0 round-up points if the server reads
             // their config as disabled).
             if let ru = r.roundupUsd, ru > 0 { metaDict["roundupUsd"] = ru }
+            // The save proof is what actually settles Spend + Save. Omitting
+            // it leaves the NAVI supply executed but uncredited, so forward it
+            // whenever sponsor-prepare handed one back.
+            if let sp = r.saveProof, !sp.isEmpty { metaDict["saveProof"] = sp }
             executeBody["meta"] = metaDict
         }
         // Only forward a CACHED proof if its shape still looks like
@@ -704,6 +726,13 @@ final class ZkLoginCoordinator {
         // so the rewards engine credits the auto-save leg too. Gasless
         // mode never has round-up (round-up disqualifies gasless).
         let serverRoundupUsd = prep["roundupUsd"] as? Double ?? 0
+        // The HMAC-signed Spend + Save proof. sponsor-prepare returns it inside
+        // `save` when it appended a NAVI supply leg to this very PTB, and
+        // sponsor-execute settles the tally only `if (saveProof)`. Forwarding it
+        // is what makes the savings card match the chain.
+        let saveDict = prep["save"] as? [String: Any]
+        let serverSaveProof = (saveDict?["proof"] as? String)
+            ?? (prep["saveProof"] as? String)
 
         // 2. Sign locally — Sui intent prefix + BLAKE2b digest, Ed25519.
         //    Same path as `signAndSubmit`; the bytes shape is identical
@@ -734,12 +763,19 @@ final class ZkLoginCoordinator {
                 "amountUsd": r.amountUsd,
             ]
             if let v = r.venue { metaDict["venue"] = v }
-            // Round-up & Save is DECOUPLED: the send PTB no longer performs the
-            // NAVI supply, so the send must NOT credit a round-up save here. The
-            // client fires a SEPARATE sponsored /api/earn/supply tx for the
-            // round-up, which credits roundup_save once at the place the money
-            // actually moves. `serverRoundupUsd` is still returned below so the
-            // client knows how much to save.
+            // Round-up & Save is RE-COUPLED (2026-07-25): the NAVI supply is a
+            // leg of this same PTB again, appended server-side by
+            // sponsor-prepare. So the send DOES settle the save — by forwarding
+            // the server's signed proof, never a client-stated amount.
+            //
+            // Omitting this was the iOS bug: the supply executed on chain
+            // (verified in tx 6JQLjNHpFZsXAcaRxFWQDvZHLfZRDrVE5zc7NmwRk11s,
+            // incentive_v3::entry_deposit for $0.0363) while
+            // users.roundup_saved_usd never moved, because sponsor-execute
+            // settles only `if (saveProof)`. Do not drop it again, and do NOT
+            // add a second /api/earn/supply call to compensate — that would
+            // save twice.
+            if let sp = serverSaveProof, !sp.isEmpty { metaDict["saveProof"] = sp }
             executeBody["meta"] = metaDict
         }
         // Forward a CACHED proof if available + well-shaped. Skipping
