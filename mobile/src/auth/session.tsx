@@ -8,6 +8,7 @@ import { prefs } from "@/auth/prefs";
 import { proofCache } from "@/auth/proofCache";
 import { secure } from "@/auth/secure";
 import { beginGoogleSignIn, clearSession, completeGoogleSignIn, fetchMe, restoreBearer, type UserDTO } from "@/auth/zklogin";
+import { capturePendingReferralFromUrl, claimPendingReferral, reportInviteClicked } from "@/lib/referral";
 
 /**
  * AppSession — the phase state machine, ported from ios App/AppSession.swift.
@@ -58,6 +59,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setPhase(hasPin ? "ready" : "pinSetup");
   }, []);
 
+  /**
+   * Post-sign-in tail: hand any pending invite code to the server, then route.
+   *
+   * This is the native replacement for the web's `talise_ref` cookie read. It
+   * runs on BOTH completion paths (inline auth session and deep-link callback)
+   * so attribution can't depend on which one the OS happened to take. Awaited
+   * before routing so the referral lands before the user can reach a screen
+   * that reads their points, but it never throws and never blocks: the server
+   * owns every rule (first-sign-in window, no self-referral, one inviter per
+   * referee via an atomic claim).
+   */
+  const finishSignIn = useCallback(
+    async (u: UserDTO) => {
+      await claimPendingReferral();
+      await route(u);
+    },
+    [route],
+  );
+
   const doSignOut = useCallback(async () => {
     await clearSession();
     setUser(null);
@@ -102,15 +122,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // session), so finish sign-in here from the incoming URL — otherwise it lands
   // on an "unmatched route". Deduped by URL so getInitialURL + the url event
   // don't complete twice.
+  //
+  // The SAME listener captures invite links (`…/r/<CODE>`, `talise://r/<CODE>`).
+  // A native app has no cookie jar, so the device is the only place the
+  // inviter's code can live between the click and the sign-in; without this,
+  // every app-originated invite was unattributed. `app/r/[code].tsx` captures
+  // too (cold launch straight into the route), both paths are idempotent.
   useEffect(() => {
     const handle = async (url: string | null) => {
-      if (!url || !url.includes("auth/callback")) return;
+      if (!url) return;
+      const captured = await capturePendingReferralFromUrl(url);
+      if (captured) reportInviteClicked(captured);
+      if (!url.includes("auth/callback")) return;
       if (url === lastCallbackUrl.current || authInFlight.current) return;
       lastCallbackUrl.current = url;
       authInFlight.current = true;
       try {
         const { user: u } = await completeGoogleSignIn(url);
-        await route(u);
+        await finishSignIn(u);
       } catch {
         /* leave the user on the welcome screen; retrying re-opens OAuth */
       } finally {
@@ -121,7 +150,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     Linking.getInitialURL().then(handle).catch(() => {});
     const sub = Linking.addEventListener("url", (e) => handle(e.url));
     return () => sub.remove();
-  }, [route]);
+  }, [finishSignIn]);
 
   // Background lock — record on background, re-lock on foreground after 20s.
   useEffect(() => {
@@ -151,7 +180,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const url = await beginGoogleSignIn();
       if (url) {
         const { user: u, existing } = await completeGoogleSignIn(url);
-        await route(u);
+        await finishSignIn(u);
         return { existing };
       }
       // The redirect deep-linked into the app; the listener below finishes it.

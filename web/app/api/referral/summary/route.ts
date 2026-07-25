@@ -6,6 +6,7 @@ import { getRoundupConfig } from "@/lib/rewards/roundup";
 import { requireGrowthAttest } from "@/lib/abuse/attest";
 import { guardGrowthRoute } from "@/lib/abuse/guard";
 import { REFERRAL_SUMMARY_IP, REFERRAL_SUMMARY_USER } from "@/lib/abuse/limits";
+import { inviteSharePayload } from "@/components/app/rewards/share-copy";
 
 export const runtime = "nodejs";
 
@@ -157,6 +158,12 @@ export async function GET(req: Request) {
       // Point-earning rates so iOS can render "1 pt / $1 sent, 3 pts / $1 saved"
       // without hardcoding the values in two places.
       pointRates: POINT_RATES,
+      // Canonical invite copy + link, from components/app/rewards/share-copy.ts.
+      // Web imports that module directly; native clients can't, so they render
+      // THIS and keep only an offline fallback string. Before this there were
+      // three different hardcoded invite messages across web/iOS/Android.
+      // Null when the user has no code yet so clients can hide the share row.
+      share: summary.code ? inviteSharePayload(summary.code) : null,
       recentEvents: summary.recentEvents.map((e) => ({
         id: String(e.id),
         kind: e.kind,

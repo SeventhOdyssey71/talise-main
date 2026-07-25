@@ -1,5 +1,5 @@
 import postgres, { type Sql } from "postgres";
-import { createHash } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { encryptAtRest, decryptAtRest } from "@/lib/crypto-at-rest";
 
 /**
@@ -1982,32 +1982,50 @@ const REFERRAL_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
 export const REFERRAL_CODE_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/;
 
-function pickFromAlphabet(): string {
-  const idx = Math.floor(Math.random() * REFERRAL_ALPHABET.length);
-  return REFERRAL_ALPHABET[idx];
-}
+const REFERRAL_CODE_LEN = 8;
 
-export function generateReferralCode(seed?: string | null): string {
-  let prefix = "";
-  if (seed) {
-    const cleaned = seed
-      .toUpperCase()
-      .replace(/[O0]/g, "")
-      .replace(/[IL1]/g, "")
-      .split("")
-      .filter((ch) => REFERRAL_ALPHABET.includes(ch))
-      .join("");
-    prefix = cleaned.slice(0, 4);
+/**
+ * Generate a referral code from a CSPRNG, with NO seeding from user data.
+ *
+ * Two problems this fixes:
+ *
+ *  1. `Math.random()` is not a CSPRNG. V8's xorshift128+ state is recoverable
+ *     from a handful of outputs, so observing codes let you predict later ones.
+ *  2. The old version seeded a 4-character vanity PREFIX from the user's name,
+ *     which is public on `/u/<handle>`. That left only 4 random characters,
+ *     i.e. ~31^4 ≈ 923k guesses to enumerate a known user's code, and the
+ *     prefix leaked which codes were worth guessing at all.
+ *
+ * Now: 8 characters drawn uniformly from a 31-symbol alphabet (~39.6 bits) via
+ * `randomInt`, which is rejection-sampled internally so the distribution stays
+ * uniform (`% len` on raw bytes would bias the first 8 symbols).
+ *
+ * The `seed` parameter is retained (and IGNORED) so existing callers keep
+ * compiling; EXISTING codes stay valid because nothing here rewrites them,
+ * `ensureReferralCode` returns the stored code untouched when one is present.
+ */
+export function generateReferralCode(_seed?: string | null): string {
+  void _seed; // intentionally unused, see above
+  let code = "";
+  for (let i = 0; i < REFERRAL_CODE_LEN; i++) {
+    code += REFERRAL_ALPHABET[randomInt(REFERRAL_ALPHABET.length)];
   }
-  let code = prefix;
-  while (code.length < 8) code += pickFromAlphabet();
   return code;
 }
 
+/**
+ * Return the user's referral code, allocating one on first call.
+ *
+ * `seed` is accepted and IGNORED (see `generateReferralCode`) so existing call
+ * sites keep compiling; codes are no longer derived from any public user data.
+ * Uniqueness/retry behaviour is unchanged: a UNIQUE index collision is caught
+ * and retried, up to 12 attempts.
+ */
 export async function ensureReferralCode(
   userId: number,
   seed?: string | null
 ): Promise<string> {
+  void seed;
   await ensureSchema();
   const c = db();
   const existing = await c.execute({
@@ -2018,7 +2036,7 @@ export async function ensureReferralCode(
   if (typeof cur === "string" && cur.length === 8) return cur;
 
   for (let attempt = 0; attempt < 12; attempt++) {
-    const code = generateReferralCode(attempt === 0 ? seed : null);
+    const code = generateReferralCode();
     try {
       const r = await c.execute({
         sql: "UPDATE users SET referral_code = ? WHERE id = ? AND referral_code IS NULL",

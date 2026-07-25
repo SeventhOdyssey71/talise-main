@@ -43,6 +43,8 @@ function RootNav() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="auth/callback" />
+      {/* Invite deep link: https://…/r/<CODE> (verified App Link) + talise://r/<CODE> */}
+      <Stack.Screen name="r/[code]" />
       <Stack.Screen name="deposit" options={{ presentation: "modal" }} />
       <Stack.Screen name="withdraw" options={{ presentation: "modal" }} />
       <Stack.Screen name="receive" options={{ presentation: "modal" }} />

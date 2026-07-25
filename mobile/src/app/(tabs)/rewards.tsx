@@ -11,6 +11,7 @@ import { Icon } from "@/design/Icon";
 import { colors, radius, spacing } from "@/design/tokens";
 import { family } from "@/design/typography";
 import { local2 } from "@/lib/format";
+import { inviteShareFallback, inviteUrl, reportInviteSent } from "@/lib/referral";
 
 /** RewardsView — the Rewards tab root. Points hero, campaign, stats, share, history. */
 export default function RewardsScreen() {
@@ -27,7 +28,25 @@ export default function RewardsScreen() {
   const tier = data?.tier?.label ?? "Bronze";
   const events = data?.recentEvents ?? [];
   const shown = showAll ? events : events.slice(0, 5);
-  const referralUrl = data?.code ? `https://www.talise.io/r/${data.code}` : null;
+  // Invite link + copy come from the SERVER (`share`), which renders
+  // web/components/app/rewards/share-copy.ts — the one source of truth for all
+  // three clients. lib/referral.ts is the offline fallback only.
+  const code = data?.code ?? null;
+  const referralUrl = data?.share?.url ?? (code ? inviteUrl(code) : null);
+  const shareMessage = data?.share?.message ?? (code ? inviteShareFallback(code) : null);
+
+  const onCopy = async () => {
+    if (!referralUrl || !code) return;
+    await Clipboard.setStringAsync(referralUrl);
+    reportInviteSent(code, "copy");
+  };
+
+  const onShare = async () => {
+    if (!shareMessage || !code) return;
+    const res = await Share.share({ message: shareMessage, title: data?.share?.title });
+    // Only count an invite that actually left the device.
+    if (res.action === Share.sharedAction) reportInviteSent(code, "share");
+  };
 
   return (
     <View style={styles.screen}>
@@ -85,20 +104,20 @@ export default function RewardsScreen() {
         {referralUrl ? (
           <View style={{ gap: spacing.md }}>
             <View style={styles.codeRow}>
-              <Text style={styles.code}>{data?.code}</Text>
-              <Pressable onPress={() => Clipboard.setStringAsync(referralUrl)} style={styles.copyPill}>
+              <Text style={styles.code}>{code}</Text>
+              <Pressable onPress={onCopy} style={styles.copyPill}>
                 <Icon name="doc.on.doc" size={12} color={colors.fg} />
                 <Text style={styles.copyText}>Copy</Text>
               </Pressable>
             </View>
-            <GlassButton title="Share Talise" icon="square.and.arrow.up" tint={colors.greenMint} onPress={() => Share.share({ message: `Join me on Talise: ${referralUrl}` })} />
+            <GlassButton title="Share Talise" icon="square.and.arrow.up" tint={colors.greenMint} onPress={onShare} />
           </View>
         ) : null}
 
         {/* Info strip */}
         <View style={styles.infoStrip}>
           <Icon name="sparkles" size={15} color={colors.greenMint} />
-          <Text style={styles.infoText}>Invite friends — you earn points when they join and start moving money.</Text>
+          <Text style={styles.infoText}>Invite friends. You earn points when they join and start moving money.</Text>
         </View>
 
         {/* History */}

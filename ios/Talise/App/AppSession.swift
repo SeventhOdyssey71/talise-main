@@ -131,6 +131,13 @@ final class AppSession {
         UserDefaults.standard.set(user.id, forKey: lastUserIdKey)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: signInAtKey)
         lockedUser = user
+        // Hand any invite code captured from a deep link to the server. This is
+        // the native stand-in for the web's `talise_ref` cookie, which the app
+        // can never carry; without it every mobile-originated invite went
+        // unattributed. Detached because attribution must not delay routing, and
+        // it cannot fail loudly: the server decides everything (first sign-in
+        // window, no self-referral, one inviter per referee via an atomic claim).
+        Task { await ReferralAttribution.claimPending() }
         route(user)
     }
 
