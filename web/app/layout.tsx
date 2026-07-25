@@ -45,7 +45,11 @@ export const metadata: Metadata = {
   // ABSOLUTE in prod even if NEXT_PUBLIC_BASE_URL isn't set (a localhost
   // fallback would make every social preview image 404 for crawlers).
   metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "https://www.talise.io"),
-  icons: { icon: "/symbol.png" },
+  // Favicon + apple-touch icon come from the App Router file convention
+  // (`app/icon.png`, `app/apple-icon.png` — the Talise brand mark). Next emits
+  // the <link> tags and hashed URLs itself, so declaring `icons` here would
+  // only compete with it. Do not point this at /symbol.png: that asset is the
+  // email logo and is fetched by already-sent mail, so it has to stay put.
   openGraph: {
     title: OG_TITLE,
     description: OG_DESC,
