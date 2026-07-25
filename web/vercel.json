@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/shield-indexer",
-      "schedule": "*/2 * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/yield-rebalance",
@@ -11,19 +11,11 @@
     },
     {
       "path": "/api/cron/analytics-index",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/process-roundup-queue",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/perp-warm",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/offramp/reconcile",
-      "schedule": "*/10 * * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }
