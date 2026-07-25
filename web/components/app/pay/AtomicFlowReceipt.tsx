@@ -1,22 +1,28 @@
 "use client";
 
 /**
- * AtomicFlowReceipt, "what happened in one transaction" card.
+ * AtomicFlowReceipt, "what actually happened" card.
  *
- * Talise sends are a single sponsored PTB that can bundle a payment, a round-up
- * Save into NAVI, and an on-chain receipt, all in ONE signature, no wallet
- * prompt, no gas. The plain success screen hid that; this card surfaces the
- * real legs as a compact checklist so the atomic composability is visible.
+ * The payment itself is a single sponsored PTB carrying the transfer and an
+ * on-chain receipt in ONE signature, no wallet prompt, no gas. Spend + Save
+ * rides alongside as a SECOND sponsored transaction (a combined send+supply
+ * PTB blew the sponsor window), fired automatically with the same in-session
+ * key, so the card reports it as its own step with its own live state.
  *
  * Every row is derived ONLY from real data passed in by the caller, we never
- * fabricate a step that didn't run (the Save row only appears when the server
- * actually supplied a round-up leg). Reusable for Earn/Cheque success later via
- * the typed props.
+ * fabricate a step that didn't run: the Save row shows `pending` while the
+ * supply is in flight, and says so plainly when it fails. It must never claim
+ * money that didn't move.
  */
 
 import { motion, useReducedMotion, type Transition } from "framer-motion";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CheckmarkCircle02Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import {
+  CheckmarkCircle02Icon,
+  ArrowUpRight01Icon,
+  Loading03Icon,
+  AlertCircleIcon,
+} from "@hugeicons/core-free-icons";
 
 const EXPLORER = "https://suiscan.xyz/mainnet/tx/";
 
