@@ -54,6 +54,35 @@ import { awardForTx, POINT_RATES } from "@/lib/rewards/earn";
  *      references it.
  */
 
+// ─── Product gate (FAIL CLOSED) ──────────────────────────────────────
+
+/**
+ * Spend + Save product gate.
+ *
+ * FAIL CLOSED: Round-up is live ONLY when `ROUNDUP_ENABLED` is explicitly an
+ * affirmative value, matching `cashoutOpen()` in lib/offramp/config.ts. An
+ * unset, misspelled or migration-lost env var leaves the feature OFF, which is
+ * the safe direction: a wrongly-closed round-up costs a user nothing, a
+ * wrongly-open one shows them a savings figure with no money behind it.
+ *
+ * Why it exists: the shipped send receipt renders an unconditional green
+ * "Rounded up $X" line whether or not a save actually happened
+ * (`components/app/pay/SendFlow.tsx` drops the save result on the floor), and
+ * 41 accounts have the toggle on. The gate turns the claim off for everyone
+ * until the feature is honest again.
+ *
+ * IMPORTANT: this NEVER writes to `users.roundup_enabled`. Each user's stored
+ * preference is left exactly as they set it, so flipping the env var back on
+ * restores every account to the percentage it chose, with its saved tally
+ * intact. The gate is applied at READ time, in `getRoundupConfig`, which is the
+ * single place both the send-prepare routes and the Rewards card get the
+ * toggle from, so gating there covers every consumer at once.
+ */
+export function roundupFeatureEnabled(): boolean {
+  const v = process.env.ROUNDUP_ENABLED?.trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes" || v === "on";
+}
+
 /** Result returned by `maybeRoundupForSend`, useful for tests + logs. */
 export type RoundupResult =
   | { swept: false; reason: "disabled" | "no-amount" | "already-applied" | "user-missing" }
@@ -162,7 +191,16 @@ export async function maybeRoundupForSend(opts: {
 
 /**
  * Read the current round-up config for a user. Used by the
- * `/api/rewards/roundup` GET handler.
+ * `/api/rewards/roundup` GET handler, `/api/referral/summary` (the Rewards
+ * card) and the send-prepare routes (to decide whether to append the supply
+ * leg).
+ *
+ * Gated by `roundupFeatureEnabled()`: when the product gate is off this
+ * reports `enabled: false` for EVERY user, so no send takes the round-up path
+ * and no receipt can claim a save. The user's stored `roundup_enabled` and
+ * `roundup_percentage` are read but not written, and `savedUsd` still returns
+ * the real tally so nobody's savings history disappears while the feature is
+ * gated.
  */
 export async function getRoundupConfig(userId: number): Promise<{
   enabled: boolean;
@@ -178,8 +216,9 @@ export async function getRoundupConfig(userId: number): Promise<{
   const row = r.rows[0] as unknown as
     | (Partial<User> & { roundup_saved_usd?: number | null })
     | undefined;
+  const storedEnabled = Number(row?.roundup_enabled ?? 0) === 1;
   return {
-    enabled: Number(row?.roundup_enabled ?? 0) === 1,
+    enabled: roundupFeatureEnabled() && storedEnabled,
     percentage: clamp(Number(row?.roundup_percentage ?? 2) || 2, 1, 10),
     savedUsd: Number(row?.roundup_saved_usd ?? 0) || 0,
   };
@@ -187,7 +226,15 @@ export async function getRoundupConfig(userId: number): Promise<{
 
 /**
  * Update the round-up config. Either field is optional, missing
- * fields are left untouched. Returns the post-update shape so the
+ * fields are left untouched.
+ *
+ * Deliberately NOT gated: a user's stored preference is theirs to set even
+ * while the product gate is closed, and preserving it is the whole point of
+ * gating at read time. The returned shape comes from `getRoundupConfig`, so a
+ * toggle flipped on while the gate is closed echoes back `enabled: false` and
+ * the UI tells the truth rather than promising a save that will not happen.
+ *
+ * Returns the post-update shape so the
  * caller can echo it back to the client without a second round-trip.
  */
 export async function setRoundupConfig(opts: {
