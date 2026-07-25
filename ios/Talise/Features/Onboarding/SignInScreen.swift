@@ -206,15 +206,36 @@ struct SignInScreen: View {
         signingIn = true
         error = nil
         defer { signingIn = false }
+        // Top of the signup funnel. Paired with `signup_auth_completed` below,
+        // this is what separates "gave up inside Google's sheet" from "our
+        // exchange failed" — previously indistinguishable.
+        Growth.shared.track(.signupStarted, surface: "signIn", step: "google", status: .started)
         do {
             let result = try await ZkLoginCoordinator.shared.signIn()
             // Remember this device has signed in at least once so the next
             // visit greets returning users with "Welcome back".
             UserDefaults.standard.set(true, forKey: Self.hasSignedInBeforeKey)
+            Growth.shared.track(
+                .signupAuthCompleted,
+                surface: "signIn",
+                step: "google",
+                status: .ok,
+                props: ["existing": result.existing ? "1" : "0"]
+            )
             onSignedIn(result.user, result.existing)
         } catch GoogleSignInService.SignInError.cancelled {
             // Quiet — the user explicitly backed out of the OAuth sheet.
+            Growth.shared.track(.signupAuthCompleted, surface: "signIn", step: "google", status: .cancelled)
         } catch {
+            // Machine-ish code only. The localized message can carry a server
+            // detail we must not put in an analytics table.
+            Growth.shared.track(
+                .signupAuthCompleted,
+                surface: "signIn",
+                step: "google",
+                status: .error,
+                errorCode: Growth.errorCode(error)
+            )
             self.error = error.localizedDescription
         }
     }
@@ -223,13 +244,29 @@ struct SignInScreen: View {
         signingInApple = true
         error = nil
         defer { signingInApple = false }
+        Growth.shared.track(.signupStarted, surface: "signIn", step: "apple", status: .started)
         do {
             let result = try await ZkLoginCoordinator.shared.signInWithApple()
             UserDefaults.standard.set(true, forKey: Self.hasSignedInBeforeKey)
+            Growth.shared.track(
+                .signupAuthCompleted,
+                surface: "signIn",
+                step: "apple",
+                status: .ok,
+                props: ["existing": result.existing ? "1" : "0"]
+            )
             onSignedIn(result.user, result.existing)
         } catch GoogleSignInService.SignInError.cancelled {
             // Quiet — the user dismissed the Apple sheet.
+            Growth.shared.track(.signupAuthCompleted, surface: "signIn", step: "apple", status: .cancelled)
         } catch {
+            Growth.shared.track(
+                .signupAuthCompleted,
+                surface: "signIn",
+                step: "apple",
+                status: .error,
+                errorCode: Growth.errorCode(error)
+            )
             self.error = error.localizedDescription
         }
     }

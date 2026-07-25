@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
+import io.talise.app.core.analytics.Growth
 import io.talise.app.core.auth.GoogleSignInService
 import io.talise.app.core.auth.ZkLoginCoordinator
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,15 @@ class SignInViewModel : ViewModel() {
     fun signInWithGoogle(context: Context) {
         if (_state.value.loading) return
         _state.update { it.copy(loading = true, error = null) }
+        // Top of the signup funnel. Paired with signup_auth_completed below this
+        // separates "abandoned Google's sheet" from "our exchange failed" —
+        // previously indistinguishable, because neither was recorded.
+        Growth.track(
+            Growth.Event.SignupStarted,
+            surface = "signIn",
+            step = "google",
+            status = Growth.Status.Started,
+        )
         viewModelScope.launch {
             runCatching {
                 val prep = ZkLoginCoordinator.prepareGoogle()
@@ -40,12 +50,33 @@ class SignInViewModel : ViewModel() {
                     .edit()
                     .putBoolean(OnboardingPrefs.KEY_HAS_SIGNED_IN_BEFORE, true)
                     .apply()
+                Growth.track(
+                    Growth.Event.SignupAuthCompleted,
+                    surface = "signIn",
+                    step = "google",
+                    status = Growth.Status.Ok,
+                )
                 _state.update { it.copy(loading = false) }
             }.onFailure { t ->
                 // User dismissing the Google sheet isn't an error, just stop the spinner.
                 if (t is GetCredentialCancellationException) {
+                    Growth.track(
+                        Growth.Event.SignupAuthCompleted,
+                        surface = "signIn",
+                        step = "google",
+                        status = Growth.Status.Cancelled,
+                    )
                     _state.update { it.copy(loading = false, error = null) }
                 } else {
+                    // Machine code only — `friendly(t)` can carry a server detail
+                    // that must not land in an analytics table.
+                    Growth.track(
+                        Growth.Event.SignupAuthCompleted,
+                        surface = "signIn",
+                        step = "google",
+                        status = Growth.Status.Error,
+                        errorCode = Growth.errorCode(t),
+                    )
                     _state.update { it.copy(loading = false, error = friendly(t)) }
                 }
             }

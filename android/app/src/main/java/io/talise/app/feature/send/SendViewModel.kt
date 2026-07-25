@@ -2,6 +2,7 @@ package io.talise.app.feature.send
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.talise.app.core.analytics.Growth
 import io.talise.app.core.auth.ZkLoginCoordinator
 import io.talise.app.core.model.GaslessSubmitRequest
 import io.talise.app.core.model.SendMeta
@@ -47,6 +48,15 @@ class SendViewModel : ViewModel() {
         if (_state.value is State.Working) return
         _state.value = State.Working("resolving")
 
+        // Money-out funnel. The amount is BANDED inside Growth.track and the
+        // recipient is never attached.
+        Growth.track(
+            Growth.Event.SendStarted,
+            surface = "send",
+            status = Growth.Status.Started,
+            amountUsd = amount,
+        )
+
         viewModelScope.launch {
             runCatching {
                 // 1. Resolve the recipient (verbatim) to a 0x address.
@@ -81,9 +91,26 @@ class SendViewModel : ViewModel() {
                 Triple(digest, amount, recipient)
             }.onSuccess { (digest, amt, recipient) ->
                 _state.value = State.Success(digest, amt, recipient)
+                // Landed on chain. `first_send` is deduped server-side
+                // (growth_user_firsts, COALESCE on first write), so emitting it
+                // on every send is correct and needs no client bookkeeping.
+                Growth.track(
+                    Growth.Event.SendCompleted,
+                    surface = "send",
+                    status = Growth.Status.Ok,
+                    amountUsd = amt,
+                )
+                Growth.milestone(Growth.Event.FirstSend, amountUsd = amt, surface = "send")
                 // Nudge Home to refresh balance + activity.
                 TaliseEvents.emit(TaliseEvents.Event.TxCompleted(digest = digest, direction = "sent", amountUsdsui = amt))
             }.onFailure { t ->
+                Growth.track(
+                    Growth.Event.SendFailed,
+                    surface = "send",
+                    status = Growth.Status.Error,
+                    errorCode = Growth.errorCode(t),
+                    amountUsd = amount,
+                )
                 _state.value = State.Error(t.message ?: "send failed")
             }
         }

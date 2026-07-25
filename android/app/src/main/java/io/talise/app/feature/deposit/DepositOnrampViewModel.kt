@@ -2,6 +2,7 @@ package io.talise.app.feature.deposit
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.talise.app.core.analytics.Growth
 import io.talise.app.core.net.ApiClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -159,6 +160,13 @@ class DepositOnrampViewModel : ViewModel() {
         }
         _state.update { it.copy(errorMessage = null, loading = true) }
         val amount = snapshot.amountUsd
+        Growth.track(
+            Growth.Event.DepositStarted,
+            surface = "deposit",
+            status = Growth.Status.Started,
+            amountUsd = amount,
+            currency = "USD",
+        )
 
         viewModelScope.launch {
             // Snapshot the pre-purchase USDsui balance so the polling loop
@@ -174,6 +182,13 @@ class DepositOnrampViewModel : ViewModel() {
                 val resp = onrampApi.hostedSession(OnrampHostedSessionRequest(amount = amount))
                 _state.update { it.copy(launchUrl = resp.redirectUrl, loading = false) }
             } catch (e: Exception) {
+                Growth.track(
+                    Growth.Event.DepositFailed,
+                    surface = "deposit",
+                    status = Growth.Status.Error,
+                    errorCode = Growth.errorCode(e),
+                    amountUsd = amount,
+                )
                 _state.update { it.copy(loading = false, errorMessage = userMessage(e)) }
             }
         }
@@ -212,6 +227,19 @@ class DepositOnrampViewModel : ViewModel() {
                     // requested amount directly.
                     if (delta >= 0.01) {
                         pollingActive = false
+                        // A positive balance delta after the Stripe hop is a
+                        // CONFIRMED credit — the closest thing to server truth
+                        // this flow has. `funded` is the activation milestone
+                        // (first money in) and the server keeps it exactly-once
+                        // per user, so emitting on every deposit is correct.
+                        Growth.track(
+                            Growth.Event.DepositCompleted,
+                            surface = "deposit",
+                            status = Growth.Status.Ok,
+                            amountUsd = delta,
+                            currency = "USD",
+                        )
+                        Growth.milestone(Growth.Event.Funded, amountUsd = delta, surface = "deposit")
                         _state.update { it.copy(pollingToast = "Added ${formatUsd(delta)} USDsui to your wallet") }
                         delay(1_400)
                         _state.update { it.copy(finished = true) }

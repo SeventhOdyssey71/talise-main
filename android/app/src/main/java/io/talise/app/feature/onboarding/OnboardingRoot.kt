@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.talise.app.R
+import io.talise.app.core.analytics.Growth
 import io.talise.app.core.model.UserDTO
 import io.talise.app.core.net.ApiClient
 import io.talise.app.core.session.AppSession
@@ -107,6 +108,10 @@ fun OnboardingRoot(user: UserDTO? = null) {
     fun advance(next: OnboardingStep) {
         step = next
         persist(context, next)
+        // ONE chokepoint for the whole onboarding funnel: every step change goes
+        // through here, so per-step drop-off becomes measurable without touching
+        // any individual step's composable.
+        Growth.track(Growth.Event.OnboardingStep, surface = "onboarding", step = next.raw)
     }
 
     // Mirror the legacy kyc-tier behaviour: stamp a free tier locally, then celebrate.
@@ -114,6 +119,7 @@ fun OnboardingRoot(user: UserDTO? = null) {
         OnboardingPrefs.of(context).edit()
             .putString(OnboardingPrefs.KEY_KYC_TIER, "free")
             .apply()
+        Growth.milestone(Growth.Event.OnboardingCompleted, surface = "onboarding")
         advance(OnboardingStep.Done)
     }
 
