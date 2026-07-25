@@ -55,15 +55,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 /**
  * Bridge ADD-MONEY screen for a chosen corridor, ported 1:1 from iOS
  * `BridgeOnrampView.swift`. Fetches the funding session and renders one of:
- *   - Verify-identity step (hosted Bridge KYC opened in the browser), or
+ *   - Verify-identity step (hosted Bridge KYC + ToS opened in the browser), or
  *   - Bank deposit instructions (the virtual account to send fiat to), or
- *   - a clean "not available yet" state when Bridge isn't configured.
+ *   - a clean "not available yet" state when funding isn't switched on.
  *
- * Funds land as USDsui directly on the user's Sui address, no swap.
+ * Funds land on the user's OWN Sui address as USDC (Bridge's Sui asset), so
+ * when the server reports `requiresSwapToUsdsui` we say so plainly rather than
+ * promising USDsui the user would then not find.
  */
 class BridgeOnrampViewModel(private val corridor: RampCorridor) : ViewModel() {
 
@@ -82,7 +85,7 @@ class BridgeOnrampViewModel(private val corridor: RampCorridor) : ViewModel() {
     }
 
     fun load() {
-        _state.value = _state.value.copy(loading = true)
+        _state.value = _state.value.copy(loading = true, errorText = null, unavailable = false)
         viewModelScope.launch {
             try {
                 // Amount is nominal, a virtual account accepts any deposit; the
@@ -98,8 +101,10 @@ class BridgeOnrampViewModel(private val corridor: RampCorridor) : ViewModel() {
                 _state.value = _state.value.copy(session = session, loading = false)
             } catch (t: Throwable) {
                 val msg = RampsClient.errorText(t)
-                // 404 (flag off) / 503 (Bridge unset) -> clean "not available" state.
-                if (msg.contains("404") || msg.contains("disabled") || msg.contains("503")) {
+                // 404 = the ONRAMP_ENABLED switch is off; 503 = switch on but the
+                // provider has no credentials. Both mean "closed", not "broken".
+                val code = (t as? HttpException)?.code()
+                if (code == 404 || code == 503 || msg.contains("404") || msg.contains("503")) {
                     _state.value = _state.value.copy(unavailable = true, loading = false)
                 } else {
                     _state.value = _state.value.copy(
@@ -154,7 +159,7 @@ fun BridgeOnrampView(
                         color = TaliseColors.fg,
                     )
                     Text(
-                        "Fund in ${corridor.currencyCode}, lands as USDsui on Sui.",
+                        "Fund in ${corridor.currencyCode}, lands in your Talise wallet.",
                         style = TaliseType.body(13.sp, FontWeight.Light),
                         color = TaliseColors.fgMuted,
                     )
@@ -166,11 +171,28 @@ fun BridgeOnrampView(
 
                 state.unavailable -> RampMessageCard(
                     title = "Not available just yet",
-                    body = "Bank funding for ${corridor.name} is being switched on. You can still receive USDsui to your Talise address in the meantime.",
+                    body = "Bank funding for ${corridor.name} isn't switched on yet. In the meantime you can fund Talise by receiving dollars to your own address, go back and choose Crypto.",
                 )
+
+                state.errorText != null -> RampMessageCard(
+                    title = "Something went wrong",
+                    body = state.errorText!!,
+                )
+
+                // Identity first: Bridge won't issue an account until KYC clears,
+                // so this is a real next step rather than an error.
+                state.session?.kycRequired == true || (state.session != null && state.session!!.depositInstructions == null && state.session!!.kycUrl != null) ->
+                    VerifyCard(
+                        pending = state.session?.status == "pending",
+                        kycUrl = state.session?.kycUrl,
+                        tosUrl = state.session?.tosUrl,
+                        onOpen = { uriHandler.openUri(it) },
+                        onRecheck = { vm.load() },
+                    )
 
                 state.session?.depositInstructions != null -> DepositCard(
                     di = state.session!!.depositInstructions!!,
+                    needsSwap = state.session!!.requiresSwapToUsdsui != false,
                     onCopy = { label, value ->
                         clipboard.setText(AnnotatedString(value))
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -178,13 +200,9 @@ fun BridgeOnrampView(
                     },
                 )
 
-                state.session?.kycUrl != null -> VerifyCard(
-                    onContinue = { uriHandler.openUri(state.session!!.kycUrl!!) },
-                )
-
-                state.errorText != null -> RampMessageCard(
-                    title = "Something went wrong",
-                    body = state.errorText!!,
+                state.session != null -> RampMessageCard(
+                    title = "Couldn't load your funding details",
+                    body = "Nothing has been charged. Please try again in a moment.",
                 )
             }
         }
@@ -232,7 +250,13 @@ internal fun LoadingCard(text: String) {
 }
 
 @Composable
-private fun VerifyCard(onContinue: () -> Unit) {
+private fun VerifyCard(
+    pending: Boolean,
+    kycUrl: String?,
+    tosUrl: String?,
+    onOpen: (String) -> Unit,
+    onRecheck: () -> Unit,
+) {
     Column(
         Modifier.fillMaxWidth().rampCard().padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -251,26 +275,47 @@ private fun VerifyCard(onContinue: () -> Unit) {
             )
         }
         Text(
-            "A quick, secure check (handled by Bridge) before your bank funding goes live. Takes a couple of minutes.",
+            if (pending) {
+                "Your check is being reviewed by our banking partner. This usually takes a few minutes, we'll open your funding account as soon as it clears."
+            } else {
+                "A quick, secure check (handled by our banking partner) before your bank funding goes live. Takes a couple of minutes."
+            },
             style = TaliseType.body(13.sp, FontWeight.Light),
             color = TaliseColors.fgMuted,
         )
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-                .background(TaliseColors.greenMint, CircleShape)
-                .clickable { onContinue() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Continue", style = TaliseType.body(15.sp, FontWeight.SemiBold), color = Color.Black)
+        if (kycUrl != null) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .background(TaliseColors.greenMint, CircleShape)
+                    .clickable { onOpen(kycUrl) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Continue", style = TaliseType.body(15.sp, FontWeight.SemiBold), color = Color.Black)
+            }
         }
+        if (tosUrl != null) {
+            Text(
+                "Review and accept the terms",
+                style = TaliseType.body(13.sp),
+                color = TaliseColors.fgMuted,
+                modifier = Modifier.clickable { onOpen(tosUrl) },
+            )
+        }
+        Text(
+            "I've finished, check again",
+            style = TaliseType.body(13.sp),
+            color = TaliseColors.fgMuted,
+            modifier = Modifier.clickable { onRecheck() },
+        )
     }
 }
 
 @Composable
 private fun DepositCard(
     di: BridgeDepositInstructions,
+    needsSwap: Boolean,
     onCopy: (String, String) -> Unit,
 ) {
     Column(
@@ -283,7 +328,7 @@ private fun DepositCard(
             color = TaliseColors.fg,
         )
         Text(
-            "Transfer from your bank, the amount you send arrives as USDsui on Sui, usually within minutes.",
+            "Transfer from your bank. This account is yours permanently, reuse it any time you top up.",
             style = TaliseType.body(13.sp, FontWeight.Light),
             color = TaliseColors.fgMuted,
         )
@@ -301,6 +346,22 @@ private fun DepositCard(
             di.bic?.let { CopyRow("BIC", it, onCopy) }
             di.depositMessage?.let { CopyRow("Reference", it, onCopy) }
         }
+        if (di.depositMessage != null) {
+            Text(
+                "Include the reference exactly as shown, or your bank may not be able to match the deposit.",
+                style = TaliseType.body(12.sp, FontWeight.Light),
+                color = TaliseColors.fgMuted,
+            )
+        }
+        Text(
+            if (needsSwap) {
+                "Funds arrive on Sui as USDC, usually within minutes. One tap on your home screen converts them to USDsui, free."
+            } else {
+                "Funds arrive as USDsui in your wallet, usually within minutes."
+            },
+            style = TaliseType.body(12.sp, FontWeight.Light),
+            color = TaliseColors.fgMuted,
+        )
     }
 }
 

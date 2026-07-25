@@ -40,7 +40,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
 import io.talise.app.R
+import io.talise.app.core.session.AppSession
+import io.talise.app.feature.ramps.BridgeOnrampView
+import io.talise.app.feature.ramps.HubHeader
+import io.talise.app.feature.ramps.CorridorPickerView
+import io.talise.app.feature.ramps.OnrampConfigStore
+import io.talise.app.feature.ramps.RampCorridor
+import io.talise.app.feature.ramps.RampDirection
 import io.talise.app.ui.components.Eyebrow
 import io.talise.app.ui.theme.TaliseColors
 import io.talise.app.ui.theme.TaliseType
@@ -51,9 +59,13 @@ import kotlinx.coroutines.delay
  *
  * Full page (not a sheet): inline header with title + close, an
  * "Deposit with" section of large soft funding-path cards (icon chip +
- * title + muted subtitle + chevron), and a trust footer. Paths not yet
- * wired to a backend (Cash, Bank transfer) carry a quiet "Soon" suffix,
- * a dimmed chip, and surface a coming-soon toast on tap.
+ * title + muted subtitle + chevron), and a trust footer.
+ *
+ * BANK TRANSFER is gated ENTIRELY by the server (`ONRAMP_ENABLED` ->
+ * `GET /api/onramp/config`, cached in [OnrampConfigStore]) — no hard-coded flag
+ * lives here, so funding opens per environment with no app release. When it's
+ * closed the card names the path that DOES work today (Crypto) instead of a
+ * dead "coming soon". The Cash/card path stays a separate Stripe kill-switch.
  */
 @Composable
 fun DepositScreen(onClose: () -> Unit) {
@@ -64,6 +76,46 @@ fun DepositScreen(onClose: () -> Unit) {
     if (showOnchain) {
         io.talise.app.feature.receive.ReceiveScreen(onClose = { showOnchain = false })
         return
+    }
+
+    // Bank funding (Bridge virtual accounts): corridor picker -> deposit
+    // instructions. Only reachable while the server says funding is open.
+    var showBankFunding by remember { mutableStateOf(false) }
+    var bankCorridor by remember { mutableStateOf<RampCorridor?>(null) }
+    if (showBankFunding) {
+        val chosen = bankCorridor
+        Column(Modifier.fillMaxSize().background(TaliseColors.bg)) {
+            HubHeader(
+                title = "",
+                onBack = {
+                    if (chosen != null) bankCorridor = null else showBankFunding = false
+                },
+            )
+            if (chosen == null) {
+                CorridorPickerView(
+                    direction = RampDirection.Onramp,
+                    userCountry = AppSession.currentUser?.country,
+                    onrampOpen = OnrampConfigStore.config.enabled,
+                    onSelect = { bankCorridor = it },
+                )
+            } else {
+                BridgeOnrampView(corridor = chosen)
+            }
+        }
+        BackHandler {
+            if (chosen != null) bankCorridor = null else showBankFunding = false
+        }
+        return
+    }
+
+    // Server verdict for fiat funding. Re-read on every entry so a mid-session
+    // flip lands without a relaunch; fail-closed until it answers.
+    var onrampCfg by remember { mutableStateOf(OnrampConfigStore.config) }
+    var onrampLoaded by remember { mutableStateOf(OnrampConfigStore.loaded) }
+    LaunchedEffect(Unit) {
+        OnrampConfigStore.load(force = true)
+        onrampCfg = OnrampConfigStore.config
+        onrampLoaded = OnrampConfigStore.loaded
     }
 
     var toast by remember { mutableStateOf<String?>(null) }
@@ -148,14 +200,29 @@ fun DepositScreen(onClose: () -> Unit) {
                         onClick = { showOnchain = true },
                     )
 
-                    // Bank transfer, Bridge corridors, gated off for now.
-                    FundingPathCard(
-                        painter = painterResource(R.drawable.hi_bank),
-                        title = "Bank transfer",
-                        subtitle = "From a local bank account - no card needed",
-                        soon = true,
-                        onClick = { toast = "Bank transfers are coming soon." },
-                    )
+                    // Bank transfer, Bridge virtual accounts. Server-gated.
+                    if (onrampCfg.bankFundingOpen) {
+                        FundingPathCard(
+                            painter = painterResource(R.drawable.hi_bank),
+                            title = "Bank transfer",
+                            subtitle = "From a local bank account - no card needed",
+                            onClick = { showBankFunding = true },
+                        )
+                    } else {
+                        FundingPathCard(
+                            painter = painterResource(R.drawable.hi_bank),
+                            title = "Bank transfer",
+                            subtitle = "Not open yet - receive dollars with Crypto instead",
+                            soon = true,
+                            onClick = {
+                                toast = if (onrampLoaded) {
+                                    "Bank funding isn't open yet - use Crypto above to receive dollars to your address."
+                                } else {
+                                    "Still checking which funding rails are open..."
+                                }
+                            },
+                        )
+                    }
                 }
 
                 // Trust footer.

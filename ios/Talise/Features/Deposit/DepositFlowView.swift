@@ -25,6 +25,11 @@ struct DepositFlowView: View {
     /// (bank/cash rail). Auto-dismisses; never blocks the user.
     @State private var comingSoonToast: String?
 
+    /// Server verdict for fiat funding (`ONRAMP_ENABLED` → /api/onramp/config).
+    /// Fail-closed until it loads, so the bank tile never opens a flow the
+    /// backend would refuse.
+    @State private var onrampFlags = OnrampConfigStore.shared
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -80,22 +85,40 @@ struct DepositFlowView: View {
                                 .buttonStyle(TilePress())
                             }
 
-                            // Bank transfer — Bridge corridors (USD/EUR/GBP…).
-                            // Not available yet: shown as a non-tappable "Soon"
-                            // card (a tap surfaces a gentle toast, never opens a
-                            // broken flow). Re-enable by restoring the
-                            // RampFlags.bridgeLive NavigationLink to AddMoneyCorridorFlow.
-                            Button {
-                                showComingSoon("Bank transfers are coming soon.")
-                            } label: {
-                                FundingPathCard(
-                                    icon: "hi.bank",
-                                    title: "Bank transfer",
-                                    subtitle: "From your bank in USD, EUR, GBP and more",
-                                    soon: true
-                                )
+                            // Bank transfer — Bridge virtual accounts. Gated
+                            // ENTIRELY by the server (`ONRAMP_ENABLED` →
+                            // /api/onramp/config), so it opens per environment
+                            // with no app release and no hard-coded flag here.
+                            // Closed state names the path that DOES work today
+                            // instead of a dead "soon".
+                            if onrampFlags.config.bankFundingOpen {
+                                NavigationLink {
+                                    AddMoneyCorridorFlow()
+                                } label: {
+                                    FundingPathCard(
+                                        icon: "hi.bank",
+                                        title: "Bank transfer",
+                                        subtitle: "From your bank in USD, EUR, GBP and more"
+                                    )
+                                }
+                                .buttonStyle(TilePress())
+                            } else {
+                                Button {
+                                    showComingSoon(
+                                        onrampFlags.loaded
+                                            ? "Bank funding isn't open yet — use Crypto above to receive dollars to your address."
+                                            : "Still checking which funding rails are open…"
+                                    )
+                                } label: {
+                                    FundingPathCard(
+                                        icon: "hi.bank",
+                                        title: "Bank transfer",
+                                        subtitle: "Not open yet — receive dollars with Crypto instead",
+                                        soon: true
+                                    )
+                                }
+                                .buttonStyle(TilePress())
                             }
-                            .buttonStyle(TilePress())
                         }
 
                         footer
@@ -109,6 +132,9 @@ struct DepositFlowView: View {
             .toolbar(.hidden, for: .navigationBar)
             .overlay(alignment: .bottom) { comingSoonOverlay }
             .animation(.snappy(duration: 0.25), value: comingSoonToast)
+            // Re-read on every entry so a server-side flip lands without a
+            // relaunch. Cheap: one no-store GET.
+            .task { await onrampFlags.load(force: true) }
         }
         .tint(TaliseColor.fg)
     }
