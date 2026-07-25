@@ -16,10 +16,9 @@ import { notifyInboundSettlement } from "@/lib/notify";
 import { getCurrentEpoch } from "@/lib/sui-epoch";
 import {
   LOG as SAVE_LOG,
-  markSaveFailed,
-  roundupSaveByToken,
-  settleRoundupSave,
-} from "@/lib/rewards/roundup-save";
+  creditRoundupSave,
+  type SaveOutcome,
+} from "@/lib/rewards/roundup";
 
 export const runtime = "nodejs";
 
@@ -176,22 +175,21 @@ export async function POST(req: Request) {
       amountUsd?: number;
       venue?: string;
       /**
-       * Spend + Save. Set ONLY when the transaction being executed is the
-       * standalone NAVI round-up supply built by
-       * `/api/send/roundup/prepare`. It is an opaque server-issued token,
-       * not an amount: the amount lives on the `roundup_saves` row, and
-       * the tally moves only after the resulting digest is read back off
-       * chain (lib/rewards/roundup-save.ts).
+       * Spend + Save. The HMAC-signed proof `/api/send/sponsor-prepare`
+       * minted for THIS transaction when it appended the NAVI supply leg to
+       * the send's PTB. It carries `(userId, digest, gross, net)` under the
+       * server's own signature, so the client can forward it but cannot
+       * author one, cannot change the amount, and cannot point it at another
+       * transaction.
        *
        * `meta.roundupUsd` used to be accepted here and bumped
        * `users.roundup_saved_usd` straight from the request body, with a
        * comment claiming a lying client "will fail Sui validation at
-       * sponsor-time". Nothing cross-checked `meta` against the signed
-       * PTB, so the tally rose on sends where no save existed at all.
-       * That field is gone; a client-supplied savings figure is never
-       * credited again.
+       * sponsor-time". Nothing cross-checked `meta` against the signed PTB,
+       * so the tally rose on sends where no save existed at all. That field
+       * is gone; a client-supplied savings figure is never credited again.
        */
-      roundupSaveToken?: string;
+      saveProof?: string;
     };
   };
   try {
@@ -330,14 +328,13 @@ export async function POST(req: Request) {
     );
   };
 
-  // Is this the standalone Spend + Save supply? It is a background
-  // transaction (no user waiting on a success screen), so it can afford to
-  // wait for execution and get a definitive on-chain outcome instead of the
-  // optimistic ACK the send path needs.
-  const roundupSaveToken =
-    typeof body.meta?.roundupSaveToken === "string" &&
-    body.meta.roundupSaveToken.length > 0
-      ? body.meta.roundupSaveToken
+  // Does this send carry an atomic Spend + Save leg? If so we need a
+  // DEFINITIVE on-chain outcome rather than the optimistic ACK a plain send
+  // is happy with: the savings tally may only move for a save we have read
+  // back off chain, and with no cron there is no later pass to do it.
+  const saveProof =
+    typeof body.meta?.saveProof === "string" && body.meta.saveProof.length > 0
+      ? body.meta.saveProof
       : null;
 
   const work = (async () => {
@@ -404,10 +401,11 @@ export async function POST(req: Request) {
           sender: user.sui_address,
           txBytes: bytesB64,
           txSignature: sig,
-          // Optimistic for user-facing money movement; definitive for the
-          // background round-up save, whose whole point is that we only
-          // credit a tally once the chain has the transaction.
-          waitForExecution: roundupSaveToken != null,
+          // Optimistic for a plain send (iOS polls the digest). DEFINITIVE
+          // for a Save-ON send: the tally may only move for a save we have
+          // read back off chain, and with no cron there is no second pass, so
+          // this request has to see the transaction land.
+          waitForExecution: saveProof != null,
           // Skip Onara's pre-broadcast simulate, one fewer RPC round-trip on
           // the hot send path. The send is already optimistic (we don't wait
           // for execution; iOS polls the digest), so the simulate only added
@@ -474,10 +472,11 @@ export async function POST(req: Request) {
     const meta = body.meta;
     if (
       meta &&
-      // The round-up save leg books its own award from the settlement path
-      // below, against the digest it verified. Never let it also earn from
-      // an unverified `meta.kind` here.
-      !roundupSaveToken &&
+      // A Save-ON send books the round-up's own award from the settlement
+      // path below, against the digest it verified. The `send` award still
+      // runs here as normal; only the round-up leg is withheld from the
+      // unverified `meta` path.
+      true &&
       typeof meta.kind === "string" &&
       typeof meta.amountUsd === "number" &&
       meta.amountUsd > 0
@@ -533,19 +532,12 @@ export async function POST(req: Request) {
         `[zk/sponsor-execute] FAILED on-chain tx user=${userId} digest=${failedTx?.digest ?? ""}`,
         JSON.stringify(failedTx ?? r)
       );
-      // A round-up save that aborted on chain moved nothing. Close the row
-      // out so the tally stays where it is and the drain stops looking.
-      if (roundupSaveToken) {
-        const row = await roundupSaveByToken(userId, roundupSaveToken).catch(
-          () => null
-        );
-        if (row && row.status === "prepared") {
-          await markSaveFailed(row.id, "save transaction aborted on chain").catch(
-            () => {}
-          );
-        }
+      // An atomic Save-ON send that aborted moved NOTHING: not the transfer,
+      // not the save. Nothing to unwind, and nothing may be credited. The
+      // 502 below is the send's own failure and covers both legs.
+      if (saveProof) {
         console.error(
-          `${SAVE_LOG} SAVE_FAILED user=${userId} token=${roundupSaveToken} aborted on chain`
+          `${SAVE_LOG} SAVE_FAILED user=${userId} the send+save PTB aborted on chain, neither leg landed`
         );
       }
       return NextResponse.json(
@@ -581,38 +573,49 @@ export async function POST(req: Request) {
     }
 
     // ── Spend + Save settlement ──────────────────────────────────────
-    // This is the ONLY place a client-driven request can move
-    // `users.roundup_saved_usd`, and it does so by reading the digest we
-    // just broadcast back off chain, not by trusting anything in the
-    // request body. `settleRoundupSave` refuses any digest other than the
-    // one it built for this token, and a lost response is picked up later
-    // by /api/cron/process-roundup-queue, so the tally converges on chain
-    // state either way.
-    let saveOutcome: Awaited<ReturnType<typeof settleRoundupSave>> | null = null;
-    if (roundupSaveToken) {
+    // The ONLY place `users.roundup_saved_usd` can move, and it moves off
+    // TWO server-side facts, never off the request body:
+    //
+    //   1. `meta.saveProof`, HMAC-signed by sponsor-prepare over
+    //      (userId, digest, gross, net) for THIS transaction. The client
+    //      carries it; it cannot mint or edit one.
+    //   2. A read of that digest back off chain: succeeded, sent by this
+    //      user, USD stablecoin out, the save fee reached the treasury, and
+    //      money landed in a non-address sink (the NAVI reserve).
+    //
+    // The credited figure is the MINIMUM of the two, so it can never exceed
+    // the money that actually moved. Idempotent via a UNIQUE claim key, so
+    // a retried request cannot credit twice. See lib/rewards/roundup.ts.
+    let saveOutcome: SaveOutcome | null = null;
+    if (saveProof) {
       if (!digest) {
-        console.warn(
-          `${SAVE_LOG} no digest for save token=${roundupSaveToken} user=${userId}; leaving it for the drain`
+        console.error(
+          `${SAVE_LOG} no digest for a save-carrying send user=${userId}; nothing credited`
         );
       } else {
         try {
-          saveOutcome = await settleRoundupSave({
+          saveOutcome = await creditRoundupSave({
             userId,
             senderAddress: user.sui_address,
             digest,
-            token: roundupSaveToken,
-            // Broadcast waited for execution, but the read path can still
-            // lag a beat behind. Two extra looks, then hand off to the drain.
-            verifyRetries: 2,
+            proofToken: saveProof,
+            // The broadcast above waited for execution, but the READ path can
+            // still lag a beat behind it. Three looks inside this request.
+            verifyRetries: 3,
           });
         } catch (e) {
           console.warn(
-            `${SAVE_LOG} settle threw user=${userId} token=${roundupSaveToken}: ${(e as Error).message}`
+            `${SAVE_LOG} credit threw user=${userId} ${digest}: ${(e as Error).message}`
           );
         }
         if (saveOutcome?.status === "pending") {
-          console.log(
-            `${SAVE_LOG} save ${digest} not yet verifiable (${saveOutcome.reason}); the drain will credit it`
+          // The money moved (the transfer and the save are the same
+          // transaction, and the transfer succeeded) but this server could
+          // not read it back in time to prove the amount. We do NOT credit on
+          // a guess. The client is told `pending` and may confirm once via
+          // /api/send/save-confirm, which is a retried READ, not a queue.
+          console.warn(
+            `${SAVE_LOG} save ${digest} not verifiable yet (${saveOutcome.reason}); not credited, client may re-confirm`
           );
         }
       }
@@ -627,18 +630,20 @@ export async function POST(req: Request) {
       objectChanges:
         ((r.objectChanges as unknown[]) ?? []) as unknown[],
       freshProof: isFresh ? proof : undefined,
-      // Present only on the round-up save leg. `settled` means the tally
-      // moved; `pending` means the transaction is on chain but not yet
-      // verifiable here and the drain will credit it; `failed` means
-      // nothing was credited and nothing will be.
-      ...(roundupSaveToken
+      // Present only when the send carried a save leg. The receipt must
+      // render THIS, never the amount it hoped to save:
+      //   saved    the tally moved by `savedUsd`.
+      //   pending  the send landed and the save is inside it, but we could
+      //            not read it back yet, so nothing is credited. The client
+      //            may re-confirm once via /api/send/save-confirm.
+      //   failed   nothing was credited and nothing will be.
+      ...(saveProof
         ? {
-            roundupSave: {
+            save: {
               status: saveOutcome?.status ?? "pending",
-              creditedUsd:
-                saveOutcome?.status === "settled" ? saveOutcome.creditedUsd : 0,
+              savedUsd: saveOutcome?.status === "saved" ? saveOutcome.savedUsd : 0,
               reason:
-                saveOutcome && saveOutcome.status !== "settled"
+                saveOutcome && saveOutcome.status !== "saved"
                   ? saveOutcome.reason
                   : undefined,
             },

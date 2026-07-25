@@ -84,12 +84,12 @@ export async function POST(req: Request) {
     return new Response(null, { status: 204 });
   }
 
-  // Spend + Save is NOT handled here. The round-up is its own sponsored
-  // transaction the client fires with the send digest
-  // (`/api/send/roundup/prepare` → sign → `/api/zk/sponsor-execute`), and
-  // its tally moves only after that transaction is verified on chain. The
-  // old `takePendingRoundup` → `roundup_queue` enqueue is gone; it recorded
-  // an amount with no digest into a table nothing drained.
+  // Spend + Save is NOT handled here. A Save-ON send never takes the gasless
+  // rail (the validator's gasless allowlist admits only
+  // `0x2::balance::send_funds<T>`, so a NAVI supply cannot ride along), so
+  // sponsor-prepare routes it to the sponsored rail and the save is settled
+  // in `/api/zk/sponsor-execute` against the send's own digest. See
+  // lib/rewards/roundup.ts.
 
   // Rewards earn, same ALLOWED set + 10k USD cap as gasless-submit
   // lines 141–169.

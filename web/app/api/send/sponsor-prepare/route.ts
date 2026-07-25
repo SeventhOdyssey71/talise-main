@@ -4,17 +4,23 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { userById } from "@/lib/db";
 import { checkSendAllowed, recordSend } from "@/lib/send-limits";
-import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
+import {
+  Transaction,
+  TransactionDataBuilder,
+  coinWithBalance,
+} from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
-import { sui, network, COIN_TYPES, USDSUI_DECIMALS } from "@/lib/sui";
+import { sui, network, COIN_TYPES, USDSUI_DECIMALS, getUsdsuiBalanceStrict } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
-import { getRoundupConfig } from "@/lib/rewards/roundup";
 import {
-  createRoundupIntent,
-  netSavedUsd,
-  ROUNDUP_MIN_SAVE_USD,
-} from "@/lib/rewards/roundup-save";
+  LOG as SAVE_LOG,
+  getRoundupConfig,
+  issueSaveProof,
+  planRoundup,
+  type RoundupPlan,
+} from "@/lib/rewards/roundup";
+import { appendNaviSupply, SAVE_TREASURY_FEE_BPS } from "@/lib/navi-supply";
 import { onara } from "@/lib/onara";
 import { screenTransfer } from "@/lib/screening";
 import { getCurrentEpoch, getChainIdentifier } from "@/lib/sui-epoch";
@@ -41,20 +47,36 @@ export const runtime = "nodejs";
  * one full iOS→Vercel network hop (~500ms cold). This endpoint does
  * both server-side in one call:
  *
- *   1. Build the PTB exactly as `/api/send/prepare` did (Payment Kit
- *      wrap; the round-up is NOT bundled, see the Spend + Save note below).
+ *   1. Build the PTB (Payment Kit wrap, plus the Spend + Save NAVI supply
+ *      leg in the SAME PTB when round-up is on, see below).
  *   2. Resolve the Onara sponsor address + reference gas price in
  *      parallel (both 60s-memoized → typically <1ms on warm).
  *   3. Set sender + gasOwner + gasPrice on the tx.
  *   4. Run the FULL `tx.build()` (with client) to produce the
  *      sponsor-ready bytes.
  *
- * Returns `{ bytes, roundupUsd, roundupToken, receiptNonce }`, the client
- * signs `bytes` directly and forwards to `/api/zk/sponsor-execute` (or
+ * Returns `{ bytes, mode, save, receiptNonce }`, the client signs `bytes`
+ * directly and forwards to `/api/zk/sponsor-execute` (or
  * `/api/send/gasless-submit` on the gasless rail). One fewer round-trip →
- * ~500–800ms saved per send. When `roundupToken` comes back, the client
- * then fires the Spend + Save leg as its own sponsored transaction:
- * `/api/send/roundup/prepare` → sign → `/api/zk/sponsor-execute`.
+ * ~500–800ms saved per send.
+ *
+ * ── Spend + Save: ONE atomic PTB ────────────────────────────────────
+ *
+ * With round-up on, this route routes the send onto the SPONSORED rail and
+ * appends `appendNaviSupply` to the send's own PTB. One signature, one
+ * digest, both legs atomic: if the save aborts, the send aborts with it,
+ * and there is no way to end up with a savings tally and no money behind
+ * it. The gasless rail cannot carry the supply leg at all (gasPrice=0,
+ * gasBudget=0, empty gas payment, and a validator allowlist of
+ * `0x2::balance::send_funds<T>` only), which is why round-up forces the
+ * sponsored rail rather than trying and falling back.
+ *
+ * The save leg is bounded by `NAVI_APPEND_DEADLINE_MS`. On timeout or any
+ * build error the route falls back to a send-only PTB and reports
+ * `save.applied: false` with a reason. THE PAYMENT NEVER FAILS BECAUSE OF
+ * THE ROUND-UP: that was the flaw in the pre-2026-06-22 bundled version,
+ * and it is why measuring the NAVI leg mattered before rebuilding it (see
+ * the header of lib/rewards/roundup.ts for the numbers).
  *
  * The legacy `/api/send/prepare` + `/api/zk/sponsor` endpoints stay
  * around for the Earn flows and any older builds that haven't been
@@ -68,6 +90,60 @@ const ADDRESS_RE = /^0x[a-f0-9]{64}$/i;
 // selects gas coins totaling >= this (pulling in the sponsor's main coin past
 // any dust); the sponsor pays only the actual gas used. See the build step.
 const SPONSOR_GAS_BUDGET_MIST = 60_000_000n;
+
+/**
+ * Hard ceiling on how long the Spend + Save NAVI leg may take to append.
+ *
+ * MEASURED on mainnet (scripts/probes/probe-spend-save-latency.mjs):
+ * `appendNaviSupply` runs in 268 ms once `/api/zk/warmup` has warmed the
+ * adapter (p50 262 / p95 558), and 3344 ms on the very first call in a cold
+ * lambda that never got warmed. 6s therefore clears even the unwarmed cold
+ * case with room to spare, while still bounding a genuinely wedged NAVI/RPC
+ * upstream so it can never eat the prepare route's budget and turn a payment
+ * into a 500. On timeout we drop the save and send anyway.
+ */
+const NAVI_APPEND_DEADLINE_MS = Number(process.env.ROUNDUP_APPEND_DEADLINE_MS) || 6_000;
+
+/** What the response tells the client about the Spend + Save leg. */
+type SavePayload = {
+  /** True only when the NAVI supply leg is actually IN the bytes returned. */
+  applied: boolean;
+  /** Gross round-up leaving the wallet, USDsui. 0 when not applied. */
+  grossUsd: number;
+  /** What reaches NAVI (gross minus the save fee). 0 when not applied. */
+  netUsd: number;
+  feeBps: number;
+  venue: "navi";
+  /**
+   * HMAC-signed, digest-bound proof of the round-up this PTB carries. The
+   * client hands it to `/api/zk/sponsor-execute` as `meta.saveProof`; it is
+   * the ONLY way the savings tally can move, and it cannot be authored or
+   * altered client-side. Present iff `applied`.
+   */
+  proof?: string;
+  /** Why the save is not applied, when the user has round-up on. */
+  reason?: string;
+};
+
+/** Race `p` against the deadline. Rejects with a tagged error on timeout. */
+function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} exceeded ${ms}ms`)),
+      ms
+    );
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
 
 export async function POST(req: Request) {
   const onaraUrl = process.env.ONARA_URL;
@@ -263,28 +339,11 @@ export async function POST(req: Request) {
     }
   }
 
-  // ── Spend + Save: the round-up is its OWN sponsored transaction ─────
-  // The round-up used to be a leg inside this send's PTB. That combined
-  // shared-object transaction blew the sponsor window (2026-06-22:
-  // "send+save timed out ... a STANDALONE NAVI supply sponsors cleanly"),
-  // so it was pulled out, and then nothing fired it and the feature became
-  // display-only. It is now a real second transaction: this route BOOKS the
-  // round-up server-side and returns a `roundupToken`; the client posts that
-  // token plus the settled send digest to `/api/send/roundup/prepare`, signs
-  // the NAVI supply bytes with the same in-session ephemeral key, and
-  // executes it through `/api/zk/sponsor-execute`. Nothing in the tally
-  // moves until that transaction is read back off chain (see
-  // lib/rewards/roundup-save.ts).
-  //
-  // Because the save no longer needs to co-bundle, a Save-ON send no longer
-  // has to be sponsored: it TRIES the gasless rail like any other plain
-  // send, and only the tiny save transaction costs Talise gas. Coin-only
-  // holders still fall through to the sponsored rail below (unchanged), so
-  // no send that used to land stops landing.
-  //
-  // Roundup config is memo'd per-user for 60s (toggling is rare
-  // relative to send frequency). Defensive fallback on read failure:
-  // treat as disabled so a config error never blocks a send.
+  // ── Spend + Save: one atomic PTB, on the sponsored rail ─────────────
+  // Round-up config is memo'd per-user for 60s (toggling is rare relative to
+  // send frequency). Defensive fallback on read failure: treat as disabled so
+  // a config error never blocks a send. `getRoundupConfig` also applies the
+  // ROUNDUP_ENABLED product gate, so a closed gate lands here as "off".
   const roundupCfg = await memoTtl(
     `roundup:cfg:${userId}`,
     60_000,
@@ -296,47 +355,45 @@ export async function POST(req: Request) {
       }))
   );
   // Server-computed round-up for this send. The client never states this
-  // number anywhere in the flow; it only ever hands back the opaque token.
-  let plannedRoundupUsd = 0;
-  if (asset === "USDsui" && roundupCfg.enabled && roundupCfg.percentage > 0) {
-    const computed = Math.min(
-      (amountNum * roundupCfg.percentage) / 100,
-      amountNum
-    );
-    // Floor at what is actually worth supplying: below a cent reaching
-    // NAVI there is no save, so we promise none (a sub-cent supply is dust
-    // that costs a sponsored tx to move and can't be credited anyway).
-    if (netSavedUsd(computed) >= ROUNDUP_MIN_SAVE_USD) {
-      plannedRoundupUsd = computed;
-    }
-  }
+  // number anywhere in the flow, and never sees a knob that changes it.
+  const plan: RoundupPlan | null =
+    asset === "USDsui"
+      ? planRoundup({ config: roundupCfg, sendAmountUsd: amountNum })
+      : null;
 
-  /**
-   * Book the round-up right before we hand out signable bytes, and report
-   * ONLY what we managed to book. If the intent write fails we return
-   * `roundupUsd: 0`, so the client shows no Save step for a save that
-   * cannot happen.
-   */
-  const bookRoundup = async (): Promise<{
-    roundupUsd: number;
-    roundupNetUsd: number;
-    roundupToken?: string;
-  }> => {
-    if (!(plannedRoundupUsd > 0)) {
-      return { roundupUsd: 0, roundupNetUsd: 0 };
-    }
-    const intent = await createRoundupIntent({
-      userId,
-      sendAmountUsd: amountNum,
-      amountUsd: plannedRoundupUsd,
-    });
-    if (!intent) return { roundupUsd: 0, roundupNetUsd: 0 };
-    return {
-      roundupUsd: intent.amountUsd,
-      roundupNetUsd: intent.netUsd,
-      roundupToken: intent.token,
-    };
-  };
+  // What we report when there is no save leg in the bytes. `applied: false`
+  // with a reason is how the client knows to say "not saved" instead of
+  // painting a green "Rounded up $X" over a send that saved nothing.
+  const noSave = (reason?: string): SavePayload => ({
+    applied: false,
+    grossUsd: 0,
+    netUsd: 0,
+    feeBps: SAVE_TREASURY_FEE_BPS,
+    venue: "navi",
+    ...(reason ? { reason } : {}),
+  });
+
+  // ── Balance cover check, protects the SEND ──────────────────────────
+  // The atomic PTB spends `amount + gross`. If the wallet cannot cover both,
+  // the supply leg aborts on chain and takes the payment down with it. So we
+  // check first and drop the SAVE (never the send) when the money isn't
+  // there. Kicked off now so it overlaps the screening + limit reads below.
+  //
+  // `getUsdsuiBalanceStrict` THROWS on a failed read rather than returning a
+  // misleading 0; on a throw we also drop the save, because "we don't know
+  // the balance" is not a basis for adding a leg that can abort a payment.
+  const coverPromise: Promise<{ ok: boolean; reason?: string }> | null = plan
+    ? getUsdsuiBalanceStrict(user.sui_address).then(
+        (b) =>
+          b.usdsui >= amountNum + plan.grossUsd
+            ? { ok: true }
+            : {
+                ok: false,
+                reason: `balance ${b.usdsui} cannot cover send ${amountNum} + round-up ${plan.grossUsd}`,
+              },
+        (e) => ({ ok: false, reason: `balance read failed: ${(e as Error).message}` })
+      )
+    : null;
 
   // Flips to true if the gasless try-block hits a categorized "expected"
   // failure (Coin-only balance state or accumulator underfunded) and we
@@ -354,11 +411,22 @@ export async function POST(req: Request) {
   // apart.
   let gaslessFellBackReason: "coin" | "anchor" = "coin";
 
-  // Every USDsui send tries the gasless rail, Save ON or OFF: the save is a
-  // separate transaction now, so it no longer forces this one onto sponsored
-  // gas. Sub-minimum sponsor-fallback sends skip straight to Payment Kit
-  // (the only path below 0.01) rather than attempting a build that can't pass.
-  const tryGasless = asset === "USDsui" && !belowGaslessMin;
+  // ── RAIL CHOICE ─────────────────────────────────────────────────────
+  // A Save-ON send goes straight to the SPONSORED rail and does not attempt
+  // gasless at all. This is not a preference, it is the shape of the chain:
+  // the gasless rail builds with gasPrice=0, gasBudget=0, an empty gas
+  // payment and an offline BCS build, and the validator's gasless allowlist
+  // admits only `0x2::balance::send_funds<T>`, so a NAVI supply (shared
+  // objects, a Pyth oracle refresh, a treasury fee transfer) provably cannot
+  // ride along. Attempting gasless first would burn a build + simulate
+  // round-trip to learn that.
+  //
+  // Save OFF is untouched: every USDsui send still tries gasless first and
+  // stays free. Sub-minimum sponsor-fallback sends skip straight to Payment
+  // Kit (the only path below 0.01) rather than attempting a build that can't
+  // pass.
+  const saveActive = plan != null;
+  const tryGasless = asset === "USDsui" && !belowGaslessMin && !saveActive;
   if (tryGasless) {
     try {
       const t0 = Date.now();
@@ -470,11 +538,6 @@ export async function POST(req: Request) {
       }
       const tBuild = Date.now();
 
-      // Book the round-up (durable row, server-authored amount) now that we
-      // know this send is going out. The client turns the token into a real
-      // NAVI supply once it has the send digest.
-      const booked = await bookRoundup();
-
       // Stash inbound-settlement notification info for gasless-submit to fire
       // once the tx confirms (we know the recipient + amount here; the submit
       // leg only has opaque bytes). Best-effort, same-instance, see perf-cache.
@@ -489,13 +552,13 @@ export async function POST(req: Request) {
       });
 
       console.log(
-        `[send/sponsor-prepare gasless] total=${tBuild - t0}ms amount=${amountNum} USDsui roundupUsd=${booked.roundupUsd}`
+        `[send/sponsor-prepare gasless] total=${tBuild - t0}ms amount=${amountNum} USDsui (no save leg on this rail)`
       );
       recordSendLatency({
         leg: "prepare",
         totalMs: tBuild - t0,
         atMs: Date.now(),
-        extras: { mode: "gasless", hasRoundup: booked.roundupUsd > 0 },
+        extras: { mode: "gasless", hasRoundup: false },
       });
 
       // Reserve this send against the rolling limit window. Fire-and-
@@ -511,12 +574,14 @@ export async function POST(req: Request) {
         asset,
         amount: amountNum,
         to,
-        // Non-zero ONLY when Spend + Save is on AND we booked the round-up.
-        // The client posts `roundupToken` + the send digest to
-        // /api/send/roundup/prepare to actually move the money.
-        roundupUsd: booked.roundupUsd,
-        roundupNetUsd: booked.roundupNetUsd,
-        roundupToken: booked.roundupToken,
+        // This rail is only reached with round-up OFF (see RAIL CHOICE), so
+        // there is never a save to report here.
+        save: noSave(),
+        // DEPRECATED, always 0. Pre-atomic clients treat a non-zero
+        // `roundupUsd` as "now go fire the standalone save transaction"; the
+        // save is inside the send PTB now, so telling them a number would
+        // make them save twice. New clients read `save`.
+        roundupUsd: 0,
       });
     } catch (err) {
       // LOUD by default. The previous swallow-and-fall-through pattern
@@ -603,14 +668,11 @@ export async function POST(req: Request) {
       // (a) make Talise pay gas for a transaction the user told us
       // should be free, and (b) hide the underlying state mismatch.
       //
-      // The exception is a Save-ON send. Before the save was decoupled, the
-      // fall-through existed because the bundled NAVI leg needed sponsorship.
-      // It is kept for a different reason now: a Coin-only holder with Spend +
-      // Save on reached the sponsored rail on EVERY send before this change
-      // (SnS skipped the gasless attempt entirely), so refusing them here
-      // would break sends that work today. Accumulator-funded users get a
-      // genuinely gasless send instead, which is the improvement.
-      const isSnsActive = plannedRoundupUsd > 0;
+      // Note this block is only ever reached with round-up OFF: a Save-ON
+      // send never attempts the gasless rail (see RAIL CHOICE), so there is
+      // no Spend + Save case to special-case here any more. `sponsorFallback`
+      // (off-ramp, pay-to-bank) is the only remaining reason to sponsor a
+      // send whose gasless build failed.
       // Detect the "no address-owned input available" failure mode:
       // a fully-consolidated user (all USDsui in the accumulator, no
       // Coin<T> anchor) used to dead-end with:
@@ -655,21 +717,20 @@ export async function POST(req: Request) {
       } else
       if (
         (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) &&
-        (isSnsActive || sponsorFallback)
+        sponsorFallback
       ) {
         console.warn(
-          `[send/sponsor-prepare] gasless unreachable for user=${userId} (Coin-only balance state); ${isSnsActive ? "SnS active" : "sponsorFallback opted-in"}, falling through to sponsored-coin-fallback. detail=${msg.slice(0, 200)}`
+          `[send/sponsor-prepare] gasless unreachable for user=${userId} (Coin-only balance state); sponsorFallback opted-in, falling through to sponsored-coin-fallback. detail=${msg.slice(0, 200)}`
         );
         gaslessFellBack = true;
         // Intentional fall-through, Payment Kit handles Coin<T>
-        // sourcing via coinWithBalance({useGasCoin:false}). When SnS is on
-        // the NAVI supply leg lands atomically too. Response surfaces
+        // sourcing via coinWithBalance({useGasCoin:false}). Response surfaces
         // mode: "sponsored-coin-fallback". This is the off-ramp path: a user
         // whose USDsui is in Coin objects gets a sponsored cash-out instead
         // of a dead end, while accumulator-funded users stayed gasless above.
       } else if (/withdraw reservation/i.test(msg) || /accumulator/i.test(msg) || /InsufficientGas/i.test(msg) || /insufficient.*balance/i.test(msg)) {
         console.warn(
-          `[send/sponsor-prepare] gasless unreachable for user=${userId} (accumulator underfunded); SnS off, returning ACCUMULATOR_UNDERFUNDED 400. detail=${msg.slice(0, 200)}`
+          `[send/sponsor-prepare] gasless unreachable for user=${userId} (accumulator underfunded); no sponsor fallback opted in, returning ACCUMULATOR_UNDERFUNDED 400. detail=${msg.slice(0, 200)}`
         );
         // The clean 2-call gasless pattern requires the requested amount
         // to live in the user's Address Balance accumulator. Coin<T>
@@ -688,18 +749,16 @@ export async function POST(req: Request) {
           },
           { status: 400 }
         );
-      } else if (sponsorFallback || isSnsActive) {
+      } else if (sponsorFallback) {
         // Uncategorized gasless failure on a sponsor-fallback flow (off-ramp,
-        // pay-to-bank), or on a Save-ON send (which took the sponsored rail
-        // unconditionally before the save was decoupled, so it must not start
-        // failing now): the transfer has to land, so fall
-        // through to the sponsored Payment Kit branch rather than 400-ing.
+        // pay-to-bank): the transfer has to land, so fall through to the
+        // sponsored Payment Kit branch rather than 400-ing.
         // This doesn't mask a real build bug, the sponsored branch runs its
         // own build + simulate and will surface any genuine failure from
         // there (outer catch → 500). A purely gasless-specific hiccup, by
         // contrast, simply succeeds on the sponsored rail.
         console.warn(
-          `[send/sponsor-prepare] gasless build failed (uncategorized) for user=${userId} but ${sponsorFallback ? "sponsorFallback opted-in" : "Spend + Save is on"}; falling through to sponsored-coin-fallback. detail=${msg.slice(0, 200)}`
+          `[send/sponsor-prepare] gasless build failed (uncategorized) for user=${userId} but sponsorFallback opted-in; falling through to sponsored-coin-fallback. detail=${msg.slice(0, 200)}`
         );
         gaslessFellBack = true;
       } else {
@@ -755,53 +814,112 @@ export async function POST(req: Request) {
       }
     );
 
-    // Build the PTB body. Both branches end with a tx that hasn't
-    // been `build()`-ed yet, we need the sponsor address first.
-    const tx = new Transaction();
-    tx.setSender(user.sui_address);
-
-    let receiptNonce: string | undefined;
-
-    // Per-step timing inside the ptb window so the next live send can
-    // pinpoint where the ~1900ms cold cost actually goes. Suspects on a
-    // cold process: NaviAdapter init (lazy on first round-up), Payment Kit
-    // receipt append, and the gas-price/onara round-trips below.
+    // Per-step timing inside the ptb window so a live send can pinpoint
+    // where its cost actually goes: Payment Kit receipt append, the NAVI
+    // supply leg, and the gas-price/onara round-trips below.
     const tStepStart = Date.now();
     let tPk = tStepStart;
-    let tRoundup = tStepStart;
     let tNavi = tStepStart;
 
-    if (asset === "USDsui") {
+    /**
+     * Build the PTB body from scratch, with or without the Spend + Save leg.
+     *
+     * A function rather than straight-line code because the save leg has to
+     * be DROPPABLE: if `appendNaviSupply` times out or throws, we rebuild
+     * the body send-only rather than failing the payment. A Transaction that
+     * already had a half-appended supply on it can't be reused, so each
+     * attempt starts clean.
+     */
+    const buildBody = async (
+      withSave: RoundupPlan | null
+    ): Promise<{ tx: Transaction; nonce?: string }> => {
+      const tx = new Transaction();
+      tx.setSender(user.sui_address);
+
+      if (asset !== "USDsui") {
+        // SUI transfers can't use Payment Kit (registry is USDsui-only).
+        // Use the legacy clock-MoveCall + split + transfer path.
+        tx.moveCall({
+          target: "0x2::clock::timestamp_ms",
+          arguments: [tx.object("0x6")],
+        });
+        const coinType = COIN_TYPES.SUI;
+        const out = tx.add(
+          coinWithBalance({ type: coinType, balance: onchain, useGasCoin: false })
+        );
+        tx.transferObjects([out], to);
+        tPk = tNavi = Date.now();
+        return { tx };
+      }
+
       const { nonce } = appendPaymentKitReceipt(tx, {
         kind: "send",
         sender: user.sui_address,
         receiver: to,
         amountUsdsui: amountNum,
       });
-      receiptNonce = nonce;
       tPk = Date.now();
 
-      // Spend + Save is DECOUPLED (2026-06-22): no NAVI supply is bundled
-      // into the send PTB, because that combined shared-object transaction
-      // blew the sponsor window while a standalone supply sponsors cleanly.
-      // The round-up was already computed above (`plannedRoundupUsd`) and is
-      // booked as a durable intent just before we return; the client turns
-      // the token into a real supply through /api/send/roundup/prepare.
-      tRoundup = tNavi = Date.now();
-    } else {
-      // SUI transfers can't use Payment Kit (registry is USDsui-only).
-      // Use the legacy clock-MoveCall + split + transfer path.
-      tx.moveCall({
-        target: "0x2::clock::timestamp_ms",
-        arguments: [tx.object("0x6")],
-      });
-      const coinType = COIN_TYPES.SUI;
-      const out = tx.add(
-        coinWithBalance({ type: coinType, balance: onchain, useGasCoin: false })
-      );
-      tx.transferObjects([out], to);
-      tPk = tRoundup = tNavi = Date.now();
+      if (withSave) {
+        // ── THE ATOMIC SAVE LEG ─────────────────────────────────────────
+        // Same PTB, same signature, same digest as the transfer above. If
+        // NAVI aborts, the transfer aborts with it, so the user can never
+        // end up with a savings tally that has no money behind it.
+        //
+        // Deadline-bounded: `appendNaviSupply` does live pool/reserve/oracle
+        // reads, and on an unwarmed lambda the first one measured 3344ms
+        // (268ms warmed). Bounding it is what guarantees a wedged NAVI
+        // upstream degrades to "payment landed, no save" instead of a 500.
+        await withDeadline(
+          appendNaviSupply(tx, user.sui_address, withSave.grossUsd, {
+            treasuryFeeBps: SAVE_TREASURY_FEE_BPS,
+          }),
+          NAVI_APPEND_DEADLINE_MS,
+          "navi supply append"
+        );
+        // Tag the supply leg with a Payment Kit marker so the activity
+        // classifier + any third-party indexer can recover "this was a save
+        // into NAVI" authoritatively. Same digest, second PaymentRecord.
+        appendPaymentKitReceipt(tx, {
+          kind: "invest",
+          sender: user.sui_address,
+          refs: { venue: "navi" },
+        });
+      }
+      tNavi = Date.now();
+      return { tx, nonce };
+    };
+
+    // Decide whether the save leg goes in, then build. Both failure modes
+    // (can't cover it, can't build it) drop the SAVE and keep the SEND.
+    let savePlan: RoundupPlan | null = plan;
+    let saveReason: string | undefined;
+    if (plan) {
+      const cover = await (coverPromise ?? Promise.resolve({ ok: true as const }));
+      if (!cover.ok) {
+        savePlan = null;
+        saveReason = "reason" in cover ? cover.reason : undefined;
+        console.warn(
+          `${SAVE_LOG} save dropped for user=${userId}: ${saveReason ?? "insufficient balance"}`
+        );
+      }
     }
+    let body: { tx: Transaction; nonce?: string };
+    try {
+      body = await buildBody(savePlan);
+    } catch (err) {
+      if (!savePlan) throw err;
+      // The save leg is what failed. Rebuild send-only and report it, rather
+      // than turning an optional 2% save into a failed payment.
+      saveReason = `couldn't build the save leg: ${(err as Error).message}`;
+      console.error(
+        `${SAVE_LOG} SAVE_LEG_FAILED user=${userId} amount=${amountNum} gross=${savePlan.grossUsd}: ${(err as Error).message}`
+      );
+      savePlan = null;
+      body = await buildBody(null);
+    }
+    const tx = body.tx;
+    const receiptNonce = body.nonce;
     const tBuilt = Date.now();
 
     // Now wait on the parallel lookups.
@@ -831,25 +949,59 @@ export async function POST(req: Request) {
     const bytes = await tx.build({ client: client as never });
     const tBuild = Date.now();
 
-    // Book the round-up now that the send is definitely going out (see the
-    // gasless branch, same contract).
-    const booked = await bookRoundup();
+    // ── The save proof ──────────────────────────────────────────────────
+    // A Sui digest is a hash of these exact TransactionData bytes, so we know
+    // the digest this transaction WILL have before anyone signs it. Binding
+    // the round-up amount to that digest under an HMAC is what lets
+    // sponsor-execute credit the tally without trusting a single number from
+    // the client, and what makes it impossible to point the credit at any
+    // other transaction. See lib/rewards/roundup.ts.
+    let save: SavePayload = savePlan
+      ? {
+          applied: true,
+          grossUsd: savePlan.grossUsd,
+          netUsd: savePlan.netUsd,
+          feeBps: savePlan.feeBps,
+          venue: "navi",
+          proof: issueSaveProof({
+            userId,
+            digest: TransactionDataBuilder.getDigestFromBytes(bytes),
+            plan: savePlan,
+          }),
+        }
+      : noSave(saveReason);
+    // Belt and braces: a proof we failed to mint means a save we cannot ever
+    // credit, so report it as not applied rather than let the client paint a
+    // green line over it. (The supply leg IS in the bytes and the money will
+    // move; we simply refuse to claim a tally we can't prove.)
+    if (save.applied && !save.proof) {
+      save = noSave("save proof could not be issued");
+    }
+    if (savePlan) {
+      console.log(
+        `${SAVE_LOG} atomic PTB user=${userId} send=${amountNum} ` +
+          `gross=${savePlan.grossUsd} net=${savePlan.netUsd} pct=${savePlan.percentage}%`
+      );
+    }
 
     console.log(
       `[send/sponsor-prepare] ptb=${tBuilt - t0}ms ` +
-        `(pk=${tPk - tStepStart}ms roundup=${tRoundup - tPk}ms navi=${tNavi - tRoundup}ms) ` +
+        `(pk=${tPk - tStepStart}ms navi=${tNavi - tPk}ms) ` +
         `· status+price(par)=${tStatus - tBuilt}ms ` +
-        `· tx.build=${tBuild - tStatus}ms · total=${tBuild - t0}ms`
+        `· tx.build=${tBuild - tStatus}ms · total=${tBuild - t0}ms ` +
+        `· save=${save.applied ? `$${save.netUsd}` : `none${saveReason ? ` (${saveReason})` : ""}`}`
     );
     // Mode label distinguishes the regular sponsored path from the
-    // gasless-failure fall-through (Coin-only balance state). Both go
-    // through identical PTB construction; only the analytics label and
-    // the iOS-facing `mode` field differ.
+    // gasless-failure fall-through (Coin-only balance state) and from a
+    // Save-ON send, which is sponsored BY DESIGN rather than as a fallback.
+    // Clients only branch on `mode === "gasless"`, so a new label is safe.
     const effectiveMode = gaslessFellBack
       ? gaslessFellBackReason === "anchor"
         ? "sponsored-anchor-fallback"
         : "sponsored-coin-fallback"
-      : "sponsored";
+      : save.applied
+        ? "sponsored-save"
+        : "sponsored";
     recordSendLatency({
       leg: "prepare",
       totalMs: tBuild - t0,
@@ -859,7 +1011,12 @@ export async function POST(req: Request) {
         ptbMs: tBuilt - t0,
         statusPriceMs: tStatus - tBuilt,
         txBuildMs: tBuild - tStatus,
-        hasRoundup: booked.roundupUsd > 0,
+        // The measured marginal cost of the atomic save leg. This is the
+        // number to watch: if `naviMs` ever creeps toward
+        // NAVI_APPEND_DEADLINE_MS in production, the warm in /api/zk/warmup
+        // has stopped working.
+        naviMs: tNavi - tPk,
+        hasRoundup: save.applied,
       },
     });
 
@@ -877,12 +1034,16 @@ export async function POST(req: Request) {
       amount: amountNum,
       to,
       receiptNonce,
-      // Server-authored round-up for this send, and the token that turns it
-      // into a real NAVI supply via /api/send/roundup/prepare. Zero (and no
-      // token) when Spend + Save is off or the round-up is under the floor.
-      roundupUsd: booked.roundupUsd,
-      roundupNetUsd: booked.roundupNetUsd,
-      roundupToken: booked.roundupToken,
+      // The Spend + Save leg. `applied` is the truth about these exact bytes:
+      // true means the NAVI supply is IN the transaction the client is about
+      // to sign, false (with a `reason` when the user has round-up on) means
+      // it is not and the receipt must not claim a save.
+      save,
+      // DEPRECATED, always 0. Pre-atomic clients read a non-zero
+      // `roundupUsd` as "now fire the standalone save transaction"; the save
+      // is inside these bytes, so telling them a number would save twice.
+      // New clients read `save`.
+      roundupUsd: 0,
     });
   } catch (err) {
     const msg = (err as Error).message ?? "build failed";
