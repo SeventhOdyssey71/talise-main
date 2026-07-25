@@ -113,7 +113,14 @@ function StreamRow({ stream, onReload }: { stream: Stream; onReload: () => Promi
           : stream.state || "—";
   const stateColor = active ? colors.accent : completed ? colors.greenMint : colors.fgMuted;
 
-  const name = stream.recipientHandle || (stream.recipientAddress ? shortAddr(stream.recipientAddress) : "—");
+  // The server resolves the counterparty's name live (Talise handle, then SuiNS)
+  // and only leaves it empty when there genuinely is no name, so a truncated
+  // address is the last resort rather than a permanent state.
+  const counterpartyAddress = stream.counterpartyAddress || stream.recipientAddress;
+  const name =
+    stream.counterpartyName ||
+    stream.recipientHandle ||
+    (counterpartyAddress ? shortAddr(counterpartyAddress) : "—");
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);

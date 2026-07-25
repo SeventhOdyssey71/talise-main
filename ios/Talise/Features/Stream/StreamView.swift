@@ -53,8 +53,13 @@ struct StreamDTO: Decodable, Identifiable {
     /// never stored, it's computed from the contract's release cursor.
     let state: String
     let role: String?
+    /// Live-resolved name for the recipient, else the creation-time snapshot.
     let recipientHandle: String?
     let recipientAddress: String?
+    let senderName: String?
+    /// The OTHER party from our side: the sender when money streams in.
+    let counterpartyAddress: String?
+    let counterpartyName: String?
     let totalUsd: Double?
     /// CONFIRMED on chain: money the recipient actually holds.
     let releasedUsd: Double?
@@ -559,7 +564,14 @@ struct StreamsListView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(s.role == "recipient" ? "Streaming in" : "Streaming out")
                         .font(TaliseFont.mono(9)).tracking(1).foregroundStyle(TaliseColor.fgDim)
-                    Text(s.recipientHandle ?? shortAddr(s.recipientAddress))
+                    // The server resolves the counterparty's name live (Talise
+                    // handle, then SuiNS); a truncated address is the last
+                    // resort rather than a permanent state.
+                    Text(
+                        s.counterpartyName
+                            ?? s.recipientHandle
+                            ?? shortAddr(s.counterpartyAddress ?? s.recipientAddress)
+                    )
                         .font(TaliseFont.heading(15, weight: .medium)).foregroundStyle(TaliseColor.fg).lineLimit(1)
                 }
                 Spacer()

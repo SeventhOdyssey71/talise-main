@@ -53,7 +53,12 @@ type PrepareResp = {
 type ProjectedStream = {
   id: string;
   recipientAddress: string;
+  /** Live-resolved name for the recipient, else the creation-time snapshot. */
   recipientHandle: string | null;
+  senderName?: string | null;
+  /** The OTHER party from our side: the sender when money streams in. */
+  counterpartyAddress?: string | null;
+  counterpartyName?: string | null;
   totalUsd: number;
   /** Confirmed on chain: money the recipient actually holds. */
   releasedUsd: number;
@@ -709,7 +714,9 @@ function ListTab({ reloadSignal, onNew }: { reloadSignal: number; onNew: () => v
                   {s.role === "recipient" ? "Streaming in" : "Streaming out"}
                 </span>
                 <span className="mt-0.5 block truncate text-[15px] font-medium text-[#15300c]">
-                  {s.recipientHandle || shortAddr(s.recipientAddress)}
+                  {s.counterpartyName ||
+                    s.recipientHandle ||
+                    shortAddr(s.counterpartyAddress || s.recipientAddress)}
                 </span>
               </div>
               <StatusPill label={s.state} tone={streamTone(s.state)} />

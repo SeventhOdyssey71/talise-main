@@ -8,6 +8,7 @@ import { sui } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
 import { onara } from "@/lib/onara";
 import { getNormalizedTransaction } from "@/lib/sui-shapes";
+import { resolveDisplayNames, type DisplayNames } from "@/lib/display-name";
 
 /**
  * Streaming USDsui payments, backend data layer.
@@ -992,7 +993,49 @@ export function derivedStreamState(row: StreamRow): StreamState {
  * the frozen figure is the confirmed release cursor and the bar stops where it
  * stopped.
  */
-export function projectStream(row: StreamRow, now: number = Date.now()) {
+export type ProjectStreamExtras = {
+  /**
+   * Batch-resolved display names (see `lib/display-name.ts`). Optional: without
+   * it the projection degrades to the stored `recipient_handle` snapshot and
+   * then to the raw address, exactly as it behaved before names existed.
+   */
+  names?: DisplayNames;
+  /**
+   * The viewer's own address, used only to decide WHICH party is the
+   * counterparty. On an inbound stream the interesting name is the sender's,
+   * not the recipient's (the recipient is the viewer). Omit and the
+   * counterparty defaults to the recipient, which is the historical behavior.
+   */
+  viewerAddress?: string | null;
+};
+
+/**
+ * Batch-resolve every party name a set of stream rows will need, in one go.
+ *
+ * Both legs of every row (sender + recipient) go in, so a 20-row list costs ONE
+ * database round trip rather than 40. Uses the `full` handle form
+ * (`sele@talise.sui`) because that is what the send + stream flows already
+ * store and print.
+ *
+ * The on-chain leg is kept deliberately tight — a list has to feel instant, and
+ * a name is worth less than the wait. Whatever the chain does not return inside
+ * the budget falls back to the stored snapshot and then the address, and is
+ * memoized for the next render either way. Never throws.
+ */
+export function resolveStreamNames(rows: StreamRow[]): Promise<DisplayNames> {
+  const addrs: Array<string | null> = [];
+  for (const r of rows) {
+    addrs.push(r.recipient_address);
+    addrs.push(r.sender_address);
+  }
+  return resolveDisplayNames(addrs, { form: "full", chainBudget: 4, timeoutMs: 1_200 });
+}
+
+export function projectStream(
+  row: StreamRow,
+  now: number = Date.now(),
+  extras: ProjectStreamExtras = {}
+) {
   const totalMicros = Number(row.total_micros);
   const numTranches = Number(row.num_tranches);
   const state = derivedStreamState(row);
@@ -1021,11 +1064,51 @@ export function projectStream(row: StreamRow, now: number = Date.now()) {
       ? Number(row.start_ms) + tranchesDone * Number(row.interval_ms)
       : null;
 
+  // ── Party names ─────────────────────────────────────────────────────────
+  //
+  // `recipient_handle` is a SNAPSHOT taken when the stream was created: a
+  // stream started by typing a handle has one, a stream started by pasting an
+  // address has NULL, and the row never learns better. That is why one list
+  // used to show `sele@talise.sui` on one line and `0xac1d…9df0` on the next
+  // for the same person.
+  //
+  // So: resolve LIVE first (`extras.names`, batched for the whole list), fall
+  // back to the stored snapshot, and only then leave it null for the client to
+  // truncate. The snapshot is kept as its own field — it is the one record of
+  // what the name was at creation time, which a renamed counterparty makes
+  // interesting — but it is never what we show when a live name exists.
+  const names = extras.names;
+  const recipientName = names?.get(row.recipient_address) ?? row.recipient_handle ?? null;
+  const senderName = names?.get(row.sender_address) ?? null;
+
+  const viewer = extras.viewerAddress?.trim().toLowerCase() || null;
+  const viewerIsRecipient =
+    !!viewer && row.recipient_address.toLowerCase() === viewer;
+  const counterpartyAddress = viewerIsRecipient
+    ? row.sender_address
+    : row.recipient_address;
+  const counterpartyName = viewerIsRecipient ? senderName : recipientName;
+
   return {
     id: row.id,
     senderAddress: row.sender_address,
+    senderName,
     recipientAddress: row.recipient_address,
-    recipientHandle: row.recipient_handle,
+    /**
+     * Live name when we have one, else the creation-time snapshot. Kept under
+     * the original field name so every shipped client build gets the fix
+     * without an update.
+     */
+    recipientHandle: recipientName,
+    /** The snapshot exactly as stored, for anyone who wants creation-time truth. */
+    recipientHandleAtCreation: row.recipient_handle,
+    /**
+     * THE OTHER PARTY, from the viewer's side: the sender on an inbound
+     * stream, the recipient on an outbound one. An inbound row labelled with
+     * the recipient's name was labelling the viewer with their own name.
+     */
+    counterpartyAddress,
+    counterpartyName,
     totalUsd: totalMicros / MICROS,
     /** Confirmed on-chain: in the recipient's wallet. */
     releasedUsd: releasedMicros / MICROS,

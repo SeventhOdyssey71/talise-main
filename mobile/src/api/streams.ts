@@ -11,8 +11,13 @@ export type Stream = {
   /** Server-DERIVED: active | paused | completed | cancelled. */
   state: string;
   role?: StreamRole;
+  /** Live-resolved name for the recipient, else the creation-time snapshot. */
   recipientHandle?: string | null;
   recipientAddress?: string | null;
+  senderName?: string | null;
+  /** The OTHER party from our side: the sender when money streams in. */
+  counterpartyAddress?: string | null;
+  counterpartyName?: string | null;
   totalUsd?: number;
   /** Confirmed on chain: money the recipient actually holds. */
   releasedUsd?: number;
