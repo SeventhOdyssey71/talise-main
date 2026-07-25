@@ -44,7 +44,7 @@ export const metadata: Metadata = {
   // ABSOLUTE in prod even if NEXT_PUBLIC_BASE_URL isn't set (a localhost
   // fallback would make every social preview image 404 for crawlers).
   metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "https://www.talise.io"),
-  icons: { icon: "/icon.png" },
+  icons: { icon: "/symbol.png" },
   openGraph: {
     title: OG_TITLE,
     description: OG_DESC,
