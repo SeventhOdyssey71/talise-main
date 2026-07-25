@@ -84,6 +84,29 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * faucet. The catalogue is intentionally EMPTY: points accrue but cannot be
  * converted to value. Do not re-add a SKU until points issuance is
  * rate-limited, capped, and the redeem debit is atomic.
+ *
+ * ── Status of those preconditions (2026-07-25) ──────────────────────
+ *
+ * The issuance side is now sound, so this list is a decision rather than
+ * a blocker:
+ *   ✔ Points from a money action are derived from a CHAIN-VERIFIED amount
+ *     bound to the user's own address (lib/rewards/verify.ts), never from
+ *     a client-asserted `meta.amountUsd`.
+ *   ✔ Every award is idempotent behind a UNIQUE claim key, and a digest
+ *     can fund one primary trigger for one account
+ *     (lib/rewards/integrity.ts).
+ *   ✔ Capped: DAILY_EARN_POINTS_CAP per user per UTC day, plus
+ *     per-inviter daily + lifetime referral caps and a KYC gate
+ *     (lib/rewards-constants.ts → REFERRAL_LIMITS).
+ *   ✔ Signup pays zero; referral value is paid only on a verified first
+ *     money movement by the referee (lib/rewards/referral.ts).
+ *   ✔ The redeem debit is atomic and flagged accounts can't redeem
+ *     (lib/rewards/redeem.ts), and a clawback path exists
+ *     (POST /api/admin/rewards).
+ *
+ * REMAINING before a real-value SKU ships: `stackable` must stay FALSE
+ * (or carry its own per-period quota), and a `pending`-kind SKU needs an
+ * operator who will actually call the fulfilment endpoint.
  */
 export const CATALOGUE: RedeemSKU[] = [];
 
