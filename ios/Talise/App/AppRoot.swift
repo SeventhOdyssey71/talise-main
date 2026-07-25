@@ -300,11 +300,30 @@ extension Notification.Name {
 /// in-app claim flow. We BOTH post the cover notification (warm case, the
 /// tab UI is already mounted) AND stash `pendingChequeLink` so a COLD launch
 /// (UI not mounted yet) can replay it once `MainTabView` appears.
+///
+/// Invite links — `talise://r/<CODE>` or `https://(www.)talise.io/r/<CODE>` —
+/// are captured (not routed to any screen): the inviter's code is held on the
+/// device until the next sign-in, which is the only way a native signup can be
+/// attributed without a browser cookie. `/r/*` had to be added to the AASA file
+/// for the universal-link half of this to fire at all.
 enum DeepLink {
     /// Consumed by MainTabView on appear for the cold-launch case.
     static var pendingChequeLink: String?
 
     static func route(_ url: URL) {
+        // Invites first: capture and stop. There is no screen to show, the app
+        // continues to wherever the session phase says it belongs.
+        let isReferral: Bool
+        if url.scheme == "talise" {
+            isReferral = (url.host == "r")
+        } else {
+            isReferral = url.path.hasPrefix("/r/")
+        }
+        if isReferral {
+            ReferralAttribution.capture(from: url)
+            return
+        }
+
         let isCheque: Bool
         if url.scheme == "talise" {
             isCheque = (url.host == "c")

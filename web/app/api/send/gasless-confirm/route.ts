@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
-import { userById, enqueueRoundup } from "@/lib/db";
+import { userById } from "@/lib/db";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
 import { requireAppAttestStructural } from "@/lib/app-attest";
-import { takePendingRoundup } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
 
@@ -12,29 +11,22 @@ export const runtime = "nodejs";
  *
  * Post-broadcast bookkeeping for the `gasless-direct` rail (iOS broadcasts
  * the signed bytes to a Sui fullnode itself, then fires this once it has
- * a digest). Mirrors the deferred SnS + rewards crediting that
+ * a digest). Mirrors the rewards crediting that
  * `/api/send/gasless-submit` does inline after its own broadcast.
  *
  * Returns 204 No Content, iOS does NOT need to await or retry this. The
- * Spend-and-Save and rewards crediting are best-effort by design, exactly
- * as they were inside `gasless-submit` (both were already wrapped in
- * void-IIFE / `.catch()` swallowers so a DB hiccup never failed a send).
+ * rewards crediting is best-effort by design, exactly as it was inside
+ * `gasless-submit` (already wrapped in a `.catch()` swallower so a DB
+ * hiccup never failed a send).
  *
  * ── Idempotency ────────────────────────────────────────────────────
  *
- * Neither helper dedupes by digest on its own:
- *   • `enqueueRoundup` (web/lib/db.ts:1330) is a bare INSERT, no
- *     UNIQUE on digest, would double-enqueue on retry.
- *   • `awardForTx`     (web/lib/rewards/earn.ts:62) explicitly says
- *     "we DON'T dedupe by digest here" in the JSDoc and writes a
- *     rewards_events row + bumps lifetime tallies on every call.
- *
- * So idempotency is enforced at the route level via an in-memory dedupe
- * Map keyed on `${userId}:${digest}`, with a 60s TTL. A duplicate confirm
- * within the window is a fast 204 no-op. Cross-process or post-restart
- * retries would slip through, acceptable because (a) iOS doesn't retry
- * on 2xx and (b) the rail is fire-and-forget so iOS has no error signal
- * that would trigger a retry in the first place.
+ * `awardForTx` (web/lib/rewards/earn.ts) takes a UNIQUE claim key per
+ * (user, digest, trigger) before minting anything, so a duplicate confirm
+ * cannot double-credit. The route-level dedupe below is the cheaper first
+ * line of defence: an in-memory Map keyed on `${userId}:${digest}`, with a
+ * 60s TTL. A duplicate confirm within the window is a fast 204 no-op.
+ * Cross-process or post-restart retries fall through to the claim key.
  */
 
 const DEDUPE_TTL_MS = 60_000;
@@ -92,24 +84,12 @@ export async function POST(req: Request) {
     return new Response(null, { status: 204 });
   }
 
-  // Deferred Spend-and-Save, same logic as gasless-submit lines 115–139.
-  // `takePendingRoundup` is synchronous (in-memory map) and pops the
-  // entry, so it's also naturally idempotent on its own, a second call
-  // for the same user returns null. The enqueue is wrapped in a void IIFE
-  // so a DB hiccup never affects the response.
-  const pendingRoundupUsd = takePendingRoundup(userId);
-  if (pendingRoundupUsd && pendingRoundupUsd > 0) {
-    void (async () => {
-      try {
-        await enqueueRoundup({ userId, amountUsd: pendingRoundupUsd });
-      } catch (e) {
-        console.warn(
-          `[send/gasless-confirm] enqueueRoundup failed (user=${userId}, amount=${pendingRoundupUsd}):`,
-          (e as Error).message
-        );
-      }
-    })();
-  }
+  // Spend + Save is NOT handled here. The round-up is its own sponsored
+  // transaction the client fires with the send digest
+  // (`/api/send/roundup/prepare` → sign → `/api/zk/sponsor-execute`), and
+  // its tally moves only after that transaction is verified on chain. The
+  // old `takePendingRoundup` → `roundup_queue` enqueue is gone; it recorded
+  // an amount with no digest into a table nothing drained.
 
   // Rewards earn, same ALLOWED set + 10k USD cap as gasless-submit
   // lines 141–169.

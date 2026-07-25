@@ -14,6 +14,11 @@
  *   else (sponsored*):      POST /api/zk/sponsor-execute
  *   -> { digest }
  *
+ * When the server booked a Spend + Save round-up for the send it also returns
+ * a `roundupToken`, and we then fire the save as a SECOND sponsored
+ * transaction (see `runRoundupSave`). It is silent: the ephemeral zkLogin key
+ * is already in this session, so there is no second prompt.
+ *
  * On success we dispatch a `talise:tx` window event so balance/activity hooks
  * refresh. If there's no ephemeral key (not signed in to the wallet), we kick
  * the Google sign-in flow and return to the current path.
@@ -33,6 +38,21 @@ export type SendArgs = {
 };
 
 /**
+ * Outcome of the Spend + Save leg, which is a SECOND sponsored transaction
+ * fired straight after the send lands.
+ *
+ *   saved    the NAVI supply is on chain and the savings total moved.
+ *   pending  the supply is broadcast but not yet verifiable server-side.
+ *            The savings total moves when the reconcile pass credits it.
+ *   failed   nothing was saved and the savings total did not move.
+ */
+export type RoundupSaveOutcome =
+  | { status: "none" }
+  | { status: "saved"; savedUsd: number; digest: string }
+  | { status: "pending"; savedUsd: number; digest: string }
+  | { status: "failed"; savedUsd: number; message: string };
+
+/**
  * What `send()` resolves with. `digest` is the on-chain receipt; `mode` and
  * `roundupUsd` are the SERVER-BLESSED rail + round-up decisions from
  * sponsor-prepare, surfaced so the success UI can show what actually happened
@@ -42,21 +62,115 @@ export type SendResult = {
   digest: string;
   /** "gasless" | "sponsored" | "sponsored-coin-fallback" | "sponsored-anchor-fallback" */
   mode: string;
-  /** USD rounded up into NAVI as an atomic Save leg this send (0 when none). */
+  /** USD the server booked to round up on this send (0 when none). */
   roundupUsd: number;
+  /**
+   * Resolves when the Spend + Save transaction has been fired and its
+   * outcome is known. Present only when `roundupUsd > 0`. Never rejects.
+   */
+  save?: Promise<RoundupSaveOutcome>;
 };
 
 type PrepareResponse = {
   bytes: string;
   mode: string;
   roundupUsd?: number;
+  roundupNetUsd?: number;
+  roundupToken?: string;
   receiptNonce?: string;
 };
 
 type ExecuteResponse = {
   digest: string;
   freshProof?: Parameters<typeof writeCachedProof>[0];
+  roundupSave?: { status: string; creditedUsd?: number; reason?: string };
 };
+
+type RoundupPrepareResponse = {
+  bytes: string;
+  token: string;
+  amountUsd: number;
+  netUsd: number;
+  saveDigest: string;
+};
+
+/**
+ * Fire the round-up as its OWN sponsored transaction, right after the send.
+ *
+ * Two hops, both server-side heavy lifting:
+ *   POST /api/send/roundup/prepare {token, sendDigest} -> sponsor-ready bytes
+ *   sign with the same in-session ephemeral key the send just used
+ *   POST /api/zk/sponsor-execute   {..., meta:{roundupSaveToken}} -> digest
+ *
+ * Silent by design: the user already signed in to this session, so no prompt
+ * and no extra tap. It never throws, the caller renders the outcome.
+ */
+async function runRoundupSave(
+  eph: NonNullable<ReturnType<typeof readEphemeralForT2000>>,
+  token: string,
+  sendDigest: string,
+  plannedUsd: number
+): Promise<RoundupSaveOutcome> {
+  try {
+    const prep = await api<RoundupPrepareResponse>("/api/send/roundup/prepare", {
+      method: "POST",
+      body: { token, sendDigest },
+    });
+
+    const keypair = Ed25519Keypair.fromSecretKey(eph.ephemeralPrivateKey);
+    const { signature: userSignature } = await keypair.signTransaction(
+      fromBase64(prep.bytes)
+    );
+
+    const exec = await api<ExecuteResponse>("/api/zk/sponsor-execute", {
+      method: "POST",
+      body: {
+        bytesB64: prep.bytes,
+        ephemeralPubKeyB64: eph.ephemeralPubKeyB64,
+        maxEpoch: eph.maxEpoch,
+        randomness: eph.randomness,
+        userSignature,
+        cachedProof: eph.cachedProof,
+        // An opaque token, never an amount. The server holds the amount and
+        // credits the savings total only after reading this transaction back
+        // off chain.
+        meta: { roundupSaveToken: token },
+      },
+    });
+    if (exec.freshProof) {
+      try {
+        writeCachedProof(exec.freshProof);
+      } catch {
+        /* non-fatal */
+      }
+    }
+    if (typeof window !== "undefined" && exec.digest) {
+      window.dispatchEvent(
+        new CustomEvent("talise:tx", { detail: { digest: exec.digest } })
+      );
+    }
+
+    const saved = exec.roundupSave?.creditedUsd ?? prep.netUsd;
+    if (exec.roundupSave?.status === "failed") {
+      return {
+        status: "failed",
+        savedUsd: prep.netUsd,
+        message: exec.roundupSave.reason ?? "The round-up didn't go through.",
+      };
+    }
+    if (exec.roundupSave?.status === "settled") {
+      return { status: "saved", savedUsd: saved, digest: exec.digest };
+    }
+    return { status: "pending", savedUsd: prep.netUsd, digest: exec.digest };
+  } catch (e) {
+    const message =
+      e instanceof ApiError && e.message
+        ? e.message
+        : "The round-up didn't go through.";
+    console.warn("[spend-save] round-up save failed:", message);
+    return { status: "failed", savedUsd: plannedUsd, message };
+  }
+}
 
 export function useSignAndSend() {
   const [sending, setSending] = useState(false);
@@ -105,7 +219,7 @@ export function useSignAndSend() {
           randomness: eph.randomness,
           userSignature,
           cachedProof: eph.cachedProof,
-          meta: { roundupUsd: prep.roundupUsd, receiptNonce: prep.receiptNonce },
+          meta: { receiptNonce: prep.receiptNonce },
         },
       });
 
@@ -123,10 +237,20 @@ export function useSignAndSend() {
         window.dispatchEvent(new CustomEvent("talise:tx", { detail: { digest: exec.digest } }));
       }
 
+      // Spend + Save: fire the round-up as its own sponsored transaction now
+      // that the send has a digest. Kicked off here (not awaited) so the
+      // success screen appears immediately; the receipt subscribes to the
+      // promise and tells the truth about what the save actually did.
+      const roundupUsd = prep.roundupUsd ?? 0;
+      const save =
+        roundupUsd > 0 && prep.roundupToken && exec.digest
+          ? runRoundupSave(eph, prep.roundupToken, exec.digest, roundupUsd)
+          : undefined;
+
       // Surface the server's rail + Save decisions from prepare alongside the
-      // digest, the success UI derives its atomic-step list from these (never
-      // from client guesses).
-      return { digest: exec.digest, mode: prep.mode, roundupUsd: prep.roundupUsd ?? 0 };
+      // digest, the success UI derives its step list from these (never from
+      // client guesses).
+      return { digest: exec.digest, mode: prep.mode, roundupUsd, save };
     } catch (e) {
       // Expired signing session (server 401 / stale binding): tear down and
       // send the user straight back through Google so they can finish what
