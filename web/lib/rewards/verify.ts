@@ -68,6 +68,25 @@ const USDC_TYPE =
 /** USDsui and USDC are both 6-decimal. */
 const USD_MICRO = 1_000_000;
 
+/**
+ * The Talise treasury wallet, i.e. the address our fee legs pay.
+ *
+ * Duplicated from `lib/navi-supply.ts → TREASURY_WALLET` (same env var, same
+ * literal default) for the same reason `USDC_TYPE` above is duplicated from
+ * `lib/sui.ts`: importing `lib/navi-supply` drags the NAVI adapter (and the
+ * Pyth SDK it delegates to) into the module graph, and this module is
+ * reachable from the rewards-summary fast-load read path.
+ *
+ * Read per call rather than at module load so a treasury rotation takes
+ * effect on the next request instead of the next cold start.
+ */
+export function taliseTreasuryAddress(): string {
+  return (
+    process.env.TALISE_TREASURY_WALLET?.trim() ||
+    "0xc0bf1c51e44f8cfa4a06f16a2408effa3507ac4582744c7ead56078b5e251a48"
+  ).toLowerCase();
+}
+
 /** Hard ceiling on how long we'll wait for one digest read. */
 const VERIFY_TIMEOUT_MS = 3_000;
 
@@ -100,6 +119,19 @@ export type VerifiedTx = {
   netUsd: number;
   /** Lowercased addresses that RECEIVED USD stablecoin in this tx. */
   recipients: string[];
+  /**
+   * USD stablecoin RECEIVED, per address-owned counterparty (lowercased
+   * address → USD). Same population as `recipients`, with the amounts kept.
+   *
+   * `amountUsd` is a NET figure for the whole transaction, which is the right
+   * basis for "how much did this user pay somebody". It is the wrong basis for
+   * "how much did this user pay US": a PTB can move money to several places at
+   * once (a NAVI supply sends the principal to the lending pool AND 1% to the
+   * Talise treasury in one tx), so a trigger whose value is a FEE has to read
+   * the fee leg specifically instead of the transaction total. See the
+   * `perps_close` shape gate in lib/rewards/earn.ts.
+   */
+  receivedByUsd: Record<string, number>;
   timestampMs: number | null;
 };
 
@@ -226,6 +258,7 @@ export async function verifyDigestForUser(opts: {
   let sawUsd = false;
   let othersReceivedMicro = 0n;
   const recipients = new Set<string>();
+  const receivedMicroBy = new Map<string, bigint>();
   for (const c of tx.balanceChanges) {
     if (!isUsdStable(c.coinType)) continue;
     sawUsd = true;
@@ -234,6 +267,10 @@ export async function verifyDigestForUser(opts: {
     } else if (c.amount > 0n && c.ownerAddress) {
       recipients.add(c.ownerAddress);
       othersReceivedMicro += c.amount;
+      receivedMicroBy.set(
+        c.ownerAddress,
+        (receivedMicroBy.get(c.ownerAddress) ?? 0n) + c.amount
+      );
     }
   }
   if (!sawUsd) {
@@ -273,6 +310,11 @@ export async function verifyDigestForUser(opts: {
     };
   }
 
+  const receivedByUsd: Record<string, number> = {};
+  for (const [addr, micro] of receivedMicroBy) {
+    receivedByUsd[addr] = Number(micro) / USD_MICRO;
+  }
+
   return {
     ok: true,
     tx: {
@@ -280,6 +322,7 @@ export async function verifyDigestForUser(opts: {
       amountUsd: magnitude,
       netUsd,
       recipients: Array.from(recipients),
+      receivedByUsd,
       timestampMs: tx.timestampMs,
     },
   };

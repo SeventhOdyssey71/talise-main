@@ -4,10 +4,12 @@ import { db, ensureSchema, userById, type User } from "@/lib/db";
 import {
   DAILY_EARN_POINTS_CAP,
   PENDING_AWARD_TTL_MS,
+  PERPS_CLOSE,
 } from "@/lib/rewards-constants";
 import {
   attachDigest,
   claimAward,
+  countSettled,
   digestReserved,
   digestUsage,
   ensureRewardsIntegritySchema,
@@ -22,8 +24,10 @@ import {
 import { inviterAddress, maybeAwardActivation } from "./referral";
 import {
   recentCandidateDigests,
+  taliseTreasuryAddress,
   verifyDigestForUser,
   type MoneyDirection,
+  type VerifiedTx,
 } from "./verify";
 
 /**
@@ -41,6 +45,8 @@ import {
  *   roundup   → 5  pts per $1 swept    (`kind: "roundup_save"`)
  *   goal      → 0  pts                 (`kind: "goal_deposit"`, logged)
  *   swap      → 1  pt  per $1 converted(`kind: "swap_earn"`)
+ *   perps_close → 25 pts per $1 of CLOSE FEE paid to the Talise treasury
+ *                                      (`kind: "perps_close_earn"`)
  *
  * Rates are biased toward saving: sends are the funnel, saves are the
  * behavior we want to reinforce. `POINT_RATES` is exported so iOS can
@@ -79,6 +85,9 @@ import {
  *      leg) and at most one account, so the same $100 can't be claimed
  *      as send+invest+swap for 5x the rate.
  *   5. Unverifiable is unpaid. Nothing here fails open.
+ *   6. A trigger whose value is a FEE (`perps_close`) must additionally
+ *      match a chain-derived SHAPE, and is paid on the fee leg rather than
+ *      on the transaction total. See "Shape gates" below.
  *
  * ── Deferred settlement, and why points can lag one action ─────────
  *
@@ -99,11 +108,32 @@ import {
  * expires unpaid.
  */
 
-/** What kind of motion triggered the earn. Maps 1:1 to the iOS TxKind. */
-export type EarnTrigger = "send" | "invest" | "withdraw" | "roundup" | "goal" | "swap";
+/**
+ * What kind of motion triggered the earn. The first six map 1:1 to the iOS
+ * TxKind and ARE assertable by a client (the send/sponsor routes accept
+ * `meta.kind` from the request body, against their own hard-coded ALLOWED
+ * set). `perps_close` is deliberately NOT in any of those ALLOWED sets: it is
+ * issued only by `/api/markets/close`, server-side, and even if a future
+ * route did accept it from a client the shape gate below makes an arbitrary
+ * digest worthless.
+ */
+export type EarnTrigger =
+  | "send"
+  | "invest"
+  | "withdraw"
+  | "roundup"
+  | "goal"
+  | "swap"
+  | "perps_close";
 
 /**
  * Points-per-USD rates keyed by trigger.
+ *
+ * NOTE the unit shift for `perps_close`: for every other trigger the USD is
+ * the money the user MOVED, for `perps_close` it is the FEE the user PAID us.
+ * That is not a shortcut, it is the only chain-verifiable quantity a WaterX
+ * close produces — see PERPS_CLOSE in lib/rewards-constants.ts for the full
+ * argument and the shape gate below for the enforcement.
  */
 export const POINT_RATES: Record<EarnTrigger, number> = {
   send: 1,
@@ -122,6 +152,11 @@ export const POINT_RATES: Record<EarnTrigger, number> = {
   // Auto-swap into USDsui (Cetus), reward the conversion that puts the
   // user into the spendable/savable stablecoin. 1 pt per $1 converted.
   swap: 1,
+  // Closing a perps position: 25 pts per $1 of close FEE (not per $1 of
+  // notional or PnL, neither of which is verifiable). Since the fee is 2% of
+  // chain-read collateral, that works out to 0.5 pts per $1 of collateral
+  // closed — half the send rate per dollar at risk.
+  perps_close: PERPS_CLOSE.POINTS_PER_FEE_USD,
 };
 
 /**
@@ -135,6 +170,11 @@ const TRIGGER_DIRECTION: Record<EarnTrigger, MoneyDirection> = {
   goal: "out",
   swap: "in",
   withdraw: "in",
+  // The fee leg makes a close a net USDsui OUTFLOW from the user's wallet.
+  // Realized PnL and returned collateral land in the WaterX Account object's
+  // internal credit balance, which produces no `balanceChanges` entry, so the
+  // wallet-level net delta of a close is exactly `-fee`.
+  perps_close: "out",
 };
 
 /**
@@ -153,6 +193,7 @@ const PRIMARY_TRIGGER_LIST = [
   "withdraw",
   "goal",
   "swap",
+  "perps_close",
 ] as const;
 const PRIMARY_TRIGGERS: ReadonlySet<string> = new Set(PRIMARY_TRIGGER_LIST);
 
@@ -198,6 +239,89 @@ const ASSERTED_CEILING_USD = 10_000;
  * unrelated transaction from later in the day.
  */
 const DEFERRED_MATCH_WINDOW_MS = 15 * 60 * 1000;
+
+// ─── Shape gates ─────────────────────────────────────────────────────
+//
+// `verifyDigestForUser` answers "did this user move USD stablecoin, and which
+// way". For most triggers that is the whole question. For a FEE-BASED trigger
+// it isn't: the value isn't the transaction total, it's one leg of it, and the
+// engine has to be able to tell that leg apart from an unrelated transaction
+// that merely happens to move money the same direction.
+//
+// A shape gate adds two chain-derived requirements on top of verification:
+//
+//   1. A named address must have RECEIVED stablecoin in the tx, and
+//   2. that receipt must account for essentially the WHOLE outflow.
+//
+// (2) is what makes the gate a fingerprint rather than a hint. Talise skims a
+// treasury fee on several flows — 1% on a NAVI supply (lib/navi-supply.ts), an
+// overlay fee on a swap (app/api/swap/prepare) — so "paid the treasury" alone
+// is satisfied by a $10,000 supply whose fee happened to be $100. On a perps
+// close, by contrast, the fee is the ONLY stablecoin that leaves the wallet
+// (collateral and PnL stay inside the Account object), so requiring
+// `treasuryReceived ≈ totalOutflow` matches a close and rejects a supply, a
+// swap, a send and a withdraw.
+//
+// The award basis then becomes the RECEIPT, not the transaction total, so even
+// if a gate were ever satisfied by something unexpected, the points would be
+// computed on the few dollars we were actually paid.
+
+/**
+ * Slop allowed between the total verified outflow and the gated receipt.
+ *
+ * One cent, to absorb 6-decimal rounding between the two figures. Anything
+ * larger is a second leg of real money going somewhere else, which means the
+ * transaction is not the fee-only shape the gate is looking for.
+ */
+const SHAPE_SLOP_USD = 0.01;
+
+type ShapeGate = {
+  /** Address that must have received (essentially all of) the outflow. */
+  payee: () => string;
+  /** Minimum receipt worth points. */
+  minUsd: number;
+};
+
+const TRIGGER_SHAPE: Partial<Record<EarnTrigger, ShapeGate>> = {
+  perps_close: {
+    payee: taliseTreasuryAddress,
+    minUsd: PERPS_CLOSE.MIN_FEE_USD,
+  },
+};
+
+type ShapeResult =
+  | { ok: true; basisUsd: number }
+  | { ok: false; detail: string };
+
+/**
+ * Apply the trigger's shape gate and return the USD the award may be based on.
+ *
+ * For an ungated trigger this is the identity function over
+ * `tx.amountUsd`, so nothing about send / invest / roundup / swap / withdraw
+ * behaviour changes.
+ */
+function shapeBasis(trigger: EarnTrigger, tx: VerifiedTx): ShapeResult {
+  const gate = TRIGGER_SHAPE[trigger];
+  if (!gate) return { ok: true, basisUsd: tx.amountUsd };
+  const payee = gate.payee();
+  const received = tx.receivedByUsd[payee] ?? 0;
+  if (!(received > 0)) {
+    return { ok: false, detail: `nothing reached payee ${payee}` };
+  }
+  if (tx.amountUsd - received > SHAPE_SLOP_USD) {
+    return {
+      ok: false,
+      detail: `outflow ${tx.amountUsd} exceeds payee receipt ${received}: not a fee-only tx`,
+    };
+  }
+  if (received < gate.minUsd) {
+    return {
+      ok: false,
+      detail: `receipt ${received} below minimum ${gate.minUsd}`,
+    };
+  }
+  return { ok: true, basisUsd: received };
+}
 
 /** Bound on the work one settlement pass may do. */
 const MAX_PENDING_PER_PASS = 5;
@@ -307,6 +431,8 @@ function eventKindFor(trigger: EarnTrigger): string {
       return "roundup_save";
     case "swap":
       return "swap_earn";
+    case "perps_close":
+      return "perps_close_earn";
     case "goal":
     default:
       return "goal_deposit";
@@ -385,6 +511,17 @@ async function settleOne(
     return 0;
   }
 
+  // ── Shape gate ───────────────────────────────────────────────────
+  // For a fee-based trigger this replaces the transaction total with the
+  // amount our own payee address was actually paid, and rejects any tx that
+  // isn't the fee-only shape. For every other trigger it is a no-op.
+  const shape = shapeBasis(trigger, v.tx);
+  if (!shape.ok) {
+    await markRejected(row.id, `shape mismatch: ${shape.detail}`);
+    return 0;
+  }
+  const basisUsd = shape.basisUsd;
+
   // ── Per-digest guards ────────────────────────────────────────────
   const usage = await digestUsage(digest);
   const otherAccounts = usage.userIds.filter((id) => id !== user.id);
@@ -408,21 +545,22 @@ async function settleOne(
       return 0;
     }
   }
-  const headroomUsd = Math.max(v.tx.amountUsd - usage.creditedUsd, 0);
+  const headroomUsd = Math.max(basisUsd - usage.creditedUsd, 0);
   if (!(headroomUsd > 0)) {
     await markRejected(
       row.id,
-      `no headroom: verified ${v.tx.amountUsd} already credited ${usage.creditedUsd}`
+      `no headroom: verified ${basisUsd} already credited ${usage.creditedUsd}`
     );
     return 0;
   }
 
   // The credited amount is the smallest of: what the client claimed,
-  // what the chain says moved, what's left unclaimed on this digest, and
-  // (for a round-up leg) the 10% ceiling a round-up can structurally be.
-  const bounds = [row.asserted_usd, v.tx.amountUsd, headroomUsd];
+  // what the chain says moved (per the trigger's basis), what's left
+  // unclaimed on this digest, and (for a round-up leg) the 10% ceiling a
+  // round-up can structurally be.
+  const bounds = [row.asserted_usd, basisUsd, headroomUsd];
   if (trigger === "roundup") {
-    bounds.push(v.tx.amountUsd * MAX_ROUNDUP_FRACTION);
+    bounds.push(basisUsd * MAX_ROUNDUP_FRACTION);
   }
   const creditedUsd = Math.min(...bounds);
   if (creditedUsd < MIN_CREDITED_USD) {
@@ -431,6 +569,27 @@ async function settleOne(
       `below minimum: credited ${creditedUsd} < ${MIN_CREDITED_USD}`
     );
     return 0;
+  }
+
+  // ── Per-trigger daily count cap ──────────────────────────────────
+  // Perps are the cheapest wash-trading surface on a gasless rail:
+  // open/close costs no gas, so a loop is only bounded by how fast the
+  // client can call. The fee-backed basis already makes each cycle cost
+  // real money (2% of collateral, to us), but a count cap is a hard bound
+  // that doesn't depend on that economic argument holding.
+  if (trigger === "perps_close") {
+    const closesToday = await countSettled(
+      user.id,
+      "perps_close",
+      utcDayStart()
+    );
+    if (closesToday >= PERPS_CLOSE.MAX_CLOSES_PER_DAY) {
+      await markRejected(
+        row.id,
+        `perps daily close cap reached (${closesToday}/${PERPS_CLOSE.MAX_CLOSES_PER_DAY})`
+      );
+      return 0;
+    }
   }
 
   // ── Daily cap ────────────────────────────────────────────────────
@@ -470,7 +629,7 @@ async function settleOne(
   // send and an app-open arriving together) is normal.
   const won = await markSettled({
     id: row.id,
-    verifiedUsd: v.tx.amountUsd,
+    verifiedUsd: basisUsd,
     creditedUsd,
     qualifyingUsd,
     points: capped,
@@ -484,7 +643,11 @@ async function settleOne(
     metadata: {
       amountUsd: creditedUsd,
       assertedUsd: row.asserted_usd,
-      verifiedUsd: v.tx.amountUsd,
+      verifiedUsd: basisUsd,
+      // For a fee-based trigger the basis is one leg, so keep the whole
+      // transaction's outflow alongside it — otherwise the feed row loses
+      // the only evidence that the shape gate had something to check.
+      ...(basisUsd !== v.tx.amountUsd ? { outflowUsd: v.tx.amountUsd } : {}),
       digest,
       ...(venue ? { venue } : {}),
       verified: true,
@@ -523,9 +686,18 @@ async function settleOne(
  *
  * Discovery is untrusted: candidates come from the user's own address
  * history, must sit inside DEFERRED_MATCH_WINDOW_MS of when the award was
- * booked, must not already be claimed, and must still pass full
- * verification in `settleOne`. Worst case for an attacker is that their
- * own real transaction gets matched to their own real award, once.
+ * booked, must not already be claimed, must satisfy the trigger's shape
+ * gate, and must still pass full verification in `settleOne`. Worst case
+ * for an attacker is that their own real transaction gets matched to their
+ * own real award, once.
+ *
+ * The shape check here is not a duplicate of the one in `settleOne`, it is
+ * a MATCHING criterion, and for a high-rate trigger it is essential. A
+ * deferred `perps_close` row that grabbed the first outbound tx it found
+ * would happily score the user's $100 send at 25 pt/$ instead of 1 pt/$
+ * (2,500 pts for a send worth 100), and it would burn that digest's primary
+ * claim in the process. Requiring the fee-only-to-treasury shape at MATCH
+ * time means a perps award can only ever attach to a perps close.
  */
 async function findDeferredDigest(
   row: LedgerRow,
@@ -560,7 +732,9 @@ async function findDeferredDigest(
       senderAddress: user.sui_address,
       direction,
     });
-    if (v.ok) return cand.digest;
+    if (!v.ok) continue;
+    if (!shapeBasis(row.trigger_kind as EarnTrigger, v.tx).ok) continue;
+    return cand.digest;
   }
   return null;
 }
@@ -574,6 +748,10 @@ async function findDeferredDigest(
  * "saved"; withdraws move neither (the money returns to the user's own
  * wallet), and goal deposits no longer count at all because nothing
  * verifies them.
+ *
+ * `perps_close` moves neither: the verified amount is a FEE we collected,
+ * not money the user sent or saved, so adding it to either tally would be a
+ * category error and would overstate "lifetime sent" on the Rewards card.
  */
 async function bumpLifetimeTallies(
   userId: number,

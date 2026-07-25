@@ -148,6 +148,12 @@ export type LedgerTrigger =
   | "roundup"
   | "goal"
   | "swap"
+  // Closing a WaterX perps position. Paid on the 2% close fee the user
+  // actually delivered to the Talise treasury inside the close PTB — the only
+  // part of a close that is visible in `balanceChanges` at all (realized PnL
+  // and returned collateral settle into the Account object's internal credit
+  // balance, not into a Coin). See PERPS_CLOSE in lib/rewards-constants.ts.
+  | "perps_close"
   | "first_send"
   // Reserved: the handle-claim bonus (POINTS.FIRST_CLAIM) has no issuing
   // code path today. Listed so that when it gets one it lands in the
