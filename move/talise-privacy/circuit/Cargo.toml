@@ -18,6 +18,10 @@ ark-crypto-primitives = { version = "0.5.0", features = [
     "r1cs",
     "merkle_tree",
 ] }
+# Needed by `snarkjs.rs` for affine/subgroup checks and the e(alpha, beta)
+# pairing that fills snarkjs' `vk_alphabeta_12`. Already in the lockfile as a
+# transitive dep of ark-bn254/ark-groth16 — this only makes it direct.
+ark-ec = "0.5.0"
 ark-ff = "0.5.0"
 ark-groth16 = "0.5.0"
 ark-r1cs-std = "0.5.0"
@@ -45,6 +49,18 @@ console_error_panic_hook = "0.1.7"
 [[bin]]
 name = "keygen"
 path = "src/bin/keygen.rs"
+
+[[bin]]
+name = "ceremony_roundtrip"
+path = "src/bin/ceremony_roundtrip.rs"
+
+[[bin]]
+name = "ceremony_vk_import"
+path = "src/bin/ceremony_vk_import.rs"
+
+[[bin]]
+name = "bench_prove"
+path = "src/bin/bench_prove.rs"
 
 [[bin]]
 name = "prove_deposit"
