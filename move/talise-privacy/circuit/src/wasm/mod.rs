@@ -33,8 +33,55 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use num_bigint::BigUint;
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
+
+thread_local! {
+    /// Cache the DESERIALIZED proving key across `prove()` calls.
+    ///
+    /// The key crosses the JS↔wasm boundary as a ~3.8 MB hex string, and
+    /// `deserialize_compressed` on it was measured at ~72% of the browser prove
+    /// time — paid again on every single call because the wasm kept no state.
+    /// Here it is deserialized ONCE and reused. Keyed by a cheap fingerprint of
+    /// the hex, so a *different* key is re-parsed; the same key (the only case in
+    /// production — one pool, one key) is parsed once. A fingerprint collision
+    /// could at worst reuse a stale key and yield a proof that fails on-chain
+    /// verification (loud), never a silent wrong proof — the key is bound in.
+    static PK_CACHE: RefCell<Option<(u64, Rc<ark_groth16::ProvingKey<Bn254>>)>> =
+        const { RefCell::new(None) };
+}
+
+/// FNV-1a over the hex string. ~10 ms over 3.8 MB — negligible beside the ~4 s
+/// deserialize it guards.
+fn pk_fingerprint(hex: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in hex.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// The deserialized proving key for `proving_key_hex`, from cache when the same
+/// key was used on a previous call.
+fn proving_key_cached(proving_key_hex: &str) -> Result<Rc<ark_groth16::ProvingKey<Bn254>>, JsValue> {
+    let hex = proving_key_hex.trim();
+    let fp = pk_fingerprint(hex);
+    if let Some(pk) =
+        PK_CACHE.with(|c| c.borrow().as_ref().and_then(|(k, pk)| (*k == fp).then(|| pk.clone())))
+    {
+        return Ok(pk);
+    }
+    let pk_bytes = hex::decode(hex)
+        .map_err(|e| JsValue::from_str(&format!("Failed to decode proving key hex: {e}")))?;
+    let pk = ark_groth16::ProvingKey::<Bn254>::deserialize_compressed(&pk_bytes[..])
+        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize proving key: {e}")))?;
+    let pk = Rc::new(pk);
+    PK_CACHE.with(|c| *c.borrow_mut() = Some((fp, pk.clone())));
+    Ok(pk)
+}
 
 /// MEASUREMENT-ONLY exports used by `test/wasm_bench.mjs` to apportion the
 /// browser prove into stages (key load vs. witness vs. prove). Nothing in the
@@ -115,10 +162,7 @@ pub fn prove(input_json: &str, proving_key_hex: &str) -> Result<String, JsValue>
     let input: ProofInput = serde_json::from_str(input_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse input JSON: {e}")))?;
 
-    let pk_bytes = hex::decode(proving_key_hex.trim())
-        .map_err(|e| JsValue::from_str(&format!("Failed to decode proving key hex: {e}")))?;
-    let pk = ark_groth16::ProvingKey::<Bn254>::deserialize_compressed(&pk_bytes[..])
-        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize proving key: {e}")))?;
+    let pk = proving_key_cached(proving_key_hex)?;
 
     let vortex = parse_field_element(&input.vortex)?;
     let root = parse_field_element(&input.root)?;
@@ -212,7 +256,7 @@ pub fn prove(input_json: &str, proving_key_hex: &str) -> Result<String, JsValue>
 
     // REAL ENTROPY: OsRng -> getrandom(js) -> crypto.getRandomValues. NOT seeded.
     let mut rng = OsRng;
-    let proof = Groth16::<Bn254>::prove(&pk, circuit, &mut rng)
+    let proof = Groth16::<Bn254>::prove(pk.as_ref(), circuit, &mut rng)
         .map_err(|e| JsValue::from_str(&format!("Failed to generate proof: {e}")))?;
 
     // Per-component compressed bytes.
