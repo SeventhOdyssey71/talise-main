@@ -19,6 +19,7 @@ import {
   creditRoundupSave,
   type SaveOutcome,
 } from "@/lib/rewards/roundup";
+import { trackConfirmedExecution } from "@/lib/analytics/emit";
 
 export const runtime = "nodejs";
 
@@ -570,6 +571,33 @@ export async function POST(req: Request) {
           senderName: inbound.senderName,
         });
       }
+    }
+
+    // ── GROWTH ────────────────────────────────────────────────────────
+    // Placed HERE, and only here, because this is the first point in the route
+    // where the transaction is CONFIRMED: the FailedTransaction branch above has
+    // already returned for anything that aborted on chain, so reaching this line
+    // means Onara accepted and broadcast the PTB. `digest` gates the call so a
+    // digest-less response (a shape we log but tolerate) never books a fee.
+    //
+    // This is the single busiest money route in the app and it is the reason
+    // `send_completed`, `earn_supplied` and `swap_completed` had no emitter: the
+    // route is generic, so it maps the SAME already-validated `meta.kind` hint
+    // the rewards engine uses onto the event taxonomy.
+    //
+    // Cannot fail or delay the send: `trackConfirmedExecution` is synchronous,
+    // returns void, wraps its own body, and every write it schedules runs in
+    // `after()` — post-response. It is deliberately BELOW the awaits it measures
+    // and ABOVE nothing that awaits it.
+    if (digest) {
+      trackConfirmedExecution({
+        userId,
+        digest,
+        kind: meta?.kind,
+        amountUsd: meta?.amountUsd,
+        venue: meta?.venue,
+        surface: "send.sponsored",
+      });
     }
 
     // ── Spend + Save settlement ──────────────────────────────────────

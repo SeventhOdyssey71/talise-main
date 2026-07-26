@@ -6,6 +6,7 @@ import { rateLimitAsync } from "@/lib/rate-limit";
 import { WATERX_ENABLED, WATERX_LOCAL_SIGN, localSigner, buildCloseTx, settle, friendlyPerpError, assertOwnsPerpAccount } from "@/lib/waterx";
 import { awardForTx } from "@/lib/rewards/earn";
 import { PERPS_CLOSE } from "@/lib/rewards-constants";
+import { trackPerpClosed } from "@/lib/analytics/emit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,6 +87,27 @@ export async function POST(req: Request) {
       }).catch((e) =>
         console.warn(`[perp/close] awardForTx failed: ${(e as Error).message}`)
       );
+    }
+
+    // GROWTH + REVENUE. `feeUsd` here is the ONLY fee in the whole app that the
+    // server observes rather than derives: `buildCloseTx` computed it from the
+    // position's ON-CHAIN collateral and appended it to this PTB as a USDsui
+    // transfer to the treasury, and it is 0 when that leg was dropped. So this is
+    // the one `revenue_events` row written with `derived: false`.
+    //
+    // GATED ON `mode === "executed"`. That branch is the local-signing path,
+    // where the transaction has actually settled and we hold its digest. In the
+    // SPONSORED path `settle()` returns unsigned bytes: the position is NOT yet
+    // closed and no digest exists, so booking revenue there would be recording a
+    // fee for a trade that may never land, and there is no natural idempotency
+    // key to dedupe a retry against. Emitting it correctly needs the client to
+    // report the close back after signing (see METRICS.md, "not wired").
+    if (authedUserId != null && result.mode === "executed") {
+      trackPerpClosed(authedUserId, {
+        feeUsd,
+        ref: result.digest,
+        ticker,
+      });
     }
 
     return NextResponse.json({ ...result, ticker, positionId, feeUsd });

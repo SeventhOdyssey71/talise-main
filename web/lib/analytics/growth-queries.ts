@@ -2,6 +2,7 @@ import "server-only";
 
 import { db } from "@/lib/db";
 import { ensureGrowthSchema } from "@/lib/analytics/growth-schema";
+import { ensureRevenueSchema } from "@/lib/analytics/growth-revenue";
 
 /**
  * THE DASHBOARD QUERIES.
@@ -317,4 +318,36 @@ export function acquisition(fromMs: number, toMs: number) {
 
 export function signupFunnel(fromMs: number, toMs: number) {
   return run(SQL_SIGNUP_FUNNEL, [fromMs, toMs]);
+}
+
+/**
+ * Runners for the remaining four constants.
+ *
+ * Every SQL string in this module now has exactly one runner, so the read route
+ * cannot answer a metric with a hand-written variant of a query that also lives
+ * here — which is the whole reason these definitions are in the repo.
+ */
+export function onboardingDropoff(fromMs: number, toMs: number) {
+  return run(SQL_ONBOARDING_DROPOFF, [fromMs, toMs]);
+}
+
+/** `days` is interpolated as a bound parameter into `($1 || ' days')::interval`. */
+export function dauByPlatform(days: number) {
+  const n = Math.max(1, Math.min(365, Math.floor(days)));
+  return run(SQL_DAU_BY_PLATFORM, [String(n)]);
+}
+
+export function pushPerformance(fromMs: number, toMs: number) {
+  return run(SQL_PUSH_PERFORMANCE, [fromMs, toMs]);
+}
+
+/**
+ * `revenue_events` is created by `ensureRevenueSchema()`, not by the growth
+ * schema pass, so this runner bootstraps its own table rather than reading one
+ * that may not exist yet on a fresh database.
+ */
+export async function revenueByDay(fromMs: number, toMs: number) {
+  await ensureRevenueSchema();
+  const r = await db().execute({ sql: SQL_REVENUE_BY_DAY, args: [fromMs, toMs] });
+  return r.rows as Array<Record<string, unknown>>;
 }

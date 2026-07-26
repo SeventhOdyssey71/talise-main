@@ -9,6 +9,7 @@ import { FX } from "@/lib/fx";
 import { cashoutFeatureOpen, CASHOUT_CLOSED_MESSAGE } from "@/lib/linq";
 import { checkDailyOfframpCapAllRails } from "@/lib/offramp/caps";
 import { recordAttempt } from "@/lib/offramp/store";
+import { trackCashoutStarted } from "@/lib/analytics/emit";
 
 export const runtime = "nodejs";
 
@@ -230,6 +231,15 @@ export async function POST(req: Request) {
   } catch (e) {
     console.warn("[offramp/request] attempt ledger failed:", (e as Error).message);
   }
+
+  // GROWTH: the concierge rail is a cash-out too, and leaving it out would make
+  // `cashout_started` under-report by exactly the manual payouts. Emitted after
+  // the row is persisted, so it can only describe a request that really exists.
+  trackCashoutStarted(userId, {
+    usd: amountUsdsui,
+    corridor: "NGN",
+    provider: "concierge",
+  });
 
   await notifyFounder({
     id,

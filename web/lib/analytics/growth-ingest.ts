@@ -617,6 +617,14 @@ async function upsertInvites(rows: Row[], ctx: IngestContext): Promise<void> {
  *     HISTORICAL users a first_send milestone even though no web call site
  *     emits one, so activation and time-to-first-send are complete rather than
  *     mobile-only. Served by the existing `idx_rewards_user_created`.
+ *   • `funded` — backfilled from the durable on-chain ledger
+ *     (`analytics_tx_ledger`, direction `received`). There is deliberately NO
+ *     server-side credit anywhere on the funding path — a Bridge/card purchase
+ *     mints straight to the user's own Sui address, and a friend paying them is
+ *     just an inbound transfer — so no route can observe "money in". The
+ *     earliest inbound row for the user's address IS the observation, and it
+ *     covers every funding source at once instead of one provider. Served by
+ *     `analytics_tx_ledger_addr_idx`.
  */
 async function deriveEvents(rows: Row[], ctx: IngestContext): Promise<Row[]> {
   const userId = ctx.userId;
@@ -647,9 +655,11 @@ async function deriveEvents(rows: Row[], ctx: IngestContext): Promise<Row[]> {
   const r = await c
     .execute({
       sql: `SELECT u.created_at            AS created_at,
+                   u.sui_address           AS sui_address,
                    u.referred_by_user_id   AS referred_by,
                    f.signup_completed_at   AS stamped,
                    f.first_send_at         AS send_stamped,
+                   f.funded_at             AS funded_stamped,
                    (SELECT MIN(re.created_at)
                       FROM rewards_events re
                      WHERE re.user_id = u.id
@@ -662,6 +672,46 @@ async function deriveEvents(rows: Row[], ctx: IngestContext): Promise<Row[]> {
     .catch(() => null);
   const row = r?.rows[0] as Record<string, unknown> | undefined;
   if (!row) return out;
+
+  // Backfill `funded` from the on-chain ledger. Kept as its OWN guarded
+  // statement rather than a subquery in the SELECT above, because
+  // `analytics_tx_ledger` is created by the indexer's schema pass, not ours: a
+  // database that has never run an indexer batch does not have that table, and
+  // folding it into the query above would make one missing table take down the
+  // signup + first_send derivations too. Only issued when the milestone is
+  // still unstamped, so a funded user costs zero extra round trips.
+  if (row.funded_stamped == null && typeof row.sui_address === "string" && row.sui_address) {
+    const fundedTs = await c
+      .execute({
+        sql: `SELECT MIN(ts) AS first_in
+                FROM analytics_tx_ledger
+               WHERE address = ? AND direction = 'received'`,
+        args: [row.sui_address],
+      })
+      .then((res) => {
+        const v = (res.rows[0] as Record<string, unknown> | undefined)?.first_in;
+        const n = v == null ? NaN : Number(v);
+        return Number.isFinite(n) && n > 0 ? n : null;
+      })
+      .catch(() => null);
+    if (fundedTs != null) {
+      out.push({
+        ...anchor,
+        event: "funded",
+        ts: fundedTs,
+        day: utcDay(fundedTs),
+        surface: null,
+        step: null,
+        status: "ok",
+        errorCode: null,
+        amountBand: null,
+        currency: null,
+        corridor: null,
+        feeUsd: null,
+        props: null,
+      });
+    }
+  }
 
   // Backfill first_send from the money path's own record, independently of
   // whether the signup is already stamped.

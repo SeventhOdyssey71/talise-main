@@ -7,6 +7,7 @@ import { rateLimitAsync } from "@/lib/rate-limit";
 import { linqConfigured, cashoutFeatureOpen, CASHOUT_CLOSED_MESSAGE } from "@/lib/linq";
 import { resolveLinqBank } from "@/lib/linq-banks";
 import { beginLinqOrder, readIdempotencyKey } from "@/lib/offramp/linq-orders";
+import { trackCashoutStarted } from "@/lib/analytics/emit";
 
 export const runtime = "nodejs";
 
@@ -106,6 +107,18 @@ export async function POST(req: Request) {
   });
   if (!result.ok) {
     return NextResponse.json(result.body, { status: result.status });
+  }
+
+  // GROWTH: a real Linq order now exists with a deposit address, so the cash-out
+  // funnel started. Skipped on a REPLAYED idempotent retry — that is the same
+  // order answered twice, not a second cash-out. The terminal outcome is emitted
+  // from the provider webhook; bank coordinates never reach analytics.
+  if (!result.replayed) {
+    trackCashoutStarted(userId, {
+      usd: result.amountUsdsui,
+      corridor: "NGN",
+      provider: "linq",
+    });
   }
 
   return NextResponse.json({

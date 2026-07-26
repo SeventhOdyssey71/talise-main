@@ -134,6 +134,15 @@ export const SERVER_DERIVED_EVENTS: ReadonlySet<GrowthEventName> = new Set([
  * column each one stamps. The ingest path writes these with
  * COALESCE(existing, new), so the first occurrence wins forever and any
  * client replay is a no-op.
+ *
+ * Note that TWO events may stamp the SAME column, and that is the mechanism
+ * that keeps the event log honest. A money path knows it just completed a send;
+ * it does NOT know (without a query) whether that was the user's first. So
+ * `send_completed` and `deposit_completed` are mapped onto the milestone columns
+ * alongside their explicit `first_send` / `funded` counterparts: the LEAST +
+ * COALESCE write means the EARLIEST occurrence wins the column and every later
+ * one is a no-op, so the milestone is exact without the emitter needing to know,
+ * and without writing N rows named "first_send" for one user.
  */
 export const FIRST_COLUMNS: Partial<Record<GrowthEventName, string>> = {
   signup_started: "signup_started_at",
@@ -142,7 +151,9 @@ export const FIRST_COLUMNS: Partial<Record<GrowthEventName, string>> = {
   handle_claimed: "handle_claimed_at",
   kyc_completed: "kyc_completed_at",
   funded: "funded_at",
+  deposit_completed: "funded_at",
   first_send: "first_send_at",
+  send_completed: "first_send_at",
   cashout_completed: "first_cashout_at",
   invite_sent: "first_invite_sent_at",
   push_permission_granted: "push_enabled_at",
