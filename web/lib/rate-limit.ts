@@ -119,9 +119,31 @@ export function rateLimit(opts: RateLimitOptions): RateLimitResult {
 
 // ── Upstash Redis backend ────────────────────────────────────────────
 
+/**
+ * Resolve the Upstash REST credentials, accepting BOTH naming conventions.
+ *
+ * Vercel's Upstash/KV marketplace integration injects `KV_REST_API_URL` +
+ * `KV_REST_API_TOKEN`, not the `UPSTASH_REDIS_REST_*` names this file was
+ * written against. Reading both means the limiter works whichever way the
+ * database was provisioned, instead of silently degrading to the per-instance
+ * Map because of a variable name. It also avoids duplicating a secret into a
+ * second env var just to satisfy a lookup.
+ *
+ * MUST be the read-WRITE token. The fixed-window algorithm issues `INCR` and
+ * `EXPIRE`, so `KV_REST_API_READ_ONLY_TOKEN` would fail every call. That token
+ * is deliberately not consulted here.
+ *
+ * `KV_URL` / `REDIS_URL` are the redis:// TCP endpoints and are useless to us:
+ * this limiter speaks HTTP so it can run in edge middleware, where raw TCP
+ * sockets do not exist.
+ */
 function upstashConfig(): { url: string; token: string } | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL?.trim() ||
+    process.env.KV_REST_API_URL?.trim();
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ||
+    process.env.KV_REST_API_TOKEN?.trim();
   if (url && token) return { url, token };
   return null;
 }
