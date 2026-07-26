@@ -41,12 +41,11 @@ zkLogin for keyless self-custody, sponsored gas so the user pays nothing to tran
 
 ## On-chain (Sui mainnet)
 
-Talise is a suite of Move packages around USDsui, the dollar-stable asset every balance and send is denominated in. Live mainnet package IDs:
+Balances settle in USDsui, a Sui-native USD stablecoin (a third-party asset, not a Talise contract). Talise's own live Move packages:
 
-| Package | ID |
+| Talise package | ID |
 | --- | --- |
-| USDsui (core asset) | `0x44f838219cf67b058f3b37907b655f226153c18e33dfcd0da559a844fea9b1c1` |
-| Private / shielded pool | `0x36d80185b4ee5890f95e743142fac280952ab013310a4b609d165f20fa1f26b4` |
+| Private / shielded pool (flagship) | `0x36d80185b4ee5890f95e743142fac280952ab013310a4b609d165f20fa1f26b4` |
 | Streaming + cheques | `0x4ba838c7ded1b57aededff4e825aa251858b05b720083856351dd8325094a13e` |
 | Goals vault | `0xb0898eef5734ee9ebfbdbacd9e39533d7070159d4a87287ddde8a5b331059947` |
 | Team streams (payroll) | `0xcff874d3702572ea373053304c7d384aeaa4fb041905b355471a624331954c7c` |
