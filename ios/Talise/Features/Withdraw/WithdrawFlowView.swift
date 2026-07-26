@@ -1690,7 +1690,9 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     }
 
     /// Read-only: the user's shielded balance in micros (sum of unspent notes).
-    func shieldedBalanceMicros(seedHex: String) async throws -> UInt64 {
+    /// The user's claimable shielded balance: the summed micros plus the COUNT
+    /// of unspent notes (each ≈ one private receipt). Read-only; never signs.
+    func shieldedBalance(seedHex: String) async throws -> ShieldBalanceInfo {
         let raw = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             self.continuation = cont
             self.beginTiming("balance")
@@ -1704,7 +1706,11 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
                 if self.continuation != nil { self.finish(.failure(ShieldError.message("Balance read timed out."))) }
             }
         }
-        return UInt64(raw) ?? 0
+        return ShieldBalanceInfo.parse(raw)
+    }
+
+    func shieldedBalanceMicros(seedHex: String) async throws -> UInt64 {
+        try await shieldedBalance(seedHex: seedHex).micros
     }
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {

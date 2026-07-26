@@ -10,6 +10,9 @@ import ObjectiveC.runtime
 struct TaliseApp: App {
     @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
     @State private var session = AppSession()
+    /// RECEIVE side of private sends — scans for claimable shielded notes and
+    /// drives the home-logo badge. Lazy internals, so it costs nothing until used.
+    @State private var shieldInbox = ShieldInbox()
     @Environment(\.scenePhase) private var scenePhase
     @State private var locked = false
 
@@ -73,6 +76,7 @@ struct TaliseApp: App {
         WindowGroup {
             AppRoot()
                 .environment(session)
+                .environment(shieldInbox)
                 .task {
                     // app_open on launch — the keystone retention event. One
                     // per 30-min session window, so this is free on re-entry.
@@ -119,6 +123,8 @@ struct TaliseApp: App {
                         // A return after >30 idle minutes is a new session and
                         // therefore a new app_open; inside the window it no-ops.
                         Growth.shared.appOpen()
+                        // Re-scan for claimable private receipts on return.
+                        Task { await shieldInbox.refresh() }
                     @unknown default:
                         break
                     }
