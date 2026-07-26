@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # STEP 0 — fetch and verify the Phase-1 Powers-of-Tau transcript.
 #
-# Phase 1 is NOT run for Talise. The Talise circuit is 18,166 constraints, which
-# fits inside the 2^15 (32,768) prepared Perpetual Powers of Tau transcript for
+# Phase 1 is NOT run for Talise. The circom circuit is 16,561 constraints; snarkjs needs domain >= 2x, so the
+# 2^16 (65,536) prepared Perpetual Powers of Tau transcript for
 # BN254 — a transcript with 55 published contributions that already exists and is
 # used by most of the BN254 ecosystem. Re-running Phase 1 would produce something
 # strictly weaker (fewer contributors) at large cost.
 #
 # What this script does:
-#   1. downloads powersOfTau28_hez_final_15.ptau from the published URL,
+#   1. downloads powersOfTau28_hez_final_16.ptau from the published URL,
 #   2. checks its size and BLAKE2b-512 against the digest published in the
 #      snarkjs README,
 #   3. optionally re-verifies the entire 55-contribution chain with

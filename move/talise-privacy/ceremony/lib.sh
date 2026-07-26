@@ -17,23 +17,24 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # PHASE 1 — Perpetual Powers of Tau, BN254.
 #
-# The circuit needs 18,166 constraints, so the 2^15 (32,768) prepared transcript
-# is sufficient and Phase 1 does NOT need to be run. This exact file is the one
-# the snarkjs README lists under "Prepare phase 2", with 54 named contributions
-# plus a final beacon (55 total).
+# The circom circuit is 16,561 constraints, but snarkjs' Groth16 domain must be
+# >= 2x constraints, so the 2^16 (65,536) prepared transcript is required (2^15
+# is too small). This exact file is the one the snarkjs README lists under
+# "Prepare phase 2" for power 16. Phase 1 is NOT run — this transcript already
+# has the full Perpetual Powers of Tau contribution chain.
 #
 # Published at: https://github.com/iden3/snarkjs/blob/master/README.md
 # ---------------------------------------------------------------------------
-PHASE1_FILE="powersOfTau28_hez_final_15.ptau"
-PHASE1_URL="https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_15.ptau"
+PHASE1_FILE="powersOfTau28_hez_final_16.ptau"
+PHASE1_URL="https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_16.ptau"
 # BLAKE2b-512 of the file, exactly as published in the snarkjs README table.
-PHASE1_BLAKE2B="982372c867d229c236091f767e703253249a9b432c1710b4f326306bfa2428a17b06240359606cfe4d580b10a5a1f63fbed499527069c18ae17060472969ae6e"
-PHASE1_BYTES="37831832"
-PHASE1_MAX_CONSTRAINTS="32768"
+PHASE1_BLAKE2B="6a6277a2f74e1073601b4f9fed6e1e55226917efb0f0db8a07d98ab01df1ccf43eb0e8c3159432acd4960e2f29fe84a4198501fa54c8dad9e43297453efec125"
+PHASE1_BYTES="75580568"
+PHASE1_MAX_CONSTRAINTS="65536"
 # SHA-256 of the same file. NOT published by the project — computed locally when
 # this runbook was written and recorded so that a future divergence is visible.
 # The BLAKE2b digest above is the attested one; treat this as a secondary check.
-PHASE1_SHA256_UNATTESTED="3ef2ecc5b75d687048cf2d59195119b42fb07c5af639c5f283d84bfa69829e7f"
+PHASE1_SHA256_UNATTESTED="1c401abb57c9ce531370f3015c3e75c0892e0f32b8b1e94ace0f6682d9695922"
 
 # Independent mirror + attestations (per-contribution READMEs, IPFS CIDs, GPG
 # keys) live here. A contributor who wants to check the transcript's provenance
@@ -143,7 +144,7 @@ fetch_and_verify_phase1() {
   echo "  size      : $size bytes"
   echo "  blake2b512: $digest"
   echo "  sha256    : $(sha256_file "$dest")   (expected ${PHASE1_SHA256_UNATTESTED}, unattested)"
-  echo "  supports  : up to ${PHASE1_MAX_CONSTRAINTS} constraints (circuit needs 18166)"
+  echo "  supports  : up to ${PHASE1_MAX_CONSTRAINTS} constraints (circom circuit needs 16561; snarkjs domain >= 2x)"
   echo
   echo "  Attestations for each of the 55 contributions:"
   echo "  $PHASE1_ATTESTATIONS"
