@@ -14,6 +14,7 @@ import { requireAppAttestStructural } from "@/lib/app-attest";
 import { takePendingInbound } from "@/lib/perf-cache";
 import { notifyInboundSettlement } from "@/lib/notify";
 import { rateLimitAsync } from "@/lib/rate-limit";
+import { trackConfirmedExecution } from "@/lib/analytics/emit";
 
 export const runtime = "nodejs";
 
@@ -186,6 +187,21 @@ export async function POST(req: Request) {
         senderName: inbound.senderName,
       });
     }
+
+    // GROWTH: the gasless rail's confirmation point. The abort branch above has
+    // already returned, and a missing digest already 500'd, so a plain
+    // `0x2::coin::send_funds` send that reaches this line landed. Without this
+    // the whole gasless rail — the default for plain USDsui sends — would be
+    // invisible to `send_completed` / `first_send_at`. Same non-blocking contract
+    // as in sponsor-execute: sync, void, self-guarded, writes in `after()`.
+    trackConfirmedExecution({
+      userId,
+      digest,
+      kind: body.meta?.kind,
+      amountUsd: body.meta?.amountUsd,
+      venue: body.meta?.venue,
+      surface: "send.gasless",
+    });
 
     // Rewards earn, fire-and-forget, same shape as sponsor-execute.
     const meta = body.meta;

@@ -5,6 +5,7 @@ import { verifyBridgeWebhook, parseBridgeWebhook } from "@/lib/bridge/webhook";
 import { bridgeStateToStatus } from "@/lib/offramp/bridge-provider";
 import { reportProviderOutcome } from "@/lib/offramp/breaker";
 import { recordProviderEvent, settleAttempt } from "@/lib/offramp/store";
+import { trackCashoutSettled } from "@/lib/analytics/emit";
 
 export const runtime = "nodejs";
 
@@ -92,6 +93,18 @@ export async function POST(req: Request) {
           // funded, so this cannot manufacture phantom refund work.
           needsRefund: mapped === "failed",
           reason: `bridge webhook: ${type} ${status}`,
+        });
+        // GROWTH: the terminal payout outcome, after the state write. Runs only
+        // for a FRESH event (the dedupe above already returned for a
+        // redelivery), so a replayed webhook cannot double-count a cash-out.
+        // The user is resolved from the attempt ledger inside `after()`, so this
+        // adds nothing to the webhook's own latency and cannot change what we
+        // ack to Bridge.
+        trackCashoutSettled({
+          provider: "bridge",
+          providerRef: objId,
+          ok: mapped === "settled",
+          errorCode: mapped === "failed" ? "PROVIDER_FAILED" : undefined,
         });
         if (mapped === "failed") {
           console.error(

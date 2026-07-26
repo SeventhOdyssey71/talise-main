@@ -3,6 +3,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { userById } from "@/lib/db";
 import { awardForTx, type EarnTrigger } from "@/lib/rewards/earn";
 import { requireAppAttestStructural } from "@/lib/app-attest";
+import { trackConfirmedExecution } from "@/lib/analytics/emit";
 
 export const runtime = "nodejs";
 
@@ -90,6 +91,21 @@ export async function POST(req: Request) {
   // sponsor-prepare routes it to the sponsored rail and the save is settled
   // in `/api/zk/sponsor-execute` against the send's own digest. See
   // lib/rewards/roundup.ts.
+
+  // GROWTH: the `gasless-direct` rail, where iOS broadcasts to a fullnode itself
+  // and only tells us afterwards. It never touches gasless-submit, so without
+  // this call that rail's sends would be missing from `send_completed` entirely.
+  // Sits BELOW the 60s dedupe gate, so a duplicate confirm is already a fast 204
+  // and cannot double-count; the set-once milestone columns are the second line
+  // of defence. Same non-blocking contract as the other two rails.
+  trackConfirmedExecution({
+    userId,
+    digest,
+    kind: body.meta?.kind,
+    amountUsd: body.meta?.amountUsd,
+    venue: body.meta?.venue,
+    surface: "send.gasless_direct",
+  });
 
   // Rewards earn, same ALLOWED set + 10k USD cap as gasless-submit
   // lines 141–169.

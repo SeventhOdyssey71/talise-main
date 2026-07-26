@@ -5,6 +5,7 @@ import { ensureSchema } from "@/lib/db";
 import { verifyLinqWebhook, parseLinqWebhook } from "@/lib/linq";
 import { applyLinqStatus, phaseOf } from "@/lib/offramp/status";
 import { recordProviderEvent } from "@/lib/offramp/store";
+import { trackCashoutSettled } from "@/lib/analytics/emit";
 
 export const runtime = "nodejs";
 
@@ -90,10 +91,25 @@ export async function POST(req: Request) {
       source: "webhook",
       reason: evt.event,
     });
+    const phase = phaseOf(statusText);
     console.log(
       `[offramp/linq/webhook] order=${evt.orderId} event=${evt.event} ` +
-        `phase=${phaseOf(statusText)} applied=${write.applied}${write.reason ? ` (${write.reason})` : ""}`
+        `phase=${phase} applied=${write.applied}${write.reason ? ` (${write.reason})` : ""}`
     );
+    // GROWTH: only for a state change that was ACTUALLY APPLIED and reached a
+    // terminal phase. Gating on `write.applied` is what stops a replayed or
+    // out-of-order event (which the monotonic writer refuses) from emitting a
+    // second settlement for the same payout. The user is resolved from the
+    // attempt ledger inside `after()`, so the webhook still acks in the same
+    // time and Linq's retry behaviour is unchanged.
+    if (write.applied && (phase === "completed" || phase === "failed")) {
+      trackCashoutSettled({
+        provider: "linq",
+        providerRef: evt.orderId,
+        ok: phase === "completed",
+        errorCode: phase === "failed" ? "PROVIDER_FAILED" : undefined,
+      });
+    }
   } catch (e) {
     // Don't fail the webhook on a DB hiccup: Linq would retry, and the
     // reconciler picks up anything we miss.

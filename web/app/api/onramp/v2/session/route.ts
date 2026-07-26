@@ -10,6 +10,7 @@ import {
 } from "@/lib/onramp";
 import { getOnrampKyc, upsertOnrampKyc } from "@/lib/onramp/kyc-store";
 import { refreshBridgeKyc } from "@/lib/onramp/bridge";
+import { trackDepositStarted } from "@/lib/analytics/emit";
 import type { KycProfile, OnrampProviderName } from "@/lib/onramp/types";
 
 export const runtime = "nodejs";
@@ -222,6 +223,18 @@ export async function POST(req: Request) {
   } catch (e) {
     return providerFailure("createOnrampSession", userId, e);
   }
+
+  // GROWTH: the funding handles now exist (virtual account / hosted widget), so
+  // the deposit funnel genuinely started. Deliberately NOT `funded`: there is no
+  // server-side credit on this path at all — the provider mints on-chain to the
+  // user's own address — so "money in" is observed from the on-chain ledger, not
+  // from here (see deriveEvents in lib/analytics/growth-ingest.ts). The amount is
+  // BANDED, and no deposit instructions / account numbers are passed on.
+  trackDepositStarted(userId, {
+    usd: amountCents / 100,
+    provider: provider.name,
+    currency: body.sourceCurrency?.toUpperCase(),
+  });
 
   return NextResponse.json(session);
 }
