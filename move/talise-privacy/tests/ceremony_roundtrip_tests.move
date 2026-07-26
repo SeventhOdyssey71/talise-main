@@ -37,6 +37,7 @@
 #[allow(implicit_const_copy)]
 module talise_privacy::ceremony_roundtrip_tests;
 
+use std::unit_test::assert_eq;
 use sui::groth16;
 use talise_privacy::constants;
 
@@ -64,7 +65,7 @@ const PUBLIC_INPUTS: vector<u8> =
 /// differ from the package VK and this assertion would fail.
 #[test]
 fun roundtripped_vk_is_byte_identical_to_the_package_vk() {
-    assert!(VK_ROUNDTRIPPED == constants::verifying_key!(), 0);
+    assert_eq!(VK_ROUNDTRIPPED, constants::verifying_key!());
 }
 
 /// THE ROUND-TRIPPED BYTES STILL VERIFY ON-CHAIN. This is the exact native call
@@ -77,7 +78,7 @@ fun roundtripped_vk_verifies_a_real_proof_on_chain() {
     let proof_points = groth16::proof_points_from_bytes(PROOF);
     let public_inputs = groth16::public_proof_inputs_from_bytes(PUBLIC_INPUTS);
 
-    assert!(curve.verify_groth16_proof(&pvk, &public_inputs, &proof_points), 1);
+    assert!(curve.verify_groth16_proof(&pvk, &public_inputs, &proof_points));
 }
 
 /// The same proof against the package VK read straight from `constants.move`
@@ -91,7 +92,7 @@ fun package_vk_verifies_a_real_proof_on_chain() {
     let proof_points = groth16::proof_points_from_bytes(PROOF);
     let public_inputs = groth16::public_proof_inputs_from_bytes(PUBLIC_INPUTS);
 
-    assert!(curve.verify_groth16_proof(&pvk, &public_inputs, &proof_points), 2);
+    assert!(curve.verify_groth16_proof(&pvk, &public_inputs, &proof_points));
 }
 
 // ===========================================================================
@@ -141,7 +142,7 @@ fun a_real_ceremony_derived_vk_verifies_a_snarkjs_proof_on_chain() {
     let proof_points = groth16::proof_points_from_bytes(CEREMONY_PROOF);
     let public_inputs = groth16::public_proof_inputs_from_bytes(CEREMONY_PUBLIC_INPUTS);
 
-    assert!(curve.verify_groth16_proof(&pvk, &public_inputs, &proof_points), 4);
+    assert!(curve.verify_groth16_proof(&pvk, &public_inputs, &proof_points));
 }
 
 /// And it rejects a wrong public signal, so the acceptance above is meaningful.
@@ -155,7 +156,7 @@ fun ceremony_vk_rejects_a_wrong_public_signal() {
     *&mut tampered[0] = 0x09;
     let public_inputs = groth16::public_proof_inputs_from_bytes(tampered);
 
-    assert!(!curve.verify_groth16_proof(&pvk, &public_inputs, &proof_points), 5);
+    assert!(!curve.verify_groth16_proof(&pvk, &public_inputs, &proof_points));
 }
 
 /// Soundness floor for the round-tripped key: it must still REJECT a proof whose
@@ -173,5 +174,5 @@ fun roundtripped_vk_rejects_tampered_public_inputs() {
     *&mut tampered[64] = 0xe9;
     let public_inputs = groth16::public_proof_inputs_from_bytes(tampered);
 
-    assert!(!curve.verify_groth16_proof(&pvk, &public_inputs, &proof_points), 3);
+    assert!(!curve.verify_groth16_proof(&pvk, &public_inputs, &proof_points));
 }
