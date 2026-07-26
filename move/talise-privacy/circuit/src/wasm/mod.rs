@@ -36,6 +36,11 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
 
+/// MEASUREMENT-ONLY exports used by `test/wasm_bench.mjs` to apportion the
+/// browser prove into stages (key load vs. witness vs. prove). Nothing in the
+/// product calls these; `prove`/`verify`/`build_deposit_input` are unchanged.
+pub mod bench;
+
 /// Set the panic hook once so Rust panics surface as readable console errors.
 #[wasm_bindgen(start)]
 pub fn main() {

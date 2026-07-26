@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   SquareLock02Icon,
@@ -132,6 +133,29 @@ export default function PrivatePage() {
             <span>Built on Sui, stablecoin transactions on Sui cost nothing.</span>
           </li>
         </ul>
+      </section>
+
+      {/* Selective disclosure: prove one shielded payment without publishing
+          the rest. Reachable even while sends are gated, because the page is an
+          honest explainer in that state (and its own gates match this one). */}
+      <section
+        className="rounded-[28px] bg-[#f7fcf2] p-7"
+        style={{ boxShadow: "0 1px 2px rgba(18,26,15,0.04), 0 14px 34px -22px rgba(18,26,15,0.22)" }}
+      >
+        <h3 className="mb-2 font-mono text-[11px] uppercase tracking-[0.28em] text-[#3d7a29]">
+          Proving a private payment
+        </h3>
+        <p className="mb-4 text-[14px] leading-relaxed text-[#3a5230]">
+          Private does not mean unprovable. You can open one payment to one party
+          — an auditor, a counterparty — and prove its exact amount against Sui,
+          without revealing anything else.
+        </p>
+        <Link
+          href="/app/private/disclose"
+          className="inline-flex rounded-full bg-[#15300c] px-5 py-2.5 text-[14px] font-[500] text-[#f7fcf2]"
+        >
+          Disclosure
+        </Link>
       </section>
 
       {!live && (

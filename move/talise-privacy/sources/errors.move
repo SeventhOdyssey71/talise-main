@@ -37,6 +37,16 @@ const EValueExceedsFieldModulus: u64 = 809;
 /// Compliance gate refused the cleartext public leg (cap / pause / denylist).
 /// Fail-closed, applied AFTER the proof so soundness is untouched.
 const EComplianceRefused: u64 = 810;
+/// The relayer fee is not payable: it is non-zero on a private (value == 0) leg,
+/// exceeds the leg's cleartext value, exceeds `MAX_RELAYER_FEE_BPS` of it,
+/// exceeds the operator's absolute cap, or is claimed by an address that is not
+/// the pool's configured official relayer. Phase-0 F-1 fix; fail-closed.
+const EInvalidRelayerFee: u64 = 811;
+/// The pool-balance delta did not equal the signed public value the proof
+/// committed to. This must be unreachable — it is the last-line invariant on the
+/// money path, and it firing means a code path paid out value the SNARK never
+/// authorised (which is exactly what F-1 did).
+const EValueNotConserved: u64 = 812;
 
 // === Package View Functions ===
 
@@ -51,3 +61,5 @@ public(package) fun pool_already_exists(): u64 { EPoolAlreadyExists }
 public(package) fun merkle_tree_overflow(): u64 { EMerkleTreeOverflow }
 public(package) fun value_exceeds_field_modulus(): u64 { EValueExceedsFieldModulus }
 public(package) fun compliance_refused(): u64 { EComplianceRefused }
+public(package) fun invalid_relayer_fee(): u64 { EInvalidRelayerFee }
+public(package) fun value_not_conserved(): u64 { EValueNotConserved }

@@ -75,6 +75,40 @@ in `prover.ts` whenever the dev keys are regenerated.
   and maps the result into the `ProofInputs` (128-byte proof points + public
   signals as bigints) that `buildTransact` assembles into the transact PTB.
 
+## Measured cost — READ THIS BEFORE SHIPPING SHIELDED SENDS ON MOBILE
+
+Measured on an Apple M4 Pro (Node 24, `--release`); full analysis and the
+mid-range-Android extrapolation are in `../CEREMONY.md` §5.
+
+| | native | WASM |
+|---|---|---|
+| load the 3.7 MB compressed proving key | 674 ms | **4070 ms** |
+| same key served **uncompressed** (7.4 MB) | 3.7 ms | **82 ms** |
+| Groth16 prove | 147 ms | **1603 ms** |
+| **total `prove()` as it works today** | ~865 ms | **5629 ms** |
+
+`prove(input_json, proving_key_hex)` takes the key as a hex string, so **every
+call** re-decodes it and re-deserializes 103,335 compressed curve points (one
+modular square root each). That is **72% of the 5.6 s**. Two fixes, both
+measured, neither of which touches the circuit or the VK:
+
+1. **keep the deserialized key in the worker** — 5.63 s → 1.60 s per proof;
+2. **serve the key uncompressed** — key load 4070 ms → 82 ms, for 2× the
+   download (cached once in IndexedDB anyway).
+
+Both live on the `web/**` side and are NOT done yet.
+
+```bash
+wasm-pack build . --target nodejs --out-dir pkg/nodejs --release
+node test/wasm_bench.mjs --iters 8      # the numbers above
+cargo run --release --bin bench_prove   # the native breakdown
+```
+
+`src/wasm/bench.rs` holds the measurement-only exports
+(`bench_load_pk_*`, `bench_cache_pk`, `bench_prove_deposit_cached`,
+`bench_recompress_pk_uncompressed`) that make the stage split possible. Nothing
+in the product calls them; `prove`/`verify`/`build_deposit_input` are unchanged.
+
 ## Test
 
 ```bash

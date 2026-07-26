@@ -65,7 +65,8 @@ fun verify_accepts_real_proof() {
     if (!PROOF_AVAILABLE) return; // skip — no real triple yet (CI stays green).
 
     let curve = groth16::bn254();
-    let pvk = groth16::prepare_verifying_key(&curve, &VK_HEX);
+    let vk = VK_HEX; // bind first — an inline `&VK_HEX` copies the constant (W04028)
+    let pvk = groth16::prepare_verifying_key(&curve, &vk);
     let proof_points = groth16::proof_points_from_bytes(PROOF_HEX);
     let public_inputs = groth16::public_proof_inputs_from_bytes(PUBLIC_INPUTS_HEX);
 

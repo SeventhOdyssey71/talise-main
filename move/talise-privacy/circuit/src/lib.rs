@@ -15,6 +15,12 @@ pub mod merkle_tree;
 pub mod poseidon_opt;
 pub mod prover;
 
+/// arkworks ⇄ snarkjs artefact interchange — the format bridge a trusted-setup
+/// ceremony output has to cross to become on-chain VK bytes. Native only (the
+/// browser prover has no use for it, and we do not want to grow the `.wasm`).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod snarkjs;
+
 /// Browser (WASM) prover. Only compiled for the `wasm32` target so the native
 /// crate (bins, `cargo test`, `prove_deposit`) is completely unaffected.
 #[cfg(target_arch = "wasm32")]
