@@ -31,7 +31,7 @@ marketing/ Marketing site assets and Remotion motion pieces
 ## What Talise does
 
 - **Send by name.** Pay `name@talise.sui` instead of a 0x address, gasless, settling in under a second.
-- **Private sends.** A Groth16 shielded pool hides the amount on chain and unlinks sender from recipient. Live on mainnet.
+- **Private sends — iOS app only.** A Groth16 shielded pool unlinks sender from recipient on chain, live on mainnet. **Currently available only in the Talise iOS app** (not on web or Android). Early pilot: capped at $2.50 per send, and amounts are still visible at the deposit/withdraw boundary — the unlinkability is real, full amount-hiding and a trust-minimized setup are on the roadmap.
 - **More than a send.** Claimable payment links, streaming, an on-chain savings vault, and idle balance put to work through on-chain lending.
 - **In and out.** Cash to and from a bank through licensed ramp partners.
 
