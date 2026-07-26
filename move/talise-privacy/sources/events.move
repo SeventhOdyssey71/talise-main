@@ -23,6 +23,15 @@ public struct NewCommitment<phantom CoinType> has copy, drop {
 /// Emitted per spent input nullifier. The indexer marks the note unspendable.
 public struct NullifierSpent<phantom CoinType> has copy, drop { nullifier: u256 }
 
+/// Emitted whenever the pool's relayer-fee policy changes. Ops needs this
+/// visible on-chain: it is the only thing that opens fee payments at all, and
+/// `relayer == @0x0` / `max_fee == 0` means fees are CLOSED.
+public struct RelayerPolicySet<phantom CoinType> has copy, drop {
+    pool: address,
+    relayer: address,
+    max_fee: u64,
+}
+
 // === Package Functions ===
 
 public(package) fun new_pool<CoinType>(pool: address) {
@@ -39,4 +48,12 @@ public(package) fun new_commitment<CoinType>(
 
 public(package) fun nullifier_spent<CoinType>(nullifier: u256) {
     emit(NullifierSpent<CoinType> { nullifier });
+}
+
+public(package) fun relayer_policy_set<CoinType>(
+    pool: address,
+    relayer: address,
+    max_fee: u64,
+) {
+    emit(RelayerPolicySet<CoinType> { pool, relayer, max_fee });
 }
