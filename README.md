@@ -31,13 +31,24 @@ marketing/ Marketing site assets and Remotion motion pieces
 ## What Talise does
 
 - **Send by name.** Pay `name@talise.sui` instead of a 0x address, gasless, settling in under a second.
-- **Private sends.** A Groth16 shielded pool hides the amount on chain and unlinks sender from recipient. Live on mainnet.
+- **Private sends — iOS app only.** A Groth16 shielded pool unlinks sender from recipient on chain, live on mainnet. **Currently available only in the Talise iOS app** (not on web or Android). Early pilot: capped at $2.50 per send, and amounts are still visible at the deposit/withdraw boundary — the unlinkability is real, full amount-hiding and a trust-minimized setup are on the roadmap.
 - **More than a send.** Claimable payment links, streaming, an on-chain savings vault, and idle balance put to work through on-chain lending.
 - **In and out.** Cash to and from a bank through licensed ramp partners.
 
 ## Built on Sui
 
 zkLogin for keyless self-custody, sponsored gas so the user pays nothing to transact, sub-second finality, and a Move-based shielded pool for privacy.
+
+## On-chain (Sui mainnet)
+
+Balances settle in USDsui, a Sui-native USD stablecoin (a third-party asset, not a Talise contract). Talise's own live Move packages:
+
+| Talise package | ID |
+| --- | --- |
+| Private / shielded pool (flagship) | `0x36d80185b4ee5890f95e743142fac280952ab013310a4b609d165f20fa1f26b4` |
+| Streaming + cheques | `0x4ba838c7ded1b57aededff4e825aa251858b05b720083856351dd8325094a13e` |
+| Goals vault | `0xb0898eef5734ee9ebfbdbacd9e39533d7070159d4a87287ddde8a5b331059947` |
+| Team streams (payroll) | `0xcff874d3702572ea373053304c7d384aeaa4fb041905b355471a624331954c7c` |
 
 ## Focused repositories
 

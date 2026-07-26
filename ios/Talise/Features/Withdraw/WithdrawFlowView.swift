@@ -1577,6 +1577,11 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     let webView: WKWebView
     @Published var status: String = ""
     private var continuation: CheckedContinuation<String, Error>?
+    /// The current op's timeout. Cancelled the instant that op finishes, so a
+    /// stale timeout from a completed op (e.g. a background balance scan) can
+    /// never fire against a LATER op's continuation and kill it. That bug once
+    /// reported a successful sweep as failed.
+    private var timeoutTask: Task<Void, Never>?
 
     // ── Timing instrumentation ────────────────────────────────────────────
     // Parity with the gasless/sponsored `[ios/send] … total=Nms` log: prints,
@@ -1654,13 +1659,7 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
             // navigation failure, lost message). The full flow (prove → sign →
             // index → withdraw) can take a few minutes, so allow a generous
             // ceiling. Message stays neutral: a deposit may already be shielded.
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 300 * 1_000_000_000)
-                if self.continuation != nil {
-                    self.finish(.failure(ShieldError.message(
-                        "Private send timed out. Check your balance — any shielded funds are safe and recoverable.")))
-                }
-            }
+            armTimeout(300, "Private send timed out. Check your balance, any shielded funds are safe and recoverable.")
         }
     }
 
@@ -1679,18 +1678,14 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
                     self.finish(.failure(ShieldError.message(err.localizedDescription)))
                 }
             }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 300 * 1_000_000_000)
-                if self.continuation != nil {
-                    self.finish(.failure(ShieldError.message(
-                        "Recovery timed out — your shielded funds are safe; please try again.")))
-                }
-            }
+            armTimeout(300, "Recovery timed out. Your shielded funds are safe, please try again.")
         }
     }
 
     /// Read-only: the user's shielded balance in micros (sum of unspent notes).
-    func shieldedBalanceMicros(seedHex: String) async throws -> UInt64 {
+    /// The user's claimable shielded balance: the summed micros plus the COUNT
+    /// of unspent notes (each ≈ one private receipt). Read-only; never signs.
+    func shieldedBalance(seedHex: String) async throws -> ShieldBalanceInfo {
         let raw = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             self.continuation = cont
             self.beginTiming("balance")
@@ -1699,12 +1694,13 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
             webView.evaluateJavaScript(js) { _, err in
                 if let err { self.finish(.failure(ShieldError.message(err.localizedDescription))) }
             }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
-                if self.continuation != nil { self.finish(.failure(ShieldError.message("Balance read timed out."))) }
-            }
+            armTimeout(60, "Balance read timed out.")
         }
-        return UInt64(raw) ?? 0
+        return ShieldBalanceInfo.parse(raw)
+    }
+
+    func shieldedBalanceMicros(seedHex: String) async throws -> UInt64 {
+        try await shieldedBalance(seedHex: seedHex).micros
     }
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -1777,8 +1773,22 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
             }
             tStart = 0
         }
+        timeoutTask?.cancel()
+        timeoutTask = nil
         continuation?.resume(with: result)
         continuation = nil
+    }
+
+    /// Arm the (single) timeout for the current op, cancelling any prior one.
+    /// Only fires if it is still the live op when it wakes.
+    private func armTimeout(_ seconds: Double, _ message: String) {
+        timeoutTask?.cancel()
+        timeoutTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            if !Task.isCancelled, self.continuation != nil {
+                self.finish(.failure(ShieldError.message(message)))
+            }
+        }
     }
 
     // Navigation logging — surfaces the otherwise-silent web-prover load time

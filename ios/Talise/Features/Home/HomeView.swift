@@ -6,6 +6,8 @@ import UIKit
 /// Figma "no rows" look (a single muted card).
 struct HomeView: View {
     @Environment(AppSession.self) private var session
+    @Environment(ShieldInbox.self) private var inbox
+    @State private var privateInboxVisible = false
     @State private var balance: BalancesDTO?
     @State private var activity: [ActivityEntryDTO] = []
     /// Brief "copied" state for the tap-to-copy handle on the account card.
@@ -101,6 +103,7 @@ struct HomeView: View {
         .refreshable { await loadAll(force: true) }
         .taliseScreenBackground()
         .task { await loadAll(force: false) }
+        .task { await inbox.refresh() } // scan for claimable private receipts → logo badge
         .onReceive(NotificationCenter.default.publisher(for: .taliseTxCompleted)) { note in
             guard let ev = note.object as? TaliseTxEvent else { return }
             applyOptimisticTx(ev)
@@ -180,10 +183,26 @@ struct HomeView: View {
             // catalog is "original"). 24×22 keeps the bounding box
             // identical to the prior Canvas-drawn `TaliseLogoMark`
             // so the rest of the navbar layout doesn't shift.
-            Image("TaliseLogo")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 24, height: 22)
+            // The brand mark doubles as the private-receive inbox: a shielded
+            // payment lands as a note in the pool (not your public balance), so
+            // it's badged here and tapped to sweep in. Only interactive when
+            // there's something to claim.
+            Button {
+                if inbox.hasPending { privateInboxVisible = true }
+            } label: {
+                Image("TaliseLogo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 24, height: 22)
+                    .overlay(alignment: .topTrailing) {
+                        if inbox.hasPending {
+                            ReceiveBadge(text: inbox.badgeText).offset(x: 9, y: -8)
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+            .disabled(!inbox.hasPending)
+            .accessibilityLabel(inbox.hasPending ? "Private funds to claim" : "Talise")
             Spacer()
             // Talise Agent — the lego-style mascot is the agent's entry point.
             // (The chat tab was removed from the nav; this brings it back as a
@@ -233,6 +252,12 @@ struct HomeView: View {
                 onSwap: { coin in await swapSingleCoin(coin) },
                 onDone: { tokenBucketVisible = false }
             )
+        }
+        .fullScreenCover(isPresented: $privateInboxVisible) {
+            PrivateInboxView(onDone: {
+                privateInboxVisible = false
+                Task { await loadAll(force: true) } // swept funds show as spendable balance
+            })
         }
         .fullScreenCover(isPresented: $agentVisible) {
             ChatTabView(onClose: { agentVisible = false })
