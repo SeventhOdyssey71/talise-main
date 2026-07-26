@@ -1,16 +1,19 @@
 import SwiftUI
 
-/// iOS-Messages-style red count badge, sized to sit on the home logo.
+/// Notification count badge in the Talise mint — a soft "green light" on the
+/// home logo when there's private balance to claim. Dark text on mint reads
+/// cleanly against the green header.
 struct ReceiveBadge: View {
     let text: String
     var body: some View {
         Text(text)
             .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Color(hex: 0x123014))
             .padding(.horizontal, text.count > 1 ? 5 : 0)
             .frame(minWidth: 17, minHeight: 17)
-            .background(Capsule().fill(Color(red: 1.0, green: 0.23, blue: 0.19)))
-            .overlay(Capsule().stroke(Color(hex: 0x0E1A0C), lineWidth: 1.5)) // ring off the green header
+            .background(Capsule().fill(TaliseColor.greenMint))
+            .overlay(Capsule().stroke(Color(hex: 0x0E1A0C), lineWidth: 1.5))
+            .shadow(color: TaliseColor.greenMint.opacity(0.55), radius: 4)
             .fixedSize()
     }
 }
@@ -122,12 +125,11 @@ struct PrivateInboxView: View {
     }
 
     private var explainer: some View {
-        Text("Someone sent you privately — the amount stayed hidden on chain, so it isn’t in your spendable balance yet. Sweep it in and it becomes normal USDsui you can spend.")
+        Text("Someone paid you privately. Sweep it into your spendable balance.")
             .font(TaliseFont.body(14))
             .foregroundStyle(TaliseColor.fgMuted)
             .multilineTextAlignment(.center)
-            .lineSpacing(3)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 24)
     }
 
     // MARK: - Footer / confirm
@@ -160,13 +162,11 @@ struct PrivateInboxView: View {
         }
         // Snapshot the amount before the sweep clears it, for the success screen.
         let amountText = TaliseFormat.local2(inbox.pendingUsd)
-        inbox.isSweeping = true
-        defer { inbox.isSweeping = false }
         do {
             _ = try await inbox.sweep(to: addr)
             claimedText = amountText
         } catch {
-            errorText = "Couldn’t sweep right now — your funds are safe in the pool. Please try again shortly."
+            errorText = "Couldn’t sweep just now. Your funds are safe, please try again."
             resetSlider = true
         }
     }

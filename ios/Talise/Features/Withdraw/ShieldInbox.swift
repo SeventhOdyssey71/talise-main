@@ -68,7 +68,9 @@ final class ShieldInbox {
     /// Best-effort background refresh. Silent on every failure (no badge churn,
     /// no error surfaced). Throttled so app-foreground bursts don't rescan.
     func refresh(force: Bool = false) async {
-        if isRefreshing { return }
+        // Never scan while a sweep is mid-flight: both drive the single shared
+        // prover, and overlapping ops would clobber each other's continuation.
+        if isRefreshing || isSweeping { return }
         if !force, let last = lastRefresh, Date().timeIntervalSince(last) < 20 { return }
         isRefreshing = true
         defer { isRefreshing = false }
@@ -98,9 +100,16 @@ final class ShieldInbox {
     /// Sweep ALL claimable shielded balance into `address` (the user's own
     /// wallet). Returns the withdraw digest. Refreshes after, clearing the badge.
     func sweep(to address: String) async throws -> String {
+        isSweeping = true
         let seed = await ShieldKeyStore.noteMasterHex()
-        let digest = try await ensureProver().recover(seedHex: seed, destination: address)
-        await refresh(force: true)
-        return digest
+        do {
+            let digest = try await ensureProver().recover(seedHex: seed, destination: address)
+            isSweeping = false          // clear BEFORE the refresh so it isn't skipped
+            await refresh(force: true)  // swept notes are now spent → badge clears
+            return digest
+        } catch {
+            isSweeping = false
+            throw error
+        }
     }
 }
