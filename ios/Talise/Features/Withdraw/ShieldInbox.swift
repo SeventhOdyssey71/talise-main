@@ -100,10 +100,27 @@ final class ShieldInbox {
     /// Sweep ALL claimable shielded balance into `address` (the user's own
     /// wallet). Returns the withdraw digest. Refreshes after, clearing the badge.
     func sweep(to address: String) async throws -> String {
+        // A background scan and a sweep share ONE prover and one continuation, so
+        // they must never overlap: previously a scan finishing mid-sweep resolved
+        // the sweep's continuation and the UI declared success before any money
+        // had moved. `refresh()` already yields to a sweep; this is the other
+        // direction — wait out an in-flight scan rather than racing it.
+        var waited = 0
+        while isRefreshing && waited < 80 {           // ≤ ~8s, then give up
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            waited += 1
+        }
         isSweeping = true
         let seed = await ShieldKeyStore.noteMasterHex()
         do {
             let digest = try await ensureProver().recover(seedHex: seed, destination: address)
+            // A digest is a base58 tx id. If we got the balance-scan's JSON back
+            // instead, the ops crossed — report failure rather than a false success.
+            guard !digest.isEmpty, !digest.hasPrefix("{") else {
+                isSweeping = false
+                throw ShieldProverController.ShieldError.message(
+                    "Couldn’t confirm the sweep. Your funds are safe, please try again.")
+            }
             isSweeping = false          // clear BEFORE the refresh so it isn't skipped
             await refresh(force: true)  // swept notes are now spent → badge clears
             return digest
