@@ -46,9 +46,16 @@ final class APIClient {
         try await request(path: path, method: "GET", body: Optional<Data>.none)
     }
 
-    func post<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
+    /// `headers` carries per-call extras. The money paths use it for
+    /// `Idempotency-Key`, so a retry after a lost response cannot create a
+    /// second order/payout — the server dedups on that key.
+    func post<T: Decodable, B: Encodable>(
+        _ path: String,
+        body: B,
+        headers: [String: String] = [:]
+    ) async throws -> T {
         let data = try JSONEncoder().encode(body)
-        return try await request(path: path, method: "POST", body: data)
+        return try await request(path: path, method: "POST", body: data, headers: headers)
     }
 
     /// DELETE with a typed JSON response. No body — the resource is named
@@ -61,7 +68,8 @@ final class APIClient {
     private func request<T: Decodable>(
         path: String,
         method: String,
-        body: Data?
+        body: Data?,
+        headers: [String: String] = [:]
     ) async throws -> T {
         // GETs are idempotent — safe to dedup. POSTs may mutate state
         // (record vault, claim handle, prepare swap), so each caller
@@ -80,7 +88,7 @@ final class APIClient {
                 Task<Data, Error> {
                     guard let self else { throw APIError.invalidResponse }
                     return try await self.performRequest(
-                        path: path, method: method, body: body
+                        path: path, method: method, body: body, headers: headers
                     )
                 }
             }
@@ -88,7 +96,7 @@ final class APIClient {
             dataTask = Task<Data, Error> { [weak self] in
                 guard let self else { throw APIError.invalidResponse }
                 return try await self.performRequest(
-                    path: path, method: method, body: body
+                    path: path, method: method, body: body, headers: headers
                 )
             }
         }
@@ -118,7 +126,8 @@ final class APIClient {
     private func performRequest(
         path: String,
         method: String,
-        body: Data?
+        body: Data?,
+        headers: [String: String] = [:]
     ) async throws -> Data {
         // URL.append(path:) treats the entire input as a path SEGMENT and
         // percent-encodes every reserved character — including `?`, which
@@ -145,6 +154,12 @@ final class APIClient {
         }
         if let keyId = AppAttestService.shared.keyId {
             req.setValue(keyId, forHTTPHeaderField: "X-App-Attest-KeyId")
+        }
+
+        // Per-call extras last so a caller can't clobber auth/attest headers.
+        for (name, value) in headers where
+            !["Authorization", "X-App-Attest", "X-App-Attest-KeyId"].contains(name) {
+            req.setValue(value, forHTTPHeaderField: name)
         }
 
         let (data, response): (Data, URLResponse)
