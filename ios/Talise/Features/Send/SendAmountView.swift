@@ -177,10 +177,19 @@ struct SendAmountView: View {
         return "\(body) USDsui"
     }
 
+    /// The typed local amount converted to USDsui (1:1 USD).
+    ///
+    /// FAIL SAFE — this used to fall back to an IDENTITY rate (`?? 1`) when the FX
+    /// table hadn't loaded, which is the one thing it must never do: an NGN user
+    /// typing "100" on a fresh install (rates warm asynchronously and nothing
+    /// gated on them) would send $100 instead of ₦100 — a ~1600× overspend.
+    /// `CurrencySettings.convertToUsd` documents this exact hazard and returns 0
+    /// so the caller's `> 0` gate blocks the send; mirror that here, respecting
+    /// the DRAFT's currency rather than the app-wide one.
     private var typedAmountUsdsui: Double {
         guard let typed = Double(draft.rawAmount), typed > 0 else { return 0 }
-        let rate = CurrencySettings.shared.rates[draft.currency.code] ?? 1
-        guard rate > 0 else { return 0 }
+        if draft.currency.code == "USD" { return typed }
+        guard let rate = CurrencySettings.shared.rates[draft.currency.code], rate > 0 else { return 0 }
         return typed / rate
     }
 
