@@ -53,6 +53,8 @@
 	<string>Talise uses the camera to scan payment QR codes.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Confirm sends and signatures with Face ID.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Talise saves your payment and trade receipts to Photos when you tap Save Image.</string>
 	<key>TaliseAPIBaseURL</key>
 	<string>https://app.talise.io</string>
 	<key>TaliseGoogleClientID</key>

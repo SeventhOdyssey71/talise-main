@@ -6,4 +6,8 @@ xcuserdata/
 DerivedData/
 .toolchain/
 .DS_Store
-Package.resolved
+# Package.resolved is intentionally COMMITTED (not ignored). SuiGrpcKit is a
+# local package consumed by the app, and Package.swift uses open ranges
+# (from: "2.0.0"), so a clean CI runner would otherwise resolve whatever is
+# newest at archive time — silently shipping a different gRPC/NIO stack under
+# the money path than the one that was tested. Pin it.

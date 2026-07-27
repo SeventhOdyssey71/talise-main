@@ -12,7 +12,11 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "6"
+    # Must exceed the highest build already on TestFlight (55, from CI run #55).
+    # CI overrides this with `github.run_number` at archive time, so this value
+    # only bites on a LOCAL archive — where "6" would be rejected as a redundant
+    # binary. Keep it in step with the CI run number, never ahead of it.
+    CURRENT_PROJECT_VERSION: "56"
     # Signing — automatic, tied to the developer's Team. Xcode generates the
     # distribution cert + provisioning profiles on Archive → Distribute when
     # signed in with this Team (requires an active Apple Developer Program
@@ -42,6 +46,10 @@ targets:
           - "**/.DS_Store"
     resources:
       - Talise/Resources/Assets.xcassets
+      # Apple privacy manifest — listed EXPLICITLY. The `sources: Talise` glob is
+      # unreliable for .xcprivacy, and if it isn't in the bundle every upload
+      # gets ITMS-91053.
+      - Talise/Resources/PrivacyInfo.xcprivacy
       # Fonts (DM Sans Variable) live at Talise/Resources/DMSans/ and are
       # auto-bundled via the `Talise` sources path, then registered
       # programmatically in TaliseApp.registerFonts() (CTFontManager).
@@ -65,6 +73,12 @@ targets:
               - com.googleusercontent.apps.786432206940-rnvri4af4ek2btleebt43i8ovc4h2lod
         NSCameraUsageDescription: "Talise uses the camera to scan payment QR codes."
         NSFaceIDUsageDescription: "Confirm sends and signatures with Face ID."
+        # REQUIRED, not optional: receipts and PnL cards are rendered to images and
+        # handed to the share sheet (TxReceiptView, AgentReceiptSheet,
+        # TradeComponents), which offers "Save Image". That runs in-process and hits
+        # the Photos add-only TCC check — with no usage string iOS KILLS the app.
+        # Add-only on purpose; Talise never reads the photo library.
+        NSPhotoLibraryAddUsageDescription: "Talise saves your payment and trade receipts to Photos when you tap Save Image."
         ITSAppUsesNonExemptEncryption: false
         # Allow http://localhost API calls in dev (TALISE_API_BASE_URL).
         # Prod build sets NSAllowsArbitraryLoads:false; for now the
