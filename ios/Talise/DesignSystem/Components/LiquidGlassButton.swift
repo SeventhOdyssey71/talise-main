@@ -1,7 +1,4 @@
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
 /// Primary CTA dressed in Liquid Glass instead of a flat fill. Use anywhere
 /// we currently lean on a solid accent button — Send, Confirm, Add Money,
@@ -21,7 +18,6 @@ struct LiquidGlassButton: View {
     let title: String
     var icon: String? = nil
     var tint: Color? = TaliseColor.accent
-    @Environment(\.colorScheme) private var scheme
     var size: TaliseButtonSize = .lg
     var loading: Bool = false
     var fullWidth: Bool = true
@@ -34,7 +30,7 @@ struct LiquidGlassButton: View {
                     ProgressView()
                         .progressViewStyle(.circular)
                         .controlSize(.small)
-                        .tint(labelColor(for: scheme))
+                        .tint(labelColor)
                 } else if let icon {
                     Image(systemName: icon)
                         .font(.system(size: size.fontSize + 1, weight: .medium))
@@ -42,7 +38,7 @@ struct LiquidGlassButton: View {
                 Text(title)
                     .font(TaliseFont.heading(size.fontSize, weight: .medium))
             }
-            .foregroundStyle(labelColor(for: scheme))
+            .foregroundStyle(labelColor)
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .frame(height: size.height)
             .padding(.horizontal, size.hPadding)
@@ -82,28 +78,15 @@ struct LiquidGlassButton: View {
         }
     }
 
-    /// Label colour picked from the RESOLVED LUMINANCE of the fill.
-    ///
-    /// This used to match the tint against a hardcoded list of "bright greens"
-    /// and put dark ink on them. That broke the moment the palette became
-    /// adaptive: `accent`/`greenMint` resolve to BRIGHT mint on dark but to
-    /// DARK forest on light, so on light mode a "Share Talise" CTA got dark ink
-    /// on a dark green fill — unreadable. Identity matching also can't be
-    /// trusted for dynamic colours. Measuring the actual fill instead is
-    /// self-maintaining: any tint, any theme, always a readable label.
-    private func labelColor(for scheme: ColorScheme) -> Color {
+    /// Dark ink on the bright Talise greens (for contrast + pop); white on
+    /// the neutral surface and the darker tints (danger / gold).
+    private var labelColor: Color {
         guard let tint else { return TaliseColor.fg }
-        #if canImport(UIKit)
-        let resolved = UIColor(tint).resolvedColor(
-            with: UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
-        )
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        resolved.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let luma = 0.299 * r + 0.587 * g + 0.114 * b
-        return luma > 0.6 ? Color(hex: 0x0A140C) : Color(hex: 0xF2FFEC)
-        #else
-        return Color(hex: 0xF2FFEC)
-        #endif
+        let brightGreens = [
+            TaliseColor.accent, TaliseColor.greenMint,
+            TaliseColor.live, TaliseColor.success,
+        ]
+        return brightGreens.contains(tint) ? Color(hex: 0x0A140C) : TaliseColor.fg
     }
 }
 

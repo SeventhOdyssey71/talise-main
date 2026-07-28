@@ -1,62 +1,40 @@
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
-/// ADAPTIVE palette. Every token is a light/dark pair resolved per trait at
-/// draw time, so the ~2,000 `TaliseColor.…` call sites across the app switch
-/// theme without a single edit at the call site. Dark values are the original
-/// Figma node 42-1819 palette; light values are the Talise light system
-/// (white ground, #000000/#666666 text hierarchy, grey filled cards) with the
-/// brand FOREST kept for CTAs and accents so light mode still reads as Talise
-/// rather than a generic white fintech app.
+/// Dark-mode palette. Sourced directly from Figma node 42-1819
+/// (Home design). The web product is still light mode — when we add a
+/// shared design system across both platforms we'll thread these through
+/// `@Environment(\.colorScheme)`; for now iOS is dark by spec.
 enum TaliseColor {
-    static let bg = Color(light: 0xFFFFFF, dark: 0x000000)                 // page background
-    static let surface = Color(light: 0xF5F5F5, dark: 0x161616)            // filled card (activity, sheets, panels)
-    static let surface2 = Color(light: 0xEBEBEB, dark: 0x242424)           // raised fill (chips, small action buttons)
-    // Glassmorphism is retired — these are SOLID surfaces on both themes.
-    static let surfaceGlass = Color(light: 0xF5F5F5, dark: 0x1C1C1C)       // flat card / nav pill
-    static let surfaceGlassStrong = Color(light: 0xE4E4E4, dark: 0x2C2C2C) // active nav pill (raised)
-    static let usernameCard = Color(light: 0xF5F5F5, dark: 0x161616)       // flat username card
-    static let fg = Color(light: 0x000000, dark: 0xFFFFFF)                 // primary text
-    static let fgSubtle = Color(light: 0x141414, dark: 0xFAFAFA)
-    static let fgMuted = Color(light: 0x666666, dark: 0xB5B5B5)            // secondary text
-    static let fgDim = Color(light: 0x8E8E8E, dark: 0x636363)              // tertiary / micro labels
-    /// Hairline. Black-on-light, white-on-dark, both at low alpha.
-    static let line = Color(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 0.10, darkAlpha: 0.08)
-    /// Accent green. The dark value is a bright mint-green that would nearly
-    /// vanish on white, so light mode uses brand forest instead.
-    static let accent = Color(light: 0x2F6A1F, dark: 0x79D96C)
-    static let accentSoft = Color(light: 0xEAF3E6, dark: 0x2A2A2A)
+    static let bg = Color(hex: 0x000000)                          // page background
+    static let surface = Color(hex: 0x161616)                     // flat card surface (activity, sheets, panels)
+    static let surface2 = Color(hex: 0x242424)                    // raised flat surface (chips, small action buttons)
+    // Glassmorphism is retired. These two were translucent-white blurs
+    // (`.white.opacity(0.08/0.14)`); they're now SOLID flat surfaces so every
+    // card / nav pill that referenced them reads as a clean opaque panel.
+    static let surfaceGlass = Color(hex: 0x1C1C1C)                // flat card / nav pill
+    static let surfaceGlassStrong = Color(hex: 0x2C2C2C)          // active nav pill (raised)
+    static let usernameCard = Color(hex: 0x161616)                // flat username card
+    static let fg = Color(hex: 0xFFFFFF)                          // primary text
+    static let fgSubtle = Color(hex: 0xFAFAFA)                    // jude@talise text
+    static let fgMuted = Color(hex: 0xB5B5B5)
+    static let fgDim = Color(hex: 0x636363)
+    static let line = Color.white.opacity(0.08)
+    static let accent = Color(hex: 0x79D96C)                      // "Earn up to 11%" green
+    static let accentSoft = Color(hex: 0x2A2A2A)
     // The two canonical Talise brand greens (matches web/app/globals.css).
-    // `greenMint` reads as an accent ON DARK; on light it must become forest or
-    // it disappears (mint on white is invisible as text/icon).
-    static let greenMint = Color(light: 0x2F6A1F, dark: 0xCAFFB8)
-    static let greenDeep = Color(light: 0x2F6A1F, dark: 0x4B8A37)          // forest — solid CTA fill (white text)
-    static let live = Color(light: 0x1E7B34, dark: 0x79D96C)
-    static let success = Color(light: 0x1E7B34, dark: 0x79D96C)
-    static let warmGold = Color(light: 0x8A5E20, dark: 0xC08A3E)
-    static let danger = Color(light: 0xB03A24, dark: 0xA05A3E)
+    // `greenMint` is the bright/mint accent that reads ON dark; `greenDeep`
+    // is the forest CTA fill. Additive — existing surfaces keep `accent`.
+    static let greenMint = Color(hex: 0xCAFFB8)                   // mint — readable accent on dark
+    static let greenDeep = Color(hex: 0x4B8A37)                   // forest — solid CTA fill
+    static let live = Color(hex: 0x79D96C)
+    static let success = Color(hex: 0x79D96C)
+    static let warmGold = Color(hex: 0xC08A3E)
+    static let danger = Color(hex: 0xA05A3E)
 
-    /// FIXED mint — deliberately NOT adaptive.
-    ///
-    /// Some surfaces stay dark forest in BOTH themes (the Rewards points card,
-    /// the Profile header card) because that premium dark-card-on-light-page
-    /// contrast is the brand. Adaptive tokens are wrong inside them: `greenMint`
-    /// resolves to forest on light, giving forest-on-forest text you cannot
-    /// read. Anything drawn on an always-dark surface must use this instead.
-    static let mintOnDark = Color(hex: 0xCAFFB8)
-
-    /// Tint for the Talise mark. The shipped PNG is a WHITE glyph with alpha, so
-    /// on light it must be re-tinted or the logo disappears into the page. Forest
-    /// (not black) keeps it the brand mark, matching the marketing treatment.
-    static let logoTint = Color(light: 0x2F6A1F, dark: 0xFFFFFF)
-
-    // Activity row badge backgrounds. Dark = muted Figma fills; light = pale
-    // tints so the row reads as a soft chip on white.
-    static let badgeSent = Color(light: 0xF7E4E0, dark: 0x6C3A38, lightAlpha: 1.0, darkAlpha: 0.5)
-    static let badgeReceived = Color(light: 0xE3F1E5, dark: 0x355F40, lightAlpha: 1.0, darkAlpha: 0.5)
-    static let badgeNeutral = Color(light: 0xEDEDED, dark: 0x4A4A4A, lightAlpha: 1.0, darkAlpha: 0.6)
+    // Activity row badge backgrounds (extracted from the Figma Ellipse fills).
+    static let badgeSent = Color(hex: 0x6C3A38).opacity(0.5)      // muted red
+    static let badgeReceived = Color(hex: 0x355F40).opacity(0.5)  // muted green
+    static let badgeNeutral = Color(hex: 0x4A4A4A).opacity(0.6)   // claim/invest
 }
 
 enum TaliseSpacing {
@@ -90,38 +68,7 @@ extension Color {
         let b = Double(hex & 0xFF) / 255.0
         self.init(red: r, green: g, blue: b)
     }
-
-    /// A light/dark PAIR resolved per trait at draw time.
-    ///
-    /// This is what lets one edit to `TaliseColor` re-theme the whole app: the
-    /// value is a dynamic `UIColor` under the hood, so a `.foregroundStyle(
-    /// TaliseColor.fg)` written for dark mode automatically flips on light —
-    /// no `@Environment(\.colorScheme)` plumbing at ~2,000 call sites.
-    init(light: UInt32, dark: UInt32, lightAlpha: Double = 1, darkAlpha: Double = 1) {
-        #if canImport(UIKit)
-        self = Color(UIColor { trait in
-            trait.userInterfaceStyle == .dark
-                ? UIColor(rgb: dark, alpha: darkAlpha)
-                : UIColor(rgb: light, alpha: lightAlpha)
-        })
-        #else
-        self = Color(hex: light).opacity(lightAlpha)
-        #endif
-    }
 }
-
-#if canImport(UIKit)
-private extension UIColor {
-    convenience init(rgb: UInt32, alpha: Double) {
-        self.init(
-            red: CGFloat((rgb >> 16) & 0xFF) / 255.0,
-            green: CGFloat((rgb >> 8) & 0xFF) / 255.0,
-            blue: CGFloat(rgb & 0xFF) / 255.0,
-            alpha: CGFloat(alpha)
-        )
-    }
-}
-#endif
 
 // MARK: - Flat surface helpers (glassmorphism retired)
 //

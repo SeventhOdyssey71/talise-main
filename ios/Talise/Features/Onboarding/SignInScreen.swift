@@ -64,12 +64,7 @@ struct SignInScreen: View {
                     .padding(.top, 10)
                     .padding(.horizontal, 32)
 
-                // Capped, not free. Two equal Spacers centred the hero and split
-                // the slack evenly above and below it — on black the lower gap
-                // read as nothing, but on white it reads as an empty hole
-                // between the copy and the CTAs. Capping this one sends the
-                // slack upward and keeps the copy visually tied to the buttons.
-                Spacer().frame(maxHeight: 130)
+                Spacer()
 
                 if let error {
                     Text(error)
@@ -185,10 +180,8 @@ struct SignInScreen: View {
     private var hero: some View {
         if UIImage(named: "TaliseLogo") != nil {
             Image("TaliseLogo")
-                .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
-                .foregroundStyle(TaliseColor.logoTint)
         } else {
             Canvas { ctx, size in
                 let cx = size.width / 2

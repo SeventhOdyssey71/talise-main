@@ -163,10 +163,10 @@ struct RewardsView: View {
                 Text(tier?.label ?? "Bronze")
                     .font(TaliseFont.mono(10, weight: .regular))
                     .kerning(0.8)
-                    .foregroundStyle(TaliseColor.mintOnDark)
+                    .foregroundStyle(TaliseColor.greenMint)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(Capsule().fill(Color.white.opacity(0.18)))
+                    .background(Capsule().fill(Color.white.opacity(0.12)))
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -213,7 +213,7 @@ struct RewardsView: View {
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.white.opacity(0.16))
                         Capsule()
-                            .fill(TaliseColor.mintOnDark)
+                            .fill(TaliseColor.greenMint)
                             .frame(width: max(4, geo.size.width * progress))
                     }
                 }
@@ -225,7 +225,7 @@ struct RewardsView: View {
         } else if tier != nil {
             Text("Top tier — every point still counts toward perks")
                 .font(TaliseFont.mono(10.5, weight: .regular))
-                .foregroundStyle(TaliseColor.mintOnDark)
+                .foregroundStyle(TaliseColor.greenMint)
         }
     }
 

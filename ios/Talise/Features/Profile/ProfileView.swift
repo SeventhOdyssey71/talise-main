@@ -260,7 +260,7 @@ struct ProfileView: View {
                         : (currentUser?.email ?? "")
                 )
                     .font(TaliseFont.mono(11, weight: .light))
-                    .foregroundStyle(Color.white.opacity(0.78))
+                    .foregroundStyle(Color.white.opacity(0.6))
                     .lineLimit(1)
             }
         }
@@ -489,8 +489,6 @@ struct ProfileView: View {
             VStack(spacing: 0) {
                 currencyRow
                 sectionDivider
-                appearanceRow
-                sectionDivider
                 pocketsRow
                 // "Email me when I receive" (notifyRow) hidden for now — email
                 // notifications are being reworked; the impl stays dormant below.
@@ -504,46 +502,6 @@ struct ProfileView: View {
                     .padding(.vertical, 10)
                 }
             }
-        }
-    }
-
-    /// Theme picker. The palette is adaptive (`TaliseColor` is light/dark pairs),
-    /// so this only chooses the trait; "System" follows the device.
-    private var appearanceRow: some View {
-        Menu {
-            ForEach(TaliseAppearance.allCases) { a in
-                Button {
-                    AppearanceSettings.shared.set(a)
-                } label: {
-                    if a == AppearanceSettings.shared.current {
-                        Label(a.label, systemImage: "checkmark")
-                    } else {
-                        Label(a.label, systemImage: a.icon)
-                    }
-                }
-            }
-        } label: {
-            HStack {
-                rowLabel(title: "Appearance", icon: "circle.lefthalf.filled")
-                Spacer()
-                HStack(spacing: 6) {
-                    Image(systemName: AppearanceSettings.shared.current.icon)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(TaliseColor.fg)
-                    Text(AppearanceSettings.shared.current.label)
-                        .font(TaliseFont.mono(11, weight: .light))
-                        .foregroundStyle(TaliseColor.fgMuted)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(TaliseColor.fgDim)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(TaliseColor.surface2))
-                .clipShape(Capsule())
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
         }
     }
 

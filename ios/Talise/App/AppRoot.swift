@@ -4,8 +4,6 @@ import SwiftUI
 /// authenticated tab bar depending on `AppSession.phase`.
 struct AppRoot: View {
     @Environment(AppSession.self) private var session
-    /// Observed so flipping the theme in Profile re-renders immediately.
-    private var appearance = AppearanceSettings.shared
 
     var body: some View {
         Group {
@@ -30,10 +28,7 @@ struct AppRoot: View {
                 PinUnlockView()
             }
         }
-        // Was hardcoded `.dark`. Now driven by the user's preference; the
-        // palette is adaptive so both themes resolve from the same tokens.
-        // `.system` yields nil → no override, i.e. follow the device.
-        .preferredColorScheme(appearance.current.colorScheme)
+        .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.2), value: phaseKey)
         .onAppear {
             // Wire the PinGate's user-id resolver to the current session.
@@ -360,7 +355,6 @@ enum DeepLink {
 /// "Home" inset in the Figma reference.
 private struct BottomNavPill: View {
     @Binding var active: MainTabView.Tab
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         HStack(spacing: 4) {
@@ -379,16 +373,9 @@ private struct BottomNavPill: View {
             // One faint hairline to define the pill edge.
             Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
         )
-        // A single soft shadow keeps the floating bar legible over content.
-        // Tuned per theme: 50% black at r18 is invisible on a black page but
-        // reads as a muddy grey halo on white, so light mode gets a much
-        // tighter, fainter drop.
-        .shadow(
-            color: Color.black.opacity(scheme == .dark ? 0.5 : 0.10),
-            radius: scheme == .dark ? 18 : 10,
-            x: 0,
-            y: scheme == .dark ? 8 : 3
-        )
+        // A single soft shadow keeps the floating bar legible over content
+        // without the old layered glass depth.
+        .shadow(color: Color.black.opacity(0.5), radius: 18, x: 0, y: 8)
     }
 
     private func tabButton(_ which: MainTabView.Tab, icon: String, label: String) -> some View {

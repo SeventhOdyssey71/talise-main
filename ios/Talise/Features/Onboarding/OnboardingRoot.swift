@@ -319,10 +319,8 @@ private struct WelcomeBackInterstitial: View {
     private var logoMark: some View {
         if UIImage(named: "TaliseLogo") != nil {
             Image("TaliseLogo")
-                .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
-                .foregroundStyle(TaliseColor.logoTint)
         } else {
             Image(systemName: "checkmark.circle.fill")
                 .resizable()
