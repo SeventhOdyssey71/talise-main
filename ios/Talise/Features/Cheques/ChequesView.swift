@@ -230,6 +230,9 @@ struct ChequeWriteView: View {
     @State private var gateCountry = false
     @State private var country = "NG"
     @State private var issuing = false
+    /// Re-arms the slider on failure; without it the knob sticks at the end
+    /// behind a spinner, which on a money screen reads as "still in flight".
+    @State private var issueResetSlide = false
     @State private var error: String?
     @State private var issued: ChequeCreateResp?
 
@@ -338,7 +341,7 @@ struct ChequeWriteView: View {
 
     private var issueBar: some View {
         VStack(spacing: 0) {
-            SlideToConfirm(title: issuing ? "Issuing…" : "Slide to sign & fund") {
+            SlideToConfirm(title: issuing ? "Issuing…" : "Slide to sign & fund", reset: $issueResetSlide) {
                 await issue()
             }
             .disabled(issuing || amountUsd < 0.01 || payee.isEmpty)
@@ -351,7 +354,7 @@ struct ChequeWriteView: View {
     private func issue() async {
         guard amountUsd >= 0.01, !payee.isEmpty else { return }
         issuing = true; error = nil
-        defer { issuing = false }
+        defer { issuing = false; if error != nil { issueResetSlide = true } }
         struct CreateBody: Encodable { let amountUsd: Double; let payeeLabel: String; let memo: String?; let allowedCountries: [String] }
         do {
             let created: ChequeCreateResp = try await APIClient.shared.post(
@@ -794,6 +797,8 @@ struct ChequeClaimView: View {
     @State private var parsed: (id: String, secret: String)?
     @State private var loading = false
     @State private var claiming = false
+    /// See issueResetSlide — same stuck-knob problem on the cash-a-cheque screen.
+    @State private var claimResetSlide = false
     @State private var error: String?
     @State private var claimedAmount: Double?
 
@@ -857,7 +862,7 @@ struct ChequeClaimView: View {
                       systemImage: "globe").font(TaliseFont.mono(10)).foregroundStyle(TaliseColor.fgDim)
             }
             if p.claimable {
-                SlideToConfirm(title: claiming ? "Cashing…" : "Slide to cash this cheque") {
+                SlideToConfirm(title: claiming ? "Cashing…" : "Slide to cash this cheque", reset: $claimResetSlide) {
                     await claim()
                 }
                 .disabled(claiming)
@@ -921,7 +926,8 @@ struct ChequeClaimView: View {
 
     private func claim() async {
         guard let (id, secret) = parsed else { return }
-        claiming = true; error = nil; defer { claiming = false }
+        claiming = true; error = nil
+        defer { claiming = false; if error != nil { claimResetSlide = true } }
         struct ClaimBody: Encodable { let secret: String; let turnstileToken: String? }
         do {
             let r: ChequeClaimResp = try await APIClient.shared.post(
@@ -957,8 +963,14 @@ struct ShareSheet: UIViewControllerRepresentable {
 // MARK: - Amount in words (cheque convention)
 
 func amountInWords(_ usd: Double) -> String {
-    let whole = Int(usd)
-    let cents = Int((usd - Double(whole)) * 100 + 0.5)
+    // Clamp before any Int conversion. This runs on every keystroke of the
+    // cheque amount field: `Int(usd)` traps above Int64.max, and at 2e9 the
+    // `ones[h]` subscript in numberToWords went out of range (h = 20). A cheque
+    // is capped far below this — render a safe string rather than crash.
+    guard usd.isFinite, usd >= 0 else { return "Zero and 00/100" }
+    let capped = min(usd, 999_999_999)
+    let whole = Int(capped)
+    let cents = min(99, Int((capped - Double(whole)) * 100 + 0.5))
     let dollars = whole == 0 ? "Zero" : numberToWords(whole)
     let centStr = String(format: "%02d", cents)
     return "\(dollars) and \(centStr)/100".capitalizedFirst

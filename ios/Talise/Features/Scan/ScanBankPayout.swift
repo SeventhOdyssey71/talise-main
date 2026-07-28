@@ -205,6 +205,9 @@ struct ScanBankPayoutSheet: View {
     @State private var paidOut = false
     @State private var error: String?
     @State private var resetSlide = false
+    /// Stable across retries of the SAME payout so a re-slide after a lost
+    /// response reuses the key and the server dedups instead of paying twice.
+    @State private var payoutIdempotencyKey: String?
 
     @FocusState private var amountFocused: Bool
 
@@ -643,6 +646,13 @@ struct ScanBankPayoutSheet: View {
                 let accountName: String
                 let bankName: String?
             }
+            // IDEMPOTENCY: minted once per payout attempt and REUSED on retry, so
+            // a lost response (the 15s client timeout can fire after the server
+            // already created the order) can't produce a second order — and so a
+            // second payout — when the user slides again. The server dedups on
+            // this key. It is reset only when the payout finishes or the user
+            // changes the amount/recipient.
+            if payoutIdempotencyKey == nil { payoutIdempotencyKey = UUID().uuidString }
             let order: ScanCreateResp = try await APIClient.shared.post(
                 "/api/offramp/linq/create",
                 body: CreateBody(
@@ -651,7 +661,8 @@ struct ScanBankPayoutSheet: View {
                     accountNumber: accountNumber,
                     accountName: q.accountName,
                     bankName: q.bankName.isEmpty ? bank.name : q.bankName
-                )
+                ),
+                headers: ["Idempotency-Key": payoutIdempotencyKey ?? UUID().uuidString]
             )
 
             // 2. Send EXACTLY the returned USDsui to Linq's deposit wallet.

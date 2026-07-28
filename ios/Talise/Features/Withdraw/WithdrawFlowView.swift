@@ -1611,7 +1611,13 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
         var errorDescription: String? { if case .message(let m) = self { return m }; return nil }
     }
 
+    /// The ONE host this webview is allowed to load, and the only origin whose
+    /// script messages are honoured. Derived from the configured API base so dev
+    /// builds (localhost / preview hosts) still work.
+    private let apiHost: String
+
     override init() {
+        apiHost = URL(string: AppConfig.shared.apiBaseURL)?.host ?? "app.talise.io"
         let cfg = WKWebViewConfiguration()
         let ucc = WKUserContentController()
         cfg.userContentController = ucc
@@ -1634,11 +1640,14 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     /// withdraw). When present + the sender holds a covering note, the send becomes
     /// a hidden-amount shielded transfer.
     func send(micros: UInt64, recipient: String, seedHex: String, recipientShieldJson: String? = nil) async throws -> String {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
+        try assertIdle()
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             self.continuation = cont
             self.beginTiming("send")
-            let safeRecipient = recipient.replacingOccurrences(of: "'", with: "")
-            let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
+            // Properly JS-escaped (JSON) — stripping only `'` left a trailing
+            // backslash able to escape the closing quote and inject code.
+            let safeRecipient = Self.jsString(recipient)
+            let safeSeed = Self.jsString(seedHex)
             // JSON-encode the shield identity safely for JS injection (it contains
             // only [0-9a-fx] but encode defensively); empty → undefined.
             let shieldArg: String = {
@@ -1649,7 +1658,7 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
             }()
             // Throw (not silently no-op) if the harness hasn't installed yet, so a
             // missing function surfaces as a clean failure instead of a hang.
-            let js = "if(!window.taliseShieldSend){throw new Error('Private send isn’t ready yet — try again.')}; window.taliseShieldSend('\(micros)','\(safeRecipient)','\(safeSeed)', \(shieldArg))"
+            let js = "if(!window.taliseShieldSend){throw new Error('Private send isn’t ready yet — try again.')}; window.taliseShieldSend('\(micros)',\(safeRecipient),\(safeSeed), \(shieldArg))"
             webView.evaluateJavaScript(js) { _, err in
                 if let err {
                     self.finish(.failure(ShieldError.message(err.localizedDescription)))
@@ -1667,12 +1676,13 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     /// (the user's own wallet). `seedHex` = the note master; `destination` = the
     /// user's Sui address.
     func recover(seedHex: String, destination: String) async throws -> String {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
+        try assertIdle()
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             self.continuation = cont
             self.beginTiming("recover")
-            let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
-            let safeDest = destination.replacingOccurrences(of: "'", with: "")
-            let js = "if(!window.taliseShieldRecover){throw new Error('Recovery isn’t ready yet — try again.')}; window.taliseShieldRecover('\(safeSeed)','\(safeDest)')"
+            let safeSeed = Self.jsString(seedHex)
+            let safeDest = Self.jsString(destination)
+            let js = "if(!window.taliseShieldRecover){throw new Error('Recovery isn’t ready yet — try again.')}; window.taliseShieldRecover(\(safeSeed),\(safeDest))"
             webView.evaluateJavaScript(js) { _, err in
                 if let err {
                     self.finish(.failure(ShieldError.message(err.localizedDescription)))
@@ -1686,11 +1696,12 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     /// The user's claimable shielded balance: the summed micros plus the COUNT
     /// of unspent notes (each ≈ one private receipt). Read-only; never signs.
     func shieldedBalance(seedHex: String) async throws -> ShieldBalanceInfo {
+        try assertIdle()
         let raw = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             self.continuation = cont
             self.beginTiming("balance")
-            let safeSeed = seedHex.replacingOccurrences(of: "'", with: "")
-            let js = "if(!window.taliseShieldBalance){throw new Error('not ready')}; window.taliseShieldBalance('\(safeSeed)')"
+            let safeSeed = Self.jsString(seedHex)
+            let js = "if(!window.taliseShieldBalance){throw new Error('not ready')}; window.taliseShieldBalance(\(safeSeed))"
             webView.evaluateJavaScript(js) { _, err in
                 if let err { self.finish(.failure(ShieldError.message(err.localizedDescription))) }
             }
@@ -1704,6 +1715,12 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
     }
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+        // ORIGIN GATE. A script message from this webview can reach `signDeposit`,
+        // which zkLogin-signs and broadcasts whatever bytes it is handed. So only
+        // the MAIN frame of our OWN host is allowed to speak: an injected iframe,
+        // or any page that somehow navigated elsewhere, is ignored outright.
+        guard message.frameInfo.isMainFrame,
+              message.frameInfo.securityOrigin.host == apiHost else { return }
         guard let body = message.body as? [String: Any] else { return }
         switch body["type"] as? String {
         case "progress":
@@ -1779,6 +1796,19 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
         continuation = nil
     }
 
+    /// Refuse to start an op while another is still in flight.
+    ///
+    /// There is ONE `continuation` and the webview's `{type:"result"}` messages
+    /// carry no correlation id, so a second op would overwrite the first and the
+    /// next result would resolve the WRONG caller — e.g. a background balance
+    /// scan completing could resolve a live sweep, reporting "swept" before the
+    /// sweep had actually happened. Serialising ops removes that class entirely.
+    private func assertIdle() throws {
+        if continuation != nil {
+            throw ShieldError.message("Another private operation is still finishing. Try again in a moment.")
+        }
+    }
+
     /// Arm the (single) timeout for the current op, cancelling any prior one.
     /// Only fires if it is still the live op when it wakes.
     private func armTimeout(_ seconds: Double, _ message: String) {
@@ -1789,6 +1819,24 @@ final class ShieldProverController: NSObject, ObservableObject, WKScriptMessageH
                 self.finish(.failure(ShieldError.message(message)))
             }
         }
+    }
+
+    /// NAVIGATION GATE. This webview exists to run one page on our own host. It
+    /// must never be able to reach third-party content, because anything loaded
+    /// here shares a message channel that can get a transaction signed. Anything
+    /// off-host is refused (`about:blank` is allowed — WebKit's own initial load).
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let url = navigationAction.request.url else { return decisionHandler(.cancel) }
+        if url.absoluteString == "about:blank" { return decisionHandler(.allow) }
+        guard url.scheme == "https", url.host == apiHost else {
+            print("[ios/private] prover-web BLOCKED navigation to \(url.host ?? "?")")
+            return decisionHandler(.cancel)
+        }
+        decisionHandler(.allow)
     }
 
     // Navigation logging — surfaces the otherwise-silent web-prover load time

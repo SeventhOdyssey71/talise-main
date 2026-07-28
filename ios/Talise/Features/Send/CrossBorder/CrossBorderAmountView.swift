@@ -172,10 +172,14 @@ struct CrossBorderAmountView: View {
         return fmt.string(from: NSNumber(value: usd)) ?? "0.00"
     }
 
+    /// FAIL SAFE — see the matching note in `SendAmountView.typedAmountUsdsui`.
+    /// An identity fallback here would wire the typed local amount as USD (e.g.
+    /// ₦100 sent as $100), so a missing FX rate must yield 0 and let the callers'
+    /// `> 0` gates block the send instead.
     private var amountUsdsui: Double {
+        if draft.origin.currencyCode == "USD" { return draft.amountSource }
         let rates = CurrencySettings.shared.rates
-        let sourceRate = rates[draft.origin.currencyCode] ?? 1
-        guard sourceRate > 0 else { return 0 }
+        guard let sourceRate = rates[draft.origin.currencyCode], sourceRate > 0 else { return 0 }
         return draft.amountSource / sourceRate
     }
 

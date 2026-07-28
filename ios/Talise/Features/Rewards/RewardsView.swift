@@ -24,7 +24,11 @@ struct RewardsView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
                 heroCard
-                campaignSection
+                // Hidden until the campaign actually opens. Shipping a $5,000
+                // hero number behind a Join button that only raises a "coming
+                // soon" toast is a textbook App Store 2.1 rejection, and it sits
+                // on a primary tab where a reviewer lands early.
+                if campaignLive { campaignSection }
                 statTiles
                 // Redemption catalogue removed for now — points still accrue
                 // (swap, save, spend+save) and the balance/tier/history stay

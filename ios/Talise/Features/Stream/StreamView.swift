@@ -94,6 +94,9 @@ struct StreamSetupView: View {
     @State private var durationMin = 60      // default: 1 hour
     @State private var intervalMin = 10      // default: every 10 minutes
     @State private var starting = false
+    /// Re-arms the slider after a failure — without it the knob sticks at the
+    /// end showing a spinner forever, which reads as "still sending".
+    @State private var resetSlide = false
     @State private var error: String?
     @State private var started = false
     @State private var resolveFailed = false
@@ -286,7 +289,7 @@ struct StreamSetupView: View {
     }
 
     private var startBar: some View {
-        SlideToConfirm(title: starting ? "Starting…" : "Slide to start streaming") {
+        SlideToConfirm(title: starting ? "Starting…" : "Slide to start streaming", reset: $resetSlide) {
             await start()
         }
         .disabled(!validSchedule || starting)
@@ -354,8 +357,19 @@ struct StreamSetupView: View {
 
     private func start() async {
         guard let to = resolved?.address, validSchedule else { return }
-        starting = true; error = nil; defer { starting = false }
-        let totalMicros = Int((totalUsd * 1_000_000).rounded())
+        starting = true; error = nil
+        // Re-arm the slider whenever we leave without a started stream, so a
+        // failure never leaves the knob stuck mid-gesture looking "in flight".
+        defer { starting = false; if !started { resetSlide = true } }
+        // Clamp before the Int conversion — `Int(Double)` traps once the typed
+        // total exceeds Int64.max (~13 digits in the unbounded amount field),
+        // crashing on the way into a money operation.
+        let scaled = (totalUsd * 1_000_000).rounded()
+        guard scaled.isFinite, scaled > 0, scaled <= 9_000_000_000_000_000 else {
+            error = "That amount is too large."
+            return
+        }
+        let totalMicros = Int(scaled)
         let trancheMicros = totalMicros / numTranches
         let intervalMs = intervalMin * 60_000
         let now = Int(Date().timeIntervalSince1970 * 1000)

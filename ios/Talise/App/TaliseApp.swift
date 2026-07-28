@@ -123,8 +123,17 @@ struct TaliseApp: App {
                         // A return after >30 idle minutes is a new session and
                         // therefore a new app_open; inside the window it no-ops.
                         Growth.shared.appOpen()
-                        // Re-scan for claimable private receipts on return.
-                        Task { await shieldInbox.refresh() }
+                        // Re-scan for claimable private receipts on return — but
+                        // ONLY when signed in. The scan reaches the note-master
+                        // store, which mints + pins a NEW master if the keychain
+                        // is empty and the escrow read fails. Unauthenticated the
+                        // escrow GET 401s, so scanning while signed out (this
+                        // fires during the OAuth round-trip) would mint a second
+                        // master and permanently orphan any existing shielded
+                        // notes on this device.
+                        if case .ready = session.phase {
+                            Task { await shieldInbox.refresh() }
+                        }
                     @unknown default:
                         break
                     }

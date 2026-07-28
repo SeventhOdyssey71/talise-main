@@ -32,7 +32,12 @@ struct SendFailureView: View {
                         .font(TaliseFont.heading(34, weight: .medium))
                         .kerning(-1)
                         .foregroundStyle(TaliseColor.fg)
-                    Text("No funds moved. You can try again or close this.")
+                    // Deliberately does NOT assert "no funds moved". This screen
+                    // is shown for any failure, including a transport timeout
+                    // that can fire AFTER the transaction was broadcast — in
+                    // which case the money did move, and telling the user
+                    // otherwise invites them to send a second time.
+                    Text("Check your activity before trying again — if the send went through, it will show there.")
                         .font(TaliseFont.body(14, weight: .light))
                         .foregroundStyle(TaliseColor.fgMuted)
                         .multilineTextAlignment(.center)
