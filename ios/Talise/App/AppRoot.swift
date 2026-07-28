@@ -4,6 +4,8 @@ import SwiftUI
 /// authenticated tab bar depending on `AppSession.phase`.
 struct AppRoot: View {
     @Environment(AppSession.self) private var session
+    /// Observed so flipping the theme in Profile re-renders immediately.
+    private var appearance = AppearanceSettings.shared
 
     var body: some View {
         Group {
@@ -28,7 +30,10 @@ struct AppRoot: View {
                 PinUnlockView()
             }
         }
-        .preferredColorScheme(.dark)
+        // Was hardcoded `.dark`. Now driven by the user's preference; the
+        // palette is adaptive so both themes resolve from the same tokens.
+        // `.system` yields nil → no override, i.e. follow the device.
+        .preferredColorScheme(appearance.current.colorScheme)
         .animation(.easeInOut(duration: 0.2), value: phaseKey)
         .onAppear {
             // Wire the PinGate's user-id resolver to the current session.

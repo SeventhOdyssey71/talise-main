@@ -191,9 +191,11 @@ struct HomeView: View {
                 if inbox.hasPending { privateInboxVisible = true }
             } label: {
                 Image("TaliseLogo")
+                .renderingMode(.template)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 24, height: 22)
+                    .foregroundStyle(TaliseColor.logoTint)
                     .overlay(alignment: .topTrailing) {
                         if inbox.hasPending {
                             ReceiveBadge(text: inbox.badgeText).offset(x: 9, y: -8)
@@ -621,7 +623,8 @@ struct HomeView: View {
                 )
                 .overlay(
                     HStack(alignment: .top) {
-                        Image("TaliseLogo").resizable().scaledToFit()
+                        Image("TaliseLogo")
+                .renderingMode(.template).resizable().scaledToFit()
                             .frame(width: 26, height: 24).foregroundStyle(.white)
                         Spacer()
                         Image("VisaLogo").resizable().scaledToFit().frame(height: 27)

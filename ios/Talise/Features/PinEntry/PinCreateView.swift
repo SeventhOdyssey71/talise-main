@@ -45,6 +45,7 @@ struct PinCreateView: View {
     @ViewBuilder private var logo: some View {
         if UIImage(named: "TaliseLogo") != nil {
             Image("TaliseLogo")
+                .renderingMode(.template)
                 .resizable().scaledToFit()
                 .frame(width: 44, height: 44)
                 .foregroundStyle(TaliseColor.fg)

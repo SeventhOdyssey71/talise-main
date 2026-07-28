@@ -180,8 +180,10 @@ struct SignInScreen: View {
     private var hero: some View {
         if UIImage(named: "TaliseLogo") != nil {
             Image("TaliseLogo")
+                .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
+                .foregroundStyle(TaliseColor.logoTint)
         } else {
             Canvas { ctx, size in
                 let cx = size.width / 2

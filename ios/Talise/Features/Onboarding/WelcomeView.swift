@@ -17,6 +17,22 @@ import SwiftUI
 struct WelcomeView: View {
     let onContinue: () -> Void
     let onSignIn: () -> Void
+    @Environment(\.colorScheme) private var scheme
+
+    // Theme-aware top wash. Hoisted + explicitly typed so the type-checker
+    // doesn't choke on a ternary of inline Gradient.Stop literals.
+    private static let washDark: [Gradient.Stop] = [
+        Gradient.Stop(color: Color(hex: 0x6BA85A), location: 0.0),
+        Gradient.Stop(color: Color(hex: 0x355626), location: 0.45),
+        Gradient.Stop(color: Color.black, location: 0.85),
+        Gradient.Stop(color: Color.black, location: 1.0),
+    ]
+    private static let washLight: [Gradient.Stop] = [
+        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.60), location: 0.0),
+        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.24), location: 0.45),
+        Gradient.Stop(color: Color.white.opacity(0.0), location: 0.85),
+        Gradient.Stop(color: Color.white.opacity(0.0), location: 1.0),
+    ]
 
     /// Letter spacing per the Figma typography spec. Figma values
     /// letter-spacing in pixels at the source font size; transposed
@@ -44,12 +60,7 @@ struct WelcomeView: View {
                 // The whole gradient is sized to ~42% of the screen
                 // height so the logo lands just below it.
                 LinearGradient(
-                    stops: [
-                        .init(color: Color(hex: 0x6BA85A), location: 0.0),
-                        .init(color: Color(hex: 0x355626), location: 0.45),
-                        .init(color: Color.black, location: 0.85),
-                        .init(color: Color.black, location: 1.0),
-                    ],
+                    stops: scheme == .dark ? Self.washDark : Self.washLight,
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -97,8 +108,10 @@ struct WelcomeView: View {
     private var logoMark: some View {
         if UIImage(named: "TaliseLogo") != nil {
             Image("TaliseLogo")
+                .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
+                .foregroundStyle(TaliseColor.logoTint)
         } else {
             Pinwheel()
         }

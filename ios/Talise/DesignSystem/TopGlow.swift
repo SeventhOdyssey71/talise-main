@@ -9,20 +9,20 @@ import SwiftUI
 /// out of onboarding into the first authenticated tab sees the wash
 /// continue without a perceptible jump.
 struct TopGlow: View {
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
-        // Light-green top glow → black, matching the onboarding palette
-        // (`WelcomeView` / `OnboardingBackground`) so the authenticated
-        // tabs read as a continuation of the same surface. A subtle
-        // mossy-green wash fills the top band then falls into pure black
-        // well before the content area, keeping cards + text legible.
-        // The 380pt height clips the wash to the top of the screen.
+        // DARK: a mossy-green wash fills the top band then falls into pure
+        // black well before the content area, matching the onboarding palette
+        // so the authenticated tabs read as one surface.
+        //
+        // LIGHT: the same gesture, inverted — a whisper of mint falling into
+        // white. It CANNOT reuse the dark stops: those end in opaque black and
+        // would drop a dark slab across the top of every light screen. Kept
+        // very low-opacity so the result reads as the clean white ground of the
+        // light spec while still being recognisably Talise rather than generic.
         LinearGradient(
-            stops: [
-                .init(color: Color(hex: 0x6BA85A).opacity(0.55), location: 0.0),
-                .init(color: Color(hex: 0x355626).opacity(0.40), location: 0.30),
-                .init(color: Color.black, location: 0.78),
-                .init(color: Color.black, location: 1.0),
-            ],
+            stops: scheme == .dark ? Self.darkStops : Self.lightStops,
             startPoint: .top,
             endPoint: .bottom
         )
@@ -30,6 +30,22 @@ struct TopGlow: View {
         .frame(maxWidth: .infinity, alignment: .top)
         .allowsHitTesting(false)
     }
+
+    // Explicitly typed and hoisted out of `body`: a ternary between two inline
+    // Gradient.Stop array literals makes Swift's type-checker blow up.
+    private static let darkStops: [Gradient.Stop] = [
+        Gradient.Stop(color: Color(hex: 0x6BA85A).opacity(0.55), location: 0.0),
+        Gradient.Stop(color: Color(hex: 0x355626).opacity(0.40), location: 0.30),
+        Gradient.Stop(color: Color.black, location: 0.78),
+        Gradient.Stop(color: Color.black, location: 1.0),
+    ]
+
+    private static let lightStops: [Gradient.Stop] = [
+        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.34), location: 0.0),
+        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.14), location: 0.34),
+        Gradient.Stop(color: Color.white.opacity(0.0), location: 0.82),
+        Gradient.Stop(color: Color.white.opacity(0.0), location: 1.0),
+    ]
 }
 
 /// Convenience modifier — add a TopGlow behind any tab's content.
