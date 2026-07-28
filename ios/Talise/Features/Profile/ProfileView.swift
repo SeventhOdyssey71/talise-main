@@ -260,7 +260,7 @@ struct ProfileView: View {
                         : (currentUser?.email ?? "")
                 )
                     .font(TaliseFont.mono(11, weight: .light))
-                    .foregroundStyle(Color.white.opacity(0.6))
+                    .foregroundStyle(Color.white.opacity(0.78))
                     .lineLimit(1)
             }
         }

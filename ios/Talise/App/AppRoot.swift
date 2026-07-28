@@ -360,6 +360,7 @@ enum DeepLink {
 /// "Home" inset in the Figma reference.
 private struct BottomNavPill: View {
     @Binding var active: MainTabView.Tab
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         HStack(spacing: 4) {
@@ -378,9 +379,16 @@ private struct BottomNavPill: View {
             // One faint hairline to define the pill edge.
             Capsule().strokeBorder(TaliseColor.line, lineWidth: 1)
         )
-        // A single soft shadow keeps the floating bar legible over content
-        // without the old layered glass depth.
-        .shadow(color: Color.black.opacity(0.5), radius: 18, x: 0, y: 8)
+        // A single soft shadow keeps the floating bar legible over content.
+        // Tuned per theme: 50% black at r18 is invisible on a black page but
+        // reads as a muddy grey halo on white, so light mode gets a much
+        // tighter, fainter drop.
+        .shadow(
+            color: Color.black.opacity(scheme == .dark ? 0.5 : 0.10),
+            radius: scheme == .dark ? 18 : 10,
+            x: 0,
+            y: scheme == .dark ? 8 : 3
+        )
     }
 
     private func tabButton(_ which: MainTabView.Tab, icon: String, label: String) -> some View {

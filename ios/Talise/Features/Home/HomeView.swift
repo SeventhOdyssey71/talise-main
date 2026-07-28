@@ -231,11 +231,14 @@ struct HomeView: View {
                 } label: {
                     Image(systemName: "qrcode.viewfinder")
                         .font(.system(size: 18, weight: .regular))
-                        .foregroundStyle(.white)
+                        // Was `.white` on `.ultraThinMaterial` — correct on the
+                        // dark header, invisible on the light mint one. Both the
+                        // glyph and the hairline now follow the theme.
+                        .foregroundStyle(TaliseColor.fg)
                         .frame(width: 40, height: 40)
                         .background(.ultraThinMaterial, in: Circle())
                         .overlay(
-                            Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+                            Circle().strokeBorder(TaliseColor.line, lineWidth: 0.5)
                         )
                         .contentShape(Circle())
                 }
@@ -508,8 +511,13 @@ struct HomeView: View {
             // to give the round mark a proportional footprint vs the
             // narrower drop the old `sui-drop` SVG used.
             Image("SuiCoinMark")
+                // Pure-white glyph PNG: perfect on the dark card, a ghost on the
+                // light one. Template + adaptive tint, same treatment as the
+                // Talise clover.
+                .renderingMode(.template)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
+                .foregroundStyle(TaliseColor.fgDim)
                 .frame(width: 26, height: 26)
                 .padding(.top, 22)
                 .padding(.trailing, 24)

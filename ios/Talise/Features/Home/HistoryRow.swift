@@ -187,12 +187,15 @@ struct HistoryRow: View {
     // (Received). Invest / withdraw / auto-swap stay on the brand accent green.
     private var tintColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0xE5484D)
-        case .cashout:  return Color(hex: 0xE5484D)
-        case .team:     return Color(hex: 0xE5484D)
-        case .received: return Color(hex: 0x79D96C)
+        // Adaptive: the dark-mode coral/mint greens sit at ~2.3:1 on a white
+        // page. `danger`/`success` carry a deeper, quieter value on light —
+        // closer to how Chase/Revolut render money-in/out in their light modes.
+        case .sent:     return TaliseColor.danger
+        case .cashout:  return TaliseColor.danger
+        case .team:     return TaliseColor.danger
+        case .received: return TaliseColor.success
         case .invest:   return TaliseColor.accent
-        case .withdraw: return Color(hex: 0x79D96C)
+        case .withdraw: return TaliseColor.success
         case .autoswap: return TaliseColor.accent
         case .neutral:  return TaliseColor.fgMuted
         }
@@ -202,12 +205,12 @@ struct HistoryRow: View {
     /// LIGHT mint shade; money-out gets the LOW forest shade.
     private var badgeBgColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0xE5484D).opacity(0.16)
-        case .cashout:  return Color(hex: 0xE5484D).opacity(0.16)
-        case .team:     return Color(hex: 0xE5484D).opacity(0.16)
-        case .received: return Color(hex: 0x79D96C).opacity(0.20)
+        case .sent:     return TaliseColor.badgeSent
+        case .cashout:  return TaliseColor.badgeSent
+        case .team:     return TaliseColor.badgeSent
+        case .received: return TaliseColor.badgeReceived
         case .invest:   return TaliseColor.accent.opacity(0.20)
-        case .withdraw: return Color(hex: 0xCAFFB8).opacity(0.42)
+        case .withdraw: return TaliseColor.badgeReceived
         case .autoswap: return TaliseColor.accent.opacity(0.20)
         case .neutral:  return TaliseColor.surface2
         }
@@ -217,12 +220,14 @@ struct HistoryRow: View {
     /// a brighter accent green on the low forest wash. Always green-on-green.
     private var badgeFgColor: Color {
         switch category {
-        case .sent:     return Color(hex: 0xFF6B6B)
-        case .cashout:  return Color(hex: 0xFF6B6B)
-        case .team:     return Color(hex: 0xFF6B6B)
-        case .received: return Color(hex: 0xCAFFB8)
+        // The glyph sits ON the badge disc, so it must be the DEEP value in
+        // both themes — mint-on-mint was ~1.2:1 and effectively invisible.
+        case .sent:     return TaliseColor.danger
+        case .cashout:  return TaliseColor.danger
+        case .team:     return TaliseColor.danger
+        case .received: return Color(light: 0x1E7B34, dark: 0x2E5E1F)
         case .invest:   return TaliseColor.accent
-        case .withdraw: return Color(hex: 0x2E5E1F)
+        case .withdraw: return Color(light: 0x1E7B34, dark: 0x2E5E1F)
         case .autoswap: return TaliseColor.accent
         case .neutral:  return TaliseColor.fg
         }
@@ -272,9 +277,9 @@ struct HistoryRow: View {
         }
         if s.contains("timeout") || s.contains("fail") || s.contains("error")
             || s.contains("cancel") || s.contains("reject") || s.contains("declin") {
-            return ("Failed", Color(hex: 0xE5484D))
+            return ("Failed", TaliseColor.danger)
         }
-        return ("Pending", Color(hex: 0xD9A441))
+        return ("Pending", TaliseColor.warmGold)
     }
 
     /// Named counterparty for the row title — the resolved @handle/name when
@@ -399,10 +404,10 @@ struct HistoryRow: View {
     private var amountColor: Color {
         // Cash-out is money leaving the wallet for a bank — render the
         // naira payout in the SENT red so it reads as an outflow.
-        if category == .cashout { return Color(hex: 0xE5484D) }
+        if category == .cashout { return TaliseColor.danger }
         if category == .autoswap { return TaliseColor.fg }
         let isInflow = entry.isReceived || entry.isWithdraw
-        return isInflow ? Color(hex: 0x4FB35E) : TaliseColor.fg
+        return isInflow ? TaliseColor.success : TaliseColor.fg
     }
 
     private var amountFormatted: String {

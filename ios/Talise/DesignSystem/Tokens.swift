@@ -38,6 +38,15 @@ enum TaliseColor {
     static let warmGold = Color(light: 0x8A5E20, dark: 0xC08A3E)
     static let danger = Color(light: 0xB03A24, dark: 0xA05A3E)
 
+    /// FIXED mint — deliberately NOT adaptive.
+    ///
+    /// Some surfaces stay dark forest in BOTH themes (the Rewards points card,
+    /// the Profile header card) because that premium dark-card-on-light-page
+    /// contrast is the brand. Adaptive tokens are wrong inside them: `greenMint`
+    /// resolves to forest on light, giving forest-on-forest text you cannot
+    /// read. Anything drawn on an always-dark surface must use this instead.
+    static let mintOnDark = Color(hex: 0xCAFFB8)
+
     /// Tint for the Talise mark. The shipped PNG is a WHITE glyph with alpha, so
     /// on light it must be re-tinted or the logo disappears into the page. Forest
     /// (not black) keeps it the brand mark, matching the marketing treatment.
