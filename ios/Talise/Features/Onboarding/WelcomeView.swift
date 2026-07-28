@@ -28,9 +28,9 @@ struct WelcomeView: View {
         Gradient.Stop(color: Color.black, location: 1.0),
     ]
     private static let washLight: [Gradient.Stop] = [
-        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.60), location: 0.0),
-        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.24), location: 0.45),
-        Gradient.Stop(color: Color.white.opacity(0.0), location: 0.85),
+        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.38), location: 0.0),
+        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.12), location: 0.40),
+        Gradient.Stop(color: Color.white.opacity(0.0), location: 0.80),
         Gradient.Stop(color: Color.white.opacity(0.0), location: 1.0),
     ]
 

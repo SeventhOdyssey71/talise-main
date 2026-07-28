@@ -41,9 +41,9 @@ struct TopGlow: View {
     ]
 
     private static let lightStops: [Gradient.Stop] = [
-        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.34), location: 0.0),
-        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.14), location: 0.34),
-        Gradient.Stop(color: Color.white.opacity(0.0), location: 0.82),
+        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.30), location: 0.0),
+        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.10), location: 0.30),
+        Gradient.Stop(color: Color.white.opacity(0.0), location: 0.68),
         Gradient.Stop(color: Color.white.opacity(0.0), location: 1.0),
     ]
 }

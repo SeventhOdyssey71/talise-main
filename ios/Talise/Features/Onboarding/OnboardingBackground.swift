@@ -21,10 +21,14 @@ struct OnboardingBackground: View {
         Gradient.Stop(color: Color.black, location: 0.68),
         Gradient.Stop(color: Color.black, location: 1.0),
     ]
+    // Deliberately SHORT and faint. The first pass ran a heavy mint to 72% of
+    // the screen, which read as an unfinished gradient and muddied the white
+    // ground the light spec is built on. This is a tint at the very top that is
+    // gone by a third of the way down — brand present, page still crisp white.
     private static let washLight: [Gradient.Stop] = [
-        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.55), location: 0.0),
-        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.22), location: 0.30),
-        Gradient.Stop(color: Color.white.opacity(0.0), location: 0.72),
+        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.34), location: 0.0),
+        Gradient.Stop(color: Color(hex: 0xCAFFB8).opacity(0.10), location: 0.16),
+        Gradient.Stop(color: Color.white.opacity(0.0), location: 0.36),
         Gradient.Stop(color: Color.white.opacity(0.0), location: 1.0),
     ]
 
