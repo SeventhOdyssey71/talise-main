@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { amountUsdc?: number; currency?: string };
+  let body: { amountUsdc?: number; currency?: string; rail?: string };
   try {
     body = await req.json();
   } catch {
@@ -83,7 +83,16 @@ export async function POST(req: Request) {
     );
   }
   const currency = (body.currency ?? "usd").toLowerCase() as BridgeFiatCurrency;
-  const wantRail = currency === "eur" ? "sepa" : "wire";
+  // Destination payout rail. USD defaults to ACH (cheap, and what a personal
+  // US bank account expects); wire only when the caller explicitly asks. This
+  // used to hardcode "wire" for every USD payout, which disagreed with
+  // /cashout-address — the two routes produced different rails for the same
+  // user and neither client sends a rail, so which one you got depended purely
+  // on which endpoint ran. Note the rail is chosen HERE, per transfer: it is
+  // not read from the Bridge customer record, so changing a customer's default
+  // in the Bridge dashboard has no effect on transfers this route creates.
+  const rail = String(body.rail ?? "").toLowerCase();
+  const wantRail = rail === "wire" ? "wire" : currency === "eur" ? "sepa" : "ach";
 
   // DAILY CAP, previously ABSENT on this rail. `checkDailyOfframpCap` sums
   // `linq_offramps` only, whose sole writer is the NGN rail, so this USD/EUR
