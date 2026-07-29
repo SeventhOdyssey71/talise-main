@@ -160,6 +160,38 @@ final class AppSession {
         }
     }
 
+    /// Re-fetch the signed-in user from the server and re-persist the snapshot.
+    ///
+    /// `bootstrap()` restores the user from `LocalSnapshotStore`, which is only
+    /// ever written at sign-in and at the end of onboarding. Nothing re-read
+    /// `/api/me` afterwards, so any field that changes later stayed frozen on
+    /// the device for the life of the session. The visible symptom was a user
+    /// who had claimed their handle still seeing "Claim your name" on Home
+    /// (`displayHandle()` returns nil when `taliseHandle` is empty) while
+    /// sending and receiving perfectly well, because payments key off the
+    /// bearer and address, not the cached handle.
+    ///
+    /// `fresh` maps to `/api/me?fresh=1`, which skips the server's Postgres fast
+    /// path and does a live reverse-SuiNS lookup. Use it right after a claim,
+    /// when the row may not be written yet; a plain refresh is enough otherwise.
+    ///
+    /// Deliberately quiet: this is a background reconciliation, so a failure
+    /// leaves the existing user in place rather than surfacing an error or
+    /// signing anyone out.
+    func refreshUser(fresh: Bool = false) async {
+        guard currentUser != nil else { return }
+        let path = fresh ? "/api/me?fresh=1" : "/api/me"
+        guard let user: UserDTO = try? await APIClient.shared.get(path) else { return }
+        LocalSnapshotStore.saveUser(user)
+        switch phase {
+        case .onboarding: phase = .onboarding(user: user)
+        case .pinSetup:   phase = .pinSetup(user: user)
+        case .ready:      phase = .ready(user: user)
+        case .locked:     lockedUser = user
+        case .launching, .signedOut: break
+        }
+    }
+
     func signOut() {
         clearSession()
         phase = .signedOut

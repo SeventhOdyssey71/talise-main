@@ -133,6 +133,13 @@ struct TaliseApp: App {
                         // notes on this device.
                         if case .ready = session.phase {
                             Task { await shieldInbox.refresh() }
+                            // Reconcile the cached user with the server. The
+                            // snapshot is only written at sign-in, so anything
+                            // that changes afterwards (most visibly a handle
+                            // claimed on the web) stayed stale on the device
+                            // until the next full sign-out. Quiet and best
+                            // effort: a failure keeps the current user.
+                            Task { await session.refreshUser() }
                         }
                     @unknown default:
                         break

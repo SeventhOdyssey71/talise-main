@@ -217,7 +217,11 @@ struct ClaimHandleSheet: View {
             Spacer()
             LiquidGlassButton(title: "Done", tint: TaliseColor.greenMint) {
                 dismiss()
-                Task { await session.bootstrap() }
+                // Was `bootstrap()`, which only re-reads the LOCAL snapshot and
+                // therefore never picked the new handle up. `fresh: true` forces
+                // the server past its Postgres fast path so a just-claimed
+                // handle resolves even if the row hasn't landed yet.
+                Task { await session.refreshUser(fresh: true) }
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
