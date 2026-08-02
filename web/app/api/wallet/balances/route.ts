@@ -6,6 +6,7 @@ import { filterVerified } from "@/lib/coins-verified";
 import { cetusUniverse, normCoinType } from "@/lib/cetus-tokens";
 import { logoForSymbol } from "@/lib/token-logos";
 import { getSuiUsdcPrice } from "@/lib/deepbook";
+import { sui } from "@/lib/sui";
 import { memoTtl } from "@/lib/perf-cache";
 
 export const runtime = "nodejs";
@@ -17,7 +18,7 @@ export const runtime = "nodejs";
  * "Verified" = the coin has a liquid Cetus pool (coins-verified.ts, which now
  * pulls the live Cetus universe), so real holdings like WAL/DEEP/BUCK show and
  * are swappable while no-liquidity spam never appears. Each coin is enriched
- * with on-chain metadata (symbol, decimals, logo via suix_getCoinMetadata) and
+ * with on-chain metadata (symbol, decimals, logo via the gRPC coin registry) and
  * a USD value where the price is reliable (stablecoins 1:1, SUI via DeepBook).
  *
  * Returns: { address, balances: [{ coinType, amount, isUsdsui, symbol,
@@ -27,24 +28,13 @@ export const runtime = "nodejs";
 
 type CoinMeta = { symbol: string; decimals: number; logoUrl: string | null };
 
-async function coinMetadata(rpcUrl: string, coinType: string): Promise<CoinMeta> {
+async function coinMetadata(coinType: string): Promise<CoinMeta> {
   return memoTtl(`coinmeta:${coinType}`, 24 * 60 * 60 * 1000, async () => {
     try {
-      const r = await fetch(rpcUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "suix_getCoinMetadata",
-          params: [coinType],
-        }),
-        signal: AbortSignal.timeout(6000),
-      });
-      const j = (await r.json()) as {
-        result?: { symbol?: string; decimals?: number; iconUrl?: string | null };
+      const r = (await sui().getCoinMetadata({ coinType })) as {
+        coinMetadata?: { symbol?: string; decimals?: number; iconUrl?: string | null } | null;
       };
-      const m = j.result;
+      const m = r.coinMetadata;
       if (m) {
         return {
           symbol: m.symbol ?? "",
@@ -75,39 +65,25 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
 
-  const rpcUrl =
-    process.env.SUI_RPC_URL || "https://fullnode.mainnet.sui.io:443";
-
+  // WAS raw JSON-RPC (`suix_getAllBalances` against SUI_RPC_URL, defaulting to
+  // the public fullnode). Public fullnodes now answer every JSON-RPC method
+  // with -32601 "JSON-RPC on public fullnodes has been deprecated", which this
+  // route turned into a 502, so the Token Bucket sheet rendered nothing at all
+  // while the gRPC-backed headline balance kept working. Now gRPC, like the
+  // rest of the app. Note the lint gate did not catch this: it greps for the
+  // legacy SDK client class and its import path, and a hand-rolled fetch that
+  // POSTs a `suix_*` method name matches neither. See scripts/lint-no-jsonrpc.sh.
   let rows: Array<{ coinType: string; totalBalance: string }>;
   try {
-    const r = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "suix_getAllBalances",
-        params: [user.sui_address],
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!r.ok) {
-      return NextResponse.json(
-        { error: `suix_getAllBalances HTTP ${r.status}` },
-        { status: 502 }
-      );
-    }
-    const body = (await r.json()) as {
-      result?: Array<{ coinType: string; totalBalance: string }>;
-      error?: { message: string };
+    const res = (await sui().listBalances({ owner: user.sui_address })) as {
+      balances?: Array<{ coinType?: string; balance?: string }>;
     };
-    if (body.error) {
-      return NextResponse.json({ error: body.error.message }, { status: 502 });
-    }
-    rows = body.result ?? [];
+    rows = (res.balances ?? [])
+      .filter((b) => b.coinType)
+      .map((b) => ({ coinType: b.coinType as string, totalBalance: b.balance ?? "0" }));
   } catch (err) {
     return NextResponse.json(
-      { error: "rpc failure: " + (err as Error).message },
+      { error: "balance read failed: " + (err as Error).message },
       { status: 502 }
     );
   }
@@ -130,7 +106,7 @@ export async function GET(req: Request) {
 
   const balances = await Promise.all(
     verified.map(async (r) => {
-      const meta = await coinMetadata(rpcUrl, r.coinType);
+      const meta = await coinMetadata(r.coinType);
       const norm = normCoinType(r.coinType);
       const symbol =
         meta.symbol || cetus.symbol.get(norm) || shortSymbol(r.coinType);
