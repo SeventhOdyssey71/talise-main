@@ -103,13 +103,17 @@ function mapNaviError(raw: string): string {
  *
  * Body:
  *   {
- *     venue: "deepbook" | "navi",
+ *     venue?: "navi" | "deepbook",  // default "navi"; DeepBook is exit-only
  *     // omit to withdraw the entire position (interest + principal)
  *     amount?: number,
  *   }
  * Returns: { transactionKindB64 }, feed straight into /api/zk/sponsor.
  */
 
+// DeepBook was removed as a SUPPLY venue on 2026-07-30 but stays withdrawable
+// on purpose: anyone already supplied into the margin pool needs an exit, and
+// deleting this branch would strand their principal on chain with no in-app
+// way out. Drop it once we've confirmed no SupplierCaps remain outstanding.
 const SUPPORTED_VENUES = new Set(["deepbook", "navi"]);
 
 export async function POST(req: Request) {
@@ -130,7 +134,10 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
-  const venue = (body.venue ?? "deepbook").toLowerCase();
+  // Default flipped off DeepBook 2026-07-30 — NAVI is where deposits go now,
+  // so an omitted venue must mean NAVI or every default withdraw would look
+  // for a margin position the user was never able to open.
+  const venue = (body.venue ?? "navi").toLowerCase();
   if (!SUPPORTED_VENUES.has(venue)) {
     return NextResponse.json(
       { error: `venue must be one of ${[...SUPPORTED_VENUES].join(", ")}` },

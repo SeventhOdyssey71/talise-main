@@ -152,7 +152,7 @@ export function buildChatTools(ctx: ChatUserContext): ToolSet {
       inputSchema: z
         .object({
           amount_usdsui: z.number().positive(),
-          venue: z.enum(["navi", "deepbook"]),
+          venue: z.enum(["navi"]),
         })
         .strict(),
       execute: async ({ amount_usdsui, venue }) => {

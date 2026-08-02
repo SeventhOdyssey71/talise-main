@@ -95,7 +95,7 @@ export async function POST(req: Request) {
     // until we wire share-to-USDsui conversion. Surface this clearly
     // so the iOS UI can hide the button for non-navi venues.
     return NextResponse.json(
-      { error: 'venue "navi" only, partial yield-only withdraw isn\'t supported on deepbook yet' },
+      { error: 'venue "navi" only, partial yield-only withdraw is not supported on deepbook (exit-only venue: withdraw the full position instead)' },
       { status: 400 }
     );
   }

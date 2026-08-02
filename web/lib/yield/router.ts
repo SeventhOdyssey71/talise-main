@@ -12,8 +12,9 @@ import "server-only";
  * move funds. See docs/strategy/YIELD-ROUTER.md.
  *
  * Venues are an ALLOWLIST (the 4 safest USDC supply primitives on Sui).
- * Aggregators (SAM, Kai, Mole, Aftermath) are deliberately NOT here, we
- * never nest an aggregator inside our own router.
+ * Aggregating vault-of-vaults products are deliberately NOT here, we never
+ * nest an aggregator inside our own router. The Yield Optimizer is wired as
+ * its own venue instead (lib/yield/optimizer.ts).
  */
 
 export type RouterVenueId = "suilend" | "navi" | "alphalend" | "scallop";

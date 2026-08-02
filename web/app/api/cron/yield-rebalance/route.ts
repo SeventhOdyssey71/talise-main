@@ -18,7 +18,7 @@ const SNAPSHOT_KEY = "yield_best_daily";
 /**
  * GET /api/cron/yield-rebalance, the once-a-day "check best yield" heartbeat.
  *
- * SAM-style routing has two halves:
+ * Optimizing routing has two halves:
  *   • ROUTE TO BEST, new deposits already resolve `venue:"best"` at deposit
  *     time (app/api/earn/supply/prepare), so money always lands in the top
  *     live venue. This cron refreshes the global APY caches once a day so that

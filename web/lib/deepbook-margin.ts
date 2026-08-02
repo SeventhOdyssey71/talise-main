@@ -1,5 +1,14 @@
 /**
- * DeepBook V3 Margin, USDsui supplier (best-margin yield).
+ * DeepBook V3 Margin — WITHDRAW ONLY.
+ *
+ * Removed as a supply venue 2026-07-30: USDsui borrow demand was ~0, so the
+ * realized supply APY was ~0 and it was already barred from the "best"
+ * auto-pick. What remains is deliberately the exit path and nothing else —
+ * anyone already holding a SupplierCap needs a way out, and deleting this
+ * would strand their principal on chain with no in-app redemption. Delete the
+ * file once no SupplierCaps are outstanding.
+ *
+ * Historical note (the original rationale, which did not hold):
  *
  * Suppliers deposit USDsui into the DeepBook margin pool and earn the
  * borrow rate × utilization × (1 − protocol spread). This generally
@@ -69,35 +78,6 @@ function dbClient(address: string): DeepBookClient {
  * borrow rate itself is a piecewise function of utilization, so this
  * always reflects the moment's supply yield.
  */
-export async function fetchUsdsuiMarginApy(): Promise<{
-  apy: number;
-  utilization: number;
-  totalSupply: number;
-  totalBorrow: number;
-} | null> {
-  try {
-    const c = dbClient("0x0");
-    const coinKey = "USDSUI";
-    const [supply, borrow, rate, spread] = await Promise.all([
-      c.getMarginPoolTotalSupply(coinKey, USDSUI_DECIMALS),
-      c.getMarginPoolTotalBorrow(coinKey, USDSUI_DECIMALS),
-      c.getMarginPoolInterestRate(coinKey),
-      c.getMarginPoolProtocolSpread(coinKey),
-    ]);
-    const totalSupply = Number(supply);
-    const totalBorrow = Number(borrow);
-    const utilization = totalSupply > 0 ? totalBorrow / totalSupply : 0;
-    const borrowRate = Number(rate);
-    const protocolSpread = Number(spread);
-    const apy = borrowRate * utilization * (1 - protocolSpread);
-    return { apy, utilization, totalSupply, totalBorrow };
-  } catch (err) {
-    console.warn(
-      `[deepbook-margin] fetchUsdsuiMarginApy failed: ${(err as Error).message}`
-    );
-    return null;
-  }
-}
 
 /**
  * Find the user's SupplierCap (if any), needed for every supply +
@@ -124,26 +104,6 @@ export async function fetchSupplierCapId(
  * Read the user's USDsui supply position. Returns null if they have no
  * SupplierCap yet.
  */
-export async function fetchUserUsdsuiSupply(
-  address: string
-): Promise<{ supplierCapId: string; shares: number; amount: number } | null> {
-  const capId = await fetchSupplierCapId(address);
-  if (!capId) return null;
-  try {
-    const c = dbClient(address);
-    const [shares, amount] = await Promise.all([
-      c.getUserSupplyShares("USDSUI", capId, USDSUI_DECIMALS),
-      c.getUserSupplyAmount("USDSUI", capId, USDSUI_DECIMALS),
-    ]);
-    return {
-      supplierCapId: capId,
-      shares: Number(shares),
-      amount: Number(amount),
-    };
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Build a PTB that supplies USDsui into the margin pool. If the user
@@ -153,30 +113,6 @@ export async function fetchUserUsdsuiSupply(
  * The returned `{ build }` shape mirrors the Talise PTB builders in
  * `lib/intents.ts` so it composes cleanly with the Payment Intent layer.
  */
-export function buildSupplyUsdsuiMargin(opts: {
-  senderAddress: string;
-  amountUsdsui: number;
-  existingSupplierCapId?: string | null;
-}): { build: (tx: Transaction) => void } {
-  return {
-    build: (tx: Transaction) => {
-      const c = dbClient(opts.senderAddress);
-      const cap = opts.existingSupplierCapId
-        ? tx.object(opts.existingSupplierCapId)
-        : c.marginPool.mintSupplierCap()(tx);
-      c.marginPool.supplyToMarginPool(
-        "USDSUI",
-        cap,
-        opts.amountUsdsui
-      )(tx);
-      // If we minted a fresh cap, transfer it back to the sender so they
-      // own it for future supply / withdraw calls.
-      if (!opts.existingSupplierCapId) {
-        tx.transferObjects([cap], opts.senderAddress);
-      }
-    },
-  };
-}
 
 /**
  * Withdraw USDsui from the margin pool. Omit `amountUsdsui` to withdraw

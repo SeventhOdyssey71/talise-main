@@ -6,10 +6,6 @@ import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { sui, USDSUI_DECIMALS } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
-import {
-  buildSupplyUsdsuiMargin,
-  fetchSupplierCapId,
-} from "@/lib/deepbook-margin";
 import { appendNaviSupply, SAVE_TREASURY_FEE_BPS, TREASURY_WALLET } from "@/lib/navi-supply";
 import { buildScallopSupply, SCALLOP_SUPPLY_ENABLED } from "@/lib/yield/ptb";
 import { getYieldComparison } from "@/lib/yield";
@@ -21,23 +17,25 @@ export const runtime = "nodejs";
  * POST /api/earn/supply/build
  *
  * Constructs a sponsored-ready PTB that supplies USDsui to the chosen
- * yield venue. Today only the DeepBook margin pool is wired (Talise's
- * highest-APY USDsui venue); NAVI follows the same pattern and will be
- * added when we port the @t2000 SDK PTB builder.
+ * yield venue. NAVI is the live default; Scallop is wired but gated.
  *
- * Body: { venue: "deepbook" | "navi", amount: number }
+ * Body: { venue?: "navi" | "scallop" | "best", amount: number }
  * Returns: { transactionKindB64 }, feed straight into /api/zk/sponsor.
  */
 
 // "best" auto-routes to the highest live APY among the wired USDsui venues
-// (NAVI account-based + Scallop sUSDsui), the SAM-style "earn at the best
-// rate" toggle. DeepBook stays selectable but is excluded from the best
-// auto-pick (its USDsui margin APY is ~0).
+// (NAVI account-based + Scallop sUSDsui), the "earn at the best rate" toggle.
+//
+// DeepBook margin was REMOVED as a supply venue on 2026-07-30. Its USDsui
+// borrow demand was ~0, so the realized APY was ~0 and it was already barred
+// from the "best" auto-pick — it existed only as a tile a user could pick to
+// earn nothing. The WITHDRAW route deliberately still accepts `deepbook` so
+// anyone already supplied there can exit.
 // Scallop is gated by SCALLOP_SUPPLY_ENABLED, its supply currently reverts on
 // a stale version object, so while disabled it's neither selectable nor a
 // "best" candidate, and deposits route to NAVI (live).
 const SUPPORTED_VENUES = new Set(
-  ["deepbook", "navi", "best", ...(SCALLOP_SUPPLY_ENABLED ? ["scallop"] : [])]
+  ["navi", "best", ...(SCALLOP_SUPPLY_ENABLED ? ["scallop"] : [])]
 );
 const BEST_CANDIDATES = new Set(
   ["navi", ...(SCALLOP_SUPPLY_ENABLED ? ["scallop"] : [])]
@@ -77,7 +75,7 @@ export async function POST(req: Request) {
   }
 
   // "best" → auto-route to the highest live APY among the wired venues. This
-  // is the SAM-style toggle: the engine picks the best rate at deposit time.
+  // is the best-rate toggle: the engine picks the best rate at deposit time.
   if (venue === "best") {
     const cmp = await getYieldComparison(user.sui_address).catch(() => null);
     const top = cmp?.venues
@@ -116,16 +114,14 @@ export async function POST(req: Request) {
       const sUsdsui = buildScallopSupply(tx, usdsui);
       tx.transferObjects([sUsdsui], tx.pure.address(user.sui_address));
     } else {
-      // DeepBook margin pool, USDsui borrow demand is ~0% so the
-      // realized APY is also ~0%. We still expose the venue for the
-      // user who wants to provide liquidity to bootstrap utilization,
-      // but it's no longer the default.
-      const capId = await fetchSupplierCapId(user.sui_address).catch(() => null);
-      buildSupplyUsdsuiMargin({
-        senderAddress: user.sui_address,
-        amountUsdsui: amount,
-        existingSupplierCapId: capId,
-      }).build(tx);
+      // Unreachable: `venue` is validated against SUPPORTED_VENUES above and
+      // "best" is resolved to a concrete venue before this branch. Kept as an
+      // explicit failure so adding a venue to the allowlist without wiring its
+      // builder can't silently produce a PTB that moves no money.
+      return NextResponse.json(
+        { error: `venue ${venue} is not supported`, code: "VENUE_UNSUPPORTED" },
+        { status: 400 }
+      );
     }
 
     // Universal Talise receipt, appends a Payment Kit

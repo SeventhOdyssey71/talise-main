@@ -2,7 +2,10 @@
  * Thin wrapper over @mysten/deepbook-v3 for the reads Talise needs:
  *
  *  - Live mid-price of any DeepBook spot pool (e.g. SUI/USDC).
- *  - Margin lending pool stats (supply, borrow, interest rate, utilization).
+ *
+ * The margin-lending stats reader was removed 2026-07-30 with the margin yield
+ * venue. DeepBook's remaining job here is purely a SUI/USDC price source for
+ * balance display — it is not a yield integration.
  *
  * All queries use the SDK's simulateTransaction path under the hood, so they
  * don't broadcast anything, just observe on-chain state.
@@ -98,42 +101,3 @@ export type MarginPoolInfo = {
   /** Borrow APR as a decimal (0.082 = 8.2%). */
   borrowApr: number;
 };
-
-/**
- * Fetch margin-pool stats for a coin key ("USDC", "SUI", "DEEP", "WAL", "XBTC").
- * Returns null if the pool isn't available or the query fails.
- */
-export async function getMarginPoolInfo(
-  coin: "USDC" | "SUI" | "DEEP" | "WAL" | "XBTC"
-): Promise<MarginPoolInfo | null> {
-  if (network() !== "mainnet") return null;
-  try {
-    const db = deepbook();
-    const [supplyStr, borrowStr, borrowRate] = await Promise.all([
-      db.getMarginPoolTotalSupply(coin),
-      db.getMarginPoolTotalBorrow(coin),
-      db.getMarginPoolInterestRate(coin),
-    ]);
-    const totalSupply = parseFloat(supplyStr);
-    const totalBorrow = parseFloat(borrowStr);
-    const utilization = totalSupply > 0 ? totalBorrow / totalSupply : 0;
-    // borrowRate from SDK is already a fraction (e.g. 0.082 = 8.2%)
-    const borrowApr = Number(borrowRate);
-    // Supply APR ≈ borrow rate × utilization (ignoring protocol spread for v1).
-    const supplyApr = borrowApr * utilization;
-    return {
-      coin,
-      totalSupply,
-      totalBorrow,
-      utilization,
-      supplyApr,
-      borrowApr,
-    };
-  } catch (err) {
-    console.warn(
-      `[deepbook] margin pool ${coin} fetch failed:`,
-      (err as Error).message
-    );
-    return null;
-  }
-}

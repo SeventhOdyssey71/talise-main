@@ -2,15 +2,16 @@ import "server-only";
 
 import type { PendingReward } from "@t2000/sdk";
 import {
-  fetchUsdsuiMarginApy,
-  fetchUserUsdsuiSupply,
-} from "./deepbook-margin";
-import {
   fetchNaviUsdsuiSupplyApy,
   readNaviUsdsuiSupply,
 } from "./navi-supply";
 import { getGlobalNum, setGlobalNum, refreshInBackground } from "./snapshots";
-import { samConfigured, fetchSamApy, readSamPosition } from "./yield/sam";
+import {
+  optimizerConfigured,
+  fetchOptimizerVaultState,
+  readOptimizerPosition,
+  realizedApy,
+} from "./yield/optimizer";
 import { fetchScallopUsdsuiApy } from "./yield/venues-mainnet";
 import { SCALLOP_SUPPLY_ENABLED } from "./yield/ptb";
 
@@ -38,7 +39,7 @@ const APY_BG_REFRESH_MS = 2 * 60_000;
  * when it's recent enough (refreshing in the background once it passes the
  * refresh horizon), and only block on the live venue read when the cache is
  * empty or too old to serve blind. Previously this always blocked on the
- * live legs (NAVI open API + DeepBook on-chain stats, each capped at 5s) and
+ * live legs (the NAVI open API, capped at 5s) and
  * used the cache only as a failure fallback, that's where the 4-6s
  * /api/yield/comparison responses came from.
  *
@@ -129,16 +130,20 @@ export async function getEarnSnapshot(address: string): Promise<EarnSnapshot> {
 }
 
 /**
- * Cross-venue yield comparison: returns NAVI + DeepBook margin USDsui
- * APYs side-by-side plus a `best` pointer at whichever is higher right
- * now. The `/earn` page surfaces both as picker tiles; the chat agent
- * uses `best` to answer "what's the best place to put my dollars?".
+ * Cross-venue yield comparison: returns each live venue's USDsui APY plus a
+ * `best` pointer at whichever is highest right now. The `/earn` page surfaces
+ * them as picker tiles; the chat agent uses `best` to answer "what's the best
+ * place to put my dollars?".
+ *
+ * DeepBook margin was removed 2026-07-30: its USDsui margin APY sat at ~0, so
+ * it was already excluded from the `best` auto-pick and existed only as a
+ * selectable tile that could never win.
  *
  * Each venue's APY is fetched independently and failures are
  * non-fatal, if one venue is offline we still return the other.
  */
 export type YieldVenue = {
-  id: "navi" | "deepbook" | "sam" | "scallop" | "suilend" | "alphalend";
+  id: "navi" | "optimizer" | "scallop" | "suilend" | "alphalend";
   name: string;
   apy: number;
   /** User's currently supplied USDsui, if any. */
@@ -152,6 +157,41 @@ export type YieldComparison = {
   best: YieldVenue | null;
 };
 
+/** Durable anchor for the optimizer's share price, keyed like the APY rows. */
+const OPTIMIZER_PRICE_KEY = "optimizer_usdc_share_price";
+
+/**
+ * Realized APY for the Yield Optimizer, measured from share-price growth.
+ *
+ * The vault publishes no APY on chain — the per-adapter rates that exist are
+ * routing weights the contracts say never affect valuation, so quoting one
+ * would be reporting a number that doesn't describe what a holder earned.
+ * Share price is the honest source: it moves only when the pool actually gains,
+ * and it is already net of the performance fee.
+ *
+ * The anchor is only re-based once a measurement succeeds. Overwriting it on
+ * every call would keep resetting the window to zero, so the six-hour minimum
+ * would never be reached and this would return null forever.
+ */
+async function fetchOptimizerRealizedApy(): Promise<number | null> {
+  const state = await fetchOptimizerVaultState();
+  if (!state || state.paused || !(state.price > 0)) return null;
+  const now = Date.now();
+  const anchor = await getGlobalNum(OPTIMIZER_PRICE_KEY).catch(() => null);
+  if (!anchor || !(anchor.value > 0)) {
+    await setGlobalNum(OPTIMIZER_PRICE_KEY, state.price).catch(() => {});
+    return null; // first observation: nothing to annualize against yet
+  }
+  const apy = realizedApy(
+    { price: anchor.value, atMs: anchor.refreshedAt },
+    { price: state.price, atMs: now }
+  );
+  if (apy != null) {
+    await setGlobalNum(OPTIMIZER_PRICE_KEY, state.price).catch(() => {});
+  }
+  return apy;
+}
+
 export async function getYieldComparison(
   address: string
 ): Promise<YieldComparison> {
@@ -159,25 +199,19 @@ export async function getYieldComparison(
   //
   //   APYs (global, same for every user), resolved through the durable
   //   global_kv cache via `resolveVenueApy`, so the common case is a
-  //   ~10-50ms DB read instead of a 1-5s NAVI open-API / DeepBook on-chain
-  //   round trip. Cold serverless instances and transient RPC outages still
+  //   ~10-50ms DB read instead of a 1-5s NAVI open-API round trip. Cold serverless instances and transient RPC outages still
   //   return last-known APYs.
   //
-  //   Positions (per-user), must stay live (one NAVI `devInspect` + one
-  //   DeepBook SupplierCap lookup), but each is timeout-capped and
-  //   failure-tolerant so a slow/flaky read degrades to supplied=0 rather
+  //   Positions (per-user), must stay live (a NAVI `devInspect`), but each is
+  //   timeout-capped and failure-tolerant so a slow/flaky read degrades to
+  //   supplied=0 rather
   //   than stalling or emptying the comparison.
-  const [naviApy, deepbookApy, scallopApy, naviSupplied, dbSupply] = await Promise.all([
+  const [naviApy, scallopApy, naviSupplied] = await Promise.all([
     resolveVenueApy("navi_usdsui_apy", () => fetchNaviUsdsuiSupplyApy()),
-    resolveVenueApy(
-      "deepbook_usdsui_apy",
-      async () => (await fetchUsdsuiMarginApy())?.apy ?? null
-    ),
     // Scallop USDsui supply, the second live aggregator-router venue. Read
     // from Scallop's market API (USDsui pool), cached like the others.
     resolveVenueApy("scallop_usdsui_apy", () => fetchScallopUsdsuiApy()),
     withTimeout(readNaviUsdsuiSupply(address).catch(() => 0), YIELD_LEG_TIMEOUT_MS, 0),
-    withTimeout(fetchUserUsdsuiSupply(address).catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
   ]);
 
   const venues: YieldVenue[] = [];
@@ -190,17 +224,6 @@ export async function getYieldComparison(
       // Pending rewards aren't surfaced from the direct NAVI read, see the
       // module note above. Kept in `meta` so consumers don't change shape.
       meta: { pendingUsd: 0 },
-    });
-  }
-  if (deepbookApy != null) {
-    venues.push({
-      id: "deepbook",
-      name: "DeepBook margin",
-      apy: deepbookApy,
-      supplied: dbSupply?.amount ?? 0,
-      meta: {
-        supplierCapId: dbSupply?.supplierCapId,
-      },
     });
   }
   // Scallop, USDsui supply market. GATED: supply currently reverts on a stale
@@ -216,23 +239,28 @@ export async function getYieldComparison(
       meta: { router: true },
     });
   }
-  // SAM, the aggregating vault venue (Scallop/Suilend/NAVI + compounded
-  // rewards behind one share token). Dormant until its on-chain interface is
-  // configured (samConfigured()); then it reads its offered APY + the user's
-  // samUSDC position and joins the comparison, typically as `best` since it
-  // aggregates the very markets above. Failure-tolerant like the other legs.
-  if (samConfigured()) {
-    const [samApy, samPos] = await Promise.all([
-      resolveVenueApy("sam_usdc_apy", () => fetchSamApy()),
-      withTimeout(readSamPosition(address).catch(() => null), YIELD_LEG_TIMEOUT_MS, null),
+  // Yield Optimizer, the aggregating vault venue (Scallop / Suilend ×3 / NAVI
+  // plus compounded rewards behind one appreciating share token). Gated OFF by
+  // default — see the risk note in lib/yield/optimizer.ts. When enabled it
+  // reports a REALIZED APY measured from share-price growth, never a quoted
+  // rate, so it only ranks above the direct venues if it has actually paid
+  // more. Failure-tolerant like the other legs.
+  if (await optimizerConfigured()) {
+    const [optApy, optPos] = await Promise.all([
+      resolveVenueApy("optimizer_usdc_apy", () => fetchOptimizerRealizedApy()),
+      withTimeout(
+        readOptimizerPosition(address).catch(() => null),
+        YIELD_LEG_TIMEOUT_MS,
+        null
+      ),
     ]);
-    if (samApy != null) {
+    if (optApy != null) {
       venues.push({
-        id: "sam",
-        name: "SAM vault",
-        apy: samApy,
-        supplied: samPos?.value ?? 0,
-        meta: { shares: samPos?.shares ?? 0, aggregator: true },
+        id: "optimizer",
+        name: "Yield Optimizer",
+        apy: optApy,
+        supplied: Number(optPos?.value ?? 0n),
+        meta: { shares: Number(optPos?.shares ?? 0n), aggregator: true },
       });
     }
   }
