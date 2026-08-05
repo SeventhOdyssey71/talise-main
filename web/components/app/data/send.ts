@@ -35,6 +35,20 @@ export type SendArgs = {
   to: string;
   amountUsd: number;
   asset?: "USDsui" | "SUI";
+  /**
+   * Opt into the server's sponsored coin fallback.
+   *
+   * The gasless rail can only spend USDsui held in the Address-Balance
+   * accumulator. A user whose balance sits in `Coin<USDSUI>` objects — anyone
+   * who received a transfer rather than topping up through Stripe — cannot fund
+   * a gasless send at all, and /api/send/sponsor-prepare answers
+   * ACCUMULATOR_UNDERFUNDED unless the caller opted in.
+   *
+   * Set this on flows where the transfer HAS to land and a dead end is worse
+   * than paying for sponsorship — cashing out to a bank, above all. Left off
+   * for ordinary sends so the gasless rail stays the default.
+   */
+  sponsorFallback?: boolean;
 };
 
 /**
@@ -170,7 +184,12 @@ export function useSignAndSend() {
       // 1) Server builds the sponsor-ready (or gasless) TransactionData bytes.
       const prep = await api<PrepareResponse>("/api/send/sponsor-prepare", {
         method: "POST",
-        body: { to: args.to, amount: args.amountUsd, asset },
+        body: {
+          to: args.to,
+          amount: args.amountUsd,
+          asset,
+          ...(args.sponsorFallback ? { sponsorFallback: true } : {}),
+        },
       });
 
       // 2) Sign the full bytes with the ephemeral key (the sender signature).

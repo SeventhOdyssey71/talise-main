@@ -193,6 +193,9 @@ export function WithdrawToBankSheet({ open, onClose }: { open: boolean; onClose:
         to: order.walletAddress,
         amountUsd: order.amountUsdsui,
         asset: "USDsui",
+        // Same reason as CashOutNg: the order is already created, so a build
+        // that cannot source Coin-held USDsui strands it until it times out.
+        sponsorFallback: true,
       });
 
       // 3) Poll Linq for the payout phase; otherwise it's "on its way".

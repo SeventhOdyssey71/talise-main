@@ -155,7 +155,16 @@ export function CashOutNg() {
           bankName: quote.bankName,
         },
       });
-      await send({ to: order.walletAddress, amountUsd: order.amountUsdsui, asset: "USDsui" });
+      // Cash-out must land. Without the fallback, a user whose USDsui is in
+      // Coin objects rather than the accumulator gets a hard
+      // ACCUMULATOR_UNDERFUNDED and a funded Linq order they cannot pay,
+      // which then times out. Sponsorship is cheaper than that.
+      await send({
+        to: order.walletAddress,
+        amountUsd: order.amountUsdsui,
+        asset: "USDsui",
+        sponsorFallback: true,
+      });
       let settled: "settled" | "remitting" | "failed" = "remitting";
       for (let i = 0; i < 5; i++) {
         await new Promise((r) => setTimeout(r, 2500));
