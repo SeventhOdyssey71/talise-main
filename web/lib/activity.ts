@@ -130,6 +130,10 @@ export type ActivityEntry = {
     | "cheque_claimed"
     | "stream_funding"
     | "stream_payment"
+    /** Treasury reward grant. Comes from the AUTHORITATIVE on-chain memo kind
+     *  (`reward`), not from an address heuristic, so it cannot be spoofed by
+     *  anyone sending from a lookalike address. */
+    | "reward"
     | null;
   /**
    * Compound spend+save flag. When a Send PTB included a round-up
@@ -1939,9 +1943,18 @@ export async function getRecentActivityWithMeta(
       };
     }
 
-    // Cheque / stream escrow-address heuristic (fail-open: null when the
-    // feature env is unset or the counterparty isn't an escrow address).
-    const featureLabel = featureLabelFor(cpForRow, direction);
+    // Reward grants are labelled from the signed on-chain memo, which beats
+    // the address heuristic below: the treasury address can rotate, and an
+    // unsolicited inbound payment that merely LOOKS like a reward must not be
+    // able to claim the label. Only the receiving side is tagged, so the
+    // treasury's own outgoing row stays an ordinary send in its history.
+    const rewardMemo = allMemos.find((m) => m.kind === "reward");
+    const featureLabel: ActivityEntry["featureLabel"] =
+      rewardMemo && direction === "received"
+        ? "reward"
+        : // Cheque / stream escrow-address heuristic (fail-open: null when the
+          // feature env is unset or the counterparty isn't an escrow address).
+          featureLabelFor(cpForRow, direction);
 
     entries.push({
       digest: tx.digest!,

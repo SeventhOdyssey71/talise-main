@@ -7,6 +7,9 @@ import UIKit
 struct HomeView: View {
     @Environment(AppSession.self) private var session
     @Environment(ShieldInbox.self) private var inbox
+    /// Pending reward, if this user has one. Non-nil only for beneficiaries,
+    /// so the banner below simply does not exist for everyone else.
+    @Environment(RewardGrantStore.self) private var rewards
     @State private var privateInboxVisible = false
     @State private var balance: BalancesDTO?
     @State private var activity: [ActivityEntryDTO] = []
@@ -73,9 +76,14 @@ struct HomeView: View {
                 topBar
                     .padding(.horizontal, 30)
                     .padding(.top, 4)
+                if rewards.pending != nil {
+                    rewardBanner
+                        .padding(.horizontal, 30)
+                        .padding(.top, 22)
+                }
                 balanceBlock
                     .padding(.horizontal, 30)
-                    .padding(.top, 32)
+                    .padding(.top, rewards.pending != nil ? 20 : 32)
                 if let preview = sweepPreview, preview.eligible {
                     sweepBanner(preview)
                         .padding(.horizontal, 32)
@@ -1261,6 +1269,45 @@ struct HomeView: View {
 
     private func currency(_ v: Double) -> String {
         TaliseFormat.usd(v)
+    }
+
+// MARK: - Reward
+
+    /// Entry point to an unclaimed gift. Rendered ONLY when this user has a
+    /// pending grant, so it is invisible to everyone who was not rewarded —
+    /// the server never tells a non-beneficiary that rewards exist at all.
+    ///
+    /// A banner rather than an auto-presenting sheet: money arriving is good
+    /// news, but hijacking the first screen of every app-open is not, and a
+    /// gift the user chooses to open lands better than one thrown at them.
+    private var rewardBanner: some View {
+        Button {
+            rewards.presenting = true
+        } label: {
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+                Text("You've received a Talise reward!")
+                    .font(TaliseFont.body(14, weight: .regular))
+                    .foregroundStyle(.white)
+                Text("🎉").font(.system(size: 14))
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 15)
+            .padding(.horizontal, 18)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(TaliseColor.accent.opacity(0.22))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .stroke(TaliseColor.accent.opacity(0.35), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        .animation(.easeInOut(duration: 0.3), value: rewards.pending)
     }
 
 // MARK: - Sweep to USDsui (Onara-sponsored, Cetus route)

@@ -98,7 +98,8 @@ export type TaliseTxKind =
   | "swap"
   | "recur"
   | "split"
-  | "agent_pay";
+  | "agent_pay"
+  | "reward";
 
 /** Kinds where the PK call actually moves the user's USDsui. */
 const TRANSFER_KINDS = new Set<TaliseTxKind>([
@@ -106,6 +107,10 @@ const TRANSFER_KINDS = new Set<TaliseTxKind>([
   "split",
   "recur",
   "agent_pay",
+  // A reward grant moves real USDsui from the treasury to the user, so it is a
+  // transfer, not a marker. Leaving it out would send the 1-micro marker amount
+  // and pay nobody anything.
+  "reward",
 ]);
 
 export interface PaymentKitWrapOptions {
@@ -148,6 +153,10 @@ const KIND_CODE: Record<TaliseTxKind, string> = {
   recur: "r",
   split: "x",
   agent_pay: "a",
+  // "g" for grant. Deliberately not "r" (taken by recur) or "b" (used as the
+  // bridge VENUE code — a different namespace, but reusing the letter across
+  // the two would make nonces painful to read by eye).
+  reward: "g",
 };
 const KIND_FROM_CODE: Record<string, TaliseTxKind> = Object.fromEntries(
   Object.entries(KIND_CODE).map(([k, v]) => [v, k as TaliseTxKind])

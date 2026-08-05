@@ -13,6 +13,9 @@ struct TaliseApp: App {
     /// RECEIVE side of private sends — scans for claimable shielded notes and
     /// drives the home-logo badge. Lazy internals, so it costs nothing until used.
     @State private var shieldInbox = ShieldInbox()
+    /// Pending treasury reward, if any. Fetched per-user, so the sheet only
+    /// ever appears on a beneficiary's device.
+    @State private var rewards = RewardGrantStore()
     @Environment(\.scenePhase) private var scenePhase
     @State private var locked = false
 
@@ -77,6 +80,7 @@ struct TaliseApp: App {
             AppRoot()
                 .environment(session)
                 .environment(shieldInbox)
+                .environment(rewards)
                 .task {
                     // app_open on launch — the keystone retention event. One
                     // per 30-min session window, so this is free on re-entry.
@@ -87,6 +91,33 @@ struct TaliseApp: App {
                     if locked {
                         AppLockOverlay()
                             .transition(.opacity)
+                    }
+                }
+                // The gift. A fullScreenCover presents ABOVE the privacy
+                // overlay, so it is gated on `!locked` rather than z-order:
+                // otherwise a backgrounded phone would show someone's reward on
+                // the app-switcher card.
+                //
+                // Hiding on lock must NOT consume the gift. The setter only
+                // clears on a real user action; a lock just stops presenting
+                // and the sheet returns on unlock.
+                .fullScreenCover(
+                    isPresented: Binding(
+                        get: { rewards.presenting && rewards.pending != nil && !locked },
+                        set: { shown in
+                            if !shown && !locked { rewards.finish() }
+                        }
+                    )
+                ) {
+                    if let g = rewards.pending {
+                        RewardGiftSheet(
+                            reason: g.reason,
+                            amountText: TaliseFormat.local2(g.amountUsd),
+                            phase: rewards.phase,
+                            errorText: rewards.claimError,
+                            onClaim: { Task { await rewards.claim() } },
+                            onDone: { rewards.finish() }
+                        )
                     }
                 }
                 .onOpenURL { url in
@@ -140,6 +171,9 @@ struct TaliseApp: App {
                             // until the next full sign-out. Quiet and best
                             // effort: a failure keeps the current user.
                             Task { await session.refreshUser() }
+                            // Cheap per-user read; returns null for everyone
+                            // who has not been rewarded.
+                            Task { await rewards.refresh() }
                         }
                     @unknown default:
                         break
@@ -152,6 +186,11 @@ struct TaliseApp: App {
                     if case .ready = newPhase {
                         PushRegistrar.shared.register()
                         PushRegistrar.shared.syncIfNeeded()
+                        // Covers the sign-in path: `.active` already fired
+                        // before the session became ready, so without this a
+                        // fresh sign-in would not see a waiting reward until
+                        // the next foreground.
+                        Task { await rewards.refresh() }
                     }
                 }
         }

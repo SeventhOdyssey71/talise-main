@@ -9,3 +9,4 @@ export { IdentityCard } from "./IdentityCard";
 export { RecentActivity } from "./RecentActivity";
 export { ReceiveSheet } from "./ReceiveSheet";
 export { relativeTime } from "./relativeTime";
+export { RewardBanner } from "./RewardBanner";

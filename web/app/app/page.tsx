@@ -19,6 +19,7 @@ import {
   SecondaryActions,
   DoMoreCard,
   RecentActivity,
+  RewardBanner,
 } from "@/components/app/home";
 
 export default function HomePage() {
@@ -27,17 +28,23 @@ export default function HomePage() {
 
   return (
     <div className="space-y-8">
-      {/* Perps launch banner → the dedicated perps.talise.io terminal. */}
-      <a
-        href="https://perps.talise.io"
-        className="group flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-accent-light)] px-4 py-2.5 text-center text-[#1c3d12] transition-colors hover:bg-[#bcf2a2]"
-      >
-        <span className="bg-[#1c3d12] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--color-accent-light)] sm:text-[9.5px]">New</span>
-        <span className="text-[13px] font-[500] sm:text-[14px]" style={{ fontFamily: '"TWK Everett", var(--font-display-v2), system-ui, sans-serif' }}>
-          You can now trade perps on talise 🎉
-        </span>
-        <span aria-hidden className="font-mono text-[12px] transition-transform group-hover:translate-x-0.5">→</span>
-      </a>
+      {/* Announcement slot. A pending reward is addressed to ONE account and
+          outranks the broadcast perps banner, which everyone else still sees.
+          RewardBanner renders its fallback when this user has no gift. */}
+      <RewardBanner
+        fallback={
+          <a
+            href="https://perps.talise.io"
+            className="group flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-accent-light)] px-4 py-2.5 text-center text-[#1c3d12] transition-colors hover:bg-[#bcf2a2]"
+          >
+            <span className="bg-[#1c3d12] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--color-accent-light)] sm:text-[9.5px]">New</span>
+            <span className="text-[13px] font-[500] sm:text-[14px]" style={{ fontFamily: '"TWK Everett", var(--font-display-v2), system-ui, sans-serif' }}>
+              You can now trade perps on talise 🎉
+            </span>
+            <span aria-hidden className="font-mono text-[12px] transition-transform group-hover:translate-x-0.5">→</span>
+          </a>
+        }
+      />
 
       <div className="space-y-2.5">
         {/* Greeting, quiet, personal, hugging the balance card (it used to
