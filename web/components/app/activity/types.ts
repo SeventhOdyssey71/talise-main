@@ -138,6 +138,12 @@ export function displayVenue(venue: string | null | undefined): string {
 
 /** Row title, "Sent" / "Received" / "Invested in NAVI" / coin / swap. */
 export function titleOf(row: ActivityRow): string {
+  // A reward payout is not an anonymous inbound transfer. Checked before every
+  // other rule: the server sets this from the grants table, so it is
+  // authoritative and cannot be spoofed by a lookalike inbound send.
+  if ((row as { featureLabel?: string | null }).featureLabel === "reward") {
+    return "Talise gift";
+  }
   const coin = otherCoinOf(row);
   if (coin && coin.symbol.toUpperCase() !== "USDSUI") {
     return isInflow(row) ? `Received ${coin.symbol}` : `Sent ${coin.symbol}`;

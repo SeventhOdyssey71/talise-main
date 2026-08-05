@@ -193,6 +193,42 @@ export async function pendingGrantFor(userId: number): Promise<RewardGrant | nul
 }
 
 /**
+ * Which of these digests are claimed reward payouts.
+ *
+ * This is how a reward gets labelled in the activity feed. The obvious route —
+ * a Payment Kit memo on the transfer — is not available: the payout rides Sui's
+ * gasless `send_funds` accumulator, which permits that one call and nothing
+ * else, so no receipt can travel with it. The grants table is the authoritative
+ * record instead, and it is strictly better than a memo would be: it is our own
+ * data, so nobody can forge a reward label by crafting a lookalike transfer.
+ *
+ * Fails CLOSED to an empty set — an unlabelled row is a cosmetic loss, a failed
+ * activity feed is not.
+ */
+export async function rewardDigests(digests: string[]): Promise<Set<string>> {
+  // Bounded by the activity page size. Sliced defensively so a large feed can
+  // never build a statement with hundreds of placeholders.
+  const list = [...new Set(digests.filter(Boolean))].slice(0, 200);
+  if (list.length === 0) return new Set();
+  try {
+    await ensureGrantsSchema();
+    // Explicit placeholders rather than `= ANY($1)`: the adapter forwards args
+    // straight to postgres.unsafe(), and nothing else in the codebase relies on
+    // it serialising a JS array into a Postgres array. An IN list is boring and
+    // certain to bind.
+    const ph = list.map((_, i) => `$${i + 1}`).join(",");
+    const r = await db().execute({
+      sql: `SELECT digest FROM reward_grants
+             WHERE status = 'claimed' AND digest IN (${ph})`,
+      args: list,
+    });
+    return new Set(r.rows.map((row) => String((row as Record<string, unknown>).digest ?? "")));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
  * Atomically take ownership of a claim. Returns the grant only to the caller
  * that flipped it out of `unclaimed`; every other racing tap gets null and MUST
  * NOT pay. Scoped to `user_id` so no one can claim another user's gift.

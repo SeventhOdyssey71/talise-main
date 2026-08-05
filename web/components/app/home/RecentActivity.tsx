@@ -47,6 +47,11 @@ function counterpartyLabel(e: ActivityEntry): string {
 }
 
 function titleFor(e: ActivityEntry): string {
+  // Reward payouts read as a gift, not a mystery credit from an unknown
+  // address. Server-tagged from the grants table, so it is authoritative.
+  if ((e as { featureLabel?: string | null }).featureLabel === "reward") {
+    return "Talise gift";
+  }
   if (e.venue) return e.direction === "sent" ? "Moved to Earn" : "Earn payout";
   return e.direction === "received" ? "Received" : "Sent";
 }

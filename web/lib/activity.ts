@@ -2059,5 +2059,26 @@ export async function getRecentActivityWithMeta(
     if (e.counterparty) e.counterpartyName = names.get(e.counterparty);
   }
 
+  // Reward payouts. Tagged from OUR grants table rather than an on-chain memo,
+  // because the gasless accumulator the treasury pays over cannot carry one.
+  // Applied after name resolution so it overrides the treasury's raw address —
+  // "Received from 0x4d8d…" tells the user nothing.
+  try {
+    const { rewardDigests } = await import("@/lib/rewards/grants");
+    const rewards = await rewardDigests(limited.map((e) => e.digest));
+    if (rewards.size > 0) {
+      for (const e of limited) {
+        if (!rewards.has(e.digest)) continue;
+        e.featureLabel = "reward";
+        // iOS composes its row title as "Received from {counterpartyName}" and
+        // does not read featureLabel at all, so this is what actually changes
+        // the label on the installed build. Web reads featureLabel directly.
+        e.counterpartyName = "Talise";
+      }
+    }
+  } catch {
+    /* labelling is cosmetic, never fail the feed over it */
+  }
+
   return { entries: limited, complete };
 }
