@@ -618,7 +618,14 @@ export async function sumRecentAttemptUsd(
   opts?: { excludeProvider?: string }
 ): Promise<number> {
   await ensureOfframpProviderSchema();
-  const args: unknown[] = [String(userId), sinceMs];
+  // A `prepared` attempt is bytes handed to the client. It may already have
+  // been signed and broadcast with the webhook still in flight, so a FRESH one
+  // must hold allowance — otherwise a user could prepare-and-sign repeatedly
+  // inside the webhook delay and walk straight through the cap. Past this
+  // window it was abandoned (or has long since settled into another state), and
+  // holding someone's limit hostage to an unsigned transaction is wrong.
+  const STALE_PREPARE_MS = 30 * 60_000;
+  const args: unknown[] = [String(userId), sinceMs, Date.now() - STALE_PREPARE_MS];
   let extra = "";
   if (opts?.excludeProvider) {
     extra = " AND provider <> ?";
@@ -629,6 +636,7 @@ export async function sumRecentAttemptUsd(
             FROM offramp_attempts
            WHERE user_id = ? AND created_at >= ?
              AND state NOT IN ('failed', 'cancelled', 'rejected', 'expired', 'refunded')
+             AND NOT (state = 'prepared' AND created_at < ?)
              ${extra}`,
     args,
   });

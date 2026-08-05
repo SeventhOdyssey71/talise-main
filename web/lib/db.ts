@@ -1112,10 +1112,21 @@ export async function sumRecentOfframpUsd(
 ): Promise<number> {
   await ensureSchema();
   const r = await db().execute({
+    // `timeout%` covers Linq's "timeout: no deposit received" — an order the
+    // user opened and never funded. No USDsui ever left their wallet, so it
+    // must not consume their daily allowance. It previously did, which silently
+    // burned the entire $200 for 24h on an abandoned order and read to the user
+    // as "you have $0.00 left today" on a day they had cashed out nothing.
+    //
+    // Kept as a DENYLIST rather than an allowlist of paid states on purpose:
+    // Linq's status strings are free text and new ones appear without notice.
+    // An unknown status counting is a user briefly under-limited; an unknown
+    // status NOT counting is real money over the cap.
     sql: `SELECT COALESCE(SUM(amount_usdsui), 0) AS total
             FROM linq_offramps
            WHERE user_id = ? AND created_at >= ?
-             AND status NOT IN ('failed', 'cancelled', 'rejected', 'expired', 'manual_requested')`,
+             AND status NOT IN ('failed', 'cancelled', 'rejected', 'expired', 'manual_requested')
+             AND status NOT LIKE 'timeout%'`,
     args: [String(userId), sinceMs],
   });
   return Number(r.rows[0]?.total ?? 0);
