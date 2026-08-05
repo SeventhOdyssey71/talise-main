@@ -122,9 +122,13 @@ export async function issueGrant(opts: {
   if (!opts.batchKey) throw new Error("issueGrant: batchKey is required");
   await ensureGrantsSchema();
   const r = await db().execute({
+    // The unique index is PARTIAL (`WHERE batch_key IS NOT NULL`), and Postgres
+    // will not infer a partial index for ON CONFLICT unless the statement
+    // repeats the same predicate. Without it every insert fails with "no unique
+    // or exclusion constraint matching the ON CONFLICT specification".
     sql: `INSERT INTO reward_grants (id, user_id, amount_usd, reason, status, created_at, batch_key)
           VALUES ($1, $2, $3, $4, 'unclaimed', $5, $6)
-          ON CONFLICT (user_id, batch_key) DO NOTHING
+          ON CONFLICT (user_id, batch_key) WHERE batch_key IS NOT NULL DO NOTHING
       RETURNING id`,
     args: [opts.id, opts.userId, opts.amountUsd, opts.reason, Date.now(), opts.batchKey],
   });
