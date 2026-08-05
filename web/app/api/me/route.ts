@@ -52,8 +52,9 @@ export async function GET(req: Request) {
     // Close with FEATURE_CASHOUT=false. Scan-to-pay stays closed until opened.
     cashout: process.env.FEATURE_CASHOUT?.trim().toLowerCase() !== "false",
     scanToPay: process.env.FEATURE_SCAN_TO_PAY?.trim().toLowerCase() === "true",
-    // US cash-out (Bridge). Per-user allowlist gate (USD_WITHDRAWAL_OPEN or the
-    // allowlist envs), and always closed for Apple private-relay emails.
+    // US cash-out (Bridge, over ACH). OPEN to everyone; the maintainer
+    // allowlist is retired. Still closed for Apple private-relay emails, which
+    // cannot complete Bridge KYC. Kill switch: USD_WITHDRAWAL_CLOSED=true.
     usdWithdrawal: usdWithdrawalAllowed({
       email: user.email,
       talise_username: (user as { talise_username?: string | null }).talise_username ?? null,

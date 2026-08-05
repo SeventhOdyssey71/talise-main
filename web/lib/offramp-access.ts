@@ -2,45 +2,47 @@ import "server-only";
 import { isPrivateRelayEmail } from "@/lib/email-address";
 
 /**
- * USD withdrawal (Bridge USD-wire cash-out) access gate.
+ * USD withdrawal (Bridge USD cash-out over ACH) access gate.
  *
- * LOCKED for now (closed by default) while KYC + the US cash-out flow are paused.
- * Re-open to everyone with `USD_WITHDRAWAL_OPEN=true`. The maintainer allowlist
- * (`USD_WITHDRAWAL_ALLOWED_EMAILS` / `_HANDLES`, default `rolandojude18`) always
- * passes so testing keeps working. Cash-out also independently requires approved
- * Bridge KYC. Server-authoritative, the iOS app surfaces the 403 as "coming soon".
+ * OPEN to every account. It was previously locked to a maintainer allowlist
+ * while the US flow was being proven; that pilot is over.
+ *
+ * ── Why the switch is named `USD_WITHDRAWAL_CLOSED`, not the old
+ *    `USD_WITHDRAWAL_OPEN` ──────────────────────────────────────────────────
+ * The old variable was opt-IN: cash-out opened only on an explicit "true", so
+ * an unset, misspelled or migration-lost value silently CLOSED the rail for
+ * everyone. Inverting the default without renaming would have been worse: the
+ * same variable would mean the opposite thing depending on which deploy read
+ * it, and a stale "false" left in an environment would keep the rail shut while
+ * the code claimed to be open. A new name has no legacy values anywhere, so the
+ * default is unambiguous and the kill switch is explicit.
+ *
+ * To shut the rail off in an emergency: set `USD_WITHDRAWAL_CLOSED=true` and
+ * redeploy. Nothing else re-closes it.
+ *
+ * This gate is only about ACCESS. Cash-out independently requires approved
+ * Bridge KYC (`NO_BRIDGE_CUSTOMER`), a usable ACH route (`NO_ROUTE`), a
+ * balance, and it stays inside the daily off-ramp cap — none of which this
+ * function relaxes. Server-authoritative; iOS surfaces the 403 as "coming soon".
  */
-const DEFAULT_EMAILS = "rolandojude18@gmail.com";
-const DEFAULT_HANDLES = "rolandojude18";
 
 export const USD_WITHDRAWAL_CLOSED_MESSAGE =
   "USD withdrawal isn't open for your account yet, it's rolling out soon.";
 
-function list(envVal: string | undefined, fallback: string): string[] {
-  return (envVal ?? fallback)
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
+/** Emergency kill switch. Absent (the normal state) means the rail is open. */
+function killSwitchOn(): boolean {
+  return process.env.USD_WITHDRAWAL_CLOSED?.trim().toLowerCase() === "true";
 }
 
 export function usdWithdrawalAllowed(user: {
   email?: string | null;
   talise_username?: string | null;
 }): boolean {
-  // Apple "Hide My Email" relay addresses can't complete Bridge KYC, so they
-  // can't cash out. Deny until the user sets a real email (via KYC start),
-  // ahead of every other rule (including USD_WITHDRAWAL_OPEN).
+  if (killSwitchOn()) return false;
+  // Apple "Hide My Email" relay addresses cannot complete Bridge KYC, so a
+  // cash-out would fail downstream with a far more confusing error than this
+  // one. Denied until the user sets a real address (via KYC start). This is a
+  // provider constraint, not a pilot restriction, so it outlives the allowlist.
   if (isPrivateRelayEmail(user.email)) return false;
-  // LOCKED for now: closed by default. Flip back on with `USD_WITHDRAWAL_OPEN=true`.
-  if (process.env.USD_WITHDRAWAL_OPEN?.trim().toLowerCase() === "true") return true;
-  // Otherwise allow only the maintainer allowlist (keeps testing working).
-  const email = user.email?.trim().toLowerCase();
-  if (email && list(process.env.USD_WITHDRAWAL_ALLOWED_EMAILS, DEFAULT_EMAILS).includes(email)) {
-    return true;
-  }
-  const handle = user.talise_username?.trim().toLowerCase();
-  if (handle && list(process.env.USD_WITHDRAWAL_ALLOWED_HANDLES, DEFAULT_HANDLES).includes(handle)) {
-    return true;
-  }
-  return false;
+  return true;
 }
