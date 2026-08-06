@@ -6,6 +6,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { linqConfigured, cashoutFeatureOpen, CASHOUT_CLOSED_MESSAGE } from "@/lib/linq";
 import { resolveLinqBank } from "@/lib/linq-banks";
+import { getPayoutTarget, rememberPayoutTarget, touchPayoutTarget } from "@/lib/bank-accounts";
 import { beginLinqOrder, readIdempotencyKey } from "@/lib/offramp/linq-orders";
 import { trackCashoutStarted } from "@/lib/analytics/emit";
 
@@ -69,6 +70,7 @@ export async function POST(req: Request) {
     bankCode?: string;
     accountNumber?: string;
     accountName?: string;
+    beneficiaryId?: string;
     bankName?: string;
     idempotencyKey?: string;
   };
@@ -78,9 +80,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
 
-  const bankCode = String(body.bankCode ?? "").trim();
-  const accountNumber = String(body.accountNumber ?? "").trim();
-  const accountName = String(body.accountName ?? "").trim();
+  let bankCode = String(body.bankCode ?? "").trim();
+  let accountNumber = String(body.accountNumber ?? "").trim();
+  let accountName = String(body.accountName ?? "").trim();
+  // Same as /quote: a saved target is referenced by id and resolved server-side,
+  // scoped to the caller. The stored name wins over anything the client sent —
+  // it came from the provider's own enquiry.
+  const beneficiaryId = String(body.beneficiaryId ?? "").trim();
+  if (beneficiaryId) {
+    const target = await getPayoutTarget(userId, beneficiaryId);
+    if (!target) {
+      return NextResponse.json(
+        { error: "That saved beneficiary is no longer available." },
+        { status: 404 }
+      );
+    }
+    bankCode = target.bankCode;
+    accountNumber = target.accountNumber;
+    accountName = target.accountName ?? accountName;
+  }
   const bank = resolveLinqBank(bankCode);
   const bankName = String(body.bankName ?? bank?.name ?? "").trim();
 
@@ -118,6 +136,25 @@ export async function POST(req: Request) {
       usd: result.amountUsdsui,
       corridor: "NGN",
       provider: "linq",
+    });
+  }
+
+  // Remember where this went, so the next cash-out offers it instead of asking
+  // for a bank and ten digits again. Saved AFTER the order exists, so a set of
+  // details that never got as far as a real payout never enters the picker.
+  //
+  // `accountName` here is the provider-verified name carried through from the
+  // quote, not anything the client chose to call this account. Deliberately not
+  // awaited: the order is already created and a bookkeeping write must not be
+  // able to fail a cash-out.
+  if (beneficiaryId) {
+    void touchPayoutTarget(userId, beneficiaryId);
+  } else {
+    void rememberPayoutTarget({
+      userId,
+      bankCode,
+      accountNumber,
+      accountName,
     });
   }
 

@@ -26,6 +26,7 @@ import {
 import { BackButton } from "@/components/app/ui/BackButton";
 import { LINQ_BANKS } from "@/lib/linq-banks";
 import { BankSelect } from "@/components/app/ui/BankSelect";
+import { BeneficiaryPicker } from "@/components/app/ramps/BeneficiaryPicker";
 
 type Quote = {
   accountName: string;
@@ -35,6 +36,8 @@ type Quote = {
   rate: number;
   amountUsdsui: number;
   amountNgn: number;
+  /** Masked when the quote came from a saved beneficiary. */
+  beneficiaryId?: string;
 };
 type CreateResp = {
   orderId: string;
@@ -77,11 +80,18 @@ export function CashOutNg() {
   const [resolvedName, setResolvedName] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveErr, setResolveErr] = useState<string | null>(null);
+  // A picked beneficiary replaces the bank + account fields entirely. Only its
+  // id travels: the client's copy is masked to last-4, and the server resolves
+  // the account number from it.
+  const [beneficiaryId, setBeneficiaryId] = useState<string | null>(null);
+  const [beneficiaryName, setBeneficiaryName] = useState<string | null>(null);
 
   const reset = useCallback(() => {
     setStep("form");
     setAmount("");
     setAccount("");
+    setBeneficiaryId(null);
+    setBeneficiaryName(null);
     setError(null);
     setQuote(null);
     setFinalStatus(null);
@@ -91,6 +101,9 @@ export function CashOutNg() {
   // Name-enquiry once a bank + full 10-digit account are present (debounced).
   useEffect(() => {
     if (step !== "form") return;
+    // A saved target carries the provider-verified name already; re-running the
+    // enquiry would spend a bank-network call to learn what we stored.
+    if (beneficiaryId) return;
     if (!bankCode || !/^\d{10}$/.test(account)) {
       setResolvedName(null);
       setResolveErr(null);
@@ -119,11 +132,14 @@ export function CashOutNg() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [bankCode, account, step]);
+  }, [bankCode, account, step, beneficiaryId]);
 
   const amountUsdsui = Number(amount) || 0;
   const formValid =
-    amountUsdsui > 0 && /^\d{10}$/.test(account) && !!bankCode && !!resolvedName && !resolveErr;
+    amountUsdsui > 0 &&
+    (beneficiaryId
+      ? true
+      : /^\d{10}$/.test(account) && !!bankCode && !!resolvedName && !resolveErr);
 
   async function getQuote() {
     setError(null);
@@ -131,7 +147,9 @@ export function CashOutNg() {
     try {
       const q = await api<Quote>("/api/offramp/linq/quote", {
         method: "POST",
-        body: { amountUsdsui, bankCode, accountNumber: account },
+        body: beneficiaryId
+          ? { amountUsdsui, beneficiaryId }
+          : { amountUsdsui, bankCode, accountNumber: account },
       });
       setQuote(q);
       setStep("review");
@@ -147,13 +165,15 @@ export function CashOutNg() {
     try {
       const order = await api<CreateResp>("/api/offramp/linq/create", {
         method: "POST",
-        body: {
-          amountUsdsui: quote.amountUsdsui,
-          bankCode: quote.bankCode,
-          accountNumber: quote.accountNumber,
-          accountName: quote.accountName,
-          bankName: quote.bankName,
-        },
+        body: beneficiaryId
+          ? { amountUsdsui: quote.amountUsdsui, beneficiaryId }
+          : {
+              amountUsdsui: quote.amountUsdsui,
+              bankCode: quote.bankCode,
+              accountNumber: quote.accountNumber,
+              accountName: quote.accountName,
+              bankName: quote.bankName,
+            },
       });
       // Cash-out must land. Without the fallback, a user whose USDsui is in
       // Coin objects rather than the accumulator gets a hard
@@ -216,26 +236,61 @@ export function CashOutNg() {
                 className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 text-[18px] text-[#15300c] placeholder:text-[#3d7a29] outline-none backdrop-blur-sm focus:border-[#3d7a29] focus:ring-1 focus:ring-[#3d7a29]"
               />
             </Field>
-            <Field label="Bank">
-              <BankSelect banks={LINQ_BANKS} value={bankCode} onChange={setBankCode} />
-            </Field>
-            <Field label="Account number">
-              <input
-                inputMode="numeric"
-                value={account}
-                onChange={(e) => setAccount(e.target.value.replace(/[^\d]/g, "").slice(0, 10))}
-                placeholder="0123456789"
-                className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 text-[16px] tracking-wide text-[#15300c] placeholder:text-[#3d7a29] outline-none backdrop-blur-sm focus:border-[#3d7a29] focus:ring-1 focus:ring-[#3d7a29]"
-              />
-            </Field>
-            {resolving && <p className="-mt-2 text-[13px] text-[#3d7a29]">Checking account…</p>}
-            {resolvedName && !resolving && (
-              <p className="-mt-2 flex items-center gap-1.5 text-[13px] font-medium text-[#3d7a29]">
+            <BeneficiaryPicker
+              selectedId={beneficiaryId}
+              disabled={busy}
+              onPick={(b) => {
+                setBeneficiaryId(b?.id ?? null);
+                setBeneficiaryName(b?.accountName ?? null);
+                setError(null);
+                if (b) {
+                  // Clear the typed fields so two destinations can never be
+                  // half-entered at once and leave it ambiguous which one pays.
+                  setBankCode("");
+                  setAccount("");
+                  setResolvedName(null);
+                  setResolveErr(null);
+                }
+              }}
+            />
+
+            {/* The manual fields stay available until a saved target is chosen,
+                so a first cash-out is never blocked behind an empty list. */}
+            {!beneficiaryId && (
+              <>
+                <Field label="Bank">
+                  <BankSelect banks={LINQ_BANKS} value={bankCode} onChange={setBankCode} />
+                </Field>
+                <Field label="Account number">
+                  <input
+                    inputMode="numeric"
+                    value={account}
+                    onChange={(e) => setAccount(e.target.value.replace(/[^\d]/g, "").slice(0, 10))}
+                    placeholder="0123456789"
+                    className="w-full rounded-xl border border-[#15300c]/15 bg-white/60 px-4 py-3 text-[16px] tracking-wide text-[#15300c] placeholder:text-[#3d7a29] outline-none backdrop-blur-sm focus:border-[#3d7a29] focus:ring-1 focus:ring-[#3d7a29]"
+                  />
+                </Field>
+                {resolving && <p className="-mt-2 text-[13px] text-[#3d7a29]">Checking account…</p>}
+                {resolvedName && !resolving && (
+                  <p className="-mt-2 flex items-center gap-1.5 text-[13px] font-medium text-[#3d7a29]">
+                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={15} strokeWidth={2} />
+                    {resolvedName}
+                  </p>
+                )}
+                {resolveErr && !resolving && (
+                  <p className="-mt-2 text-[13px] text-[#c0532f]">{resolveErr}</p>
+                )}
+                <p className="-mt-1 text-[12px] text-[#3a5230]">
+                  We&rsquo;ll save this account so you can pay it in one tap next time.
+                </p>
+              </>
+            )}
+            {beneficiaryId && beneficiaryName && (
+              <p className="-mt-1 flex items-center gap-1.5 text-[13px] font-medium text-[#3d7a29]">
                 <HugeiconsIcon icon={CheckmarkCircle02Icon} size={15} strokeWidth={2} />
-                {resolvedName}
+                Paying {beneficiaryName}
               </p>
             )}
-            {resolveErr && !resolving && <p className="-mt-2 text-[13px] text-[#c0532f]">{resolveErr}</p>}
             {error && <p className="text-[13px] text-[#c0532f]">{error}</p>}
             <PrimaryButton full onClick={getQuote} disabled={!formValid || busy} loading={busy}>
               {busy ? "Getting quote…" : "Continue"}

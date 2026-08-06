@@ -6,6 +6,7 @@ import { readEntryIdFromRequest } from "@/lib/mobile-sessions";
 import { rateLimitAsync } from "@/lib/rate-limit";
 import { getRate, verifyBank, linqConfigured, checkDailyOfframpCap, cashoutFeatureOpen, CASHOUT_CLOSED_MESSAGE } from "@/lib/linq";
 import { resolveLinqBank } from "@/lib/linq-banks";
+import { getPayoutTarget } from "@/lib/bank-accounts";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
     amountUsdsui?: number;
     bankCode?: string;
     accountNumber?: string;
+    beneficiaryId?: string;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -65,8 +67,24 @@ export async function POST(req: Request) {
   const reqUsdsui = Number(body.amountUsdsui);
   const wantsNgn = Number.isFinite(reqNgn) && reqNgn > 0;
   const wantsUsdsui = Number.isFinite(reqUsdsui) && reqUsdsui > 0;
-  const bankCode = String(body.bankCode ?? "").trim();
-  const accountNumber = String(body.accountNumber ?? "").trim();
+
+  // A saved beneficiary arrives as an ID, never as an account number: the list
+  // the client holds is masked to last-4, so the full number is looked up here,
+  // scoped to the caller. An id belonging to someone else resolves to nothing.
+  let bankCode = String(body.bankCode ?? "").trim();
+  let accountNumber = String(body.accountNumber ?? "").trim();
+  const beneficiaryId = String(body.beneficiaryId ?? "").trim();
+  if (beneficiaryId) {
+    const target = await getPayoutTarget(userId, beneficiaryId);
+    if (!target) {
+      return NextResponse.json(
+        { error: "That saved beneficiary is no longer available." },
+        { status: 404 }
+      );
+    }
+    bankCode = target.bankCode;
+    accountNumber = target.accountNumber;
+  }
   if (!wantsNgn && !wantsUsdsui) {
     return NextResponse.json(
       { error: "amountNgn or amountUsdsui must be positive" },
@@ -128,7 +146,13 @@ export async function POST(req: Request) {
     accountName,
     bankName,
     bankCode,
-    accountNumber,
+    // Echoed back only when the CLIENT supplied it — it already has it, and the
+    // review screen needs it to build the order. Resolved from a saved
+    // beneficiary it stays masked: the picker deliberately holds last-4 only,
+    // and quoting against a saved target must not be a way to read the rest
+    // back out. The order is created from `beneficiaryId` in that case.
+    accountNumber: beneficiaryId ? `••••••${accountNumber.slice(-4)}` : accountNumber,
+    beneficiaryId: beneficiaryId || undefined,
     rate,
     amountUsdsui,
     amountNgn,

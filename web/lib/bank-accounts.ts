@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 
 import { db, ensureSchema } from "./db";
 import { resolveLinqBank } from "./linq-banks";
@@ -21,6 +21,12 @@ import { encryptAtRest, decryptAtRest } from "@/lib/crypto-at-rest";
  * linq_offramps table.
  */
 
+/**
+ * What a row is FOR. See the schema comment in lib/db.ts — the distinction
+ * decides where money lands, so it is not cosmetic.
+ */
+export type BankAccountKind = "self" | "beneficiary";
+
 /** Raw DB row shape for `user_bank_accounts`. */
 export interface BankAccountRow {
   id: string;
@@ -31,8 +37,62 @@ export interface BankAccountRow {
   attestation_digest: string | null;
   /** True for the single payout target a sender hits via "pay to bank". */
   is_primary: boolean;
+  kind?: BankAccountKind | null;
+  label?: string | null;
+  account_fingerprint?: string | null;
+  last_used_at?: number | null;
   created_at: number;
   updated_at: number;
+}
+
+/**
+ * Deterministic identity for a bank account, used wherever we need to ask "is
+ * this the same account?" without comparing ciphertext.
+ *
+ * `encryptAtRest` is AES-GCM with a per-call random IV, so the stored column
+ * differs on every write for identical input. That is correct for secrecy and
+ * useless for equality — which is why the unique index over it never fired and
+ * users accumulated duplicate rows.
+ *
+ * HMAC rather than a plain hash: an NGN account number is 10 digits, a space
+ * small enough to enumerate completely, so an unkeyed digest would be
+ * reversible by anyone who got the column.
+ */
+export function bankAccountFingerprint(
+  bankCode: string,
+  accountNumber: string
+): string {
+  const secret = process.env.DB_ENCRYPTION_KEY ?? "talise-bank-fp-fallback";
+  return createHmac("sha256", secret)
+    .update(`${bankCode.trim()}|${accountNumber.trim()}`)
+    .digest("hex");
+}
+
+/**
+ * Collapse rows that describe the SAME account, newest-surviving.
+ *
+ * Applied at read time rather than by deleting rows: the duplicates are real
+ * user history and a list that reads correctly does not justify destroying it.
+ * Rows written before the fingerprint column existed have none, so they fall
+ * back to their id and are never merged with anything by accident.
+ */
+function dedupeByAccount(rows: BankAccountRow[]): BankAccountRow[] {
+  const byKey = new Map<string, BankAccountRow>();
+  for (const r of rows) {
+    const key = r.account_fingerprint || `id:${r.id}`;
+    const seen = byKey.get(key);
+    // Prefer the primary row, then the most recently touched, so collapsing
+    // duplicates can never silently drop a user's primary payout target.
+    if (
+      !seen ||
+      (toBool(r.is_primary) && !toBool(seen.is_primary)) ||
+      (toBool(r.is_primary) === toBool(seen.is_primary) &&
+        Number(r.updated_at ?? 0) > Number(seen.updated_at ?? 0))
+    ) {
+      byKey.set(key, r);
+    }
+  }
+  return [...byKey.values()];
 }
 
 /** Masked, API-safe view of a linked bank account. */
@@ -48,6 +108,12 @@ export interface LinkedBankAccount {
   attested: boolean;
   /** True for the single payout target a sender hits via "pay to bank". */
   isPrimary: boolean;
+  /** "self" = the user's own account, "beneficiary" = someone they pay. */
+  kind: BankAccountKind;
+  /** User-given nickname, if any. */
+  label: string | null;
+  /** Epoch-ms this target was last cashed out to. Null if never. */
+  lastUsedAt: number | null;
 }
 
 /** Last 4 digits of an account number (or fewer if shorter). */
@@ -74,6 +140,9 @@ export function maskBankAccount(row: BankAccountRow): LinkedBankAccount {
     last4: last4(decryptAtRest(row.account_number) ?? row.account_number),
     attested: Boolean(row.attestation_digest),
     isPrimary: toBool(row.is_primary),
+    kind: row.kind === "beneficiary" ? "beneficiary" : "self",
+    label: row.label ?? null,
+    lastUsedAt: row.last_used_at != null ? Number(row.last_used_at) : null,
   };
 }
 
@@ -90,13 +159,16 @@ export async function getLinkedBankAccounts(
   await ensureSchema();
   const res = await db().execute({
     sql: `SELECT id, user_id, bank_code, account_number, account_name,
-                 attestation_digest, is_primary, created_at, updated_at
+                 attestation_digest, is_primary, kind, label,
+                 account_fingerprint, last_used_at, created_at, updated_at
           FROM user_bank_accounts
-          WHERE user_id = ?
+          WHERE user_id = ? AND kind <> 'beneficiary'
           ORDER BY is_primary DESC, created_at DESC`,
     args: [String(userId)],
   });
-  return (res.rows as unknown as BankAccountRow[]).map(maskBankAccount);
+  return dedupeByAccount(res.rows as unknown as BankAccountRow[]).map(
+    maskBankAccount
+  );
 }
 
 /**
@@ -105,6 +177,12 @@ export async function getLinkedBankAccounts(
  * single payout target a sender hits when paying a @handle. Returns the raw
  * row (account number included), CALLERS must mask before exposing it; the
  * sender must NEVER receive the recipient's full account number.
+ *
+ * BENEFICIARIES ARE EXCLUDED, and that exclusion is load-bearing. A saved
+ * beneficiary is an account the user PAYS, often someone else's. If one could
+ * become the target here, money a third party sent to this user's @handle
+ * would land in that other account, and nothing in the payment would look
+ * wrong to either party.
  */
 export async function getPrimaryBankAccount(
   userId: number | string
@@ -112,9 +190,10 @@ export async function getPrimaryBankAccount(
   await ensureSchema();
   const res = await db().execute({
     sql: `SELECT id, user_id, bank_code, account_number, account_name,
-                 attestation_digest, is_primary, created_at, updated_at
+                 attestation_digest, is_primary, kind, label,
+                 account_fingerprint, last_used_at, created_at, updated_at
           FROM user_bank_accounts
-          WHERE user_id = ? AND is_primary = true
+          WHERE user_id = ? AND is_primary = true AND kind <> 'beneficiary'
           ORDER BY updated_at DESC
           LIMIT 1`,
     args: [String(userId)],
@@ -224,38 +303,69 @@ export async function upsertBankAccount(input: {
   accountNumber: string;
   accountName: string | null;
   attestationDigest: string | null;
+  /** Defaults to "self" so every existing caller keeps its meaning. */
+  kind?: BankAccountKind;
+  label?: string | null;
 }): Promise<BankAccountRow> {
   await ensureSchema();
   const userId = String(input.userId);
   const now = Date.now();
   const id = randomUUID();
 
-  // Postgres UPSERT keyed on the unique (user_id, bank_code, account_number)
-  // index. On conflict we keep the original id + created_at and refresh the
-  // mutable fields. RETURNING hands back the canonical stored row.
-  const res = await db().execute({
-    sql: `INSERT INTO user_bank_accounts
-            (id, user_id, bank_code, account_number, account_name,
-             attestation_digest, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (user_id, bank_code, account_number)
-          DO UPDATE SET
-            account_name = EXCLUDED.account_name,
-            attestation_digest = EXCLUDED.attestation_digest,
-            updated_at = EXCLUDED.updated_at
-          RETURNING id, user_id, bank_code, account_number, account_name,
-                    attestation_digest, is_primary, created_at, updated_at`,
-    args: [
-      id,
-      userId,
-      input.bankCode,
-      encryptAtRest(input.accountNumber),
-      input.accountName,
-      input.attestationDigest,
-      now,
-      now,
-    ],
+  // Look the account up by FINGERPRINT and update in place, instead of the
+  // ON CONFLICT this used to rely on. That conflict target was
+  // (user_id, bank_code, account_number) over the encrypted column, which a
+  // random IV makes unmatchable, so every re-link inserted another row.
+  const fp = bankAccountFingerprint(input.bankCode, input.accountNumber);
+  const kind: BankAccountKind = input.kind ?? "self";
+  const RET = `RETURNING id, user_id, bank_code, account_number, account_name,
+                    attestation_digest, is_primary, kind, label,
+                    account_fingerprint, last_used_at, created_at, updated_at`;
+
+  const existing = await db().execute({
+    sql: `SELECT id FROM user_bank_accounts
+          WHERE user_id = ? AND account_fingerprint = ? AND kind = ?
+          ORDER BY updated_at DESC LIMIT 1`,
+    args: [userId, fp, kind],
   });
+  const hitId = (existing.rows[0] as unknown as { id?: string } | undefined)?.id;
+
+  const res = hitId
+    ? await db().execute({
+        sql: `UPDATE user_bank_accounts
+              SET account_name = COALESCE(?, account_name),
+                  attestation_digest = COALESCE(?, attestation_digest),
+                  label = COALESCE(?, label),
+                  updated_at = ?
+              WHERE id = ? ${RET}`,
+        args: [
+          input.accountName,
+          input.attestationDigest,
+          input.label ?? null,
+          now,
+          hitId,
+        ],
+      })
+    : await db().execute({
+        sql: `INSERT INTO user_bank_accounts
+                (id, user_id, bank_code, account_number, account_name,
+                 attestation_digest, kind, label, account_fingerprint,
+                 created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ${RET}`,
+        args: [
+          id,
+          userId,
+          input.bankCode,
+          encryptAtRest(input.accountNumber),
+          input.accountName,
+          input.attestationDigest,
+          kind,
+          input.label ?? null,
+          fp,
+          now,
+          now,
+        ],
+      });
   const row = (res.rows as unknown as BankAccountRow[])[0];
   if (row && typeof row.account_number === "string") {
     row.account_number = decryptAtRest(row.account_number) ?? row.account_number;
@@ -297,4 +407,110 @@ export function bankLinkAttestMessage(input: {
   accountNumber: string;
 }): string {
   return `talise/v1|bank-link|${input.bankCode}|${last4(input.accountNumber)}`;
+}
+
+// ─── Payout targets (beneficiaries) ──────────────────────────────────────
+
+/**
+ * Everything a user can cash out TO: their own linked accounts and the
+ * beneficiaries they've saved, most recently used first.
+ *
+ * The opposite direction to `getLinkedBankAccounts`, which answers "where can
+ * money sent to this user land". This one answers "where can this user send
+ * money", so it deliberately includes both kinds — cashing out to your own
+ * account is the common case, paying someone else is the reason the feature
+ * exists.
+ */
+export async function getPayoutTargets(
+  userId: number | string
+): Promise<LinkedBankAccount[]> {
+  await ensureSchema();
+  const res = await db().execute({
+    sql: `SELECT id, user_id, bank_code, account_number, account_name,
+                 attestation_digest, is_primary, kind, label,
+                 account_fingerprint, last_used_at, created_at, updated_at
+          FROM user_bank_accounts
+          WHERE user_id = ?
+          ORDER BY COALESCE(last_used_at, 0) DESC,
+                   is_primary DESC,
+                   created_at DESC`,
+    args: [String(userId)],
+  });
+  return dedupeByAccount(res.rows as unknown as BankAccountRow[]).map(
+    maskBankAccount
+  );
+}
+
+/**
+ * Resolve a saved target to the details a cash-out needs, by id and owner.
+ *
+ * Returns the FULL account number: the caller is the off-ramp, which has to
+ * hand it to the payout provider. Never return this to a client.
+ */
+export async function getPayoutTarget(
+  userId: number | string,
+  id: string
+): Promise<{ bankCode: string; accountNumber: string; accountName: string | null } | null> {
+  const row = await getBankAccountById(userId, id);
+  if (!row) return null;
+  return {
+    bankCode: row.bank_code,
+    accountNumber: row.account_number,
+    accountName: row.account_name,
+  };
+}
+
+/**
+ * Stamp a target as just used, so the picker surfaces what someone actually
+ * pays rather than what they happened to save first. Never throws: failing to
+ * record an ordering hint must not fail a cash-out that already moved money.
+ */
+export async function touchPayoutTarget(
+  userId: number | string,
+  id: string
+): Promise<void> {
+  try {
+    await db().execute({
+      sql: `UPDATE user_bank_accounts SET last_used_at = ?
+            WHERE id = ? AND user_id = ?`,
+      args: [Date.now(), id, String(userId)],
+    });
+  } catch (e) {
+    console.warn(`[bank-accounts] touch failed for ${id}: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * Record a cash-out destination the user typed by hand, so it appears in the
+ * picker next time without them having to think about saving it.
+ *
+ * `accountName` must be the name the PROVIDER returned from its name enquiry,
+ * never anything a client supplied — the saved name is what the user reads
+ * back when confirming a later payout.
+ */
+export async function rememberPayoutTarget(input: {
+  userId: number | string;
+  bankCode: string;
+  accountNumber: string;
+  accountName: string | null;
+  label?: string | null;
+}): Promise<LinkedBankAccount | null> {
+  try {
+    const row = await upsertBankAccount({
+      userId: input.userId,
+      bankCode: input.bankCode,
+      accountNumber: input.accountNumber,
+      accountName: input.accountName,
+      attestationDigest: null,
+      kind: "beneficiary",
+      label: input.label ?? null,
+    });
+    await touchPayoutTarget(input.userId, row.id);
+    return maskBankAccount(row);
+  } catch (e) {
+    console.warn(
+      `[bank-accounts] remember failed for user=${input.userId}: ${(e as Error).message}`
+    );
+    return null;
+  }
 }

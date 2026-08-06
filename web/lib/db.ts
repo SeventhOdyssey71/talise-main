@@ -853,10 +853,39 @@ async function doEnsureSchema(): Promise<void> {
     `ALTER TABLE user_bank_accounts ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT false`,
     `CREATE INDEX IF NOT EXISTS idx_user_bank_accounts_user
        ON user_bank_accounts (user_id)`,
-    // One row per (user, bank, account), re-linking the same account is
-    // an idempotent UPSERT (refreshes name + attestation), never a dup.
+    // INERT. `account_number` is written through `encryptAtRest`, which uses a
+    // fresh random IV per call, so the same account encrypts to a different
+    // ciphertext every time and this index can never match. The UPSERT that
+    // depends on it has therefore inserted a new row on every re-link: in
+    // production one user held the same account 4 times, another 3.
+    // Superseded by the fingerprint below; kept rather than dropped so a
+    // rollback to a build that still names it in ON CONFLICT doesn't error.
     `CREATE UNIQUE INDEX IF NOT EXISTS uniq_user_bank_accounts
        ON user_bank_accounts (user_id, bank_code, account_number)`,
+    // Deterministic identity for an account: HMAC(bank_code|account_number).
+    // Keyed, so it can't be walked back to an account number the way a bare
+    // hash of a 10-digit space could, and stable, so it can carry the
+    // uniqueness the ciphertext column cannot.
+    `ALTER TABLE user_bank_accounts ADD COLUMN IF NOT EXISTS account_fingerprint TEXT`,
+    `CREATE INDEX IF NOT EXISTS idx_user_bank_accounts_fp
+       ON user_bank_accounts (user_id, account_fingerprint)`,
+    // Saved payout targets ("beneficiaries") share this table with the user's
+    // OWN linked accounts, and the difference decides where money lands:
+    //
+    //   'self'        — mine. Eligible as the target when somebody pays my
+    //                   @handle "to their bank".
+    //   'beneficiary' — someone I pay. NEVER an inbound target; routing a
+    //                   payment made to my handle into a friend's account
+    //                   would silently misdirect a third party's money.
+    //
+    // Existing rows default to 'self': every one was written by the bank-link
+    // flow, carries an attestation, and is the user's own account.
+    // `getLinkedBankAccounts` and `getPrimaryBankAccount` are the only readers
+    // feeding inbound routing, and both filter on this.
+    `ALTER TABLE user_bank_accounts ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'self'`,
+    // Optional nickname a user gives a beneficiary ("Mum", "Rent").
+    `ALTER TABLE user_bank_accounts ADD COLUMN IF NOT EXISTS label TEXT`,
+    `ALTER TABLE user_bank_accounts ADD COLUMN IF NOT EXISTS last_used_at BIGINT`,
 
     // ─── travel_rule_records (FATF Travel Rule audit log) ────────────
     // Master plan §7: above the ~$1,000 Travel Rule threshold, external

@@ -553,6 +553,25 @@ private struct OfframpBank: Identifiable, Hashable {
     let name: String
     let bankCode: String
     var id: String { bankCode }
+
+    /// Shared by the cash-out form and the add-beneficiary sheet, so the two
+    /// can't drift into offering different banks for the same rail.
+    static let nigerianBanks: [OfframpBank] = [
+        .init(name: "Access Bank",              bankCode: "044"),
+        .init(name: "Guaranty Trust Bank",      bankCode: "058"),
+        .init(name: "First Bank of Nigeria",    bankCode: "011"),
+        .init(name: "Zenith Bank",              bankCode: "057"),
+        .init(name: "United Bank For Africa",   bankCode: "033"),
+        .init(name: "Wema Bank",                bankCode: "035"),
+        .init(name: "Sterling Bank",            bankCode: "232"),
+        .init(name: "Fidelity Bank",            bankCode: "070"),
+        .init(name: "First City Monument Bank", bankCode: "214"),
+        .init(name: "Stanbic IBTC Bank",        bankCode: "039"),
+        .init(name: "Kuda",                     bankCode: "090267"),
+        .init(name: "OPay",                     bankCode: "100004"),
+        .init(name: "PalmPay",                  bankCode: "100033"),
+        .init(name: "Moniepoint",               bankCode: "090405"),
+    ]
 }
 
 /// Nigerian bank transfer — wired to the live Linq off-ramp.
@@ -560,6 +579,344 @@ private struct OfframpBank: Identifiable, Hashable {
 /// Flow: enter USDsui amount + account + bank → QUOTE (name-check + rate) →
 /// slide to confirm (creates a Linq order, then signs a USDsui transfer to
 /// the Linq deposit wallet) → POLL status until completed/failed.
+/// One saved cash-out destination from `GET /api/me/beneficiaries`. The
+/// account number is masked to `last4` on the wire — the full number never
+/// leaves the server, so paying one references it by `id`.
+struct Beneficiary: Decodable, Identifiable, Hashable {
+    let id: String
+    let bankCode: String
+    let bankName: String
+    let accountName: String?
+    let last4: String
+    let kind: String          // "self" | "beneficiary"
+    let label: String?
+
+    var isOwn: Bool { kind != "beneficiary" }
+    var title: String { label ?? accountName ?? "Saved account" }
+    var initials: String {
+        let parts = (accountName ?? "?").split(separator: " ")
+        let a = parts.first?.first.map(String.init) ?? "?"
+        let b = parts.dropFirst().first?.first.map(String.init) ?? ""
+        return (a + b).uppercased()
+    }
+}
+
+private struct BeneficiaryListResp: Decodable { let beneficiaries: [Beneficiary] }
+private struct BeneficiaryResp: Decodable { let beneficiary: Beneficiary }
+
+/// Saved destinations above the bank form.
+///
+/// The form asked for a bank and ten digits on every cash-out, for an account
+/// most people pay again and again. Tapping a saved one skips both, and the
+/// holder name is already provider-verified so the amount is the only thing
+/// left to enter.
+///
+/// The manual fields stay visible underneath rather than being replaced by
+/// this list — for a first cash-out the list is empty for everybody, and a
+/// picker that hides the form would read as a dead end.
+struct BeneficiaryPicker: View {
+    @Binding var selected: Beneficiary?
+    var disabled: Bool = false
+    /// Called after a save so the parent can clear any half-typed bank fields.
+    var onPicked: () -> Void = {}
+
+    @State private var list: [Beneficiary] = []
+    @State private var loading = true
+    @State private var adding = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(list.isEmpty ? "BENEFICIARY" : "SEND TO")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .kerning(1.6)
+                    .foregroundStyle(TaliseColor.fgDim)
+                Spacer()
+                if !list.isEmpty {
+                    Button { adding = true } label: {
+                        Label("Add", systemImage: "plus")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(TaliseColor.accent)
+                    }
+                    .disabled(disabled)
+                }
+            }
+
+            if loading {
+                ProgressView().tint(TaliseColor.accent).frame(maxWidth: .infinity)
+            } else if list.isEmpty {
+                Button { adding = true } label: { addPrompt }
+                    .buttonStyle(.plain)
+                    .disabled(disabled)
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(list) { b in row(b) }
+                }
+            }
+        }
+        .task { await load() }
+        .sheet(isPresented: $adding) {
+            AddBeneficiarySheet { saved in
+                list.removeAll { $0.id == saved.id }
+                list.insert(saved, at: 0)
+                selected = saved
+                onPicked()
+            }
+        }
+    }
+
+    private var addPrompt: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(TaliseColor.surface2).frame(width: 36, height: 36)
+                Image(systemName: "person.badge.plus")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(TaliseColor.accent)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Add a beneficiary")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(TaliseColor.fg)
+                Text("Save a bank account once, pay it in one tap after that.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(TaliseColor.fgDim)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(TaliseColor.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        )
+    }
+
+    private func row(_ b: Beneficiary) -> some View {
+        let active = selected?.id == b.id
+        return Button {
+            selected = active ? nil : b
+            if !active { onPicked() }
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(active ? TaliseColor.accent : TaliseColor.surface2)
+                        .frame(width: 36, height: 36)
+                    Text(b.initials)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(active ? Color.black : TaliseColor.fg)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(b.title)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(TaliseColor.fg)
+                            .lineLimit(1)
+                        if b.isOwn {
+                            Text("YOU")
+                                .font(.system(size: 9, weight: .semibold))
+                                .kerning(0.6)
+                                .foregroundStyle(TaliseColor.fgDim)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Capsule().fill(TaliseColor.surface2))
+                        }
+                    }
+                    Text("\(b.bankName) · ••••\(b.last4)")
+                        .font(.system(size: 12).monospacedDigit())
+                        .foregroundStyle(TaliseColor.fgDim)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if active {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(TaliseColor.accent)
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(active ? TaliseColor.accent.opacity(0.12) : TaliseColor.surface2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(active ? TaliseColor.accent.opacity(0.5) : .clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .swipeActions { }
+        .contextMenu {
+            if !b.isOwn {
+                Button(role: .destructive) {
+                    Task { await remove(b) }
+                } label: { Label("Remove", systemImage: "trash") }
+            }
+        }
+    }
+
+    private func load() async {
+        defer { loading = false }
+        // A picker that can't load is a missing shortcut, not a broken screen:
+        // the bank fields below still work.
+        let r: BeneficiaryListResp? = try? await APIClient.shared.get("/api/me/beneficiaries")
+        list = r?.beneficiaries ?? []
+    }
+
+    private func remove(_ b: Beneficiary) async {
+        guard !b.isOwn else { return }   // own linked accounts: server refuses too
+        let before = list
+        list.removeAll { $0.id == b.id }
+        if selected?.id == b.id { selected = nil }
+        do {
+            let _: EmptyOK = try await APIClient.shared.delete("/api/me/beneficiaries/\(b.id)")
+        } catch {
+            list = before   // nothing was actually removed
+        }
+    }
+}
+
+private struct EmptyOK: Decodable { let ok: Bool? }
+
+/// Add-beneficiary sheet. The holder name is resolved by the SERVER from the
+/// bank network; nothing the user types names the account.
+private struct AddBeneficiarySheet: View {
+    var onSaved: (Beneficiary) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var accountNumber = ""
+    @State private var label = ""
+    @State private var bank: OfframpBank?
+    @State private var showBankPicker = false
+    @State private var saving = false
+    @State private var error: String?
+
+    private let banks = OfframpBank.nigerianBanks
+
+    private var canSave: Bool {
+        bank != nil && accountNumber.count == 10 && !saving
+    }
+
+    // Split into sub-views: as one expression the type-checker gives up
+    // ("unable to type-check in reasonable time").
+    var body: some View {
+        NavigationStack {
+            ScrollView { formStack.padding(20) }
+                .background(TaliseColor.bg.ignoresSafeArea())
+                .navigationTitle("Add beneficiary")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                }
+                .sheet(isPresented: $showBankPicker) {
+                    BankPickerSheet(banks: banks, selected: bank) {
+                        bank = $0
+                        showBankPicker = false
+                    }
+                }
+        }
+    }
+
+    private var formStack: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            bankRow
+            numberField
+            nicknameField
+            if let error {
+                Text(error)
+                    .font(TaliseFont.body(13, weight: .light))
+                    .foregroundStyle(TaliseColor.danger)
+            }
+            saveButton
+        }
+    }
+
+    private var bankRow: some View {
+        Button { showBankPicker = true } label: {
+            HStack {
+                Text(bank?.name ?? "Choose bank")
+                    .font(TaliseFont.body(15))
+                    .foregroundStyle(bank == nil ? TaliseColor.fgDim : TaliseColor.fg)
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TaliseColor.fgDim)
+            }
+            .padding(16)
+            .fieldSurface()
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var numberField: some View {
+        TextField("", text: $accountNumber,
+                  prompt: Text("10-digit account number").foregroundColor(TaliseColor.fgDim))
+            .keyboardType(.numberPad)
+            .font(TaliseFont.body(15))
+            .foregroundStyle(TaliseColor.fg)
+            .onChange(of: accountNumber) { _, v in
+                let trimmed = String(v.filter { $0.isNumber }.prefix(10))
+                if trimmed != v { accountNumber = trimmed }
+                error = nil
+            }
+            .padding(16)
+            .fieldSurface()
+    }
+
+    private var nicknameField: some View {
+        TextField("", text: $label,
+                  prompt: Text("Nickname (optional)").foregroundColor(TaliseColor.fgDim))
+            .font(TaliseFont.body(15))
+            .foregroundStyle(TaliseColor.fg)
+            .onChange(of: label) { _, v in
+                if v.count > 40 { label = String(v.prefix(40)) }
+            }
+            .padding(16)
+            .fieldSurface()
+    }
+
+    private var saveButton: some View {
+        Button { Task { await save() } } label: {
+            Text(saving ? "Checking account…" : "Save beneficiary")
+                .font(TaliseFont.body(16, weight: .medium))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(Capsule().fill(canSave ? TaliseColor.accent : TaliseColor.surface2))
+                .foregroundStyle(canSave ? Color.black : TaliseColor.fgDim)
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSave)
+    }
+
+    private func save() async {
+        guard let bank else { return }
+        saving = true; error = nil
+        defer { saving = false }
+        struct Body: Encodable {
+            let bankCode: String
+            let accountNumber: String
+            let label: String?
+        }
+        do {
+            let r: BeneficiaryResp = try await APIClient.shared.post(
+                "/api/me/beneficiaries",
+                body: Body(
+                    bankCode: bank.bankCode,
+                    accountNumber: accountNumber,
+                    label: label.isEmpty ? nil : label
+                )
+            )
+            onSaved(r.beneficiary)
+            dismiss()
+        } catch APIError.status(_, let msg) {
+            error = msg ?? "Couldn't save that beneficiary."
+        } catch {
+            self.error = "Couldn't save that beneficiary."
+        }
+    }
+}
+
 private struct BankWithdrawView: View {
     /// Session-expiry path: an unrecoverable zkLogin session routes to a
     /// clean sign-out → re-auth (mirrors Send) instead of a dead-end error.
@@ -589,25 +946,14 @@ private struct BankWithdrawView: View {
     // Searchable bank-picker sheet.
     @State private var showBankPicker = false
 
+    /// A picked saved destination replaces the bank + account fields. Only its
+    /// id travels to the server; the client's copy is masked to last-4.
+    @State private var beneficiary: Beneficiary?
+
     private enum Step { case form, review, sending, done }
 
     /// Common Nigerian banks, name + plain NIBSS code (Linq codes).
-    private let banks: [OfframpBank] = [
-        .init(name: "Access Bank",              bankCode: "044"),
-        .init(name: "Guaranty Trust Bank",      bankCode: "058"),
-        .init(name: "First Bank of Nigeria",    bankCode: "011"),
-        .init(name: "Zenith Bank",              bankCode: "057"),
-        .init(name: "United Bank For Africa",   bankCode: "033"),
-        .init(name: "Wema Bank",                bankCode: "035"),
-        .init(name: "Sterling Bank",            bankCode: "232"),
-        .init(name: "Fidelity Bank",            bankCode: "070"),
-        .init(name: "First City Monument Bank", bankCode: "214"),
-        .init(name: "Stanbic IBTC Bank",        bankCode: "039"),
-        .init(name: "Kuda",                     bankCode: "090267"),
-        .init(name: "OPay",                     bankCode: "100004"),
-        .init(name: "PalmPay",                  bankCode: "100033"),
-        .init(name: "Moniepoint",               bankCode: "090405"),
-    ]
+    private let banks = OfframpBank.nigerianBanks
 
     /// Whether the user's display currency is NGN. When true the amount
     /// field is denominated in Naira (the exact NGN they want credited) and
@@ -625,10 +971,12 @@ private struct BankWithdrawView: View {
     private var usdsuiAmount: Double { Double(amount) ?? 0 }
 
     /// The account must be NAME-RESOLVED before we'll let the user move on —
-    /// a wrong/unverifiable account can't proceed.
+    /// a wrong/unverifiable account can't proceed. A saved beneficiary already
+    /// carries a provider-verified name, so it satisfies that on its own.
     private var canContinue: Bool {
-        amountValue > 0
-            && selectedBank != nil
+        guard amountValue > 0 else { return false }
+        if beneficiary != nil { return true }
+        return selectedBank != nil
             && accountNumber.count == 10
             && resolvedName != nil
             && resolveError == nil
@@ -669,15 +1017,42 @@ private struct BankWithdrawView: View {
                     estimateLine
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    fieldLabel("Bank")
-                    bankPickerRow
+                BeneficiaryPicker(selected: $beneficiary, disabled: quoting) {
+                    // Clear anything half-typed so two destinations can never
+                    // be part-entered at once and leave it ambiguous which pays.
+                    selectedBank = nil
+                    accountNumber = ""
+                    resolvedName = nil
+                    resolveError = nil
+                    error = nil
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    fieldLabel("Receiver's account")
-                    accountField
-                    resolvedNameLine
+                // The manual fields stay available until a saved target is
+                // chosen: on a first cash-out the list is empty for everybody,
+                // and hiding the form behind it would be a dead end.
+                if beneficiary == nil {
+                    VStack(alignment: .leading, spacing: 6) {
+                        fieldLabel("Bank")
+                        bankPickerRow
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        fieldLabel("Receiver's account")
+                        accountField
+                        resolvedNameLine
+                        Text("We'll save this account so you can pay it in one tap next time.")
+                            .font(TaliseFont.body(11, weight: .light))
+                            .foregroundStyle(TaliseColor.fgMuted)
+                    }
+                } else if let b = beneficiary {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundStyle(TaliseColor.accent)
+                        Text("Paying \(b.accountName ?? b.title)")
+                            .font(TaliseFont.body(13, weight: .light))
+                            .foregroundStyle(TaliseColor.accent)
+                    }
                 }
 
                 if let error {
@@ -1073,7 +1448,12 @@ private struct BankWithdrawView: View {
     }
 
     private func getQuote() async {
-        guard canContinue, let bank = selectedBank else { return }
+        guard canContinue else { return }
+        // `selectedBank` is nil when paying a saved target — the server resolves
+        // the bank from the beneficiary id in that case.
+        guard let bank = selectedBank ?? beneficiary.map({
+            OfframpBank(name: $0.bankName, bankCode: $0.bankCode)
+        }) else { return }
         quoting = true; error = nil
         defer { quoting = false }
         // The backend accepts either amountNgn (NGN display currency — debits
@@ -1083,8 +1463,9 @@ private struct BankWithdrawView: View {
         struct Body: Encodable {
             let amountNgn: Double?
             let amountUsdsui: Double?
-            let bankCode: String
-            let accountNumber: String
+            let bankCode: String?
+            let accountNumber: String?
+            let beneficiaryId: String?
         }
         do {
             let q: LinqQuoteResp = try await APIClient.shared.post(
@@ -1092,8 +1473,9 @@ private struct BankWithdrawView: View {
                 body: Body(
                     amountNgn: isNgnInput ? amountValue : nil,
                     amountUsdsui: isNgnInput ? nil : amountValue,
-                    bankCode: bank.bankCode,
-                    accountNumber: accountNumber
+                    bankCode: beneficiary == nil ? bank.bankCode : nil,
+                    accountNumber: beneficiary == nil ? accountNumber : nil,
+                    beneficiaryId: beneficiary?.id
                 )
             )
             quote = q
@@ -1107,7 +1489,10 @@ private struct BankWithdrawView: View {
     }
 
     private func confirm() async {
-        guard let q = quote, let bank = selectedBank else { return }
+        guard let q = quote else { return }
+        guard let bank = selectedBank ?? beneficiary.map({
+            OfframpBank(name: $0.bankName, bankCode: $0.bankCode)
+        }) else { return }
         confirming = true; error = nil
         defer { confirming = false }
         do {
@@ -1119,20 +1504,26 @@ private struct BankWithdrawView: View {
             struct CreateBody: Encodable {
                 let amountNgn: Double?
                 let amountUsdsui: Double?
-                let bankCode: String
-                let accountNumber: String
-                let accountName: String
+                let bankCode: String?
+                let accountNumber: String?
+                let accountName: String?
                 let bankName: String?
+                let beneficiaryId: String?
             }
+            let usingSaved = beneficiary != nil
             let order: LinqCreateResp = try await APIClient.shared.post(
                 "/api/offramp/linq/create",
                 body: CreateBody(
                     amountNgn: isNgnInput ? q.amountNgn : nil,
                     amountUsdsui: isNgnInput ? nil : q.amountUsdsui,
-                    bankCode: bank.bankCode,
-                    accountNumber: accountNumber,
-                    accountName: q.accountName,
-                    bankName: q.bankName.isEmpty ? bank.name : q.bankName
+                    // Omitted for a saved target: the server holds the account
+                    // number and the verified name, and `q.accountNumber` comes
+                    // back masked in that case.
+                    bankCode: usingSaved ? nil : bank.bankCode,
+                    accountNumber: usingSaved ? nil : accountNumber,
+                    accountName: usingSaved ? nil : q.accountName,
+                    bankName: usingSaved ? nil : (q.bankName.isEmpty ? bank.name : q.bankName),
+                    beneficiaryId: beneficiary?.id
                 )
             )
 
