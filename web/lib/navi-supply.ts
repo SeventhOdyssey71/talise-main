@@ -658,6 +658,13 @@ export async function fetchNaviClaimableRewards(
   address: string
 ): Promise<NaviClaimableReward[]> {
   try {
+    // Warm the pool set FIRST. `getUserAvailableLendingRewards` lazily
+    // bootstraps NAVI's config on its first call, and it is the same bootstrap
+    // `getPools` does — whichever runs first pays for it. Called cold and
+    // first, this read takes 4891ms; called after `getPools`, 1848ms, and 486ms
+    // warm. `usdsuiPool()` shares one memoized promise, so this is free
+    // whenever anything else already needed the pools.
+    await usdsuiPool();
     const list = await getUserAvailableLendingRewards(address);
     return (list ?? [])
       .map((r) => ({
@@ -684,7 +691,14 @@ export async function fetchNaviClaimableRewards(
  * out the position itself.
  */
 export async function fetchNaviRewardsUsd(address: string): Promise<number> {
-  const rewards = await fetchNaviClaimableRewards(address);
+  // Both legs start together. Run end-to-end in sequence this cost 9321ms cold
+  // against a 5s cap in the caller, so the first Earn load of a cold instance
+  // silently reported zero rewards and only a manual refresh — landing on the
+  // now-warm instance — showed the real figure.
+  const [rewards, universe] = await Promise.all([
+    fetchNaviClaimableRewards(address),
+    cetusUniverse().catch(() => null),
+  ]);
   if (rewards.length === 0) return 0;
   try {
     // MARKET price first, NAVI's oracle only as a fallback.
@@ -702,7 +716,7 @@ export async function fetchNaviRewardsUsd(address: string): Promise<number> {
     // The 6% is the staking premium NAVI's feed ignores. Quoting the low number
     // would also mean the Earn screen valuing a reward below what the token
     // bucket shows for the very same coin the moment it's claimed.
-    const { priceUsd } = await cetusUniverse();
+    const priceUsd = universe?.priceUsd ?? new Map<string, number>();
     const oracle = new Map<string, number>();
     try {
       for (const p of await getPools()) {

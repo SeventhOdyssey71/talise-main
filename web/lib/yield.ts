@@ -88,6 +88,8 @@ async function resolveVenueApy(
  *  `devInspect`) settles well under this; it stays comfortably below the
  *  iOS 15s request deadline. */
 const YIELD_LEG_TIMEOUT_MS = 5_000;
+/** Rewards leg only. See the call site for why it gets more than the rest. */
+const REWARDS_LEG_TIMEOUT_MS = 7_000;
 
 /**
  * Server-side yield queries, all stateless (no zkLogin signer needed).
@@ -213,10 +215,12 @@ export async function getYieldComparison(
     // from Scallop's market API (USDsui pool), cached like the others.
     resolveVenueApy("scallop_usdsui_apy", () => fetchScallopUsdsuiApy()),
     withTimeout(readNaviUsdsuiSupply(address).catch(() => 0), YIELD_LEG_TIMEOUT_MS, 0),
-    // Claimable incentive rewards, priced in USD. Timeout-capped like the
-    // position read: rewards are the number the Claim button acts on, but a
-    // slow read of them must not hold up the position itself.
-    withTimeout(fetchNaviRewardsUsd(address).catch(() => 0), YIELD_LEG_TIMEOUT_MS, 0),
+    // Claimable incentive rewards, priced in USD — the number the Claim button
+    // acts on. Given its own, longer cap: it is the only leg that has to reach
+    // NAVI's rewards API AND a price source, and on a cold instance that is
+    // ~4.0s against the 5s every other leg gets. Missing the cap doesn't
+    // degrade this leg, it ZEROES it, which reads as "you have no rewards".
+    withTimeout(fetchNaviRewardsUsd(address).catch(() => 0), REWARDS_LEG_TIMEOUT_MS, 0),
   ]);
 
   const venues: YieldVenue[] = [];

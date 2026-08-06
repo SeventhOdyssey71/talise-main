@@ -607,23 +607,28 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
       {/* Lives INSIDE the `relative z-10` wrapper (not a root sibling) so that
           page-level modals/sheets/pickers can stack above it, otherwise their
           z-index is trapped in this context and the nav paints over them. */}
-      {/* Activity ⇄ Settings swap (mobile only): Settings takes Activity's
-          tab slot here; Activity moves into the avatar dropdown (AccountMenu).
-          The desktop sidebar keeps Activity in the primary list. */}
+      {/* Two mobile-only substitutions to the primary list:
+            - Activity → Settings, taking Activity's tab slot; Activity moves
+              into the avatar dropdown. The desktop sidebar keeps both.
+            - Ramps is APPENDED. It has a desktop sidebar entry but had no tab,
+              so on a phone the only way to add money or cash out was the avatar
+              dropdown — users couldn't find it. Money in and money out is not a
+              secondary action in a wallet.
+          Six items fit because the per-item padding tightens below; the pill
+          still scrolls if a viewport is narrower than we planned for. */}
       <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-4 lg:hidden">
-        {/* Fits the pill to the viewport and scrolls horizontally on narrow
-            phones so items are never clipped; secondary items (Activity,
-            Ramps, Settings) live in the header account menu. */}
         <div
-          className="no-scrollbar flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full border border-[#15300c]/10 bg-white/85 px-2.5 py-2 shadow-[0_10px_40px_-12px_rgba(21,48,12,0.35)] backdrop-blur-md"
+          className="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto rounded-full border border-[#15300c]/10 bg-white/85 px-2 py-2 shadow-[0_10px_40px_-12px_rgba(21,48,12,0.35)] backdrop-blur-md"
           style={{ borderRadius: 999, scrollbarWidth: "none" }}
         >
-          {nav.primary
-            .map((item) =>
+          {[
+            ...nav.primary.map((item) =>
               item.label === "Activity"
                 ? { label: "Settings", href: nav.settingsHref, icon: Settings01Icon as IconSvgElement }
                 : item
-            )
+            ),
+            { label: "Ramps", href: nav.rampsHref, icon: CreditCardIcon as IconSvgElement },
+          ]
             .map((item) => {
             const active = isActive(pathname, item.href, nav.brandHref);
             return (
@@ -632,7 +637,7 @@ function ShellBody({ me, nav, children }: { me: Me; nav: NavConfig; children: Re
                 href={item.href}
                 aria-label={item.label}
                 aria-current={active ? "page" : undefined}
-                className={`flex shrink-0 flex-col items-center gap-0.5 rounded-full px-3.5 py-1.5 transition-colors ${
+                className={`flex shrink-0 flex-col items-center gap-0.5 rounded-full px-2.5 py-1.5 transition-colors ${
                   active ? "bg-[#CAFFB8]" : ""
                 }`}
               >

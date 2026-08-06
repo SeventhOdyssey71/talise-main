@@ -201,6 +201,27 @@ export function netSavedUsd(grossUsd: number): number {
  * `roundup_percentage` are read but not written, and `savedUsd` still returns
  * the real tally so nobody's savings history disappears while the feature is
  * gated.
+ *
+ * ── Why `savedUsd` is SUMMED, not read from `users.roundup_saved_usd` ──
+ *
+ * That column is the sum of two different things. Since the on-chain rebuild
+ * every credit is proven against chain state before the counter moves. Before
+ * it, the code computed `sendAmountUsd × percentage` from the REQUEST BODY,
+ * incremented the counter, and carried a `TODO(roundup-onchain): wire the
+ * actual NAVI supply` — the supply leg did not exist yet. So those credits
+ * record an intention; no money was ever supplied for them.
+ *
+ * The counter cannot tell the two apart, and the phantom share is not small:
+ *
+ *   user  proven (ledger)   stored counter   phantom
+ *   #1    $2.200379         $2.686783        $0.486404   (₦3,660 -> ₦2,998)
+ *   #3    $0.043549         $0.045013        $0.001464
+ *
+ * So a card reading "Saved via round-up ₦3,660.10" was claiming ₦663 of
+ * savings that never happened. Summing the award ledger instead means the
+ * figure equals the credits that were verified against chain state, by
+ * construction — and it self-heals for every user without a migration or a
+ * destructive write to anyone's history.
  */
 export async function getRoundupConfig(userId: number): Promise<{
   enabled: boolean;
@@ -208,19 +229,35 @@ export async function getRoundupConfig(userId: number): Promise<{
   savedUsd: number;
 }> {
   await ensureSchema();
-  const r = await db().execute({
-    sql: `SELECT roundup_enabled, roundup_percentage, roundup_saved_usd
-          FROM users WHERE id = ? LIMIT 1`,
-    args: [userId],
-  });
-  const row = r.rows[0] as unknown as
-    | (Partial<User> & { roundup_saved_usd?: number | null })
-    | undefined;
+  const [r, saved] = await Promise.all([
+    db().execute({
+      sql: `SELECT roundup_enabled, roundup_percentage
+            FROM users WHERE id = ? LIMIT 1`,
+      args: [userId],
+    }),
+    // `asserted_usd` on a save-tally row is min(promised, what the chain shows
+    // reaching NAVI) — see `creditRoundupSave`. Clawed-back rows are excluded
+    // so a reversal actually reverses.
+    db()
+      .execute({
+        sql: `SELECT COALESCE(SUM(asserted_usd), 0) AS total
+              FROM rewards_award_ledger
+              WHERE user_id = ?
+                AND trigger_kind = 'roundup'
+                AND claim_key LIKE 'save-tally:%'
+                AND clawed_back_at IS NULL`,
+        args: [userId],
+      })
+      .catch(() => null),
+  ]);
+  const row = r.rows[0] as unknown as Partial<User> | undefined;
   const storedEnabled = Number(row?.roundup_enabled ?? 0) === 1;
   return {
     enabled: roundupFeatureEnabled() && storedEnabled,
     percentage: clamp(Number(row?.roundup_percentage ?? 2) || 2, 1, 10),
-    savedUsd: Number(row?.roundup_saved_usd ?? 0) || 0,
+    // A failed ledger read reports 0 rather than falling back to the counter:
+    // showing a figure we know to be inflated is worse than showing none.
+    savedUsd: Number(saved?.rows?.[0]?.total ?? 0) || 0,
   };
 }
 
