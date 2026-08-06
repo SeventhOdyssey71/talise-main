@@ -131,11 +131,31 @@ export async function POST(req: Request) {
     );
     return NextResponse.json({ bytes: toBase64(bytes) });
   } catch (err) {
-    // Forward the upstream message so iOS can surface the real failure
-    // reason (Onara denials, build-time abort codes), but also log
-    // server-side with the userId for traceability.
     const msg = (err as Error).message ?? "sponsor failed";
     console.warn(`[zk/sponsor] user=${userId} failed: ${msg}`);
-    return NextResponse.json({ error: msg }, { status: 500 });
+
+    // `tx.build()` resolves the transaction, so a Move abort in any leg lands
+    // here. Forwarding the message verbatim is how a user ended up reading
+    //   Transaction resolution failed: MoveAbort in 8th command, abort code:
+    //   46001, in '0x512f…::utils::split_coin' (instruction 20)
+    // on their phone under a "Send failed" heading. The abort code belongs in
+    // the log, where it identified the bug in one read; the screen needs to say
+    // whether trying again is worth anything.
+    //
+    // A MoveAbort is deterministic: the same PTB will abort identically every
+    // time, so "try again" is a lie. 422 rather than 500 marks it as such.
+    if (/MoveAbort|abort code/i.test(msg)) {
+      return NextResponse.json(
+        {
+          error: "This transaction can't go through as built. Please try again from the start.",
+          code: "TX_ABORTED",
+        },
+        { status: 422 }
+      );
+    }
+    return NextResponse.json(
+      { error: "Couldn't prepare that transaction. Try again in a moment.", code: "SPONSOR_FAILED" },
+      { status: 502 }
+    );
   }
 }

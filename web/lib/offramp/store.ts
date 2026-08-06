@@ -283,7 +283,14 @@ export async function recordProviderFailure(
              total_failures, total_successes, last_failure_at, last_reason,
              opened_at, updated_at)
           VALUES (?, CASE WHEN 1 >= ? THEN 'open' ELSE 'closed' END, 1, 0, 1, 0, ?, ?,
-                  CASE WHEN 1 >= ? THEN ? ELSE NULL END, ?)
+                  -- CAST is load-bearing. Postgres infers a parameter's type
+                  -- from where it sits, and inside a CASE whose other branch is
+                  -- a bare NULL there is nothing to infer from, so it defaults
+                  -- to text and the INSERT fails against a BIGINT column:
+                  --   column "opened_at" is of type bigint but expression is of type text
+                  -- Every attempt to record a provider failure threw, which
+                  -- means the breaker could never trip, however broken the rail.
+                  CASE WHEN 1 >= ? THEN CAST(? AS BIGINT) ELSE NULL END, ?)
           ON CONFLICT (provider) DO UPDATE SET
             consecutive_failures = offramp_provider_health.consecutive_failures + 1,
             consecutive_successes = 0,

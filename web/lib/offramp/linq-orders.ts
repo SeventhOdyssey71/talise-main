@@ -203,6 +203,23 @@ export async function beginLinqOrder(
     await releaseIntent(key, "provider rejected order creation");
     const reason = (e as Error).message ?? "provider rejected the order";
     console.warn(`[offramp/${input.source}] createOrder failed:`, reason);
+
+    // The provider's own rate limit is not a broken rail — it means this user
+    // has sent orders faster than it accepts them, which is exactly what
+    // happens when an earlier failure has them tapping again. Reported as a
+    // 502 it read as "cash-out is down", so they retried harder and stayed
+    // limited. 429 with a wait, and the retry-after the clients already honour.
+    if (/rate limit/i.test(reason)) {
+      return {
+        ok: false,
+        status: 429,
+        body: {
+          error: "Too many cash-out attempts. Wait a minute and try again.",
+          code: "PROVIDER_RATE_LIMITED",
+          reason,
+        },
+      };
+    }
     return degradedOr(
       e,
       { error: "Could not start the cash-out.", reason },
