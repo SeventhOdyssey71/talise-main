@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isProverSessionError } from "@/lib/zksigner";
 import { denyUnlessAppApproved } from "@/lib/app-access";
 import {
   readEntryIdFromRequest,
@@ -726,7 +727,12 @@ export async function POST(req: Request) {
     // client to a clean re-sign-in instead of an opaque 502 it would retry
     // forever (the iOS money flows all handle session_rebind_required).
     if (e.leg === "proof") {
-      if (/-32602|invalid params/i.test(msg)) {
+      // Matched on the -32602 text alone before. That only ever saw Shinami's
+      // wording, and only when Shinami's error survived the fallback chain —
+      // which it did not, because the Mysten fallback overwrote it. Classify on
+      // the error's STATUS instead, so any prover rejecting the inputs routes
+      // to re-auth.
+      if (isProverSessionError(e) || /-32602|invalid params/i.test(msg)) {
         return NextResponse.json(
           {
             error: "Sign in again, your session needs a refresh.",
@@ -738,8 +744,14 @@ export async function POST(req: Request) {
       // Network glitch, Shinami 5xx, GPU down. The zksigner already
       // exhausted its primary→fallback chain, we're out of options for
       // this request. 502 distinguishes from timeout.
+      console.warn(`[zk/sponsor-execute] proof failed: ${msg}`);
       return NextResponse.json(
-        { error: msg, code: "PROOF_FAILED" },
+        {
+          // `msg` is an upstream provider's error body. It went straight to the
+          // client, which is how a raw prover 400 ended up rendered in the UI.
+          error: "Couldn't prepare your signature. Try again in a moment.",
+          code: "PROOF_FAILED",
+        },
         { status: 502 }
       );
     }

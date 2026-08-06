@@ -284,6 +284,8 @@ export async function callProverWithFallback(
 
   let attempt = 0;
   let lastErr: unknown = null;
+  /** The primary's failure — the only one that describes OUR setup. */
+  let primaryErr: unknown = null;
   for (let i = 0; i < order.length; i++) {
     attempt++;
     const backend = order[i];
@@ -312,6 +314,20 @@ export async function callProverWithFallback(
         } ms=${ms} msg=${truncate(String((err as Error).message ?? err), 160)}`
       );
       lastErr = err;
+      // Keep the PRIMARY's failure as the one we report. Shinami rejecting the
+      // inputs ("Invalid params", -32602) means the JWT can no longer mint a
+      // proof — a session problem the caller maps to a clean re-sign-in. The
+      // Mysten fallback then fails too, with "audience is not supported", and
+      // that error used to overwrite it: `lastErr` won and the route returned
+      // an opaque 502 the client retried forever, with the raw prover body on
+      // screen. The fallback's error is also never actionable for us — Mysten's
+      // public prover does not support EITHER of our Google client ids:
+      //
+      //   web  786432206940-esp0les… -> 400 "The audience … is not supported"
+      //   iOS  786432206940-rnvri4a… -> 400 "The audience … is not supported"
+      //
+      // so it can only ever mislead. First error wins from here on.
+      if (primaryErr === null) primaryErr = err;
       if (!retryable && i === 0) {
         // Non-retryable primary failure (e.g. 4xx, bad JWT). Still fall
         // through to the fallback once so an upstream auth-flake on one
@@ -320,7 +336,26 @@ export async function callProverWithFallback(
       }
     }
   }
-  throw lastErr ?? new Error("all provers failed");
+  throw primaryErr ?? lastErr ?? new Error("all provers failed");
+}
+
+/**
+ * Does this prover failure mean the SESSION is unusable rather than the prover
+ * being down?
+ *
+ * A prover that rejects the inputs — Shinami's `Invalid params` (-32602), or
+ * any 4xx — is saying this JWT/ephemeral-key pair can no longer produce a
+ * proof: the id_token expired, or maxEpoch is behind the chain. Re-signing in
+ * fixes it and retrying never will. A 5xx or a timeout is the opposite: the
+ * material is fine and the provider is having a moment, so the caller should
+ * surface a retryable error and NOT throw the user out of their session.
+ */
+export function isProverSessionError(e: unknown): boolean {
+  const err = e as { status?: number; name?: string } | null;
+  if (!err) return false;
+  if (err.name === "TimeoutError" || err.name === "AbortError") return false;
+  if (typeof err.status === "number") return err.status >= 400 && err.status < 500;
+  return /-32602|invalid params/i.test(String((e as Error)?.message ?? ""));
 }
 
 function truncate(s: string, n: number) {

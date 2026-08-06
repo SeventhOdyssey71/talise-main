@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isProverSessionError } from "@/lib/zksigner";
 import {
   readEntryIdFromRequest,
   mobileSigningContext,
@@ -83,7 +84,30 @@ export async function POST(req: Request) {
     return NextResponse.json({ proof });
   } catch (err) {
     const msg = (err as Error).message ?? "proof mint failed";
-    const status = msg.includes("No active sign-in") ? 401 : 500;
-    return NextResponse.json({ error: msg }, { status });
+    if (msg.includes("No active sign-in")) {
+      return NextResponse.json({ error: msg }, { status: 401 });
+    }
+    // A prover that rejects the INPUTS is telling us this sign-in can no
+    // longer mint a proof — re-auth fixes it, retrying cannot. Same mapping
+    // sponsor-execute already used; without it here the raw prover body went
+    // to the browser and a user saw
+    //   prover 400 (mysten): {"name":"InputValidationError","message":"…
+    // sitting under their token bucket.
+    if (isProverSessionError(err)) {
+      return NextResponse.json(
+        {
+          error: "Sign in again, your session needs a refresh.",
+          code: "session_rebind_required",
+        },
+        { status: 401 }
+      );
+    }
+    // Genuine prover trouble. Log the detail, tell the user something true and
+    // retryable — an upstream error body is never a message for a person.
+    console.warn(`[zk/proof] mint failed: ${msg}`);
+    return NextResponse.json(
+      { error: "Couldn't prepare your signature. Try again in a moment.", code: "PROOF_FAILED" },
+      { status: 502 }
+    );
   }
 }
