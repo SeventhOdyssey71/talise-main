@@ -5,6 +5,9 @@ import { bcs } from "@mysten/sui/bcs";
 import {
   depositCoinPTB,
   withdrawCoinPTB,
+  getUserAvailableLendingRewards,
+  claimLendingRewardsPTB,
+  type LendingReward,
   getPools,
   updateOraclePriceBeforeUserOperationPTB,
   type Pool,
@@ -597,5 +600,71 @@ export function naviPositionFromActivity(opts: {
     dailyEarning,
     apy,
     earningSinceMs: streakStart,
+  };
+}
+
+// ── NAVI incentive rewards ────────────────────────────────────────────────
+//
+// These are SEPARATE from the supplied balance. NAVI pays lenders incentive
+// tokens (vSUI on the USDsui pool today) that accrue alongside interest and are
+// claimed with their own call. Claiming them does NOT touch supplied capital,
+// which is the whole point: a user should be able to take their rewards and
+// leave the position earning.
+
+export type NaviClaimableReward = {
+  rewardCoinType: string;
+  /** Human units of the REWARD coin, not USD. */
+  amount: number;
+};
+
+/**
+ * Rewards this address can claim right now. Empty on any failure — a rewards
+ * read must never block the Earn screen from rendering the position.
+ */
+export async function fetchNaviClaimableRewards(
+  address: string
+): Promise<NaviClaimableReward[]> {
+  try {
+    const list = await getUserAvailableLendingRewards(address);
+    return (list ?? [])
+      .map((r) => ({
+        rewardCoinType: String(r.rewardCoinType ?? ""),
+        amount: Number(r.userClaimableReward ?? 0),
+      }))
+      .filter((r) => r.rewardCoinType && r.amount > 0);
+  } catch (e) {
+    console.warn(`[navi] claimable rewards read failed: ${(e as Error).message}`);
+    return [];
+  }
+}
+
+/**
+ * Append a claim for EVERY available reward, including ones accrued long ago —
+ * NAVI keeps them claimable until taken, so a first claim sweeps the backlog.
+ *
+ * Capital is untouched: this adds only NAVI's own claim call, no withdraw leg.
+ * Throws when there is nothing to claim, so the caller returns a clean message
+ * instead of preparing a transaction that would move nothing.
+ */
+export async function appendNaviClaimRewards(
+  tx: Transaction,
+  address: string
+): Promise<{ claimed: NaviClaimableReward[] }> {
+  let raw: LendingReward[];
+  try {
+    raw = (await getUserAvailableLendingRewards(address)) ?? [];
+  } catch (e) {
+    throw new Error(`couldn't read NAVI rewards: ${(e as Error).message}`);
+  }
+  const usable = raw.filter((r) => Number(r.userClaimableReward ?? 0) > 0);
+  if (usable.length === 0) {
+    throw new Error("no NAVI rewards to claim yet");
+  }
+  await claimLendingRewardsPTB(tx, usable);
+  return {
+    claimed: usable.map((r) => ({
+      rewardCoinType: String(r.rewardCoinType ?? ""),
+      amount: Number(r.userClaimableReward ?? 0),
+    })),
   };
 }

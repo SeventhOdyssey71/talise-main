@@ -6,7 +6,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
 import { sui } from "@/lib/sui";
 import {
-  appendNaviWithdraw,
+  appendNaviClaimRewards,
   fetchNaviCurrentValue,
   fetchNaviUsdsuiSupplyApy,
   naviPositionFromActivity,
@@ -110,100 +110,38 @@ export async function POST(req: Request) {
   const work = (async () => {
     const t0 = Date.now();
   try {
-    // Fetch the position + activity in parallel. Each leg has its
-    // own timeout so a sluggish RPC on one leg doesn't drag the whole
-    // pipeline past the outer 10s cap. Fallbacks match the previous
-    // `.catch()` behaviour, empty / null / 0, keeping the downstream
-    // math identical when a leg flakes.
-    const [snap, apyLive, activity, fallbackCurrent] = await Promise.all([
-      withTimeout(getEarnSnapshot(user.sui_address), 5_000, "earn-snapshot", null),
-      withTimeout(fetchNaviUsdsuiSupplyApy(), 3_000, "navi-apy", null),
-      withTimeout(
-        getRecentActivity(user.sui_address, 200, { includeNonTalise: false }),
-        5_000,
-        "activity",
-        [] as Awaited<ReturnType<typeof getRecentActivity>>
-      ),
-      withTimeout(fetchNaviCurrentValue(user.sui_address), 5_000, "navi-current", 0),
-    ]);
-    const tPosition = Date.now();
-    const currentValue = snap?.supplied ?? fallbackCurrent;
-    const apy = apyLive ?? snap?.apy ?? 0;
-    if (currentValue <= 0) {
-      return NextResponse.json(
-        { error: "no NAVI USDsui position to withdraw" },
-        { status: 404 }
-      );
-    }
-
-    const naviRows = activity
-      .filter((a) => (a.venue ?? "").toLowerCase() === "navi")
-      .map((a) => ({
-        direction: a.direction,
-        venue: a.venue,
-        amountUsdsui: a.amountUsdsui,
-        // Earliest-invest timestamp feeds the time-weighted
-        // projection in naviPositionFromActivity when naive principal
-        // exceeds currentValue (USDsui-dust rounding case).
-        timestampMs: a.timestampMs,
-      }));
-    const detail = naviPositionFromActivity({
-      currentValue,
-      apy,
-      naviActivity: naviRows,
-    });
-
-    // Dust floor: anything under 1 cent of USDsui is rounding noise
-    // for the integer-u64 conversion. The button on iOS uses a more
-    // conservative ₦10 / ~$0.01 floor; we mirror that on the server
-    // so a stale client doesn't try to ship a 0-amount withdraw.
-    const DUST_USDSUI = 0.01;
-    if (detail.earned < DUST_USDSUI) {
-      return NextResponse.json(
-        {
-          error: "no accrued yield to withdraw yet",
-          earned: detail.earned,
-          currentValue: detail.currentValue,
-          principalSupplied: detail.principalSupplied,
-        },
-        { status: 422 }
-      );
-    }
-
-    const tRewards = Date.now();
-
+    // CLAIM REWARDS — not a capital withdraw.
+    //
+    // This route used to compute "earned" (current − principal) and pull that
+    // much USDsui out of the supply with appendNaviWithdraw. That is a
+    // withdrawal wearing a claim's label: it shrinks the position the user
+    // deliberately left earning, and it never touched the incentive tokens NAVI
+    // actually owes them.
+    //
+    // NAVI pays lenders separate reward coins (vSUI on the USDsui pool) that
+    // accrue alongside interest and have their own claim call. Claiming them
+    // leaves supplied capital exactly where it is, and because NAVI keeps them
+    // claimable until taken, a first claim also sweeps any long-unclaimed
+    // backlog on the account.
     const tx = new Transaction();
     tx.setSender(user.sui_address);
 
-    // Pass the exact earned USDsui amount to Navi's withdraw entry.
-    // The adapter takes a USDsui amount (positive number, human
-    // units), same path the partial-withdraw uses. Pyth refresh
-    // for the health check is appended internally.
-    //
-    // Wrapped in withTimeout because the NAVI adapter does an internal
-    // position read here; on a sluggish RPC that lookup is what
-    // historically wedged iOS at 60s. 5s cap, surface 504 on miss.
-    const ok = await withTimeout(
-      appendNaviWithdraw(tx, user.sui_address, detail.earned).then(() => true),
-      5_000,
-      "navi-withdraw-append",
-      false
-    );
-    if (!ok) {
+    let claimed: Awaited<ReturnType<typeof appendNaviClaimRewards>>["claimed"] = [];
+    try {
+      const res = await appendNaviClaimRewards(tx, user.sui_address);
+      claimed = res.claimed;
+    } catch (e) {
+      const msg = (e as Error).message;
+      // "nothing to claim" is a normal state, not a failure.
+      const empty = /no NAVI rewards/i.test(msg);
       return NextResponse.json(
-        {
-          error:
-            "Withdraw is taking longer than usual, try again in a few seconds.",
-        },
-        { status: 504 }
+        { error: empty ? "You have no NAVI rewards to claim yet." : msg, code: empty ? "NO_REWARDS" : "CLAIM_FAILED" },
+        { status: empty ? 422 : 502 }
       );
     }
+    const tPosition = Date.now();
+    const tRewards = tPosition;
 
-    // Tag the tx with a typed Payment-Kit memo so the activity
-    // classifier later subtracts THIS withdraw from the principal
-    // replay correctly, `kind: withdraw, venue: navi`, amount =
-    // the earned USDsui. The receipt nonce is the source of truth
-    // the next position-detail read uses.
     const { nonce } = appendPaymentKitReceipt(tx, {
       kind: "withdraw",
       sender: user.sui_address,
@@ -237,15 +175,17 @@ export async function POST(req: Request) {
     // gasOwner + gasPrice get set in /api/zk/sponsor (see its log line
     // with the full `mode=sponsored sponsor=<addr> gasPrice=<n>` shape).
     console.log(
-      `[earn/withdraw-earned-prepare] mode=sponsored venue=${venue} earned=${detail.earned}`
+      `[earn/withdraw-earned-prepare] mode=sponsored venue=${venue} ` +
+        `claimed=${claimed.map((c) => `${c.amount}@${c.rewardCoinType.split("::").pop()}`).join(",")}`
     );
 
     return NextResponse.json({
       transactionKindB64: toBase64(kind),
       venue,
-      earned: detail.earned,
-      currentValue: detail.currentValue,
-      principalSupplied: detail.principalSupplied,
+      // What this claim actually moves: reward coins, in their own units.
+      // `earned` is deliberately NOT returned any more — it described a
+      // capital withdrawal this route no longer performs.
+      claimed,
       receiptNonce: nonce,
     });
   } catch (err) {
