@@ -79,20 +79,57 @@ export function bankAccountFingerprint(
 function dedupeByAccount(rows: BankAccountRow[]): BankAccountRow[] {
   const byKey = new Map<string, BankAccountRow>();
   for (const r of rows) {
-    const key = r.account_fingerprint || `id:${r.id}`;
+    const key = accountKey(r);
     const seen = byKey.get(key);
-    // Prefer the primary row, then the most recently touched, so collapsing
-    // duplicates can never silently drop a user's primary payout target.
-    if (
-      !seen ||
-      (toBool(r.is_primary) && !toBool(seen.is_primary)) ||
-      (toBool(r.is_primary) === toBool(seen.is_primary) &&
-        Number(r.updated_at ?? 0) > Number(seen.updated_at ?? 0))
-    ) {
+    if (!seen) {
       byKey.set(key, r);
+      continue;
     }
+    // Same account, two rows. Keep ONE, and keep the right one:
+    //   1. 'self' beats 'beneficiary' — it carries the consent attestation and
+    //      is the row inbound payments route to. Losing it to an auto-saved
+    //      copy would drop the "You" badge and the attestation with it.
+    //   2. then primary, so a user's primary payout target never vanishes
+    //      into a merge;
+    //   3. then most recently updated.
+    const better =
+      rank(r) > rank(seen) ||
+      (rank(r) === rank(seen) &&
+        Number(r.updated_at ?? 0) > Number(seen.updated_at ?? 0));
+    const winner = better ? r : seen;
+    const loser = better ? seen : r;
+    // Carry the loser's usage across: the beneficiary copy is usually the one
+    // that was actually paid, and dropping its timestamp would push a
+    // frequently-used account back down the picker.
+    byKey.set(key, {
+      ...winner,
+      last_used_at: Math.max(
+        Number(winner.last_used_at ?? 0),
+        Number(loser.last_used_at ?? 0)
+      ) || null,
+    });
   }
   return [...byKey.values()];
+}
+
+/** Sort weight for choosing between two rows describing the same account. */
+function rank(r: BankAccountRow): number {
+  return ((r.kind ?? "self") !== "beneficiary" ? 2 : 0) + (toBool(r.is_primary) ? 1 : 0);
+}
+
+/**
+ * Identity of the ACCOUNT a row points at, for merging duplicates.
+ *
+ * Deliberately the decrypted number rather than `account_fingerprint`: every
+ * row written before that column existed has NULL there, and keying on it left
+ * a user looking at their own account listed twice — once as the linked
+ * account they attested to, once as the beneficiary auto-saved from a cash-out
+ * to it. Deriving the key from data every row already has makes the merge work
+ * for old and new rows alike, with no backfill in the way of it being correct.
+ */
+function accountKey(r: BankAccountRow): string {
+  const plain = decryptAtRest(r.account_number) ?? r.account_number;
+  return `${r.bank_code}|${plain}`;
 }
 
 /** Masked, API-safe view of a linked bank account. */
@@ -322,11 +359,17 @@ export async function upsertBankAccount(input: {
                     attestation_digest, is_primary, kind, label,
                     account_fingerprint, last_used_at, created_at, updated_at`;
 
+  // Match on the account, NOT on (account, kind). Scoping by kind meant
+  // remembering a cash-out to an account the user had already linked inserted a
+  // second row for the same bank details, and the picker showed it twice.
+  // `self` rows are preferred so an auto-saved copy can never displace one.
   const existing = await db().execute({
     sql: `SELECT id FROM user_bank_accounts
-          WHERE user_id = ? AND account_fingerprint = ? AND kind = ?
-          ORDER BY updated_at DESC LIMIT 1`,
-    args: [userId, fp, kind],
+          WHERE user_id = ? AND account_fingerprint = ?
+          ORDER BY CASE WHEN kind = 'beneficiary' THEN 1 ELSE 0 END,
+                   updated_at DESC
+          LIMIT 1`,
+    args: [userId, fp],
   });
   const hitId = (existing.rows[0] as unknown as { id?: string } | undefined)?.id;
 

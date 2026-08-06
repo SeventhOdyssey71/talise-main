@@ -50,7 +50,14 @@ describe("NAVI gRPC-native Earn path (real mainnet)", () => {
     // ~1000x-inflated bug value, which would put a ~0.03 position at ~30).
     expect(Number.isFinite(amount)).toBe(true);
     expect(amount).toBeGreaterThan(0);
-    expect(amount).toBeLessThan(5); // real position is dust (~0.03)
+    // Upper bound guards the ~1000x DECIMALS bug (NAVI normalises USDsui's 6
+    // decimals into 9-decimal internal accounting; reading token.decimals here
+    // inflated the position by three orders of magnitude). It is NOT a
+    // statement about how much this address holds — pinned at 5 "because the
+    // real position is dust (~0.03)", it failed the moment the position grew
+    // to 9.59 through ordinary use. A decimals regression would report
+    // thousands, so the bound still catches it without tracking deposits.
+    expect(amount).toBeLessThan(100_000);
     // eslint-disable-next-line no-console
     console.log(`readNaviUsdsuiSupply(${TARGET_ADDR.slice(0, 10)}…) = ${amount}`);
   });

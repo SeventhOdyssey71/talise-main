@@ -75,6 +75,11 @@ vi.mock("@/lib/navi-supply", () => ({
       });
     }
   ),
+  // A FULL exit sweeps incentive rewards in the same PTB, so the route calls
+  // this whenever no amount was given. Best-effort in production (nothing to
+  // claim is the normal case), so the stub reports "nothing claimed" rather
+  // than appending anything.
+  tryAppendNaviClaimRewards: vi.fn(async () => false),
 }));
 
 // DeepBook venue isn't exercised here but the route imports it at the

@@ -205,6 +205,19 @@ export function isFallbackEligible(err: unknown): boolean {
 // client, and gRPC transports reconnect internally — safe to keep hot.
 const grpcClientCache = new Map<string, SuiGrpcClient>();
 
+/**
+ * Drop every memoized gRPC client so the next call reconstructs.
+ *
+ * The cache is module-level and lives for the process, which is right in
+ * production and wrong across tests: a suite asserting on how many clients the
+ * fallback wrapper CONSTRUCTS saw the count collapse to zero as earlier cases
+ * warmed the same endpoints, and the fallback tests failed while the wrapper
+ * behaved correctly.
+ */
+export function resetGrpcClientCache(): void {
+  grpcClientCache.clear();
+}
+
 export function buildClientForEndpoint(
   endpoint: SuiGrpcEndpoint,
   net: Network,

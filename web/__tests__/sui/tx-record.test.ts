@@ -29,6 +29,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mainnetTxAvailable } from "./_fixture-available";
 import {
   getNormalizedTransaction,
   type NormalizedTransaction,
@@ -119,7 +120,10 @@ async function readJson(res: Response): Promise<Record<string, unknown>> {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
+const KNOWN_TX_LIVE = await mainnetTxAvailable(KNOWN_MAINNET_DIGEST);
+
 describe("/api/tx/record — sub-plan 1.4 verifier (gRPC NormalizedTransaction)", () => {
+  const itLive = it.skipIf(!KNOWN_TX_LIVE);
   beforeEach(() => {
     recordTxSpy.mockClear();
     markInvoicePaidSpy.mockClear();
@@ -162,7 +166,7 @@ describe("/api/tx/record — sub-plan 1.4 verifier (gRPC NormalizedTransaction)"
     expect(recordTxSpy).not.toHaveBeenCalled();
   }, 10_000);
 
-  it("rejects when the on-chain verifier finds the merchant under-paid → 400", async () => {
+  itLive("rejects when the on-chain verifier finds the merchant under-paid → 400", async () => {
     // Drive the invoice branch. The merchant address is intentionally one
     // that does NOT appear in KNOWN_MAINNET_DIGEST's balanceChanges, so
     // `verifyAndCloseInvoice` walks the normalized tx, finds 0 USDsui paid
@@ -202,7 +206,7 @@ describe("/api/tx/record — sub-plan 1.4 verifier (gRPC NormalizedTransaction)"
     expect(markInvoicePaidSpy).not.toHaveBeenCalled();
   }, 30_000);
 
-  it("preserves the normalizer's events[].txDigest injection on the same call the route makes", async () => {
+  itLive("preserves the normalizer's events[].txDigest injection on the same call the route makes", async () => {
     // The route calls `getNormalizedTransaction(digest)` inside
     // `verifyAndCloseInvoice`. We exercise the same helper directly and
     // assert the event-row `txDigest` is the OUTER digest (gRPC doesn't

@@ -89,6 +89,11 @@ vi.mock("@/lib/rewards/roundup", () => ({
     if (!(net >= 0.01)) return null;
     return { grossUsd: gross, netUsd: net, percentage: pct, feeBps: 100 };
   },
+  // Mirrors the real export. The route calls this to bust its per-user config
+  // memo; without it on the mock, vitest throws
+  //   No "roundupConfigMemoKey" export is defined on the mock
+  // and every test in the file fails before it asserts anything.
+  roundupConfigMemoKey: (userId: number) => `roundup:cfg:${userId}`,
   issueSaveProof: vi.fn(() => "test-save-proof"),
 }));
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { mainnetTxAvailable } from "./_fixture-available";
 
 /**
  * Selective disclosure for the shielded pool: opening proofs, receipts, and
@@ -758,8 +759,11 @@ function forgedOverRealCommitment(claimMicros: string): NoteOpening {
   };
 }
 
+const REAL_TX_LIVE = await mainnetTxAvailable(REAL.txDigest);
+
 describe("shield disclosure — against real mainnet chain data", () => {
-  it("finds a real commitment on chain and corroborates the pool", async () => {
+  const itLive = it.skipIf(!REAL_TX_LIVE);
+  itLive("finds a real commitment on chain and corroborates the pool", async () => {
     const receipt = buildDisclosureReceipt({
       openings: [forgedOverRealCommitment("1000000")],
     });
@@ -769,7 +773,7 @@ describe("shield disclosure — against real mainnet chain data", () => {
     expect(res.openings[0].chain.poolBinding).toBe("corroborated");
   });
 
-  it("a forged amount over a REAL commitment is rejected", async () => {
+  itLive("a forged amount over a REAL commitment is rejected", async () => {
     // Full public-chain knowledge is not enough to lie about an amount: without
     // the blinding factor no attacker can produce a tuple that hashes to a
     // commitment the pool already published.
@@ -784,7 +788,7 @@ describe("shield disclosure — against real mainnet chain data", () => {
     expect(res.proves).toEqual([]);
   });
 
-  it("a real commitment moved to the wrong leaf is caught", async () => {
+  itLive("a real commitment moved to the wrong leaf is caught", async () => {
     const opening = { ...forgedOverRealCommitment("1000000") };
     opening.locator = { ...opening.locator, leafIndex: 1 };
     const res = await verifyDisclosureReceipt(buildDisclosureReceipt({ openings: [opening] }));

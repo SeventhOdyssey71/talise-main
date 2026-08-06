@@ -94,6 +94,11 @@ vi.mock("@/lib/rewards/roundup", () => ({
     if (!(net >= 0.01)) return null;
     return { grossUsd: gross, netUsd: net, percentage: pct, feeBps: 100 };
   },
+  // Mirrors the real export. The route calls this to bust its per-user config
+  // memo; without it on the mock, vitest throws
+  //   No "roundupConfigMemoKey" export is defined on the mock
+  // and every test in the file fails before it asserts anything.
+  roundupConfigMemoKey: (userId: number) => `roundup:cfg:${userId}`,
   issueSaveProof: vi.fn(() => "test-save-proof"),
 }));
 
@@ -298,7 +303,11 @@ describe("/api/send/sponsor-prepare (sponsored branch, PREPARE only)", () => {
       to: string;
     };
 
-    expect(json.mode).toBe("sponsored");
+    // "sponsored-save", not "sponsored": a Save-ON send is sponsored BY DESIGN
+    // rather than as a fallback, and 974001cb gave it its own label so
+    // analytics can tell the two apart. The assertion was left on the old
+    // value even though this test's own name says sponsored-save.
+    expect(json.mode).toBe("sponsored-save");
     expect(json.asset).toBe("USDsui");
     expect(json.amount).toBe(1.0);
     expect(json.to).toBe(RECIPIENT_ADDR);

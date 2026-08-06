@@ -54,6 +54,7 @@ import {
   suiGrpcWithFallback,
   MAINNET_GRPC_ENDPOINTS,
   isFallbackEligible,
+  resetGrpcClientCache,
 } from "../../lib/sui-endpoints";
 
 // Hayabusa (unconfirmedlabs gRPC-Web proxy) was placed FIRST in the registry,
@@ -87,6 +88,10 @@ describe("sui-endpoints fallback wrapper", () => {
   beforeEach(() => {
     ctorCalls.length = 0;
     FakeSuiGrpcClient.responses.clear();
+    // The wrapper memoizes one client per endpoint for the life of the
+    // process. Without clearing it, an endpoint warmed by an earlier test is
+    // never constructed again and the constructor count here reads 1, then 0.
+    resetGrpcClientCache();
     // Deterministic two-endpoint chain: the public fullnode (#1, no key) then
     // Shinami (#2). We set a dummy SHINAMI_API_KEY so Shinami is constructed
     // as the fallback target — the FakeSuiGrpcClient ignores auth, it just
