@@ -2,8 +2,14 @@ import "server-only";
 
 import { Transaction } from "@mysten/sui/transactions";
 import { bcs } from "@mysten/sui/bcs";
-import { NaviAdapter } from "@t2000/sdk";
-import { isUsdsui } from "./usdsui";
+import {
+  depositCoinPTB,
+  withdrawCoinPTB,
+  getPools,
+  updateOraclePriceBeforeUserOperationPTB,
+  type Pool,
+} from "@naviprotocol/lending";
+import { isUsdsui, USDSUI_TYPE } from "./usdsui";
 import { USDSUI_DECIMALS, sui } from "./sui";
 import { memoTtl } from "./perf-cache";
 import { sourceUsdsuiCoin } from "./usdsui-coin";
@@ -43,9 +49,6 @@ export const TREASURY_WALLET =
 /** Save / spend-and-save treasury fee, in basis points (100 = 1%). */
 export const SAVE_TREASURY_FEE_BPS = 100;
 
-let _adapter: NaviAdapter | null = null;
-let _adapterReady: Promise<NaviAdapter> | null = null;
-
 /**
  * gRPC-NATIVE NAVI. `@t2000/sdk`'s NaviAdapter (and the Pyth SDK it delegates
  * to for oracle refresh) was written against the legacy JSON-RPC `SuiClient`
@@ -61,18 +64,28 @@ let _adapterReady: Promise<NaviAdapter> | null = null;
  * `scripts/navi-grpc-validate.mjs` for the read-only parity proof that the
  * gRPC-native position read matches the JSON-RPC path bit-for-bit.
  */
-async function adapter(): Promise<NaviAdapter> {
-  if (_adapter) return _adapter;
-  if (_adapterReady) return _adapterReady;
-  _adapterReady = (async () => {
-    const a = new NaviAdapter();
-    // gRPC-backed JSON-RPC-compat client (NOT a real JSON-RPC SuiClient).
-    await a.init(naviGrpcCompatClient() as never);
-    _adapter = a;
-    return a;
-  })();
-  return _adapterReady;
+/**
+ * The USDsui lending pool, memoized. `@naviprotocol/lending` addresses pools by
+ * `AssetIdentifier` and resolves the live package + storage ids itself, which is
+ * the whole reason we are on it: the id set moves when NAVI upgrades, and a
+ * pinned one produces a PTB that fails resolution rather than a clean error.
+ */
+let _poolP: Promise<Pool | null> | null = null;
+async function usdsuiPool(): Promise<Pool | null> {
+  if (_poolP) return _poolP;
+  _poolP = (async () => {
+    const pools = await getPools();
+    const match = pools.find(
+      (p) => (p.suiCoinType ?? "").toLowerCase() === USDSUI_TYPE.toLowerCase()
+    );
+    return match ?? null;
+  })().catch(() => {
+    _poolP = null;
+    return null;
+  });
+  return _poolP;
 }
+
 
 /**
  * Pre-warm the NAVI supply path so the first Spend + Save send doesn't pay the
@@ -108,7 +121,7 @@ async function adapter(): Promise<NaviAdapter> {
  */
 export async function initNaviAdapter(warmAddress?: string): Promise<boolean> {
   try {
-    await adapter();
+    await usdsuiPool();
     // Any address works: the expensive caches (pool registry, reserve
     // metadata, Pyth price tables) are GLOBAL, and only the `listCoins` read
     // inside `sourceUsdsuiCoin` is per-address. VERIFIED by probe
@@ -151,7 +164,6 @@ export async function appendNaviSupply(
     treasuryFeeBps?: number;
   }
 ): Promise<void> {
-  const a = await adapter();
   const onchain = BigInt(Math.round(amountUsdsui * 10 ** USDSUI_DECIMALS));
   if (onchain <= 0n) {
     throw new Error("amount too small");
@@ -173,7 +185,9 @@ export async function appendNaviSupply(
     }
   }
 
-  await a.addSaveToTx(tx, senderAddress, coin, NAVI_ASSET);
+  const pool = await usdsuiPool();
+  if (!pool) throw new Error("NAVI USDsui pool unavailable");
+  await depositCoinPTB(tx, pool, coin, { amount: Number(onchain) });
 }
 
 /**
@@ -189,36 +203,28 @@ export async function appendNaviWithdraw(
   senderAddress: string,
   amountUsdsui: number | undefined
 ): Promise<void> {
-  const a = await adapter();
-  let amount = amountUsdsui ?? 0;
-  if (!Number.isFinite(amount) || amount <= 0) {
-    // Adapter signature requires a positive amount, so look up the
-    // current supplied balance and redeem that exact value. Anything
-    // missed (e.g. interest accrued between read and submit) gets
-    // picked up on the next withdraw.
-    const positions = await a.getPositions(senderAddress);
-    const usdsuiSupply = positions.supplies.find(
-      (s) => s.asset === NAVI_ASSET || s.asset.toLowerCase() === "usdsui"
-    );
-    amount = usdsuiSupply?.amount ?? 0;
-    if (amount <= 0) {
-      throw new Error("no NAVI USDsui position to withdraw");
-    }
+  const pool = await usdsuiPool();
+  if (!pool) throw new Error("NAVI USDsui pool unavailable");
+
+  // NAVI needs a fresh oracle price for the health check that guards a
+  // withdraw. The SDK appends exactly the feeds this pool requires; the old
+  // adapter had to be told to SKIP its own Pyth push because that branch left
+  // an undestroyed hot potato in the PTB.
+  await updateOraclePriceBeforeUserOperationPTB(tx, senderAddress, [pool]);
+
+  let micros: number;
+  if (Number.isFinite(amountUsdsui) && (amountUsdsui ?? 0) > 0) {
+    micros = Math.round((amountUsdsui as number) * 10 ** USDSUI_DECIMALS);
+  } else {
+    // "Withdraw everything": read the live supplied balance. Anything that
+    // accrues between the read and the submit is picked up next time.
+    const supplied = await readNaviUsdsuiSupply(senderAddress);
+    micros = Math.round(supplied * 10 ** USDSUI_DECIMALS);
+    if (micros <= 0) throw new Error("no NAVI USDsui position to withdraw");
   }
-  // skipPythUpdate: the SDK's client-side Pyth VAA push is a broken branch over
-  // our gRPC client (its price-table dynamic-object-field read fails there), and
-  // when exactly one feed is stale it leaves an undestroyed hot potato in the
-  // tx, so the withdraw PTB aborts. Skipping it keeps NAVI's required
-  // oracle_pro::update_single_price_v2 calls (the health-check refresh) and
-  // relies on the keeper-refreshed on-chain Pyth price. Verified: the withdraw
-  // PTB is byte-identical to the JSON-RPC path's surviving case.
-  const { coin } = await a.addWithdrawToTx(
-    tx,
-    senderAddress,
-    amount,
-    NAVI_ASSET,
-    { skipPythUpdate: true }
-  );
+
+  // SingleCoinTransactionResult is a tuple-like: the withdrawn coin is [0].
+  const [coin] = await withdrawCoinPTB(tx, pool, micros);
   tx.transferObjects([coin], senderAddress);
 }
 
