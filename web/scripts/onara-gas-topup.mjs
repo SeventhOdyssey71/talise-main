@@ -155,7 +155,11 @@ const res = await client.core.executeTransaction({
   transaction: bytes,
   signatures: [(await keypair.signTransaction(bytes)).signature],
 });
-const digest = res.transaction?.digest ?? res.digest;
+// gRPC wraps the result in a `{ $kind: "Transaction", Transaction: {...} }`
+// envelope, the same shape getTransaction returns — reading `res.transaction`
+// (lowercase) printed "broadcast undefined" on an execution that succeeded.
+const digest =
+  res.Transaction?.digest ?? res.transaction?.digest ?? res.digest ?? "(unknown)";
 console.log(`broadcast ${digest}`);
 
 // Confirm against chain state rather than trusting the response.
