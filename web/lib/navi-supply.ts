@@ -17,6 +17,7 @@ import { USDSUI_DECIMALS, sui } from "./sui";
 import { memoTtl } from "./perf-cache";
 import { sourceUsdsuiCoin } from "./usdsui-coin";
 import { naviGrpcCompatClient } from "./navi-grpc-client";
+import { cetusUniverse, normCoinType } from "./cetus-tokens";
 
 /**
  * NAVI USDsui supply / withdraw, sponsor-friendly PTB builders.
@@ -471,9 +472,13 @@ export async function readNaviUsdsuiSupply(address: string): Promise<number> {
 export type NaviPositionDetail = {
   /** Current redeemable USDsui balance. Includes accrued interest. */
   currentValue: number;
-  /** Estimated principal supplied (= currentValue − earned). */
+  /** Estimated principal supplied (= currentValue − accrued interest). */
   principalSupplied: number;
-  /** Real accrued yield = currentValue × apy × (elapsed streak / year). */
+  /**
+   * Everything the position has made: accrued interest
+   * (currentValue × apy × elapsed streak / year) PLUS the USD value of
+   * claimable incentive rewards, which live outside currentValue.
+   */
   earned: number;
   /** `currentValue × apy / 365`, per-day growth at this APY. */
   dailyEarning: number;
@@ -506,32 +511,28 @@ export async function fetchNaviCurrentValue(address: string): Promise<number> {
  *
  * Earned-interest derivation strategy:
  *
- *   1. Sum up all `invest`/`withdraw` USDsui amounts seen in activity
- *      to get a NAIVE principal estimate (`naiveNetDeposited`).
+ *   1. Replay the `invest`/`withdraw` rows in chronological order against a
+ *      running balance to find when the CURRENT streak began: the deposit that
+ *      took the position 0 → positive. A withdrawal back to zero resets it, so
+ *      churning in and out can't accumulate credit for time not held.
  *
- *   2. If `naiveNetDeposited <= currentValue` (the happy case), then
- *      `principalSupplied = naiveNetDeposited` and
- *      `earned = currentValue − principalSupplied`. This matches the
- *      original spec.
+ *   2. `interest = currentValue × apy × (now − streakStart) / 365d`, clamped at
+ *      currentValue as a guard against bad activity data.
  *
- *   3. If `naiveNetDeposited > currentValue` (a real on-chain reality
- *      we observe for users who supply many small USDsui amounts, Navi
- *      internally normalizes USDsui's 6 decimals to its 9-decimal accounting
- *      and rounds dust DOWN on each deposit, so summed-deposits ≥ current
- *      redeemable even before interest), then the naive math under-reports
- *      earned to 0. In that case we fall back to a TIME-WEIGHTED projection:
- *      take the EARLIEST navi invest timestamp as `tFirstSupply` and project
- *      `earned ≈ currentValue × apy × (now − tFirstSupply) / 365d`. We also
- *      clamp `principalSupplied = max(0, currentValue − earned)` so the
- *      iOS UI's "Supplied + Earned ≈ Current" invariant holds.
+ *      Summing deposits and subtracting from the balance — the obvious
+ *      alternative — does not work here. NAVI normalises USDsui's 6 decimals
+ *      into 9-decimal internal accounting and rounds dust DOWN on every
+ *      deposit, so for anyone supplying many small amounts the deposit sum
+ *      exceeds the redeemable balance before a cent of interest exists, and
+ *      earned floors at 0 permanently.
  *
- *      Projected earned is intentionally MODEST: capped at 10% of
- *      currentValue, so it can't run away if the user's first supply was
- *      ages ago. iOS labels this as "estimated" via the dailyEarning row
- *      regardless, so a small projection is honest.
+ *   3. When the activity window doesn't reach the opening deposit, fall back to
+ *      `anchorMs` (see the parameter docs). Without that fallback the streak is
+ *      simply not found and a months-old position reports zero.
  *
- *   4. If we couldn't find ANY navi activity (sawAny=false), keep the old
- *      conservative behaviour: principalSupplied = currentValue, earned = 0.
+ *   4. Add the USD value of claimable incentive rewards (`rewardsUsd`). These
+ *      are a separate coin, not part of currentValue, and they are the part the
+ *      user can claim on its own.
  */
 export function naviPositionFromActivity(opts: {
   currentValue: number;
@@ -543,6 +544,14 @@ export function naviPositionFromActivity(opts: {
     /** Optional; used by the time-weighted projection fallback. */
     timestampMs?: number;
   }>;
+  /**
+   * Streak start remembered from an earlier request, used ONLY when the
+   * activity window doesn't reach far enough back to contain the supply that
+   * started it. See the `anchorMs` discussion in the caller.
+   */
+  anchorMs?: number | null;
+  /** USD value of claimable incentive rewards; folded into `earned`. */
+  rewardsUsd?: number;
 }): NaviPositionDetail {
   const { currentValue, apy } = opts;
   const dailyEarning = currentValue * apy / 365;
@@ -583,23 +592,47 @@ export function naviPositionFromActivity(opts: {
     }
   }
 
+  // The replay only sees a WINDOW of recent activity. A long-tenured supplier's
+  // opening deposit falls out of that window, and then this loop finds either
+  // nothing or — worse — a lone withdraw, which drives the running balance
+  // negative and leaves `streakStart` null. Both produce earned = 0 for someone
+  // who has been earning for months. Worse still, whether the window reaches
+  // back far enough depended on a 4s race in the caller, so the same account
+  // showed a real figure on one client and zero on another, minutes apart.
+  //
+  // So: a start found in the window always wins (it has the withdrawal-reset
+  // semantics), but when the window yields nothing we fall back to the anchor
+  // the caller remembered from a request where it did.
+  const resolvedStart = streakStart ?? (opts.anchorMs && opts.anchorMs > 0 ? opts.anchorMs : null);
+
   // Real accrued yield = current balance × APY × (time held this streak).
   // No artificial cap/floor games, the streak reset is what keeps it honest;
   // a single sanity clamp at 100% guards against bad activity data only. The
   // client re-derives + ticks this live from `earningSinceMs`.
-  let earned = 0;
-  if (streakStart && streakStart > 0 && apy > 0 && currentValue > 0) {
-    const elapsed = Math.max(0, Date.now() - streakStart);
-    earned = Math.min(currentValue, currentValue * apy * (elapsed / YEAR_MS));
+  let interest = 0;
+  if (resolvedStart && resolvedStart > 0 && apy > 0 && currentValue > 0) {
+    const elapsed = Math.max(0, Date.now() - resolvedStart);
+    interest = Math.min(currentValue, currentValue * apy * (elapsed / YEAR_MS));
   }
+
+  // Two things earn on a NAVI supply and a user is owed both: interest, which
+  // compounds into the redeemable balance, and incentive rewards, which sit in
+  // a separate coin until claimed. Only the second is claimable on its own —
+  // which is exactly what the Claim button now does — so leaving it out of
+  // "Earned so far" made the screen contradict its own button.
+  const rewardsUsd = Math.max(0, opts.rewardsUsd ?? 0);
+  const earned = interest + rewardsUsd;
 
   return {
     currentValue,
-    principalSupplied: Math.max(0, currentValue - earned),
+    // Principal is what's left of the BALANCE after interest. Rewards are a
+    // separate coin and were never part of currentValue, so subtracting them
+    // here would understate what the user actually has supplied.
+    principalSupplied: Math.max(0, currentValue - interest),
     earned,
     dailyEarning,
     apy,
-    earningSinceMs: streakStart,
+    earningSinceMs: resolvedStart,
   };
 }
 
@@ -639,6 +672,59 @@ export async function fetchNaviClaimableRewards(
 }
 
 /**
+ * Total USD value of everything claimable right now.
+ *
+ * Rewards are paid in a coin that is NOT the supplied asset (vSUI on the USDsui
+ * pool today), so the raw amount means nothing to a user reading a savings
+ * screen — 0.06 of something isn't a number you can act on. Priced through the
+ * Cetus universe, the same derivation the wallet already uses for token
+ * buckets, so a reward and a balance can't disagree about what a coin is worth.
+ *
+ * Returns 0 rather than throwing: a price lookup must never be able to blank
+ * out the position itself.
+ */
+export async function fetchNaviRewardsUsd(address: string): Promise<number> {
+  const rewards = await fetchNaviClaimableRewards(address);
+  if (rewards.length === 0) return 0;
+  try {
+    // NAVI's own oracle first. The reward coin is a NAVI pool asset (vSUI
+    // today), so NAVI already publishes a price for it, and using that keeps
+    // the claim button agreeing with the protocol paying the reward. Deriving
+    // it from Cetus pool reserves instead put vSUI at $0.719 against NAVI's
+    // $0.676 — a 6% disagreement with no way for a user to tell which is real.
+    //
+    // NOTE: `oracle.valid` is false on ALL 35 pools, including USDsui at
+    // $0.999786 and WBTC at $64.5k. It flags "needs an on-chain feed refresh
+    // before a health-check op", not a bad price. Gating on it would zero every
+    // reward, so we deliberately read `price` regardless.
+    const oracle = new Map<string, number>();
+    try {
+      for (const p of await getPools()) {
+        const px = Number(p.oracle?.price ?? 0);
+        if (p.suiCoinType && px > 0) oracle.set(normCoinType(p.suiCoinType), px);
+      }
+    } catch {
+      /* fall through to Cetus */
+    }
+    const { priceUsd } = await cetusUniverse();
+
+    let usd = 0;
+    for (const r of rewards) {
+      const key = normCoinType(r.rewardCoinType);
+      const px = oracle.get(key) ?? priceUsd.get(key);
+      // An unpriced reward contributes 0 rather than being counted at par —
+      // guessing $1 for an unknown coin is how 0.06 of something becomes
+      // "$0.06" when it's worth ten times that, or a tenth.
+      if (px && Number.isFinite(px)) usd += r.amount * px;
+    }
+    return Number.isFinite(usd) && usd > 0 ? usd : 0;
+  } catch (e) {
+    console.warn(`[navi] reward pricing failed: ${(e as Error).message}`);
+    return 0;
+  }
+}
+
+/**
  * Append a claim for EVERY available reward, including ones accrued long ago —
  * NAVI keeps them claimable until taken, so a first claim sweeps the backlog.
  *
@@ -667,4 +753,25 @@ export async function appendNaviClaimRewards(
       amount: Number(r.userClaimableReward ?? 0),
     })),
   };
+}
+
+/**
+ * Best-effort version for closing a position: sweeps rewards alongside the
+ * capital withdrawal so a user who taps "Withdraw all" doesn't leave reward
+ * coins stranded in a pool they no longer hold.
+ *
+ * Never throws and never fails the transaction it's appended to — having
+ * nothing to claim is the common case, and a rewards problem must not stop
+ * someone getting their own money out.
+ */
+export async function tryAppendNaviClaimRewards(
+  tx: Transaction,
+  address: string
+): Promise<boolean> {
+  try {
+    await appendNaviClaimRewards(tx, address);
+    return true;
+  } catch {
+    return false;
+  }
 }

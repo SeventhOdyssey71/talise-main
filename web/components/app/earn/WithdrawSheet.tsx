@@ -26,7 +26,8 @@ import { useEarnAction } from "./useEarnAction";
 import { type YieldVenue, venueLabel, formatApy } from "./earn-data";
 
 /** Below this much accrued yield, the "Withdraw earned" button is dust. */
-const WITHDRAW_EARNED_DUST_USD = 0.01;
+/** Below this the claim costs more attention than it returns. */
+const CLAIM_REWARDS_DUST_USD = 0.01;
 
 export function WithdrawSheet({
   venue,
@@ -55,6 +56,10 @@ export function WithdrawSheet({
   const supplied = venue?.supplied ?? 0;
   const apy = venue?.apy ?? 0;
   const earned = venue?.earned;
+  // Claimable incentive rewards, in USD. This is what the claim button acts
+  // on — NOT `earned`, most of which is interest compounding inside the
+  // balance and only realisable by withdrawing.
+  const rewards = venue?.pendingRewards ?? 0;
   const dailyEarning = venue?.earningPerDay ?? (supplied * apy) / 365;
 
   const partialUsd = useMemo(() => {
@@ -65,11 +70,8 @@ export function WithdrawSheet({
 
   const canWithdrawPartial =
     partialUsd > 0 && partialUsd <= supplied + 0.0001 && !working;
-  const canWithdrawEarned =
-    venue?.venue === "navi" &&
-    earned !== undefined &&
-    earned >= WITHDRAW_EARNED_DUST_USD &&
-    !working;
+  const canClaimRewards =
+    venue?.venue === "navi" && rewards >= CLAIM_REWARDS_DUST_USD && !working;
 
   async function handle(fn: () => Promise<{ digest: string }>, label: string) {
     setError(null);
@@ -98,7 +100,11 @@ export function WithdrawSheet({
 
           {/* Position stat rows, clean flat card */}
           <GlassCard className="overflow-hidden !p-0" radius={20}>
-            <PositionRow label="Supplied" value={formatUsd(supplied, { fixed: true })} />
+            {/* "Balance", not "Supplied": NAVI accrues interest into the
+                position in place, so this figure already contains part of
+                "Earned so far". Labelling it as the deposit made the two rows
+                read as separate money. */}
+            <PositionRow label="Balance" value={formatUsd(supplied, { fixed: true })} />
             <Divider />
             <PositionRow label="APY" value={formatApy(apy || bestApy)} accent />
             {earned !== undefined && (
@@ -107,6 +113,16 @@ export function WithdrawSheet({
                 <PositionRow
                   label="Earned so far"
                   value={formatUsd(earned, { fixed: true })}
+                  accent
+                />
+              </>
+            )}
+            {rewards > 0 && (
+              <>
+                <Divider />
+                <PositionRow
+                  label="Rewards to claim"
+                  value={formatUsd(rewards, { fixed: true })}
                   accent
                 />
               </>
@@ -163,7 +179,7 @@ export function WithdrawSheet({
               {partialUsd > 0 ? `Withdraw ${formatUsd(partialUsd, { fixed: true })}` : "Withdraw"}
             </PrimaryButton>
 
-            {canWithdrawEarned && earned !== undefined && (
+            {canClaimRewards && (
               <PrimaryButton
                 full
                 variant="ghost"
@@ -171,11 +187,11 @@ export function WithdrawSheet({
                 onClick={() =>
                   handle(
                     () => withdrawEarned(),
-                    `Withdrew ${formatUsd(earned, { fixed: true })} earned`
+                    `Claimed ${formatUsd(rewards, { fixed: true })} in rewards`
                   )
                 }
               >
-                Withdraw earned ({formatUsd(earned, { fixed: true })})
+                Claim rewards ({formatUsd(rewards, { fixed: true })})
               </PrimaryButton>
             )}
 

@@ -3,6 +3,7 @@ import "server-only";
 import type { PendingReward } from "@t2000/sdk";
 import {
   fetchNaviUsdsuiSupplyApy,
+  fetchNaviRewardsUsd,
   readNaviUsdsuiSupply,
 } from "./navi-supply";
 import { getGlobalNum, setGlobalNum, refreshInBackground } from "./snapshots";
@@ -206,12 +207,16 @@ export async function getYieldComparison(
   //   timeout-capped and failure-tolerant so a slow/flaky read degrades to
   //   supplied=0 rather
   //   than stalling or emptying the comparison.
-  const [naviApy, scallopApy, naviSupplied] = await Promise.all([
+  const [naviApy, scallopApy, naviSupplied, naviRewardsUsd] = await Promise.all([
     resolveVenueApy("navi_usdsui_apy", () => fetchNaviUsdsuiSupplyApy()),
     // Scallop USDsui supply, the second live aggregator-router venue. Read
     // from Scallop's market API (USDsui pool), cached like the others.
     resolveVenueApy("scallop_usdsui_apy", () => fetchScallopUsdsuiApy()),
     withTimeout(readNaviUsdsuiSupply(address).catch(() => 0), YIELD_LEG_TIMEOUT_MS, 0),
+    // Claimable incentive rewards, priced in USD. Timeout-capped like the
+    // position read: rewards are the number the Claim button acts on, but a
+    // slow read of them must not hold up the position itself.
+    withTimeout(fetchNaviRewardsUsd(address).catch(() => 0), YIELD_LEG_TIMEOUT_MS, 0),
   ]);
 
   const venues: YieldVenue[] = [];
@@ -221,9 +226,10 @@ export async function getYieldComparison(
       name: "NAVI lending",
       apy: naviApy,
       supplied: naviSupplied,
-      // Pending rewards aren't surfaced from the direct NAVI read, see the
-      // module note above. Kept in `meta` so consumers don't change shape.
-      meta: { pendingUsd: 0 },
+      // Incentive rewards, in USD. This was hardcoded to 0, which meant the
+      // Claim button had no number of its own to show and the clients gated it
+      // on `earned` — an interest projection that claiming does not touch.
+      meta: { pendingUsd: naviRewardsUsd },
     });
   }
   // Scallop, USDsui supply market. GATED: supply currently reverts on a stale

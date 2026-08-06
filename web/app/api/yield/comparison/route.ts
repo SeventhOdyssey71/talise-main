@@ -7,7 +7,21 @@ import {
   type NaviPositionDetail,
 } from "@/lib/navi-supply";
 import { getRecentActivity } from "@/lib/activity";
-import { readActivitySnapshot } from "@/lib/snapshots";
+import {
+  readActivitySnapshot,
+  getGlobalNum,
+  setGlobalNum,
+} from "@/lib/snapshots";
+
+/**
+ * Where we remember when a user's NAVI earning streak began.
+ *
+ * The streak start is reconstructed by replaying recent activity, but "recent"
+ * is a window — and a supplier who hasn't touched Earn in a while has their
+ * opening deposit fall out of it. Once we've seen the real start we keep it, so
+ * the figure stops depending on how far back a given request happened to see.
+ */
+const naviAnchorKey = (userId: number) => `navi_streak:${userId}`;
 
 export const runtime = "nodejs";
 
@@ -49,15 +63,14 @@ export async function GET(req: Request) {
 
     const cmp = await getYieldComparison(user.sui_address);
 
-    // For Navi, additionally compute `earned` (current − principal)
-    // and `earningPerDay` from a recent on-chain activity replay. We
-    // scan a generous window (~200 txs) so historical supplies aren't
-    // missed for long-tenured users. Activity is the source of truth
-    // here, neither Navi's open API nor `@t2000/sdk`'s
-    // `EarningsResult` exposes real accrued interest per user (the
-    // SDK's `totalYieldEarned` is dailyEarning × 30, a projection,
-    // not actual yield). See `naviPositionFromActivity` for the full
-    // rationale.
+    // For Navi, additionally compute `earned` (accrued interest + claimable
+    // rewards) and `earningPerDay`. Interest is projected from when the
+    // earning streak began, found by replaying a ~200-tx activity window;
+    // nothing exposes real accrued interest per user (NAVI accrues it into
+    // the position in place, its open API is pool-level only, and the old
+    // `@t2000/sdk` `totalYieldEarned` was dailyEarning × 30 — a projection
+    // dressed as a fact). A persisted anchor covers users whose opening
+    // deposit predates the window. See `naviPositionFromActivity`.
     let naviDetail: NaviPositionDetail | null = null;
     const naviVenue = cmp.venues.find((v) => v.id === "navi");
     if (naviVenue && (naviVenue.supplied ?? 0) > 0) {
@@ -86,11 +99,30 @@ export async function GET(req: Request) {
             // timestamp; the rest are ignored.
             timestampMs: a.timestampMs,
           }));
+        const anchor = await getGlobalNum(naviAnchorKey(userId)).catch(() => null);
         naviDetail = naviPositionFromActivity({
           currentValue: naviVenue.supplied ?? 0,
           apy: naviVenue.apy,
           naviActivity: naviRows,
+          anchorMs: anchor?.value ?? null,
+          rewardsUsd:
+            (naviVenue.meta as { pendingUsd?: number } | undefined)?.pendingUsd ?? 0,
         });
+
+        // Remember the start for the next request. Three cases:
+        //   - the replay found one → store it, it's authoritative and carries
+        //     the withdrawal-reset semantics;
+        //   - it didn't but we had an anchor → nothing to do;
+        //   - neither, yet the user demonstrably holds a position → anchor
+        //     NOW. That reports 0 earned today and a truthful, growing figure
+        //     from here, instead of a number permanently stuck at zero for
+        //     anyone whose deposit predates the window.
+        const start = naviDetail.earningSinceMs;
+        if (start && start > 0 && start !== anchor?.value) {
+          void setGlobalNum(naviAnchorKey(userId), start);
+        } else if (!start) {
+          void setGlobalNum(naviAnchorKey(userId), Date.now());
+        }
       } catch (e) {
         // Activity feed failures are non-fatal, we'll just omit the
         // breakdown and let iOS render the legacy single "Earning / day"
@@ -99,6 +131,10 @@ export async function GET(req: Request) {
           `[yield/comparison] navi activity replay failed: ${(e as Error).message}`
         );
       }
+    } else if (naviVenue) {
+      // Position fully closed. Drop the anchor so a later re-deposit starts its
+      // clock then, not from the first time this user ever supplied.
+      void setGlobalNum(naviAnchorKey(userId), 0);
     }
 
     const venues = cmp.venues.map((v) => {

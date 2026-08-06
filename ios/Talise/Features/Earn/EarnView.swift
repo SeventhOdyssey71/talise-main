@@ -444,11 +444,15 @@ private struct EarnManageSheet: View {
     private var dailyEarning: Double {
         venue.earningPerDay ?? (supplied * apy / 365.0)
     }
-    /// Cumulative yield earned-so-far (server-side: `currentValue −
-    /// principalSupplied`). `nil` for venues that don't expose the
-    /// breakdown — UI hides the "Earned so far" row + the dedicated
-    /// withdraw-earned button in that case.
+    /// Everything the position has made: interest accrued into the balance
+    /// PLUS the value of claimable incentive rewards. `nil` for venues that
+    /// don't expose the breakdown — the "Earned so far" row is hidden then.
     private var earnedSoFar: Double? { venue.earned }
+
+    /// Incentive rewards claimable right now, in USD. Separate from `supplied`
+    /// — they're paid in another coin and sit outside the position until
+    /// claimed. This, not `earnedSoFar`, is what the claim button moves.
+    private var claimableRewards: Double { venue.pendingRewards ?? 0 }
 
     /// Start of the current earning streak (server resets it on a full
     /// withdrawal, so churn can't inflate the number).
@@ -459,33 +463,34 @@ private struct EarnManageSheet: View {
     /// What the position would earn in a YEAR at the current rate — the honest
     /// forward projection (principal × APY).
     private var projectedYear: Double { supplied * apy }
-    /// Live accrued yield = principal × APY × (elapsed this streak / year),
-    /// ticking continuously off `earningSince`. Falls back to the server's
-    /// snapshot `earned` when the streak start isn't known. Clamped at the
-    /// principal as a sanity guard.
+    /// Live total earnings, ticking continuously off `earningSince`:
+    /// interest (balance × APY × elapsed this streak / year, clamped at the
+    /// balance) plus claimable rewards, which don't tick — they're a discrete
+    /// amount the server reads from NAVI. Falls back to the server's snapshot
+    /// when the streak start isn't known.
     private func liveEarned(_ now: Date) -> Double {
         guard let since = earningSince, apy > 0, supplied > 0 else {
             return earnedSoFar ?? 0
         }
         let yearSecs: Double = 365 * 24 * 60 * 60
         let elapsed = max(0, now.timeIntervalSince(since))
-        return min(supplied, supplied * apy * (elapsed / yearSecs))
+        let interest = min(supplied, supplied * apy * (elapsed / yearSecs))
+        return interest + claimableRewards
     }
 
-    /// USD floor for showing the "Withdraw earned" button. Anything
+    /// USD floor for showing the claim button. Anything
     /// below this and the button is dust (sub-cent rounding noise) —
     /// we'd just be burning gas to redeem a value smaller than the
     /// PTB build cost. ₦ equivalent at typical FX is ~₦15 so the
     /// floor reads naturally in either currency.
     private static let WITHDRAW_EARNED_DUST_USD: Double = 0.01
 
-    /// Whether the "Withdraw earned" button is visible. Three gates:
-    ///   • Venue must expose `earned` (Navi today; Deepbook later)
-    ///   • Earned amount must be above the dust floor
-    ///   • A withdraw isn't already in-flight
+    /// Whether the claim button is enabled. Gated on CLAIMABLE REWARDS, not on
+    /// `earnedSoFar`: claiming takes reward coins only and leaves capital
+    /// supplied, so gating on total earnings offered a claim that would move a
+    /// different — often much smaller — amount than the label promised.
     private var canWithdrawEarned: Bool {
-        guard let e = earnedSoFar else { return false }
-        return e >= Self.WITHDRAW_EARNED_DUST_USD && !withdrawing
+        claimableRewards >= Self.WITHDRAW_EARNED_DUST_USD && !withdrawing
     }
 
     /// User-typed partial-withdraw amount, in the display currency,
@@ -728,8 +733,11 @@ private struct EarnManageSheet: View {
         // etc. The on-chain values are still USDsui (1:1 USD); the
         // local formatter applies CurrencySettings.shared.current.
         VStack(spacing: 0) {
-            // Principal — what the user has deposited (= currentValue − earned).
-            row(label: "Deposited", value: TaliseFormat.local2(supplied))
+            // The live redeemable balance. Labelled "Balance", not "Deposited":
+            // NAVI compounds interest into the position in place, so this
+            // already contains part of "Earned so far" below — calling it the
+            // deposit made the two rows read as separate piles of money.
+            row(label: "Balance", value: TaliseFormat.local2(supplied))
 
             // Earned so far — LIVE. Computed from the current balance × APY ×
             // time held this streak, ticking every second so the user watches
@@ -744,6 +752,17 @@ private struct EarnManageSheet: View {
                         accent: true
                     )
                 }
+            }
+
+            // Rewards are the claimable slice of "Earned so far" — worth its
+            // own row so the claim button's amount is visible before tapping.
+            if claimableRewards > 0 {
+                RowDivider(inset: 18)
+                row(
+                    label: "Rewards to claim",
+                    value: TaliseFormat.local2(claimableRewards),
+                    accent: true
+                )
             }
 
             // Forward projection — what you'd earn in a year at this rate.
@@ -926,8 +945,8 @@ private struct EarnManageSheet: View {
     /// Label for the claim-rewards button: shows the accrued amount when there's
     /// enough to claim, else a plain prompt (button is disabled in that case).
     private var claimRewardsTitle: String {
-        if canWithdrawEarned, let earned = earnedSoFar {
-            let (local, _) = CurrencySettings.shared.convert(usd: earned)
+        if canWithdrawEarned {
+            let (local, _) = CurrencySettings.shared.convert(usd: claimableRewards)
             return "Claim \(CurrencySettings.shared.current.symbol)\(String(format: "%.2f", local)) rewards"
         }
         return "Claim rewards"
@@ -1129,7 +1148,7 @@ private struct EarnManageSheet: View {
             // For the rewards-engine hint we forward the UI-side
             // earned snapshot (USDsui = USD). Server clips to its
             // per-tx cap so a stale value doesn't grant extra points.
-            let rewardsAmount = earnedSoFar ?? 0
+            let rewardsAmount = claimableRewards
             let result = try await ZkLoginCoordinator.shared.signAndSubmit(
                 transactionKindB64: built.transactionKindB64,
                 intent: "Withdraw earned yield",

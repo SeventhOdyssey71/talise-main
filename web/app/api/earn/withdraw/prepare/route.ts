@@ -9,7 +9,10 @@ import {
   buildWithdrawUsdsuiMargin,
   fetchSupplierCapId,
 } from "@/lib/deepbook-margin";
-import { appendNaviWithdraw } from "@/lib/navi-supply";
+import {
+  appendNaviWithdraw,
+  tryAppendNaviClaimRewards,
+} from "@/lib/navi-supply";
 import { appendPaymentKitReceipt } from "@/lib/intents/wrap-payment-kit";
 
 export const runtime = "nodejs";
@@ -200,6 +203,13 @@ export async function POST(req: Request) {
           "navi-position"
         );
         tPosition = Date.now();
+        // A FULL exit sweeps incentive rewards in the same PTB. Without this
+        // the user closes the position and their reward coins stay behind in a
+        // pool they no longer have any reason to revisit. Best-effort: nothing
+        // to claim is the normal case and must not fail the withdrawal.
+        if (res.kind === "ok" && wrappedAmount === undefined) {
+          await tryAppendNaviClaimRewards(tx, user.sui_address);
+        }
         if (res.kind === "timeout") {
           return NextResponse.json(
             {
