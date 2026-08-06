@@ -687,31 +687,40 @@ export async function fetchNaviRewardsUsd(address: string): Promise<number> {
   const rewards = await fetchNaviClaimableRewards(address);
   if (rewards.length === 0) return 0;
   try {
-    // NAVI's own oracle first. The reward coin is a NAVI pool asset (vSUI
-    // today), so NAVI already publishes a price for it, and using that keeps
-    // the claim button agreeing with the protocol paying the reward. Deriving
-    // it from Cetus pool reserves instead put vSUI at $0.719 against NAVI's
-    // $0.676 — a 6% disagreement with no way for a user to tell which is real.
+    // MARKET price first, NAVI's oracle only as a fallback.
     //
-    // NOTE: `oracle.valid` is false on ALL 35 pools, including USDsui at
-    // $0.999786 and WBTC at $64.5k. It flags "needs an on-chain feed refresh
-    // before a health-check op", not a bad price. Gating on it would zero every
-    // reward, so we deliberately read `price` regardless.
+    // The instinct is to trust the protocol paying the reward, but its oracle
+    // is built for collateral health, not for telling someone what their coins
+    // are worth. It prices SUI exactly right and vSUI at 1.0003× SUI, while the
+    // market pays 1.066× — vSUI is liquid-staked SUI and accrues staking
+    // rewards, so it has to trade above it. Checked against a quote that could
+    // actually be executed:
+    //
+    //   vSUI: NAVI oracle $0.6764 | 1 vSUI -> $0.7208  (oracle 6.2% low)
+    //   SUI : NAVI oracle $0.6762 | 1 SUI  -> $0.6763  (oracle 0.0% off)
+    //
+    // The 6% is the staking premium NAVI's feed ignores. Quoting the low number
+    // would also mean the Earn screen valuing a reward below what the token
+    // bucket shows for the very same coin the moment it's claimed.
+    const { priceUsd } = await cetusUniverse();
     const oracle = new Map<string, number>();
     try {
       for (const p of await getPools()) {
+        // `oracle.valid` is false on ALL 35 pools, including USDsui at
+        // $0.999786 and WBTC at $64.5k — it flags "feed needs an on-chain
+        // refresh before a health-check op", not a bad price. Gating on it
+        // would zero every reward, so read `price` regardless.
         const px = Number(p.oracle?.price ?? 0);
         if (p.suiCoinType && px > 0) oracle.set(normCoinType(p.suiCoinType), px);
       }
     } catch {
-      /* fall through to Cetus */
+      /* market price alone is fine */
     }
-    const { priceUsd } = await cetusUniverse();
 
     let usd = 0;
     for (const r of rewards) {
       const key = normCoinType(r.rewardCoinType);
-      const px = oracle.get(key) ?? priceUsd.get(key);
+      const px = priceUsd.get(key) ?? oracle.get(key);
       // An unpriced reward contributes 0 rather than being counted at par —
       // guessing $1 for an unknown coin is how 0.06 of something becomes
       // "$0.06" when it's worth ten times that, or a tenth.

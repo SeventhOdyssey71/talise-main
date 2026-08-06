@@ -5,10 +5,10 @@ import { rateLimitAsync } from "@/lib/rate-limit";
 import { userById } from "@/lib/db";
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { toBase64 } from "@mysten/sui/utils";
-import { DeepBookClient } from "@mysten/deepbook-v3";
 import { AggregatorClient } from "@cetusprotocol/aggregator-sdk";
 import { sui, network, COIN_TYPES } from "@/lib/sui";
 import { USDSUI_TYPE } from "@/lib/usdsui";
+import { isVerifiedCoin } from "@/lib/coins-verified";
 import { TREASURY_WALLET } from "@/lib/navi-supply";
 import { onara } from "@/lib/onara";
 import { memoTtl } from "@/lib/perf-cache";
@@ -28,7 +28,7 @@ export const runtime = "nodejs";
  * Response: { bytes, mode: "sponsored-swap", from, to, fromMicros,
  *             estimatedToMicros, sponsor, gasPrice }
  *
- * Allowlist: USDC, SUI, DEEP. Extend `SWAP_ROUTES` to add more.
+ * Accepts any VERIFIED coin — the same set the token bucket displays.
  *
  * Slippage default 100 bps (1%). Surfaced via `estimatedToMicros` so iOS
  * can show "you'll receive ~$X" with the slippage cap applied to the
@@ -47,58 +47,11 @@ const SWAP_FEE_BPS = 100; // 1.00% (non-stablecoin swaps only)
  *  source (USDC) makes the whole swap stablecoin↔stablecoin → fee-free. */
 const STABLE_TYPES = new Set<string>([COIN_TYPES.USDC, USDSUI_TYPE]);
 
-// ─── Route table ────────────────────────────────────────────────────
-// Maps the allowed `fromCoinType` strings to (a) the DeepBook pool key
-// that quotes <fromCoin>↔USDsui (directly or via a USDC bridge),
-// (b) which side of the pool the input sits on, and (c) the SDK helper
-// to call.
-//
-// Pool selection rationale: lowest fee path with deepest liquidity.
-//   - SUI:  SUI_USDSUI is the direct stablecoin pair (≈1 bp pool).
-//   - USDC: USDSUI_USDC is the only USDsui↔USDC pool; USDsui is base,
-//           USDC is quote → swap exact quote for base.
-//   - DEEP: no direct DEEP↔USDSUI pool exists. Hop via USDC:
-//           DEEP_USDC (DEEP→USDC) → USDSUI_USDC (USDC→USDSUI).
-//
-// All other coin types return 400 with code SWAP_UNSUPPORTED.
-
-type DirectRoute = {
-  kind: "direct";
-  poolKey: string;
-  /** Which side of the pool is the input coin. */
-  inputSide: "base" | "quote";
-};
-type TwoHopRoute = {
-  kind: "two-hop";
-  hop1: { poolKey: string; inputSide: "base" | "quote"; intermediateType: string };
-  hop2: { poolKey: string; inputSide: "base" | "quote" };
-};
-type SwapRoute = DirectRoute | TwoHopRoute;
-
-const SWAP_ROUTES: Record<string, SwapRoute> = {
-  [COIN_TYPES.SUI]: {
-    kind: "direct",
-    poolKey: "SUI_USDSUI",
-    inputSide: "base", // SUI is base, USDSUI is quote
-  },
-  [COIN_TYPES.USDC]: {
-    kind: "direct",
-    poolKey: "USDSUI_USDC",
-    inputSide: "quote", // USDSUI is base, USDC is quote → swap quote for base
-  },
-  [COIN_TYPES.DEEP]: {
-    kind: "two-hop",
-    hop1: {
-      poolKey: "DEEP_USDC",
-      inputSide: "base", // DEEP is base, USDC is quote
-      intermediateType: COIN_TYPES.USDC,
-    },
-    hop2: {
-      poolKey: "USDSUI_USDC",
-      inputSide: "quote", // USDSUI is base, USDC is quote
-    },
-  },
-};
+// Routing is the Cetus aggregator's job: it searches 20+ Sui DEXs per request
+// and returns the best fill. A hardcoded DeepBook route table used to live here
+// alongside it, but nothing read it except the allowlist check — it decided
+// which coins were *permitted*, never which pools were *used*. Removed rather
+// than left in place looking authoritative.
 
 /** Symbol label for the per-leg timing log line. */
 function symbolFor(coinType: string): string {
@@ -106,47 +59,6 @@ function symbolFor(coinType: string): string {
   if (coinType === COIN_TYPES.USDC) return "USDC";
   if (coinType === COIN_TYPES.DEEP) return "DEEP";
   return coinType.split("::").pop() ?? coinType;
-}
-
-/** Cached DeepBookClient for quote simulations + pool config lookups. */
-let _db: DeepBookClient | null = null;
-const SIM_SENDER =
-  "0x0000000000000000000000000000000000000000000000000000000000000001";
-function deepbook(): DeepBookClient {
-  if (_db) return _db;
-  _db = new DeepBookClient({
-    client: sui() as never,
-    address: SIM_SENDER,
-    network: network() === "mainnet" ? "mainnet" : "testnet",
-  });
-  return _db;
-}
-
-/**
- * Quote out for a direct pool using the SDK's simulate-based quote query.
- * Returns `outMicros` on the destination coin in raw u64.
- *
- * baseQty / quoteQty: SDK expects whole-unit numbers; we round-trip via
- * the coin's scalar exposed on the config. For our purposes we already
- * have the raw micros and just need the raw out, so we use the
- * SDK's number-output * scalar back to micros.
- */
-async function quoteDirect(
-  poolKey: string,
-  inputSide: "base" | "quote",
-  inMicros: bigint,
-  inScalar: number,
-  outScalar: number
-): Promise<bigint> {
-  const db = deepbook();
-  const inWhole = Number(inMicros) / inScalar;
-  if (inputSide === "base") {
-    const r = await db.getQuoteQuantityOut(poolKey, inWhole);
-    return BigInt(Math.floor(r.quoteOut * outScalar));
-  } else {
-    const r = await db.getBaseQuantityOut(poolKey, inWhole);
-    return BigInt(Math.floor(r.baseOut * outScalar));
-  }
 }
 
 export async function POST(req: Request) {
@@ -198,11 +110,18 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  const route = SWAP_ROUTES[fromCoinType];
-  if (!route) {
+  // Swappable == what the token bucket shows. The bucket lists every VERIFIED
+  // coin (Cetus registry + liquidity floor) and puts a "Swap to USDsui" button
+  // on each, but this route used to accept only SUI, USDC and DEEP — so a real
+  // holding like vSUI rendered a button that answered "This token can't be
+  // swapped to USDsui yet." Sharing one gate makes the button's promise true by
+  // construction, and the verified set is already the liquidity check: a coin
+  // with no liquid Cetus pool never enters it, so the aggregator isn't asked to
+  // route spam.
+  if (!(await isVerifiedCoin(fromCoinType))) {
     return NextResponse.json(
       {
-        error: `unsupported fromCoinType, allowlist: USDC, SUI, DEEP`,
+        error: "That token doesn't have enough on-chain liquidity to convert.",
         code: "SWAP_UNSUPPORTED",
       },
       { status: 400 }
@@ -252,51 +171,8 @@ export async function POST(req: Request) {
     const tx = new Transaction();
     tx.setSender(user.sui_address);
 
-    const db = deepbook();
-    // Use a child contract handle via the SDK's internal builder. The
-    // public surface we want lives on `db.deepBook` (DeepBookContract).
-    const dbc = (db as unknown as {
-      deepBook: {
-        swapExactBaseForQuote: (p: {
-          poolKey: string;
-          amount: number | bigint;
-          deepAmount: number | bigint;
-          minOut: number | bigint;
-          baseCoin?: unknown;
-          deepCoin?: unknown;
-        }) => (t: Transaction) => readonly [unknown, unknown, unknown];
-        swapExactQuoteForBase: (p: {
-          poolKey: string;
-          amount: number | bigint;
-          deepAmount: number | bigint;
-          minOut: number | bigint;
-          quoteCoin?: unknown;
-          deepCoin?: unknown;
-        }) => (t: Transaction) => readonly [unknown, unknown, unknown];
-      };
-      // Internal config lookup, used to pull pool + coin scalars so we
-      // can pass raw u64 micros all the way through (the SDK helpers
-      // accept bigint as-is, no whole-unit conversion).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      [k: string]: any;
-    }).deepBook;
-
-    // DEEP fee coin: zero amount = "pay fees in input coin" path for
-    // whitelisted pools. SUI_USDSUI, USDSUI_USDC, DEEP_USDC are all
-    // whitelisted on mainnet.
     const tPtbStart = Date.now();
-
     let estimatedToMicros: bigint;
-
-    // Helper to build a zero DEEP coin input that won't touch gas:
-    const zeroDeepInput = () =>
-      tx.add(
-        coinWithBalance({
-          type: COIN_TYPES.DEEP,
-          balance: 0n,
-          useGasCoin: false,
-        })
-      );
 
     // ─── Cetus aggregator swap ──────────────────────────────────────────
     // Route across 20+ Sui DEXs for the best fill (deeper than a single

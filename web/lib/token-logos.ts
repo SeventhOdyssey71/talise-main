@@ -16,6 +16,11 @@ const LOGO_BY_SYMBOL: Record<string, string> = {
   SUI: "https://archive.cetus.zone/assets/image/sui/sui.png",
   DEEP: "https://icb2ijkzbrb2q2i642eqqke6nsgukabtms5bek276sjcutzvo6nq.mainnet-1.datasprite-cdn.com/5LqWyWG5EU9wPknvW5rY6qSQPtnNAfP27X1PnAiesyFG/",
   USDC: "https://yu2xpvqkbz64raedp4gnqbjpedosbatzske74b7c6cieyzx66yua.mainnet-1.datasprite-cdn.com/EGpc2cG886CrWwLMneF2RyVpZ7D33a6znz6XE8n8nU7h/",
+  // vSUI (`::cert::CERT`) publishes NO on-chain metadata at all — symbol, name,
+  // decimals and iconUrl all come back undefined — so without this it renders
+  // as a blank circle. It's what NAVI pays lending rewards in, which means it
+  // lands in the bucket of anyone who claims.
+  VSUI: "https://archive.cetus.zone/assets/image/sui/vsui.png",
 };
 
 /** Curated logo for a ticker symbol, or null when we don't have one. */
