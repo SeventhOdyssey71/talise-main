@@ -181,17 +181,23 @@ export async function appendNaviSupply(
   // treasury wallet atomically, then supply the remainder. `splitCoins`
   // mutates `coin` to hold the leftover, so the supply leg gets (100% − fee).
   const feeBps = BigInt(Math.max(0, Math.floor(opts?.treasuryFeeBps ?? 0)));
+  let supplyAmount = onchain;
   if (feeBps > 0n) {
     const fee = (onchain * feeBps) / 10_000n;
     if (fee > 0n) {
       const [feeCoin] = tx.splitCoins(coin, [fee]);
       tx.transferObjects([feeCoin], TREASURY_WALLET);
+      // MUST track the split. `coin` now holds `onchain − fee`, and the deposit
+      // below takes an AMOUNT, not "whatever is in this coin" — asking for the
+      // pre-fee figure makes NAVI's `utils::split_coin` try to take more than
+      // the coin has and abort the whole transaction with 46001.
+      supplyAmount = onchain - fee;
     }
   }
 
   const pool = await usdsuiPool();
   if (!pool) throw new Error("NAVI USDsui pool unavailable");
-  await depositCoinPTB(tx, pool, coin, { amount: Number(onchain) });
+  await depositCoinPTB(tx, pool, coin, { amount: Number(supplyAmount) });
 }
 
 /**
